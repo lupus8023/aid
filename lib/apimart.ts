@@ -131,6 +131,11 @@ export async function createVideoTask(
       aspect_ratio: aspectRatio,
     };
 
+    // veo3.1 需要显式指定不生成音频
+    if (model.includes('veo3.1') && !model.includes('fast')) {
+      requestBody.audio = false;
+    }
+
     // 根据模型类型应用参考图
     if (referenceImageUrls.length > 0) {
       if (model.includes('doubao') || model.includes('seedance')) {
