@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowLeft, Upload, Video, X, Settings } from 'lucide-react';
+import { Upload, Video, X } from 'lucide-react';
 import Link from 'next/link';
+import DevToolsLayout from '@/components/DevToolsLayout';
 import CameraSelector from '@/components/CameraSelector';
 import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
@@ -60,26 +61,26 @@ export default function ImageToVideoPage() {
           return;
         }
         if (data.status === 'failed') {
-          alert('视频生成失败');
+          alert('Video generation failed');
           setIsGenerating(false);
           return;
         }
       } catch (error) {
-        console.error('轮询错误:', error);
+        console.error('Polling error:', error);
       }
     }
-    alert('视频生成超时');
+    alert('Video generation timeout');
     setIsGenerating(false);
   };
 
   const handleGenerate = async () => {
     if (!mainImage || !prompt) {
-      alert('请上传主图片并输入动作描述');
+      alert('Please upload main image and enter motion description');
       return;
     }
 
     if (!settings.apiKey) {
-      alert('请先在设置中配置 API Key');
+      alert('Please configure API Key in settings');
       return;
     }
 
@@ -102,153 +103,161 @@ export default function ImageToVideoPage() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || '生成失败');
+        throw new Error(error.error || 'Generation failed');
       }
 
       const data = await response.json();
       pollTaskStatus(data.taskId);
     } catch (error) {
-      alert(`视频生成失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      alert(`Video generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setIsGenerating(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-[#1e1e1e] text-white">
-      <div className="max-w-7xl mx-auto p-6">
-        <div className="flex items-center justify-between mb-6">
-          <Link href="/" className="inline-flex items-center text-gray-400 hover:text-white">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            返回首页
-          </Link>
-          <button
-            onClick={() => setShowSettings(true)}
-            className="p-2 hover:bg-gray-700 rounded"
-          >
-            <Settings className="w-5 h-5" />
+  const toolbar = (
+    <div className="flex items-center justify-between w-full">
+      <div className="flex items-center gap-4">
+        <img src="/logo.png" alt="AI Video Studio" className="h-8" />
+        <span className="text-xs text-[var(--text-secondary)]">|</span>
+        <span className="text-xs font-mono text-[var(--text-primary)]">Image to Video</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setShowSettings(true)}
+          className="px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded"
+        >
+          Settings
+        </button>
+        <Link href="/">
+          <button className="px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded">
+            Home
           </button>
-        </div>
+        </Link>
+      </div>
+    </div>
+  );
 
-        <h1 className="text-3xl font-bold mb-8">图片转视频</h1>
+  return (
+    <>
+      <DevToolsLayout toolbar={toolbar}>
+        <div className="flex h-full">
+          {/* Left: Input Controls - 2/3 width */}
+          <div className="w-2/3 p-6 overflow-y-auto border-r border-[var(--border-color)]">
+            <div className="space-y-6 max-w-3xl">
+              {/* Main Image Upload */}
+              <div>
+                <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Main Image</h2>
+                <div className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 text-center bg-[var(--bg-secondary)]">
+                  {mainImage ? (
+                    <img src={mainImage} alt="Main" className="max-h-48 mx-auto rounded" />
+                  ) : (
+                    <div>
+                      <Upload className="w-10 h-10 mx-auto mb-3 text-[var(--text-secondary)]" />
+                      <p className="text-[var(--text-secondary)] text-sm mb-3">Upload image to convert</p>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleMainImageUpload}
+                    className="hidden"
+                    id="main-image-upload"
+                  />
+                  <label
+                    htmlFor="main-image-upload"
+                    className="inline-block px-4 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded cursor-pointer"
+                  >
+                    {mainImage ? 'Change Image' : 'Select Image'}
+                  </label>
+                </div>
+              </div>
 
-        <div className="grid lg:grid-cols-2 gap-8">
-          <div className="space-y-6 max-h-[calc(100vh-12rem)] overflow-y-auto pr-2">
-            {/* 主图片上传 */}
-            <div className="bg-[#252526] rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4 flex items-center">
-                <Upload className="w-5 h-5 mr-2" />
-                主图片
-              </h2>
-              <div className="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center">
-                {mainImage ? (
-                  <img src={mainImage} alt="主图片" className="max-h-64 mx-auto rounded" />
-                ) : (
-                  <div>
-                    <Upload className="w-12 h-12 mx-auto mb-4 text-gray-500" />
-                    <p className="text-gray-400 mb-4">上传要转换的主图片</p>
-                  </div>
-                )}
+              {/* Reference Images */}
+              <div>
+                <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Reference Images (Optional)</h2>
+                <div className="grid grid-cols-4 gap-2 mb-3">
+                  {referenceImages.map((img, idx) => (
+                    <div key={idx} className="relative">
+                      <img src={img} alt={`Ref ${idx + 1}`} className="w-full h-20 object-cover rounded border border-[var(--border-color)]" />
+                      <button
+                        onClick={() => removeReferenceImage(idx)}
+                        className="absolute top-1 right-1 bg-red-500 rounded-full p-1"
+                      >
+                        <X className="w-3 h-3 text-white" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={handleMainImageUpload}
+                  multiple
+                  onChange={handleReferenceImagesUpload}
                   className="hidden"
-                  id="main-image-upload"
+                  id="ref-images-upload"
                 />
                 <label
-                  htmlFor="main-image-upload"
-                  className="inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded cursor-pointer"
+                  htmlFor="ref-images-upload"
+                  className="inline-block px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded cursor-pointer"
                 >
-                  {mainImage ? '更换图片' : '选择图片'}
+                  Add Reference
                 </label>
               </div>
-            </div>
 
-            {/* 参考图片上传 */}
-            <div className="bg-[#252526] rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">参考图片（可选）</h2>
-              <div className="grid grid-cols-3 gap-2 mb-4">
-                {referenceImages.map((img, idx) => (
-                  <div key={idx} className="relative">
-                    <img src={img} alt={`参考${idx + 1}`} className="w-full h-24 object-cover rounded" />
+              {/* Aspect Ratio */}
+              <div>
+                <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Aspect Ratio</h2>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { value: '16:9' as const, label: '16:9 Landscape' },
+                    { value: '9:16' as const, label: '9:16 Portrait' },
+                    { value: '1:1' as const, label: '1:1 Square' }
+                  ].map((ratio) => (
                     <button
-                      onClick={() => removeReferenceImage(idx)}
-                      className="absolute top-1 right-1 bg-red-500 rounded-full p-1"
+                      key={ratio.value}
+                      onClick={() => setAspectRatio(ratio.value)}
+                      className={`p-2 text-xs font-mono rounded border ${
+                        aspectRatio === ratio.value
+                          ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)] bg-opacity-10 text-[var(--accent-blue)]'
+                          : 'border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]'
+                      }`}
                     >
-                      <X className="w-3 h-3" />
+                      {ratio.label}
                     </button>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleReferenceImagesUpload}
-                className="hidden"
-                id="ref-images-upload"
-              />
-              <label
-                htmlFor="ref-images-upload"
-                className="inline-block px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded cursor-pointer text-sm"
+
+              {/* Motion Description */}
+              <div>
+                <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Motion Description</h2>
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe the motion effect you want, e.g., camera slowly pushes in, person smiles and turns head..."
+                  className="w-full h-24 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-3 text-sm text-[var(--text-primary)] resize-none focus:outline-none focus:border-[var(--accent-blue)] font-mono"
+                />
+              </div>
+
+              {/* Camera Parameters */}
+              <CameraSelector onParamsChange={setCameraParams} />
+
+              {/* Generate Button */}
+              <button
+                onClick={handleGenerate}
+                disabled={isGenerating || !mainImage || !prompt}
+                className="w-full py-3 bg-[var(--accent-blue)] hover:bg-[#006bb3] disabled:opacity-50 disabled:cursor-not-allowed rounded font-mono text-sm text-white flex items-center justify-center gap-2"
               >
-                添加参考图片
-              </label>
+                <Video className="w-4 h-4" />
+                {isGenerating ? 'Generating...' : 'Generate Video'}
+              </button>
             </div>
-
-            {/* 画幅比例 */}
-            <div className="bg-[#252526] rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">画幅比例</h2>
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { value: '16:9' as const, label: '横屏 16:9' },
-                  { value: '9:16' as const, label: '竖屏 9:16' },
-                  { value: '1:1' as const, label: '方形 1:1' }
-                ].map((ratio) => (
-                  <button
-                    key={ratio.value}
-                    onClick={() => setAspectRatio(ratio.value)}
-                    className={`p-3 rounded border ${
-                      aspectRatio === ratio.value
-                        ? 'border-blue-500 bg-blue-500/20'
-                        : 'border-gray-600 hover:border-gray-500'
-                    }`}
-                  >
-                    {ratio.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 动作描述 */}
-            <div className="bg-[#252526] rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">动作描述</h2>
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="描述你想要的动作效果，例如：镜头缓慢推进，人物微笑转头..."
-                className="w-full h-32 bg-[#1e1e1e] border border-gray-600 rounded p-3 text-white resize-none focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            {/* 镜头参数选择器 */}
-            <CameraSelector onParamsChange={setCameraParams} />
-
-            {/* 生成按钮 */}
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating || !mainImage || !prompt}
-              className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center"
-            >
-              <Video className="w-5 h-5 mr-2" />
-              {isGenerating ? '生成中...' : '生成视频'}
-            </button>
           </div>
 
-          {/* 右侧：预览 */}
-          <div className="bg-[#252526] rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">视频预览</h2>
-            <div className={`bg-[#1e1e1e] rounded-lg flex items-center justify-center ${
+          {/* Right: Video Preview - 1/3 width */}
+          <div className="w-1/3 p-6 bg-[var(--bg-secondary)]">
+            <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Video Preview</h2>
+            <div className={`bg-[var(--bg-primary)] rounded-lg flex items-center justify-center border border-[var(--border-color)] ${
               aspectRatio === '16:9' ? 'aspect-video' :
               aspectRatio === '9:16' ? 'aspect-[9/16]' :
               'aspect-square'
@@ -256,15 +265,15 @@ export default function ImageToVideoPage() {
               {videoUrl ? (
                 <video src={videoUrl} controls className="w-full h-full rounded-lg" />
               ) : (
-                <div className="text-center text-gray-500">
-                  <Video className="w-16 h-16 mx-auto mb-4" />
-                  <p>视频将在这里显示</p>
+                <div className="text-center text-[var(--text-secondary)]">
+                  <Video className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p className="text-xs">Video will appear here</p>
                 </div>
               )}
             </div>
           </div>
         </div>
-      </div>
+      </DevToolsLayout>
 
       <SettingsModal
         isOpen={showSettings}
@@ -272,6 +281,6 @@ export default function ImageToVideoPage() {
         settings={settings}
         onSave={saveSettings}
       />
-    </div>
+    </>
   );
 }
