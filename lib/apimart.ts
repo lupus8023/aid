@@ -53,7 +53,9 @@ export async function createImageTask(
     const requestBody: any = {
       model,
       prompt,
-      aspect_ratio: aspectRatio,
+      size: aspectRatio,
+      resolution: '2K',
+      n: 1
     };
 
     if (imageUrls.length > 0 && imageUrls[0]) {
@@ -62,8 +64,7 @@ export async function createImageTask(
 
     console.log('=== Image Generation Request ===');
     console.log('Model:', model);
-    console.log('Aspect Ratio:', aspectRatio);
-    console.log('Has reference images:', imageUrls.length > 0);
+    console.log('Request Body:', JSON.stringify(requestBody, null, 2));
     console.log('================================');
 
     const response = await axios.post(

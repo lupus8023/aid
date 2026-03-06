@@ -338,6 +338,7 @@ export default function StoryPage() {
   const handleGenerateImages = async () => {
     setIsGenerating(true);
     setCurrentStep(4);
+    const pollPromises = [];
     for (let i = 0; i < storyboards.length; i++) {
       const storyboard = storyboards[i];
       setStoryboards(prev =>
@@ -363,7 +364,7 @@ export default function StoryPage() {
           throw new Error(errorData.error || 'Failed to generate image');
         }
         const data = await response.json();
-        pollImageStatus(storyboard.id, data.taskId);
+        pollPromises.push(pollImageStatus(storyboard.id, data.taskId));
       } catch (error) {
         setStoryboards(prev =>
           prev.map(sb =>
@@ -372,6 +373,7 @@ export default function StoryPage() {
         );
       }
     }
+    await Promise.all(pollPromises);
     setIsGenerating(false);
     alert('所有分镜图片生成完成！');
   };

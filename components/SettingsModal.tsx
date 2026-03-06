@@ -120,7 +120,8 @@ export default function SettingsModal({
               className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
             >
               <option value="doubao-seedream-5-0-lite">doubao-seedream-5-0-lite</option>
-              <option value="gemini-3.1-flash-image-preview">gemini-3.1-flash-image-preview</option>
+              <option value="doubao-seedance-4-5">doubao-seedance-4-5</option>
+              <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview</option>
             </select>
           </div>
 

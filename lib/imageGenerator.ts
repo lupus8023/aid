@@ -68,32 +68,29 @@ export async function generateStoryboardImage(
 
   sceneCharacters.forEach((char) => {
     referenceDescriptions.push(
-      `Reference image ${imgIndex}: This is "${char.name}" — ${char.description}. Copy this person's exact face, hair, skin tone, body type, and clothing into the generated scene.`
+      `Reference image ${imgIndex}: "${char.name}" - ${char.description}. MUST copy exact face, hair, skin tone, body type, and clothing from this reference image.`
     );
     imgIndex++;
   });
 
   sceneObjects.forEach((obj) => {
     referenceDescriptions.push(
-      `Reference image ${imgIndex}: This is "${obj.name}" — ${obj.description}. Reproduce this object exactly: same shape, color, material, texture, text, logos, and all surface details.`
+      `Reference image ${imgIndex}: "${obj.name}" - ${obj.description}. MUST reproduce exact shape, color, material, texture, text, and all details from this reference image.`
     );
     imgIndex++;
   });
 
-  // 精简高效的 Prompt — 去掉 emoji 噪音，用清晰结构让图像模型理解
-  const enhancedPrompt = `TASK: Generate a scene image. The reference images show the exact appearance of characters and objects. Your output MUST preserve their visual identity.
+  const enhancedPrompt = `IMAGE-TO-IMAGE GENERATION: Use the provided reference images to generate the scene below. All characters and objects MUST match their reference images exactly.
 
-${referenceDescriptions.join('\n\n')}
+${referenceDescriptions.join('\n')}
 
-SCENE TO GENERATE:
-${cleanedScenePrompt}
+SCENE: ${cleanedScenePrompt}
 
-RULES:
-- Each character's face, hair, clothing, and body MUST be identical to their reference image. Do NOT alter or reinterpret their appearance.
-- Each object's shape, color, material, text, and surface details MUST be identical to its reference image. Do NOT change any visual property.
-- Only pose, position, expression, camera angle, and lighting may differ from the reference images.
-- Do NOT invent or add characters/objects not described above.
-- Maintain proper spatial relationships, no clipping, natural scale and depth.`;
+CRITICAL RULES:
+- Characters: Copy exact appearance from reference images (face, hair, body, clothing). DO NOT change or reinterpret.
+- Objects: Copy exact appearance from reference images (shape, color, texture, details). DO NOT change or reinterpret.
+- Only adjust: pose, position, expression, camera angle, lighting.
+- DO NOT add characters/objects not in references.`;
 
 
   // 创建图像生成任务
