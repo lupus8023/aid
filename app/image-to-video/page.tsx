@@ -156,6 +156,7 @@ export default function ImageToVideoPage() {
                 {/* First Frame */}
                 <div>
                   <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">First Frame</h2>
+                  <p className="text-xs text-[var(--text-secondary)] mb-2">Image size &lt; 6MB</p>
                   <div className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 text-center bg-[var(--bg-secondary)]">
                     {mainImage ? (
                       <img src={mainImage} alt="First Frame" className="max-h-48 mx-auto rounded" />
@@ -184,6 +185,7 @@ export default function ImageToVideoPage() {
                 {/* Last Frame */}
                 <div>
                   <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Last Frame (Optional)</h2>
+                  <p className="text-xs text-[var(--text-secondary)] mb-2">Image size &lt; 6MB</p>
                   <div className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 text-center bg-[var(--bg-secondary)]">
                     {lastFrameImage ? (
                       <img src={lastFrameImage} alt="Last Frame" className="max-h-48 mx-auto rounded" />
@@ -217,7 +219,7 @@ export default function ImageToVideoPage() {
                   {[
                     { value: '16:9' as const, label: '16:9 Landscape' },
                     { value: '9:16' as const, label: '9:16 Portrait' },
-                    { value: '1:1' as const, label: '1:1 Square' }
+                    { value: '1:1' as const, label: '1:1 Square (Not for Veo)' }
                   ].map((ratio) => (
                     <button
                       key={ratio.value}
