@@ -11,14 +11,26 @@ cloudinary.config({
 
 async function uploadBase64ToCloudinary(base64Data: string): Promise<string> {
   try {
+    // 检查环境变量
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      console.error('Cloudinary credentials missing:', {
+        cloud_name: !!process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: !!process.env.CLOUDINARY_API_KEY,
+        api_secret: !!process.env.CLOUDINARY_API_SECRET
+      });
+      throw new Error('Cloudinary credentials not configured');
+    }
+
     const result = await cloudinary.uploader.upload(base64Data, {
       folder: 'aid-video',
       resource_type: 'image',
     });
     return result.secure_url;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Cloudinary upload error:', error);
-    throw new Error('Failed to upload image');
+    console.error('Error message:', error.message);
+    console.error('Error details:', error.error || error);
+    throw new Error(`Failed to upload image: ${error.message || 'Unknown error'}`);
   }
 }
 
