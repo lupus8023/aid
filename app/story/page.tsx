@@ -139,13 +139,9 @@ export default function StoryPage() {
       });
       if (!response.ok) throw new Error('Failed to generate image');
       const data = await response.json();
-      setStoryboards(prev =>
-        prev.map(sb =>
-          sb.id === storyboard.id
-            ? { ...sb, status: 'completed', imageUrl: data.imageUrl, taskId: data.taskId }
-            : sb
-        )
-      );
+
+      // 轮询图片状态
+      pollImageStatus(storyboard.id, data.taskId);
     } catch (error) {
       setStoryboards(prev =>
         prev.map(sb =>
@@ -153,6 +149,47 @@ export default function StoryPage() {
         )
       );
     }
+  };
+
+  const pollImageStatus = async (storyboardId: string, taskId: string) => {
+    const maxAttempts = 90;
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      try {
+        const response = await fetch('/api/check-image-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskId, apiKey: settings.apiKey })
+        });
+        if (!response.ok) continue;
+        const data = await response.json();
+        if (data.status === 'completed' && data.imageUrl) {
+          setStoryboards(prev =>
+            prev.map(sb =>
+              sb.id === storyboardId
+                ? { ...sb, status: 'completed', imageUrl: data.imageUrl, taskId }
+                : sb
+            )
+          );
+          return;
+        }
+        if (data.status === 'failed') {
+          setStoryboards(prev =>
+            prev.map(sb =>
+              sb.id === storyboardId ? { ...sb, status: 'failed' } : sb
+            )
+          );
+          return;
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+    }
+    setStoryboards(prev =>
+      prev.map(sb =>
+        sb.id === storyboardId ? { ...sb, status: 'failed' } : sb
+      )
+    );
   };
 
   const handleUpdateStoryboard = (updatedStoryboard: Storyboard) => {
@@ -326,13 +363,7 @@ export default function StoryPage() {
           throw new Error(errorData.error || 'Failed to generate image');
         }
         const data = await response.json();
-        setStoryboards(prev =>
-          prev.map(sb =>
-            sb.id === storyboard.id
-              ? { ...sb, status: 'completed', imageUrl: data.imageUrl, taskId: data.taskId }
-              : sb
-          )
-        );
+        pollImageStatus(storyboard.id, data.taskId);
       } catch (error) {
         setStoryboards(prev =>
           prev.map(sb =>
