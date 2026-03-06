@@ -40,32 +40,31 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
 // 图像生成 API - 创建任务
 export async function createImageTask(
   prompt: string,
-  referenceImageUrls: string | string[], // 支持单个或多个参考图
+  referenceImageUrls: string | string[],
   apiKey: string,
-  model: string = 'gemini-3-pro-image-preview',
+  model: string = 'doubao-seedream-5-0-lite',
   aspectRatio: '16:9' | '9:16' = '16:9'
 ): Promise<string> {
   try {
-    // 确保 referenceImageUrls 是数组格式
     const imageUrls = Array.isArray(referenceImageUrls)
       ? referenceImageUrls
       : [referenceImageUrls];
 
-    // 根据是否有参考图片构建请求体
     const requestBody: any = {
       model,
       prompt,
-      size: aspectRatio,
-      resolution: '2K',
+      aspect_ratio: aspectRatio,
     };
 
-    // 只有当有参考图片时才添加相关参数
     if (imageUrls.length > 0 && imageUrls[0]) {
       requestBody.image_urls = imageUrls;
-      requestBody.image_weight = 0.8;
-      requestBody.style_fidelity = 'high';
-      requestBody.cfg_scale = 7.5;
     }
+
+    console.log('=== Image Generation Request ===');
+    console.log('Model:', model);
+    console.log('Aspect Ratio:', aspectRatio);
+    console.log('Has reference images:', imageUrls.length > 0);
+    console.log('================================');
 
     const response = await axios.post(
       `${APIMART_BASE_URL}/images/generations`,
@@ -78,12 +77,10 @@ export async function createImageTask(
       }
     );
 
-    // 响应格式：{ code: 200, data: [{ status: "submitted", task_id: "..." }] }
     return response.data.data[0].task_id;
   } catch (error: any) {
     console.error('Image generation API error:', error);
     console.error('Error details:', error.response?.data);
-    console.error('Status:', error.response?.status);
     throw new Error(`Failed to create image generation task: ${error.response?.data?.error?.message || error.message}`);
   }
 }

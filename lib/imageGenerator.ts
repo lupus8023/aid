@@ -49,7 +49,7 @@ export async function generateStoryboardImage(
       cleanPrompt,
       [],
       apiKey,
-      imageModel || 'gemini-3-pro-image-preview',
+      imageModel || 'doubao-seedream-5-0-lite',
       aspectRatio
     );
 
@@ -112,10 +112,10 @@ RULES:
 
   const taskId = await createImageTask(
     enhancedPrompt,
-    referenceImages, // 传入所有角色的参考图
+    referenceImages,
     apiKey,
-    imageModel || 'gemini-3-pro-image-preview', // 使用传入的图像模型,如果未指定则使用默认值
-    aspectRatio // 传入横屏/竖屏设置
+    imageModel || 'doubao-seedream-5-0-lite',
+    aspectRatio
   );
 
   console.log(`Image task created successfully, task ID: ${taskId}`);
