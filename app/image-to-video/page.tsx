@@ -269,13 +269,26 @@ export default function ImageToVideoPage() {
             {/* Action Buttons */}
             {videoUrl && (
               <div className="flex gap-2">
-                <a
-                  href={videoUrl}
-                  download
-                  className="flex-1 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded text-center"
+                <button
+                  onClick={async () => {
+                    try {
+                      const response = await fetch(videoUrl);
+                      const blob = await response.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `video-${Date.now()}.mp4`;
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                    } catch (error) {
+                      console.error('Download failed:', error);
+                      alert('Download failed');
+                    }
+                  }}
+                  className="flex-1 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded"
                 >
                   Save Video
-                </a>
+                </button>
                 <button
                   onClick={handleGenerate}
                   disabled={isGenerating}
