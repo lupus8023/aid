@@ -124,17 +124,18 @@ export async function createVideoTask(
   aspectRatio: '16:9' | '9:16' | '1:1' = '16:9'
 ): Promise<string> {
   try {
+    console.log('=== Video Generation Debug ===');
+    console.log('Model:', model);
+    console.log('Model includes veo3.1:', model.includes('veo3.1'));
+    console.log('Model includes fast:', model.includes('fast'));
+    console.log('==============================');
+
     const requestBody: any = {
       model,
       prompt,
       duration: 5,
       aspect_ratio: aspectRatio,
     };
-
-    // veo3.1 需要显式指定不生成音频
-    if (model.includes('veo3.1') && !model.includes('fast')) {
-      requestBody.audio = false;
-    }
 
     // 根据模型类型应用参考图
     if (referenceImageUrls.length > 0) {
