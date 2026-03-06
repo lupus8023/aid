@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Character, Storyboard } from '@/types';
+import { Character, Storyboard, ObjectItem } from '@/types';
 
 export interface ProjectData {
   name: string;
   characters: Character[];
+  objects?: ObjectItem[];
   storyContent: string;
   storyOutline: string;
   storyboards: Storyboard[];
@@ -30,6 +31,7 @@ export function useProject() {
     const projectData: ProjectData = {
       name: projectName,
       characters: cleanedCharacters,
+      objects: data.objects || [],
       storyContent: data.storyContent || '',
       storyOutline: data.storyOutline || '',
       storyboards: data.storyboards || [],
