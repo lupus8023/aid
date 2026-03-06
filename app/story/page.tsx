@@ -315,8 +315,10 @@ export default function StoryPage() {
           body: JSON.stringify({
             storyboard,
             characters,
+            objects,
             aspectRatio: storyboard.aspectRatio || settings.aspectRatio,
-            imageModel: settings.imageModel
+            imageModel: settings.imageModel,
+            apiKey: settings.apiKey
           })
         });
         if (!response.ok) {
