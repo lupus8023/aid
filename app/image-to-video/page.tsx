@@ -107,7 +107,13 @@ export default function ImageToVideoPage() {
         throw new Error(errorMessage);
       }
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        throw new Error('Server returned invalid response. Please check Netlify logs.');
+      }
+
       pollTaskStatus(data.taskId);
     } catch (error) {
       alert(`Video generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
