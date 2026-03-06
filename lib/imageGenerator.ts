@@ -136,8 +136,10 @@ export async function waitForImageGeneration(
     console.log(`Attempt ${i + 1}/${maxAttempts} - Task ${taskId} status:`, status.status);
 
     if (status.status === 'completed' && status.result?.images?.[0]?.url) {
-      console.log(`Task ${taskId} completed successfully, image URL:`, status.result.images[0].url);
-      return status.result.images[0].url;
+      const imageUrl = status.result.images[0].url;
+      const finalUrl = Array.isArray(imageUrl) ? imageUrl[0] : imageUrl;
+      console.log(`Task ${taskId} completed successfully, image URL:`, finalUrl);
+      return finalUrl;
     }
 
     if (status.status === 'failed') {
