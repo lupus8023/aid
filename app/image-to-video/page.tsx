@@ -255,13 +255,13 @@ export default function ImageToVideoPage() {
           </div>
 
           {/* Right: Video Preview - 1/3 width */}
-          <div className="w-1/3 p-6 bg-[var(--bg-secondary)]">
+          <div className="w-1/3 p-6 bg-[var(--bg-secondary)] flex flex-col">
             <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Video Preview</h2>
-            <div className={`bg-[var(--bg-primary)] rounded-lg flex items-center justify-center border border-[var(--border-color)] ${
+            <div className={`bg-[var(--bg-primary)] rounded-lg flex items-center justify-center border border-[var(--border-color)] mb-4 ${
               aspectRatio === '16:9' ? 'aspect-video' :
               aspectRatio === '9:16' ? 'aspect-[9/16]' :
               'aspect-square'
-            }`}>
+            }`} style={{ maxHeight: '400px' }}>
               {videoUrl ? (
                 <video src={videoUrl} controls className="w-full h-full rounded-lg" />
               ) : (
@@ -271,6 +271,26 @@ export default function ImageToVideoPage() {
                 </div>
               )}
             </div>
+
+            {/* Action Buttons */}
+            {videoUrl && (
+              <div className="flex gap-2">
+                <a
+                  href={videoUrl}
+                  download
+                  className="flex-1 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded text-center"
+                >
+                  Save Video
+                </a>
+                <button
+                  onClick={handleGenerate}
+                  disabled={isGenerating}
+                  className="flex-1 py-2 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded disabled:opacity-50"
+                >
+                  Regenerate
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </DevToolsLayout>
