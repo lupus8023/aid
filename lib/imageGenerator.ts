@@ -5,6 +5,7 @@ import { Storyboard, Character, ObjectItem } from '@/types';
 export async function generateStoryboardImage(
   storyboard: Storyboard,
   characters: Character[],
+  apiKey: string,
   objects: ObjectItem[] = [],
   aspectRatio: '16:9' | '9:16' = '16:9',
   imageModel?: string
@@ -47,6 +48,7 @@ export async function generateStoryboardImage(
     const taskId = await createImageTask(
       cleanPrompt,
       [],
+      apiKey,
       imageModel || 'gemini-3-pro-image-preview',
       aspectRatio
     );
@@ -111,6 +113,7 @@ RULES:
   const taskId = await createImageTask(
     enhancedPrompt,
     referenceImages, // 传入所有角色的参考图
+    apiKey,
     imageModel || 'gemini-3-pro-image-preview', // 使用传入的图像模型,如果未指定则使用默认值
     aspectRatio // 传入横屏/竖屏设置
   );
@@ -122,13 +125,14 @@ RULES:
 // 轮询检查任务状态，直到完成
 export async function waitForImageGeneration(
   taskId: string,
+  apiKey: string,
   maxAttempts: number = 90,
   intervalMs: number = 3000
 ): Promise<string> {
   console.log(`Starting to poll task ${taskId}, max attempts: ${maxAttempts}, interval: ${intervalMs}ms`);
 
   for (let i = 0; i < maxAttempts; i++) {
-    const status = await getTaskStatus(taskId);
+    const status = await getTaskStatus(taskId, apiKey);
     console.log(`Attempt ${i + 1}/${maxAttempts} - Task ${taskId} status:`, status.status);
 
     if (status.status === 'completed' && status.result?.images?.[0]?.url) {

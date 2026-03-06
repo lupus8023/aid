@@ -4,7 +4,7 @@ import { Storyboard, Character, ObjectItem } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const { storyboard, characters, objects, aspectRatio, imageModel } = await request.json();
+    const { storyboard, characters, objects, aspectRatio, imageModel, apiKey } = await request.json();
 
     console.log('=== API Generate Route Debug ===');
     console.log('Received characters:', characters?.length || 0);
@@ -20,17 +20,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'API Key is required' },
+        { status: 400 }
+      );
+    }
+
     // 生成图片任务
     const taskId = await generateStoryboardImage(
       storyboard,
       characters,
+      apiKey,
       objects || [],
       aspectRatio || '16:9',
       imageModel
     );
 
     // 等待图片生成完成
-    const imageUrl = await waitForImageGeneration(taskId);
+    const imageUrl = await waitForImageGeneration(taskId, apiKey);
 
     return NextResponse.json({ imageUrl, taskId });
   } catch (error) {

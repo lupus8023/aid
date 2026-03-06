@@ -4,11 +4,18 @@ import { Character, ObjectItem } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const { storyContent, characters, objects } = await request.json();
+    const { storyContent, characters, objects, apiKey } = await request.json();
 
     if (!storyContent || !characters || characters.length === 0) {
       return NextResponse.json(
         { error: 'Story content and characters are required' },
+        { status: 400 }
+      );
+    }
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'API Key is required' },
         { status: 400 }
       );
     }
@@ -76,7 +83,7 @@ ${storyContent}
 请用清晰的中文输出，格式友好易读。
 `;
 
-    const outline = await chatCompletion(prompt);
+    const outline = await chatCompletion(prompt, apiKey);
 
     return NextResponse.json({ outline });
   } catch (error) {

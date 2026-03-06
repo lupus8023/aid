@@ -3,17 +3,8 @@ import { ApiMartChatResponse, ApiMartImageTaskResponse, ApiMartImageStatusRespon
 
 const APIMART_BASE_URL = 'https://api.apimart.ai/v1';
 
-// 获取 API Key
-function getApiKey(): string {
-  const apiKey = process.env.APIMART_API_KEY;
-  if (!apiKey) {
-    throw new Error('APIMART_API_KEY is not set in environment variables');
-  }
-  return apiKey;
-}
-
 // 聊天 API - 用于分析故事
-export async function chatCompletion(prompt: string, model: string = 'gpt-4o'): Promise<string> {
+export async function chatCompletion(prompt: string, apiKey: string, model: string = 'gpt-4o'): Promise<string> {
   try {
     const response = await axios.post<ApiMartChatResponse>(
       `${APIMART_BASE_URL}/chat/completions`,
@@ -29,7 +20,7 @@ export async function chatCompletion(prompt: string, model: string = 'gpt-4o'): 
       },
       {
         headers: {
-          'Authorization': `Bearer ${getApiKey()}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         }
       }
@@ -50,6 +41,7 @@ export async function chatCompletion(prompt: string, model: string = 'gpt-4o'): 
 export async function createImageTask(
   prompt: string,
   referenceImageUrls: string | string[], // 支持单个或多个参考图
+  apiKey: string,
   model: string = 'gemini-3-pro-image-preview',
   aspectRatio: '16:9' | '9:16' = '16:9'
 ): Promise<string> {
@@ -80,7 +72,7 @@ export async function createImageTask(
       requestBody,
       {
         headers: {
-          'Authorization': `Bearer ${getApiKey()}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         }
       }
@@ -97,13 +89,13 @@ export async function createImageTask(
 }
 
 // 查询任务状态
-export async function getTaskStatus(taskId: string): Promise<ApiMartImageStatusResponse> {
+export async function getTaskStatus(taskId: string, apiKey: string): Promise<ApiMartImageStatusResponse> {
   try {
     const response = await axios.get(
       `${APIMART_BASE_URL}/tasks/${taskId}`,
       {
         headers: {
-          'Authorization': `Bearer ${getApiKey()}`
+          'Authorization': `Bearer ${apiKey}`
         }
       }
     );

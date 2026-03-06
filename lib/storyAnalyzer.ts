@@ -5,6 +5,7 @@ import { Storyboard, Character, ObjectItem } from '@/types';
 export async function analyzeStory(
   storyContent: string,
   characters: Character[],
+  apiKey: string,
   objects: ObjectItem[] = [],
   aspectRatio: '16:9' | '9:16' = '16:9'
 ): Promise<Storyboard[]> {
@@ -204,7 +205,7 @@ ${storyContent}
 `;
 
   try {
-    const response = await chatCompletion(prompt);
+    const response = await chatCompletion(prompt, apiKey);
 
     // 提取 JSON 内容
     const jsonMatch = response.match(/\[[\s\S]*\]/);

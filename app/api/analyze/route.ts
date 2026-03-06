@@ -4,7 +4,7 @@ import { Character } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const { storyContent, characters, objects, aspectRatio } = await request.json();
+    const { storyContent, characters, objects, aspectRatio, apiKey } = await request.json();
 
     if (!storyContent || !characters || characters.length === 0) {
       return NextResponse.json(
@@ -13,8 +13,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'API Key is required' },
+        { status: 400 }
+      );
+    }
+
     // 调用故事分析函数
-    const storyboards = await analyzeStory(storyContent, characters, objects || [], aspectRatio);
+    const storyboards = await analyzeStory(storyContent, characters, apiKey, objects || [], aspectRatio);
 
     return NextResponse.json({ storyboards });
   } catch (error) {
