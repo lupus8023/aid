@@ -143,7 +143,7 @@ export default function ImageToVideoPage() {
         <div className="flex h-full">
           {/* Left: Input Controls - 2/3 width */}
           <div className="w-2/3 p-6 overflow-y-auto border-r border-[var(--border-color)]">
-            <div className="space-y-6 max-w-3xl">
+            <div className="space-y-6">
               {/* Main Image Upload */}
               <div>
                 <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Main Image</h2>
