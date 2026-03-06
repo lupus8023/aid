@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Upload, Video, X } from 'lucide-react';
+import { Upload, Video, X, Settings, Home } from 'lucide-react';
 import Link from 'next/link';
 import DevToolsLayout from '@/components/DevToolsLayout';
 import CameraSelector from '@/components/CameraSelector';
@@ -123,21 +123,25 @@ export default function ImageToVideoPage() {
 
   const toolbar = (
     <div className="flex items-center justify-between w-full">
-      <div className="flex items-center gap-4">
-        <img src="/logo.png" alt="AI Video Studio" className="h-8" />
-        <span className="text-xs text-[var(--text-secondary)]">|</span>
+      <div className="flex items-center gap-2 md:gap-4">
+        <Link href="/">
+          <img src="/logo.png" alt="AI Video Studio" className="h-6 md:h-8 cursor-pointer" />
+        </Link>
+        <span className="hidden md:inline text-xs text-[var(--text-secondary)]">|</span>
         <span className="text-xs font-mono text-[var(--text-primary)]">Image to Video</span>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 md:gap-2">
         <button
           onClick={() => setShowSettings(true)}
-          className="px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded"
+          className="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded"
         >
-          Settings
+          <Settings size={14} />
+          <span className="hidden md:inline">Settings</span>
         </button>
         <Link href="/">
-          <button className="px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded">
-            Home
+          <button className="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded">
+            <Home size={14} />
+            <span className="hidden md:inline">Home</span>
           </button>
         </Link>
       </div>
@@ -147,12 +151,12 @@ export default function ImageToVideoPage() {
   return (
     <>
       <DevToolsLayout toolbar={toolbar}>
-        <div className="flex h-full">
-          {/* Left: Input Controls - 2/3 width */}
-          <div className="w-2/3 p-6 overflow-y-auto border-r border-[var(--border-color)]">
-            <div className="space-y-6">
-              {/* First Frame and Last Frame in one row */}
-              <div className="grid grid-cols-2 gap-4">
+        <div className="flex flex-col md:flex-row h-full">
+          {/* Left: Input Controls */}
+          <div className="w-full md:w-2/3 p-4 md:p-6 overflow-y-auto md:border-r border-[var(--border-color)]">
+            <div className="space-y-4 md:space-y-6">
+              {/* First Frame and Last Frame */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* First Frame */}
                 <div>
                   <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">First Frame</h2>
@@ -262,8 +266,8 @@ export default function ImageToVideoPage() {
             </div>
           </div>
 
-          {/* Right: Video Preview - 1/3 width */}
-          <div className="w-1/3 p-6 bg-[var(--bg-secondary)] flex flex-col">
+          {/* Right: Video Preview */}
+          <div className="w-full md:w-1/3 p-4 md:p-6 bg-[var(--bg-secondary)] flex flex-col">
             <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Video Preview</h2>
             <div className={`bg-[var(--bg-primary)] rounded-lg flex items-center justify-center border border-[var(--border-color)] mb-4 ${
               aspectRatio === '16:9' ? 'aspect-video' :

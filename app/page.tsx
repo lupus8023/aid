@@ -5,20 +5,8 @@ import { Smartphone, Film } from 'lucide-react';
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] flex flex-col">
-      {/* Header with Logo */}
-      <div className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border-color)] flex items-center px-4">
-        <img
-          src="/logo.png"
-          alt="AI Video Studio"
-          className="h-8"
-        />
-        <span className="ml-3 text-sm font-mono text-[var(--text-primary)]">AI Video Studio</span>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="max-w-5xl w-full">
+    <div className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center p-6">
+      <div className="max-w-5xl w-full">
           <div className="text-center mb-12">
             <img src="/logo.png" alt="AI Video Studio" className="h-24 mx-auto mb-6" />
             <h1 className="text-4xl font-bold text-[var(--text-primary)] mb-3">Choose Your Creation Mode</h1>
@@ -60,6 +48,5 @@ export default function HomePage() {
           </div>
         </div>
       </div>
-    </div>
   );
 }

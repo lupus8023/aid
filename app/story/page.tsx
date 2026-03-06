@@ -402,7 +402,7 @@ export default function StoryPage() {
       }
     >
       <div className="h-full overflow-y-auto bg-[var(--bg-primary)]">
-        <div className="max-w-7xl mx-auto p-6">
+        <div className="max-w-7xl mx-auto p-3 md:p-6">
           <StepIndicator
             currentStep={currentStep}
             steps={['Setup', 'Outline', 'Scenes', 'Render']}
