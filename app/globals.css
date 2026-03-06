@@ -37,7 +37,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  overflow: hidden;
 }
 
 code, pre {

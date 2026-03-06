@@ -5,7 +5,7 @@ import { Smartphone, Film } from 'lucide-react';
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center p-6">
+    <div className="min-h-screen bg-[var(--bg-primary)] grid place-items-center p-6">
       <div className="max-w-5xl w-full">
           <div className="text-center mb-12">
             <img src="/logo.png" alt="AI Video Studio" className="h-24 mx-auto mb-6" />

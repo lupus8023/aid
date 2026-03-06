@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Upload, Video, X, Settings, Home } from 'lucide-react';
+import { Upload, Video, X, Settings, Home, ChevronDown, ChevronUp } from 'lucide-react';
 import Link from 'next/link';
 import DevToolsLayout from '@/components/DevToolsLayout';
 import CameraSelector from '@/components/CameraSelector';
@@ -11,6 +11,7 @@ import { useSettings } from '@/hooks/useSettings';
 export default function ImageToVideoPage() {
   const { settings, saveSettings } = useSettings();
   const [showSettings, setShowSettings] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [mainImage, setMainImage] = useState<string | null>(null);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
   const [lastFrameImage, setLastFrameImage] = useState<string | null>(null);
@@ -268,7 +269,16 @@ export default function ImageToVideoPage() {
 
           {/* Right: Video Preview */}
           <div className="w-full md:w-1/3 p-4 md:p-6 bg-[var(--bg-secondary)] flex flex-col">
-            <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Video Preview</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-mono text-[var(--text-primary)]">Video Preview</h2>
+              <button
+                onClick={() => setIsPreviewOpen(!isPreviewOpen)}
+                className="md:hidden p-1 hover:bg-[var(--bg-hover)] rounded"
+              >
+                {isPreviewOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </button>
+            </div>
+            <div className={`${isPreviewOpen ? 'block' : 'hidden'} md:block`}>
             <div className={`bg-[var(--bg-primary)] rounded-lg flex items-center justify-center border border-[var(--border-color)] mb-4 ${
               aspectRatio === '16:9' ? 'aspect-video' :
               aspectRatio === '9:16' ? 'aspect-[9/16]' :
@@ -316,6 +326,7 @@ export default function ImageToVideoPage() {
                 </button>
               </div>
             )}
+            </div>
           </div>
         </div>
       </DevToolsLayout>
