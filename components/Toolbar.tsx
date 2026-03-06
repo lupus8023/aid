@@ -1,6 +1,7 @@
 'use client';
 
-import { Save, FolderPlus, Download, RefreshCw, FolderOpen, Settings } from 'lucide-react';
+import { Save, FolderPlus, Download, RefreshCw, FolderOpen, Settings, Home } from 'lucide-react';
+import Link from 'next/link';
 
 interface ToolbarProps {
   onNewProject: () => void;
@@ -42,6 +43,13 @@ export default function Toolbar({
 
       {/* Right: Action Buttons */}
       <div className="flex items-center gap-2">
+        <Link href="/">
+          <button className="flex items-center gap-2 px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded transition-colors">
+            <Home size={14} />
+            Home
+          </button>
+        </Link>
+
         <button
           onClick={onSettings}
           className="flex items-center gap-2 px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded transition-colors"
