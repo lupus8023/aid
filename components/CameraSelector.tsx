@@ -72,7 +72,7 @@ export default function CameraSelector({ onParamsChange }: CameraSelectorProps) 
                   }}
                   className={`p-2 rounded border text-xs font-mono ${
                     camera === cam.id
-                      ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)] bg-opacity-10 text-[var(--accent-blue)]'
+                      ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)] text-white'
                       : 'border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]'
                   }`}
                 >
@@ -83,58 +83,61 @@ export default function CameraSelector({ onParamsChange }: CameraSelectorProps) 
             </div>
           </div>
 
-          {/* Focal Length */}
-          <div>
-            <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">Focal Length</label>
-            <select
-              value={focal}
-              onChange={(e) => {
-                setFocal(e.target.value);
-                updateParams(camera, e.target.value, aperture, iso);
-              }}
-              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
-            >
-              <option value="">Select Focal Length</option>
-              {focalLengths.map((f) => (
-                <option key={f.value} value={f.value}>{f.label}</option>
-              ))}
-            </select>
-          </div>
+          {/* Focal Length, Aperture, ISO in one row */}
+          <div className="grid grid-cols-3 gap-3">
+            {/* Focal Length */}
+            <div>
+              <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">Focal Length</label>
+              <select
+                value={focal}
+                onChange={(e) => {
+                  setFocal(e.target.value);
+                  updateParams(camera, e.target.value, aperture, iso);
+                }}
+                className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+              >
+                <option value="">Select Focal Length</option>
+                {focalLengths.map((f) => (
+                  <option key={f.value} value={f.value}>{f.label}</option>
+                ))}
+              </select>
+            </div>
 
-          {/* Aperture */}
-          <div>
-            <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">Aperture</label>
-            <select
-              value={aperture}
-              onChange={(e) => {
-                setAperture(e.target.value);
-                updateParams(camera, focal, e.target.value, iso);
-              }}
-              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
-            >
-              <option value="">Select Aperture</option>
-              {apertures.map((a) => (
-                <option key={a.value} value={a.value}>{a.label}</option>
-              ))}
-            </select>
-          </div>
+            {/* Aperture */}
+            <div>
+              <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">Aperture</label>
+              <select
+                value={aperture}
+                onChange={(e) => {
+                  setAperture(e.target.value);
+                  updateParams(camera, focal, e.target.value, iso);
+                }}
+                className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+              >
+                <option value="">Select Aperture</option>
+                {apertures.map((a) => (
+                  <option key={a.value} value={a.value}>{a.label}</option>
+                ))}
+              </select>
+            </div>
 
-          {/* ISO */}
-          <div>
-            <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">ISO</label>
-            <select
-              value={iso}
-              onChange={(e) => {
-                setIso(e.target.value);
-                updateParams(camera, focal, aperture, e.target.value);
-              }}
-              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
-            >
-              <option value="">Select ISO</option>
-              {isoValues.map((i) => (
-                <option key={i.value} value={i.value}>{i.label}</option>
-              ))}
-            </select>
+            {/* ISO */}
+            <div>
+              <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">ISO</label>
+              <select
+                value={iso}
+                onChange={(e) => {
+                  setIso(e.target.value);
+                  updateParams(camera, focal, aperture, e.target.value);
+                }}
+                className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+              >
+                <option value="">Select ISO</option>
+                {isoValues.map((i) => (
+                  <option key={i.value} value={i.value}>{i.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       </div>

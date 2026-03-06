@@ -13,6 +13,7 @@ export default function ImageToVideoPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [mainImage, setMainImage] = useState<string | null>(null);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
+  const [lastFrameImage, setLastFrameImage] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const [cameraParams, setCameraParams] = useState('');
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16' | '1:1'>('16:9');
@@ -28,19 +29,13 @@ export default function ImageToVideoPage() {
     }
   };
 
-  const handleReferenceImagesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    files.forEach(file => {
+  const handleLastFrameImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        setReferenceImages(prev => [...prev, e.target?.result as string]);
-      };
+      reader.onload = (e) => setLastFrameImage(e.target?.result as string);
       reader.readAsDataURL(file);
-    });
-  };
-
-  const removeReferenceImage = (index: number) => {
-    setReferenceImages(prev => prev.filter((_, i) => i !== index));
+    }
   };
 
   const pollTaskStatus = async (taskId: string) => {
@@ -93,7 +88,7 @@ export default function ImageToVideoPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mainImage,
-          referenceImages,
+          referenceImages: lastFrameImage ? [lastFrameImage] : [],
           prompt: fullPrompt,
           aspectRatio,
           apiKey: settings.apiKey,
@@ -144,64 +139,63 @@ export default function ImageToVideoPage() {
           {/* Left: Input Controls - 2/3 width */}
           <div className="w-2/3 p-6 overflow-y-auto border-r border-[var(--border-color)]">
             <div className="space-y-6">
-              {/* Main Image Upload */}
-              <div>
-                <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Main Image</h2>
-                <div className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 text-center bg-[var(--bg-secondary)]">
-                  {mainImage ? (
-                    <img src={mainImage} alt="Main" className="max-h-48 mx-auto rounded" />
-                  ) : (
-                    <div>
-                      <Upload className="w-10 h-10 mx-auto mb-3 text-[var(--text-secondary)]" />
-                      <p className="text-[var(--text-secondary)] text-sm mb-3">Upload image to convert</p>
-                    </div>
-                  )}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleMainImageUpload}
-                    className="hidden"
-                    id="main-image-upload"
-                  />
-                  <label
-                    htmlFor="main-image-upload"
-                    className="inline-block px-4 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded cursor-pointer"
-                  >
-                    {mainImage ? 'Change Image' : 'Select Image'}
-                  </label>
+              {/* First Frame and Last Frame in one row */}
+              <div className="grid grid-cols-2 gap-4">
+                {/* First Frame */}
+                <div>
+                  <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">First Frame</h2>
+                  <div className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 text-center bg-[var(--bg-secondary)]">
+                    {mainImage ? (
+                      <img src={mainImage} alt="First Frame" className="max-h-48 mx-auto rounded" />
+                    ) : (
+                      <div>
+                        <Upload className="w-10 h-10 mx-auto mb-3 text-[var(--text-secondary)]" />
+                        <p className="text-[var(--text-secondary)] text-sm mb-3">Upload first frame</p>
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleMainImageUpload}
+                      className="hidden"
+                      id="main-image-upload"
+                    />
+                    <label
+                      htmlFor="main-image-upload"
+                      className="inline-block px-4 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded cursor-pointer"
+                    >
+                      {mainImage ? 'Change' : 'Select'}
+                    </label>
+                  </div>
                 </div>
-              </div>
 
-              {/* Reference Images */}
-              <div>
-                <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Reference Images (Optional)</h2>
-                <div className="grid grid-cols-4 gap-2 mb-3">
-                  {referenceImages.map((img, idx) => (
-                    <div key={idx} className="relative">
-                      <img src={img} alt={`Ref ${idx + 1}`} className="w-full h-20 object-cover rounded border border-[var(--border-color)]" />
-                      <button
-                        onClick={() => removeReferenceImage(idx)}
-                        className="absolute top-1 right-1 bg-red-500 rounded-full p-1"
-                      >
-                        <X className="w-3 h-3 text-white" />
-                      </button>
-                    </div>
-                  ))}
+                {/* Last Frame */}
+                <div>
+                  <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Last Frame (Optional)</h2>
+                  <div className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 text-center bg-[var(--bg-secondary)]">
+                    {lastFrameImage ? (
+                      <img src={lastFrameImage} alt="Last Frame" className="max-h-48 mx-auto rounded" />
+                    ) : (
+                      <div>
+                        <Upload className="w-10 h-10 mx-auto mb-3 text-[var(--text-secondary)]" />
+                        <p className="text-[var(--text-secondary)] text-sm mb-3">Upload last frame</p>
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLastFrameImageUpload}
+                      className="hidden"
+                      id="last-frame-upload"
+                    />
+                    <label
+                      htmlFor="last-frame-upload"
+                      className="inline-block px-4 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded cursor-pointer"
+                    >
+                      {lastFrameImage ? 'Change' : 'Select'}
+                    </label>
+                  </div>
                 </div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleReferenceImagesUpload}
-                  className="hidden"
-                  id="ref-images-upload"
-                />
-                <label
-                  htmlFor="ref-images-upload"
-                  className="inline-block px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded cursor-pointer"
-                >
-                  Add Reference
-                </label>
               </div>
 
               {/* Aspect Ratio */}
@@ -218,7 +212,7 @@ export default function ImageToVideoPage() {
                       onClick={() => setAspectRatio(ratio.value)}
                       className={`p-2 text-xs font-mono rounded border ${
                         aspectRatio === ratio.value
-                          ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)] bg-opacity-10 text-[var(--accent-blue)]'
+                          ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)] text-white'
                           : 'border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]'
                       }`}
                     >
@@ -261,7 +255,7 @@ export default function ImageToVideoPage() {
               aspectRatio === '16:9' ? 'aspect-video' :
               aspectRatio === '9:16' ? 'aspect-[9/16]' :
               'aspect-square'
-            }`} style={{ maxHeight: '400px' }}>
+            }`} style={{ maxHeight: aspectRatio === '9:16' ? '600px' : '400px' }}>
               {videoUrl ? (
                 <video src={videoUrl} controls className="w-full h-full rounded-lg" />
               ) : (
