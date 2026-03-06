@@ -16,19 +16,19 @@ const cameras = [
 ];
 
 const focalLengths = [
-  { value: '24mm', label: '24mm (广角)' },
-  { value: '35mm', label: '35mm (标准)' },
-  { value: '50mm', label: '50mm (人像)' },
-  { value: '85mm', label: '85mm (特写)' },
-  { value: '135mm', label: '135mm (长焦)' },
+  { value: '24mm', label: '24mm (Wide)' },
+  { value: '35mm', label: '35mm (Standard)' },
+  { value: '50mm', label: '50mm (Portrait)' },
+  { value: '85mm', label: '85mm (Close-up)' },
+  { value: '135mm', label: '135mm (Telephoto)' },
 ];
 
 const apertures = [
-  { value: 'f/1.4', label: 'f/1.4 (大光圈)' },
+  { value: 'f/1.4', label: 'f/1.4 (Wide)' },
   { value: 'f/2.8', label: 'f/2.8' },
   { value: 'f/4', label: 'f/4' },
   { value: 'f/5.6', label: 'f/5.6' },
-  { value: 'f/8', label: 'f/8 (小光圈)' },
+  { value: 'f/8', label: 'f/8 (Narrow)' },
 ];
 
 const isoValues = [
@@ -55,89 +55,87 @@ export default function CameraSelector({ onParamsChange }: CameraSelectorProps) 
   };
 
   return (
-    <div className="bg-[#252526] rounded-lg p-6">
-      <h2 className="text-xl font-semibold mb-4 flex items-center">
-        <Camera className="w-5 h-5 mr-2" />
-        镜头参数
-      </h2>
-
-      <div className="space-y-4">
-        {/* 相机选择 */}
-        <div>
-          <label className="block text-sm text-gray-400 mb-2">相机型号</label>
-          <div className="grid grid-cols-3 gap-2">
-            {cameras.map((cam) => (
-              <button
-                key={cam.id}
-                onClick={() => {
-                  setCamera(cam.id);
-                  updateParams(cam.id, focal, aperture, iso);
-                }}
-                className={`p-3 rounded border ${
-                  camera === cam.id
-                    ? 'border-blue-500 bg-blue-500/20'
-                    : 'border-gray-600 hover:border-gray-500'
-                }`}
-              >
-                <div className="text-2xl mb-1">{cam.icon}</div>
-                <div className="text-xs">{cam.name}</div>
-              </button>
-            ))}
+    <div>
+      <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Camera Parameters</h2>
+      <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-4">
+        <div className="space-y-4">
+          {/* Camera Selection */}
+          <div>
+            <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">Camera Model</label>
+            <div className="grid grid-cols-5 gap-2">
+              {cameras.map((cam) => (
+                <button
+                  key={cam.id}
+                  onClick={() => {
+                    setCamera(cam.id);
+                    updateParams(cam.id, focal, aperture, iso);
+                  }}
+                  className={`p-2 rounded border text-xs font-mono ${
+                    camera === cam.id
+                      ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)] bg-opacity-10 text-[var(--accent-blue)]'
+                      : 'border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]'
+                  }`}
+                >
+                  <div className="text-lg mb-1">{cam.icon}</div>
+                  <div className="text-[10px]">{cam.name}</div>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* 焦距 */}
-        <div>
-          <label className="block text-sm text-gray-400 mb-2">焦距</label>
-          <select
-            value={focal}
-            onChange={(e) => {
-              setFocal(e.target.value);
-              updateParams(camera, e.target.value, aperture, iso);
-            }}
-            className="w-full bg-[#1e1e1e] border border-gray-600 rounded p-2 text-white"
-          >
-            <option value="">选择焦距</option>
-            {focalLengths.map((f) => (
-              <option key={f.value} value={f.value}>{f.label}</option>
-            ))}
-          </select>
-        </div>
+          {/* Focal Length */}
+          <div>
+            <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">Focal Length</label>
+            <select
+              value={focal}
+              onChange={(e) => {
+                setFocal(e.target.value);
+                updateParams(camera, e.target.value, aperture, iso);
+              }}
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+            >
+              <option value="">Select Focal Length</option>
+              {focalLengths.map((f) => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+          </div>
 
-        {/* 光圈 */}
-        <div>
-          <label className="block text-sm text-gray-400 mb-2">光圈</label>
-          <select
-            value={aperture}
-            onChange={(e) => {
-              setAperture(e.target.value);
-              updateParams(camera, focal, e.target.value, iso);
-            }}
-            className="w-full bg-[#1e1e1e] border border-gray-600 rounded p-2 text-white"
-          >
-            <option value="">选择光圈</option>
-            {apertures.map((a) => (
-              <option key={a.value} value={a.value}>{a.label}</option>
-            ))}
-          </select>
-        </div>
+          {/* Aperture */}
+          <div>
+            <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">Aperture</label>
+            <select
+              value={aperture}
+              onChange={(e) => {
+                setAperture(e.target.value);
+                updateParams(camera, focal, e.target.value, iso);
+              }}
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+            >
+              <option value="">Select Aperture</option>
+              {apertures.map((a) => (
+                <option key={a.value} value={a.value}>{a.label}</option>
+              ))}
+            </select>
+          </div>
 
-        {/* ISO */}
-        <div>
-          <label className="block text-sm text-gray-400 mb-2">ISO</label>
-          <select
-            value={iso}
-            onChange={(e) => {
-              setIso(e.target.value);
-              updateParams(camera, focal, aperture, e.target.value);
-            }}
-            className="w-full bg-[#1e1e1e] border border-gray-600 rounded p-2 text-white"
-          >
-            <option value="">选择ISO</option>
-            {isoValues.map((i) => (
-              <option key={i.value} value={i.value}>{i.label}</option>
-            ))}
-          </select>
+          {/* ISO */}
+          <div>
+            <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">ISO</label>
+            <select
+              value={iso}
+              onChange={(e) => {
+                setIso(e.target.value);
+                updateParams(camera, focal, aperture, e.target.value);
+              }}
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+            >
+              <option value="">Select ISO</option>
+              {isoValues.map((i) => (
+                <option key={i.value} value={i.value}>{i.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
     </div>
