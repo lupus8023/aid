@@ -298,6 +298,10 @@ export default function StoryPage() {
       alert('请先添加至少一个角色');
       return;
     }
+    if (!settings.apiKey) {
+      alert('请先在设置中配置 API Key');
+      return;
+    }
     setIsAnalyzing(true);
     try {
       const response = await fetch('/api/outline', {
@@ -305,12 +309,15 @@ export default function StoryPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ storyContent, characters, objects, apiKey: settings.apiKey })
       });
-      if (!response.ok) throw new Error('Failed to generate outline');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate outline');
+      }
       const data = await response.json();
       setStoryOutline(data.outline);
       setCurrentStep(2);
     } catch (error) {
-      alert('大纲生成失败，请检查 API 配置');
+      alert(`大纲生成失败: ${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setIsAnalyzing(false);
     }
