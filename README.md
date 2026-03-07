@@ -62,16 +62,16 @@
 ### Animated Story Examples
 
 <div align="center">
-  <img src="public/sample1.gif" alt="Animated Story Example 1" width="48%">
-  <img src="public/sample3.gif" alt="Animated Story Example 2" width="48%">
+  <img src="public/sample1.gif" alt="Animated Story Example 1" height="320">
+  <img src="public/sample3.gif" alt="Animated Story Example 2" height="320">
   <p><em>AI-generated animated storyboard sequences with character consistency</em></p>
 </div>
 
 ### Realistic Style Examples
 
 <div align="center">
-  <img src="public/sample2.gif" alt="Realistic Style Example 1" width="48%">
-  <img src="public/sample4.gif" alt="Realistic Style Example 2" width="48%">
+  <img src="public/sample2.gif" alt="Realistic Style Example 1" height="320">
+  <img src="public/sample4.gif" alt="Realistic Style Example 2" height="320">
   <p><em>Photorealistic video generation with cinematic camera movements</em></p>
 </div>
 
@@ -265,7 +265,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 <div align="center">
-  <p>Made with ❤️ by the AI Video Studio team</p>
+  <p>Made with ❤️ by PANDA Skincare</p>
   <p>
     <a href="#top">Back to Top ↑</a>
   </p>
