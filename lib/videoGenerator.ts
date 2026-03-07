@@ -23,7 +23,7 @@ Visual consistency: Keep all characters, objects, and scene elements exactly as 
 
 Motion: Animate the scene naturally to match the described action. Smooth, realistic movement with appropriate pacing.
 
-IMPORTANT: Do not add any text, subtitles, or captions to the video. Any dialogue mentioned in the scene description is for context only and should not appear as on-screen text.`;
+IMPORTANT: Do not add dialogue subtitles or speech captions. Any dialogue mentioned in the scene description is for context only and should not appear as subtitles.`;
 
 
   console.log(`Creating video task for storyboard scene ${storyboard.sceneNumber}`);
