@@ -21,7 +21,9 @@ export async function generateStoryboardVideo(
 
 Visual consistency: Keep all characters, objects, and scene elements exactly as shown in the image. No changes to appearance, clothing, or environment throughout the video.
 
-Motion: Animate the scene naturally to match the described action. Smooth, realistic movement with appropriate pacing.`;
+Motion: Animate the scene naturally to match the described action. Smooth, realistic movement with appropriate pacing.
+
+IMPORTANT: Do not add any text, subtitles, or captions to the video. Any dialogue mentioned in the scene description is for context only and should not appear as on-screen text.`;
 
 
   console.log(`Creating video task for storyboard scene ${storyboard.sceneNumber}`);
