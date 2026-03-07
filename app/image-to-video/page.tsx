@@ -24,6 +24,12 @@ export default function ImageToVideoPage() {
   const handleMainImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const maxSize = 6 * 1024 * 1024; // 6MB in bytes
+      if (file.size > maxSize) {
+        alert('Warning: Image size exceeds 6MB. Please upload a smaller image.');
+        e.target.value = ''; // Clear the input
+        return;
+      }
       const reader = new FileReader();
       reader.onload = (e) => setMainImage(e.target?.result as string);
       reader.readAsDataURL(file);
@@ -33,6 +39,12 @@ export default function ImageToVideoPage() {
   const handleLastFrameImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const maxSize = 6 * 1024 * 1024; // 6MB in bytes
+      if (file.size > maxSize) {
+        alert('Warning: Image size exceeds 6MB. Please upload a smaller image.');
+        e.target.value = ''; // Clear the input
+        return;
+      }
       const reader = new FileReader();
       reader.onload = (e) => setLastFrameImage(e.target?.result as string);
       reader.readAsDataURL(file);
