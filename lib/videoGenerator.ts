@@ -17,11 +17,11 @@ export async function generateStoryboardVideo(
   // 从场景 prompt 中去掉 [brackets]（那是给 LLM 用的标记）
   const cleanScenePrompt = storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1');
 
-  const videoPrompt = `Animate this image. ${cleanScenePrompt}
+  const videoPrompt = `Scene: ${cleanScenePrompt}
 
-Motion: Natural, fluid movement. Smooth transitions with realistic physics. Subtle purposeful camera motion.
-Keep all characters and objects visually identical to the input image throughout the entire video. No morphing, no appearance changes.
-Silent video, no audio.`;
+Visual consistency: Keep all characters, objects, and scene elements exactly as shown in the image. No changes to appearance, clothing, or environment throughout the video.
+
+Motion: Animate the scene naturally to match the described action. Smooth, realistic movement with appropriate pacing.`;
 
 
   console.log(`Creating video task for storyboard scene ${storyboard.sceneNumber}`);
