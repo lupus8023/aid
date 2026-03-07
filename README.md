@@ -1,186 +1,272 @@
-# AI 分镜生成应用 (AID)
+<div align="center">
+  <img src="public/logo.png" alt="AI Video Studio" width="120" height="120">
 
-这是一个基于 AI 的自动分镜生成应用，可以根据故事脚本自动拆解场景并生成分镜图片。
+  # AI Video Studio
 
-## 功能特点
+  ### Transform Your Stories into Stunning Videos with AI
 
-- 📝 支持 Markdown 格式的故事文件上传
-- 👤 角色形象管理（上传图片并命名）
-- 🎬 AI 自动分析故事并拆解成分镜场景
-- 🖼️ 使用 image-to-image 技术，严格按照角色形象生成分镜图片
-- 🔄 实时显示生成进度和状态
-- 🎨 自动生成详细的 AI 提示词
+  [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org/)
+  [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
+  [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.0-38B2AC?style=flat-square&logo=tailwind-css)](https://tailwindcss.com/)
+  [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-## 技术栈
+  <p align="center">
+    <a href="#features">Features</a> •
+    <a href="#demo">Demo</a> •
+    <a href="#quick-start">Quick Start</a> •
+    <a href="#usage">Usage</a> •
+    <a href="#tech-stack">Tech Stack</a>
+  </p>
+</div>
 
-- **前端框架**: Next.js 15 + React 18
-- **样式**: Tailwind CSS
-- **语言**: TypeScript
-- **API**: APIMart AI (https://apimart.ai/)
+---
 
-## 安装步骤
+## ✨ Features
 
-### 1. 安装依赖
+<table>
+  <tr>
+    <td width="50%">
+      <h3>🎬 Image to Video</h3>
+      <p>Upload images and transform them into professional videos with AI-powered motion generation. Add camera movements, adjust aspect ratios, and create cinematic experiences.</p>
+    </td>
+    <td width="50%">
+      <h3>📖 AI Story Generation</h3>
+      <p>Automatically analyze stories, generate complete storyboards, and produce videos. Perfect for content creators, filmmakers, and storytellers.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <h3>🎨 Character Consistency</h3>
+      <p>Upload character reference images and maintain visual consistency across all generated scenes using advanced image-to-image AI technology.</p>
+    </td>
+    <td width="50%">
+      <h3>📱 Mobile Optimized</h3>
+      <p>Fully responsive design with mobile-first approach. Add to home screen for a native app experience on any device.</p>
+    </td>
+  </tr>
+</table>
+
+### 🚀 Key Capabilities
+
+- **Multiple Video Models**: Support for Sora 2, Veo 3.1, and more cutting-edge AI video models
+- **Flexible Aspect Ratios**: 16:9 landscape, 9:16 portrait, and 1:1 square formats
+- **Advanced Camera Controls**: Professional camera movements including pan, tilt, zoom, and dolly
+- **Real-time Progress**: Live status updates during image and video generation
+- **Batch Processing**: Generate multiple storyboard scenes simultaneously
+- **Project Management**: Save, load, and export your projects with ease
+
+---
+
+## 🎥 Demo
+
+### Animated Story Examples
+
+<div align="center">
+  <img src="public/sample1.gif" alt="Animated Story Example 1" width="48%">
+  <img src="public/sample3.gif" alt="Animated Story Example 2" width="48%">
+  <p><em>AI-generated animated storyboard sequences with character consistency</em></p>
+</div>
+
+### Realistic Style Examples
+
+<div align="center">
+  <img src="public/sample2.gif" alt="Realistic Style Example 1" width="48%">
+  <img src="public/sample4.gif" alt="Realistic Style Example 2" width="48%">
+  <p><em>Photorealistic video generation with cinematic camera movements</em></p>
+</div>
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Node.js 18+ installed
+- APIMart API Key ([Get one here](https://apimart.ai/))
+- Cloudinary account for image hosting ([Sign up](https://cloudinary.com/))
+
+### Installation
 
 ```bash
-cd ~/Desktop/aid
+# Clone the repository
+git clone https://github.com/lupus8023/aid.git
+cd aid
+
+# Install dependencies
 npm install
-```
 
-### 2. 配置 API Key
-
-复制环境变量示例文件：
-
-```bash
+# Set up environment variables
 cp .env.local.example .env.local
 ```
 
-编辑 `.env.local` 文件，填入你的 APIMart API Key：
+### Configuration
 
+Edit `.env.local` and add your API keys:
+
+```env
+# APIMart API Key (required)
+APIMART_API_KEY=your_apimart_key_here
+
+# Cloudinary Configuration (required for image uploads)
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_cloudinary_key
+CLOUDINARY_API_SECRET=your_cloudinary_secret
 ```
-APIMART_API_KEY=your_api_key_here
-```
 
-**获取 API Key：**
-1. 访问 https://apimart.ai/
-2. 注册账号并登录
-3. 在控制台获取你的 API Key
-
-### 3. 启动开发服务器
+### Run Development Server
 
 ```bash
 npm run dev
 ```
 
-应用将在 http://localhost:3000 启动。
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## 使用方法
-
-### 步骤 1: 添加角色
-
-1. 在"角色管理"区域输入角色名字
-2. 点击"上传角色形象"选择角色图片
-3. 可以添加多个角色
-4. 每个角色的形象将用于后续的分镜生成
-
-### 步骤 2: 上传故事
-
-1. 在"故事上传"区域点击"上传故事文件"
-2. 选择 Markdown (.md) 或文本 (.txt) 格式的故事文件
-3. 系统会显示故事内容预览
-
-### 步骤 3: 生成分镜列表
-
-1. 确保已添加角色和上传故事
-2. 点击"生成分镜列表"按钮
-3. AI 会分析故事内容，自动拆解成多个场景
-4. 每个场景包含：
-   - 场景编号
-   - 场景描述（中文）
-   - 出场角色
-   - AI 提示词（英文）
-
-### 步骤 4: 生成分镜图片
-
-1. 点击"生成所有分镜图片"按钮
-2. 系统会逐个为每个分镜生成图片
-3. 生成过程中可以看到实时状态：
-   - 等待中（灰色）
-   - 生成中（蓝色）
-   - 已完成（绿色）
-   - 生成失败（红色）
-4. 生成完成后，每个分镜卡片会显示对应的图片
-
-## 项目结构
-
-```
-aid/
-├── app/                    # Next.js 应用目录
-│   ├── api/               # API 路由
-│   │   ├── analyze/       # 故事分析 API
-│   │   └── generate/      # 图片生成 API
-│   ├── globals.css        # 全局样式
-│   ├── layout.tsx         # 根布局
-│   └── page.tsx           # 主页面
-├── components/            # React 组件
-│   ├── CharacterUpload.tsx    # 角色上传组件
-│   ├── StoryUpload.tsx        # 故事上传组件
-│   ├── StoryboardCard.tsx     # 分镜卡片组件
-│   └── StoryboardList.tsx     # 分镜列表组件
-├── lib/                   # 工具函数
-│   ├── apimart.ts         # APIMart API 调用
-│   ├── storyAnalyzer.ts   # 故事分析逻辑
-│   └── imageGenerator.ts  # 图片生成逻辑
-├── types/                 # TypeScript 类型定义
-│   └── index.ts
-├── package.json
-├── tsconfig.json
-├── tailwind.config.js
-└── next.config.js
-```
-
-## 注意事项
-
-1. **API 费用**: APIMart API 是付费服务，请注意使用量和费用
-2. **图片有效期**: 生成的图片链接有效期为 24 小时，请及时保存
-3. **生成时间**: 每个分镜图片生成需要一定时间，请耐心等待
-4. **角色一致性**: 系统会尽量保持角色形象一致，但 AI 生成结果可能有细微差异
-5. **故事格式**: 建议故事内容清晰、结构完整，便于 AI 理解和拆解
-
-## 故事文件示例
-
-创建一个 `story.md` 文件：
-
-```markdown
-# 小红帽的故事
-
-从前，有一个可爱的小女孩叫小红帽。她的奶奶生病了，妈妈让她去看望奶奶。
-
-小红帽提着篮子，穿过森林去奶奶家。在森林里，她遇到了一只大灰狼。
-
-大灰狼问小红帽要去哪里。小红帽天真地告诉了大灰狼奶奶家的地址。
-
-大灰狼跑到奶奶家，假扮成小红帽，骗开了门。
-
-最后，猎人救出了小红帽和奶奶，打败了大灰狼。
-```
-
-## 常见问题
-
-### Q: API 调用失败怎么办？
-A: 请检查：
-- API Key 是否正确配置
-- 网络连接是否正常
-- API 账户余额是否充足
-
-### Q: 生成的图片不符合预期？
-A: 可以尝试：
-- 使用更清晰的角色形象图片
-- 在故事中提供更详细的场景描述
-- 调整 `lib/storyAnalyzer.ts` 中的提示词模板
-
-### Q: 如何保存生成的分镜图片？
-A: 右键点击图片，选择"图片另存为"即可保存到本地。
-
-## 开发说明
-
-### 构建生产版本
+### Build for Production
 
 ```bash
 npm run build
 npm start
 ```
 
-### 代码检查
+---
 
-```bash
-npm run lint
+## 📖 Usage
+
+### Image to Video Mode
+
+1. **Upload Images**
+   - Upload your first frame image (required)
+   - Optionally upload a last frame image for controlled motion
+   - Image size must be under 6MB
+
+2. **Configure Settings**
+   - Select aspect ratio (16:9, 9:16, or 1:1)
+   - Choose camera movements (pan, tilt, zoom, dolly, etc.)
+   - Write motion description
+
+3. **Generate Video**
+   - Click "Generate Video" button
+   - Wait for AI processing (typically 1-3 minutes)
+   - Download or regenerate as needed
+
+### AI Story Generation Mode
+
+1. **Setup Characters & Objects**
+   - Add character names and upload reference images
+   - Add objects with descriptions (optional)
+   - Upload your story file (Markdown or text)
+
+2. **Generate Outline**
+   - AI analyzes your story structure
+   - Review and edit the generated outline
+   - Proceed to scene breakdown
+
+3. **Create Storyboards**
+   - AI splits story into individual scenes
+   - Each scene includes characters, description, and prompt
+   - Review and edit scene details
+
+4. **Render Images & Videos**
+   - Generate images for all storyboard scenes
+   - Convert images to videos with motion
+   - Download individual scenes or export entire project
+
+---
+
+## 🛠️ Tech Stack
+
+### Frontend
+- **[Next.js 15](https://nextjs.org/)** - React framework with App Router
+- **[React 18](https://react.dev/)** - UI library
+- **[TypeScript](https://www.typescriptlang.org/)** - Type safety
+- **[Tailwind CSS](https://tailwindcss.com/)** - Utility-first styling
+- **[Lucide React](https://lucide.dev/)** - Beautiful icons
+
+### Backend & APIs
+- **[APIMart AI](https://apimart.ai/)** - AI video and image generation
+- **[Cloudinary](https://cloudinary.com/)** - Image hosting and CDN
+- **Next.js API Routes** - Serverless functions
+
+### AI Models
+- **Sora 2** - OpenAI's video generation model
+- **Veo 3.1** - Google's advanced video model
+- **Doubao SeeDream 5.0** - ByteDance's image generation
+- **Gemini 3 Pro** - Google's multimodal AI
+
+---
+
+## 📁 Project Structure
+
+```
+aid/
+├── app/
+│   ├── api/                    # API routes
+│   │   ├── analyze/           # Story analysis
+│   │   ├── generate/          # Image generation
+│   │   ├── generate-video/    # Video generation
+│   │   ├── check-image-status/
+│   │   └── check-video-status/
+│   ├── image-to-video/        # Image to video page
+│   ├── story/                 # Story generation page
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx               # Home page
+├── components/                 # React components
+├── lib/                       # Utilities and helpers
+├── types/                     # TypeScript definitions
+└── public/                    # Static assets
 ```
 
-## 许可证
+---
 
-MIT License
+## 💡 Tips & Best Practices
 
-## 联系方式
+- **Image Quality**: Use high-resolution images (at least 1024px) for best results
+- **Character Consistency**: Upload clear, well-lit reference images with consistent angles
+- **Story Structure**: Write clear, descriptive scenes with specific visual details
+- **Aspect Ratios**: Note that 1:1 square format is not supported by Veo models
+- **Generation Time**: Video generation typically takes 1-3 minutes per scene
+- **API Costs**: Monitor your APIMart usage to manage costs effectively
 
-如有问题或建议，欢迎提交 Issue。
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- [APIMart AI](https://apimart.ai/) for providing powerful AI APIs
+- [Cloudinary](https://cloudinary.com/) for image hosting infrastructure
+- [Next.js](https://nextjs.org/) team for the amazing framework
+- All contributors and users of this project
+
+---
+
+## 📧 Contact & Support
+
+- **Issues**: [GitHub Issues](https://github.com/lupus8023/aid/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/lupus8023/aid/discussions)
+
+---
+
+<div align="center">
+  <p>Made with ❤️ by the AI Video Studio team</p>
+  <p>
+    <a href="#top">Back to Top ↑</a>
+  </p>
+</div>
