@@ -8,7 +8,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   apiKey: process.env.NEXT_PUBLIC_APIMART_API_KEY || '',
   scriptModel: 'gpt-4o',
   imageModel: 'doubao-seedream-5-0-lite',
-  videoModel: 'sora-2',
+  videoModel: 'doubao-seedance-1-5-pro',
   aspectRatio: '16:9', // 默认横屏
 };
 
