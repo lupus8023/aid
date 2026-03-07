@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/logo.png" alt="AI Video Studio" width="240" height="120">
+  <img src="public/logo.png" alt="AI Video Studio" width="320" height="120">
 
   # AI Video Studio
 
