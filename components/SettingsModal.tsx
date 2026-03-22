@@ -138,6 +138,7 @@ export default function SettingsModal({
               })}
               className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
             >
+              <option value="sora-2-vip">sora-2-vip</option>
               <option value="doubao-seedance-1-5-pro">doubao-seedance-1-5-pro</option>
               <option value="veo3.1-fast">veo3.1-fast (Fast)</option>
               <option value="veo3.1-quality">veo3.1-quality</option>

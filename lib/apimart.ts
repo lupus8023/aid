@@ -131,7 +131,7 @@ export async function createVideoTask(
     const requestBody: any = {
       model,
       prompt,
-      duration: 5,
+      duration: model.includes('sora-2') ? 10 : 5,
       aspect_ratio: aspectRatio,
     };
 
@@ -149,7 +149,7 @@ export async function createVideoTask(
           );
         }
       } else {
-        // veo3/sora 等使用 image_urls (数组)
+        // veo3/sora/sora-2-vip 等使用 image_urls (数组)
         requestBody.image_urls = referenceImageUrls;
       }
     }
