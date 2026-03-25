@@ -55,7 +55,7 @@ export default function VideoPreview({ clips, currentTime, isPlaying }: VideoPre
   }, [currentTime, clips, isPlaying]);
 
   return (
-    <div ref={containerRef} className="relative bg-black rounded aspect-video flex items-center justify-center overflow-hidden">
+    <div ref={containerRef} className="relative bg-black rounded aspect-video">
       {clips.map((clip) => (
         <video
           key={clip.id}
@@ -63,7 +63,7 @@ export default function VideoPreview({ clips, currentTime, isPlaying }: VideoPre
             if (el) videoRefs.current.set(clip.id, el);
           }}
           src={clip.url}
-          className="w-full h-full object-contain"
+          className="absolute inset-0 w-full h-full object-contain"
           style={{ display: 'none' }}
           muted
           preload="auto"
