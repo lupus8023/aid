@@ -31,8 +31,9 @@ export default function Timeline({ clips, onClipsChange, currentTime, onTimeChan
     if (!selectedClip) return;
     const newClips = clips.filter(c => c.id !== selectedClip);
     recalculateStartTimes(newClips);
-    onClipsChange(newClips);
     setSelectedClip(null);
+    onClipSelect?.(null);
+    onClipsChange(newClips);
   };
 
   const recalculateStartTimes = (clipList: VideoClip[]) => {
