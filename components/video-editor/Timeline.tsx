@@ -127,9 +127,9 @@ export default function Timeline({ clips, onClipsChange, currentTime, onTimeChan
         ref={timelineRef}
         onClick={handleTimelineClick}
         className="relative h-24 bg-[var(--bg-primary)] rounded border border-[var(--border-color)] overflow-x-auto cursor-pointer"
-        style={{ minWidth: `${totalDuration * pixelsPerSecond}px` }}
       >
-        {clips.map((clip, index) => {
+        <div style={{ minWidth: `${totalDuration * pixelsPerSecond}px`, height: '100%', position: 'relative' }}>
+          {clips.map((clip, index) => {
           const clipDuration = clip.duration - clip.trimStart - clip.trimEnd;
           const width = clipDuration * pixelsPerSecond;
           const left = clip.startTime * pixelsPerSecond;
@@ -167,6 +167,7 @@ export default function Timeline({ clips, onClipsChange, currentTime, onTimeChan
         >
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3 h-3 bg-[var(--accent-red)] rounded-full" />
         </div>
+      </div>
       </div>
     </div>
   );

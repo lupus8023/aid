@@ -114,16 +114,14 @@ export default function VideoEditor({ initialVideos }: VideoEditorProps) {
   }, [isPlaying, totalDuration]);
 
   return (
-    <div className="h-full flex bg-[var(--bg-primary)]">
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="p-4">
-          <div className="max-w-2xl">
-            <VideoPreview clips={clips} currentTime={currentTime} isPlaying={isPlaying} />
-          </div>
-        </div>
+    <div className="h-full flex flex-col bg-[var(--bg-primary)]">
+      {/* 上方：视频预览 + 剪辑面板 */}
+      <div className="flex gap-4 p-4 border-b border-[var(--border-color)]">
+        {/* 左侧：视频预览 */}
+        <div className="flex-1">
+          <VideoPreview clips={clips} currentTime={currentTime} isPlaying={isPlaying} />
 
-        <div className="p-4 border-t border-[var(--border-color)]">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mt-4">
             <button
               onClick={() => setIsPlaying(!isPlaying)}
               className="flex items-center gap-2 px-4 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded"
@@ -142,23 +140,25 @@ export default function VideoEditor({ initialVideos }: VideoEditorProps) {
           </div>
         </div>
 
-        <Timeline
-          clips={clips}
-          onClipsChange={setClips}
-          currentTime={currentTime}
-          onTimeChange={setCurrentTime}
-          onClipSelect={setSelectedClipId}
-        />
+        {/* 右侧：剪辑面板 */}
+        {selectedClipId && (
+          <div className="w-80">
+            <TrimPanel
+              clip={clips.find(c => c.id === selectedClipId)!}
+              onTrimChange={handleTrimChange}
+            />
+          </div>
+        )}
       </div>
 
-      {selectedClipId && (
-        <div className="w-80 border-l border-[var(--border-color)] p-4 overflow-y-auto">
-          <TrimPanel
-            clip={clips.find(c => c.id === selectedClipId)!}
-            onTrimChange={handleTrimChange}
-          />
-        </div>
-      )}
+      {/* 下方：Timeline 轨道 */}
+      <Timeline
+        clips={clips}
+        onClipsChange={setClips}
+        currentTime={currentTime}
+        onTimeChange={setCurrentTime}
+        onClipSelect={setSelectedClipId}
+      />
     </div>
   );
 }
