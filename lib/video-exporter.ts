@@ -87,8 +87,9 @@ export async function exportVideo(
   // 读取输出
   const data = await ffmpegInstance.readFile('output.mp4');
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+  const buffer = bytes.buffer.slice(0, bytes.byteLength);
   console.log('Output size:', bytes.byteLength);
-  return new Blob([bytes], { type: 'video/mp4' });
+  return new Blob([buffer], { type: 'video/mp4' });
   } catch (error) {
     console.error('Export error:', error);
     throw error;
