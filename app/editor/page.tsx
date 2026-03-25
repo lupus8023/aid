@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import VideoEditor from '@/components/video-editor/VideoEditor';
 import Link from 'next/link';
 import { Home } from 'lucide-react';
 
-export default function EditorPage() {
+function EditorContent() {
   const searchParams = useSearchParams();
   const [videos, setVideos] = useState<string[]>([]);
 
@@ -17,6 +17,16 @@ export default function EditorPage() {
     }
   }, [searchParams]);
 
+  return videos.length > 0 ? (
+    <VideoEditor initialVideos={videos} />
+  ) : (
+    <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">
+      No videos to edit
+    </div>
+  );
+}
+
+export default function EditorPage() {
   return (
     <div className="h-screen flex flex-col bg-[var(--bg-primary)]">
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-color)]">
@@ -33,13 +43,9 @@ export default function EditorPage() {
         </Link>
       </div>
 
-      {videos.length > 0 ? (
-        <VideoEditor initialVideos={videos} />
-      ) : (
-        <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">
-          No videos to edit
-        </div>
-      )}
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">Loading...</div>}>
+        <EditorContent />
+      </Suspense>
     </div>
   );
 }
