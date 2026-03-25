@@ -1,14 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { Upload, Video, X, Settings, Home, ChevronDown, ChevronUp } from 'lucide-react';
+import { Upload, Video, X, Settings, Home, ChevronDown, ChevronUp, Edit } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import DevToolsLayout from '@/components/DevToolsLayout';
 import CameraSelector from '@/components/CameraSelector';
 import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
 
 export default function ImageToVideoPage() {
+  const router = useRouter();
   const { settings, saveSettings } = useSettings();
   const [showSettings, setShowSettings] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -308,34 +310,46 @@ export default function ImageToVideoPage() {
 
             {/* Action Buttons */}
             {videoUrl && (
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2">
                 <button
-                  onClick={async () => {
-                    try {
-                      const response = await fetch(videoUrl);
-                      const blob = await response.blob();
-                      const url = window.URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `video-${Date.now()}.mp4`;
-                      a.click();
-                      window.URL.revokeObjectURL(url);
-                    } catch (error) {
-                      console.error('Download failed:', error);
-                      alert('Download failed');
-                    }
+                  onClick={() => {
+                    const videos = JSON.stringify([videoUrl]);
+                    router.push(`/editor?videos=${encodeURIComponent(videos)}`);
                   }}
-                  className="flex-1 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded"
+                  className="w-full py-2 text-xs font-mono bg-[var(--accent-green)] hover:bg-[#059669] text-white rounded flex items-center justify-center gap-2"
                 >
-                  Save Video
+                  <Edit size={14} />
+                  Edit Video
                 </button>
-                <button
-                  onClick={handleGenerate}
-                  disabled={isGenerating}
-                  className="flex-1 py-2 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded disabled:opacity-50"
-                >
-                  Regenerate
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const response = await fetch(videoUrl);
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `video-${Date.now()}.mp4`;
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                      } catch (error) {
+                        console.error('Download failed:', error);
+                        alert('Download failed');
+                      }
+                    }}
+                    className="flex-1 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded"
+                  >
+                    Save Video
+                  </button>
+                  <button
+                    onClick={handleGenerate}
+                    disabled={isGenerating}
+                    className="flex-1 py-2 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded disabled:opacity-50"
+                  >
+                    Regenerate
+                  </button>
+                </div>
               </div>
             )}
             </div>

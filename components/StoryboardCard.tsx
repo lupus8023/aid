@@ -1,8 +1,9 @@
 'use client';
 
 import { Storyboard } from '@/types';
-import { CheckCircle2, AlertCircle, Loader2, RefreshCw, Eye, Download, Copy, FileText, Video, Edit2, Save, X } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, RefreshCw, Eye, Download, Copy, FileText, Video, Edit2, Save, X, Edit } from 'lucide-react';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface StoryboardCardProps {
   storyboard: Storyboard;
@@ -19,6 +20,7 @@ export default function StoryboardCard({
   onGenerateVideo,
   onUpdate
 }: StoryboardCardProps) {
+  const router = useRouter();
   const [showPrompt, setShowPrompt] = useState(false);
   const [detectedAspectRatio, setDetectedAspectRatio] = useState<'16:9' | '9:16' | null>(null);
 
@@ -356,6 +358,19 @@ export default function StoryboardCard({
 
         {storyboard.status === 'completed' && storyboard.imageUrl && (
           <>
+            {storyboard.videoUrl && (
+              <button
+                onClick={() => {
+                  const videos = JSON.stringify([storyboard.videoUrl]);
+                  router.push(`/editor?videos=${encodeURIComponent(videos)}`);
+                }}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded transition-colors"
+              >
+                <Edit size={14} />
+                Edit
+              </button>
+            )}
+
             <button
               onClick={handleDownload}
               className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-green)] hover:bg-[#5dd18d] text-[var(--bg-primary)] rounded transition-colors"

@@ -9,6 +9,7 @@ import Step1 from '@/components/Step1';
 import Step2 from '@/components/Step2';
 import Step3 from '@/components/Step3';
 import Step4 from '@/components/Step4';
+import Step5 from '@/components/Step5';
 import SettingsModal from '@/components/SettingsModal';
 import { Character, ObjectItem, Storyboard } from '@/types';
 import { useProject } from '@/hooks/useProject';
@@ -412,7 +413,7 @@ export default function StoryPage() {
         <div className="max-w-7xl mx-auto p-3 md:p-6">
           <StepIndicator
             currentStep={currentStep}
-            steps={['Setup', 'Outline', 'Scenes', 'Render']}
+            steps={['Setup', 'Outline', 'Scenes', 'Render', 'Edit']}
           />
           {currentStep === 1 && (
             <Step1
@@ -451,6 +452,13 @@ export default function StoryPage() {
               onRetry={handleRetry}
               onGenerateVideo={handleGenerateVideo}
               onUpdate={handleUpdateStoryboard}
+              onNext={() => setCurrentStep(5)}
+            />
+          )}
+          {currentStep === 5 && (
+            <Step5
+              storyboards={storyboards}
+              onBack={() => setCurrentStep(4)}
             />
           )}
         </div>

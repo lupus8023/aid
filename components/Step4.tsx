@@ -2,7 +2,8 @@ import StoryboardList from './StoryboardList';
 import { Storyboard } from '@/types';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { Download } from 'lucide-react';
+import { Download, Edit } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 interface Step4Props {
   storyboards: Storyboard[];
@@ -11,9 +12,11 @@ interface Step4Props {
   onRetry?: (storyboard: Storyboard) => void;
   onGenerateVideo?: (storyboard: Storyboard) => void;
   onUpdate?: (storyboard: Storyboard) => void;
+  onNext?: () => void;
 }
 
-export default function Step4({ storyboards, isGenerating, onBack, onRetry, onGenerateVideo, onUpdate }: Step4Props) {
+export default function Step4({ storyboards, isGenerating, onBack, onRetry, onGenerateVideo, onUpdate, onNext }: Step4Props) {
+  const router = useRouter();
   const completedCount = storyboards.filter(sb => sb.status === 'completed').length;
   const totalCount = storyboards.length;
   const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
@@ -89,6 +92,20 @@ export default function Step4({ storyboards, isGenerating, onBack, onRetry, onGe
     }
   };
 
+  const handleEditAllVideos = () => {
+    const completedVideos = storyboards
+      .filter(sb => sb.videoStatus === 'completed' && sb.videoUrl)
+      .map(sb => sb.videoUrl);
+
+    if (completedVideos.length === 0) {
+      alert('No completed videos to edit');
+      return;
+    }
+
+    const videos = JSON.stringify(completedVideos);
+    router.push(`/editor?videos=${encodeURIComponent(videos)}`);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -152,7 +169,7 @@ export default function Step4({ storyboards, isGenerating, onBack, onRetry, onGe
       )}
 
       {/* Navigation */}
-      <div className="flex justify-start pt-4 border-t border-[var(--border-color)]">
+      <div className="flex justify-between pt-4 border-t border-[var(--border-color)]">
         <button
           onClick={onBack}
           disabled={isGenerating}
@@ -161,6 +178,15 @@ export default function Step4({ storyboards, isGenerating, onBack, onRetry, onGe
           <span>←</span>
           <span>Back</span>
         </button>
+        {onNext && completedCount === totalCount && totalCount > 0 && (
+          <button
+            onClick={onNext}
+            className="bg-[var(--accent-blue)] text-white px-6 py-2.5 rounded font-mono text-sm hover:bg-[#006bb3] transition-colors flex items-center gap-2"
+          >
+            <span>Edit Videos</span>
+            <span>→</span>
+          </button>
+        )}
       </div>
     </div>
   );
