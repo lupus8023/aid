@@ -117,7 +117,9 @@ export default function VideoEditor({ initialVideos }: VideoEditorProps) {
     <div className="h-full flex bg-[var(--bg-primary)]">
       <div className="flex-1 flex flex-col min-h-0">
         <div className="p-4">
-          <VideoPreview clips={clips} currentTime={currentTime} isPlaying={isPlaying} />
+          <div className="max-w-4xl mx-auto">
+            <VideoPreview clips={clips} currentTime={currentTime} isPlaying={isPlaying} />
+          </div>
         </div>
 
         <div className="p-4 border-t border-[var(--border-color)]">
