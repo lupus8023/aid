@@ -36,7 +36,16 @@ export default function VideoPreview({ clips, currentTime, isPlaying }: VideoPre
 
     // 隐藏所有视频
     videoRefs.current.forEach((v, id) => {
-      v.style.display = id === current.clip.id ? 'block' : 'none';
+      if (id === current.clip.id) {
+        v.style.display = 'block';
+        v.style.position = 'absolute';
+        v.style.top = '0';
+        v.style.left = '0';
+        v.style.width = '100%';
+        v.style.height = '100%';
+      } else {
+        v.style.display = 'none';
+      }
     });
 
     setCurrentClipId(current.clip.id);
