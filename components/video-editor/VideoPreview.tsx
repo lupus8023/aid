@@ -38,11 +38,7 @@ export default function VideoPreview({ clips, currentTime, isPlaying }: VideoPre
     videoRefs.current.forEach((v, id) => {
       if (id === current.clip.id) {
         v.style.display = 'block';
-        v.style.position = 'absolute';
-        v.style.top = '0';
-        v.style.left = '0';
-        v.style.width = '100%';
-        v.style.height = '100%';
+        v.style.objectFit = 'contain';
       } else {
         v.style.display = 'none';
       }
