@@ -13,9 +13,11 @@ interface Step4Props {
   onGenerateVideo?: (storyboard: Storyboard) => void;
   onUpdate?: (storyboard: Storyboard) => void;
   onNext?: () => void;
+  audioFiles?: string[];
+  onAudioFilesChange?: (files: string[]) => void;
 }
 
-export default function Step4({ storyboards, isGenerating, onBack, onRetry, onGenerateVideo, onUpdate, onNext }: Step4Props) {
+export default function Step4({ storyboards, isGenerating, onBack, onRetry, onGenerateVideo, onUpdate, onNext, audioFiles = [], onAudioFilesChange }: Step4Props) {
   const router = useRouter();
   const completedCount = storyboards.filter(sb => sb.status === 'completed').length;
   const totalCount = storyboards.length;
@@ -106,6 +108,18 @@ export default function Step4({ storyboards, isGenerating, onBack, onRetry, onGe
     router.push(`/editor?videos=${encodeURIComponent(videos)}`);
   };
 
+  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const newFiles = [...audioFiles, e.target?.result as string];
+        onAudioFilesChange?.(newFiles);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -116,6 +130,27 @@ export default function Step4({ storyboards, isGenerating, onBack, onRetry, onGe
         <p className="text-[var(--text-secondary)] font-mono text-sm">
           AI image generation in progress
         </p>
+      </div>
+
+      {/* Audio Reference Upload */}
+      <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] p-4 rounded">
+        <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">
+          Audio Reference (for Seedance 2.0)
+        </label>
+        <input
+          type="file"
+          accept="audio/*"
+          multiple
+          onChange={handleAudioUpload}
+          className="hidden"
+          id="audio-reference-upload"
+        />
+        <label
+          htmlFor="audio-reference-upload"
+          className="inline-block px-3 py-1.5 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded cursor-pointer"
+        >
+          Upload Audio ({audioFiles.length})
+        </label>
       </div>
 
       {/* Progress Bar */}

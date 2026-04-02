@@ -27,6 +27,7 @@ export default function StoryPage() {
   const [storyboards, setStoryboards] = useState<Storyboard[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [audioFiles, setAudioFiles] = useState<string[]>([]);
 
   useEffect(() => {
     const savedProject = loadProject();
@@ -264,7 +265,8 @@ export default function StoryPage() {
           storyboard,
           apiKey: settings.apiKey,
           videoModel: settings.videoModel,
-          aspectRatio: storyboard.aspectRatio || settings.aspectRatio
+          aspectRatio: storyboard.aspectRatio || settings.aspectRatio,
+          audioFiles
         })
       });
       if (!response.ok) {
@@ -453,6 +455,8 @@ export default function StoryPage() {
               onGenerateVideo={handleGenerateVideo}
               onUpdate={handleUpdateStoryboard}
               onNext={() => setCurrentStep(5)}
+              audioFiles={audioFiles}
+              onAudioFilesChange={setAudioFiles}
             />
           )}
           {currentStep === 5 && (

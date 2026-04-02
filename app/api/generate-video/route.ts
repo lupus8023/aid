@@ -1,9 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateStoryboardVideo, waitForVideoGeneration } from '@/lib/videoGenerator';
+import { v2 as cloudinary } from 'cloudinary';
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+async function uploadAudioToCloudinary(base64Data: string): Promise<string> {
+  const result = await cloudinary.uploader.upload(base64Data, {
+    folder: 'aid-video',
+    resource_type: 'video',
+  });
+  return result.secure_url;
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { storyboard, apiKey, videoModel, aspectRatio } = await request.json();
+    const { storyboard, apiKey, videoModel, aspectRatio, audioFiles = [] } = await request.json();
 
     if (!storyboard) {
       return NextResponse.json(
@@ -24,12 +39,22 @@ export async function POST(request: NextRequest) {
     console.log('Aspect ratio:', aspectRatio || '16:9');
     console.log('Image URL:', storyboard.imageUrl);
 
+    // 上传音频文件到 Cloudinary
+    const uploadedAudioUrls = [];
+    for (let i = 0; i < audioFiles.length; i++) {
+      console.log(`Uploading audio ${i + 1}...`);
+      const audioUrl = await uploadAudioToCloudinary(audioFiles[i]);
+      uploadedAudioUrls.push(audioUrl);
+      console.log(`Audio ${i + 1} URL:`, audioUrl);
+    }
+
     // 生成视频任务（image-to-video 模式，视觉信息已在图片中）
     const taskId = await generateStoryboardVideo(
       storyboard,
       apiKey,
       videoModel,
-      aspectRatio || '16:9'
+      aspectRatio || '16:9',
+      uploadedAudioUrls
     );
     console.log('Video task created, ID:', taskId);
 

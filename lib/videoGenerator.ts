@@ -6,7 +6,8 @@ export async function generateStoryboardVideo(
   storyboard: Storyboard,
   apiKey: string,
   model: string = 'sora-2',
-  aspectRatio: '16:9' | '9:16' = '16:9'
+  aspectRatio: '16:9' | '9:16' = '16:9',
+  audioFiles: string[] = []
 ): Promise<string> {
   // 确保有生成的图片
   if (!storyboard.imageUrl) {
@@ -38,7 +39,10 @@ IMPORTANT: Do not add dialogue subtitles or speech captions. Any dialogue mentio
     [storyboard.imageUrl], // 传递图片URL数组
     apiKey,
     model,
-    aspectRatio
+    aspectRatio,
+    {
+      audioUrls: audioFiles
+    }
   );
 
   console.log(`Video task created successfully, task ID: ${taskId}`);
