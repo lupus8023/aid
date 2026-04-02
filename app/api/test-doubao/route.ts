@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
       prompt,
       imageUrl ? [imageUrl] : [],
       apiKey,
-      'doubao-seedance-2-0',
+      'doubao-seedance-2.0',
       '16:9'
     );
 

@@ -132,8 +132,14 @@ export async function createVideoTask(
       model,
       prompt,
       duration: model.includes('sora-2') ? 10 : 5,
-      aspect_ratio: aspectRatio,
     };
+
+    // Doubao Seedance 使用 size 参数，其他模型使用 aspect_ratio
+    if (model.includes('doubao') || model.includes('seedance')) {
+      requestBody.size = aspectRatio;
+    } else {
+      requestBody.aspect_ratio = aspectRatio;
+    }
 
     // 根据模型类型应用参考图
     if (referenceImageUrls.length > 0) {
