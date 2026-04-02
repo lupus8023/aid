@@ -124,8 +124,8 @@ export async function createVideoTask(
   try {
     console.log('=== Video Generation Debug ===');
     console.log('Model:', model);
-    console.log('Model includes veo3.1:', model.includes('veo3.1'));
-    console.log('Model includes fast:', model.includes('fast'));
+    console.log('Model includes doubao:', model.includes('doubao'));
+    console.log('Model includes seedance:', model.includes('seedance'));
     console.log('==============================');
 
     const requestBody: any = {
