@@ -17,6 +17,8 @@ export default function ImageToVideoPage() {
   const [mainImage, setMainImage] = useState<string | null>(null);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
   const [lastFrameImage, setLastFrameImage] = useState<string | null>(null);
+  const [videoFiles, setVideoFiles] = useState<string[]>([]);
+  const [audioFiles, setAudioFiles] = useState<string[]>([]);
   const [videoUrls, setVideoUrls] = useState<string[]>([]);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
   const [prompt, setPrompt] = useState('');
@@ -43,16 +45,34 @@ export default function ImageToVideoPage() {
   const handleLastFrameImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const maxSize = 6 * 1024 * 1024; // 6MB in bytes
+      const maxSize = 6 * 1024 * 1024;
       if (file.size > maxSize) {
         alert('Warning: Image size exceeds 6MB. Please upload a smaller image.');
-        e.target.value = ''; // Clear the input
+        e.target.value = '';
         return;
       }
       const reader = new FileReader();
       reader.onload = (e) => setLastFrameImage(e.target?.result as string);
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => setVideoFiles(prev => [...prev, e.target?.result as string]);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => setAudioFiles(prev => [...prev, e.target?.result as string]);
+      reader.readAsDataURL(file);
+    });
   };
 
   const pollTaskStatus = async (taskId: string) => {
@@ -110,6 +130,8 @@ export default function ImageToVideoPage() {
           aspectRatio,
           apiKey: settings.apiKey,
           videoModel: settings.videoModel,
+          videoFiles,
+          audioFiles,
           videoUrls,
           audioUrls
         })
@@ -280,25 +302,53 @@ export default function ImageToVideoPage() {
 
                   <div>
                     <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
-                      参考视频 URLs (最多3个，总时长≤15秒)
+                      参考视频 (最多3个，总时长≤15秒)
+                    </label>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      multiple
+                      onChange={handleVideoUpload}
+                      className="hidden"
+                      id="video-upload"
+                    />
+                    <label
+                      htmlFor="video-upload"
+                      className="inline-block px-3 py-1.5 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded cursor-pointer mb-2"
+                    >
+                      上传视频 ({videoFiles.length})
                     </label>
                     <textarea
                       value={videoUrls.join('\n')}
                       onChange={(e) => setVideoUrls(e.target.value.split('\n').filter(u => u.trim()))}
-                      placeholder="https://example.com/video1.mp4&#10;https://example.com/video2.mp4"
-                      className="w-full h-20 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs text-[var(--text-primary)] resize-none focus:outline-none focus:border-[var(--accent-blue)] font-mono"
+                      placeholder="或输入视频 URL (每行一个)"
+                      className="w-full h-16 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs text-[var(--text-primary)] resize-none focus:outline-none focus:border-[var(--accent-blue)] font-mono"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
-                      参考音频 URLs (最多3个，总时长≤15秒)
+                      参考音频 (最多3个，总时长≤15秒)
+                    </label>
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      multiple
+                      onChange={handleAudioUpload}
+                      className="hidden"
+                      id="audio-upload"
+                    />
+                    <label
+                      htmlFor="audio-upload"
+                      className="inline-block px-3 py-1.5 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded cursor-pointer mb-2"
+                    >
+                      上传音频 ({audioFiles.length})
                     </label>
                     <textarea
                       value={audioUrls.join('\n')}
                       onChange={(e) => setAudioUrls(e.target.value.split('\n').filter(u => u.trim()))}
-                      placeholder="https://example.com/audio1.mp3&#10;https://example.com/audio2.mp3"
-                      className="w-full h-20 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs text-[var(--text-primary)] resize-none focus:outline-none focus:border-[var(--accent-blue)] font-mono"
+                      placeholder="或输入音频 URL (每行一个)"
+                      className="w-full h-16 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs text-[var(--text-primary)] resize-none focus:outline-none focus:border-[var(--accent-blue)] font-mono"
                     />
                   </div>
                 </div>

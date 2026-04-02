@@ -9,28 +9,20 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-async function uploadBase64ToCloudinary(base64Data: string): Promise<string> {
+async function uploadBase64ToCloudinary(base64Data: string, resourceType: 'image' | 'video' | 'raw' = 'image'): Promise<string> {
   try {
-    // 检查环境变量
     if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-      console.error('Cloudinary credentials missing:', {
-        cloud_name: !!process.env.CLOUDINARY_CLOUD_NAME,
-        api_key: !!process.env.CLOUDINARY_API_KEY,
-        api_secret: !!process.env.CLOUDINARY_API_SECRET
-      });
       throw new Error('Cloudinary credentials not configured');
     }
 
     const result = await cloudinary.uploader.upload(base64Data, {
       folder: 'aid-video',
-      resource_type: 'image',
+      resource_type: resourceType,
     });
     return result.secure_url;
   } catch (error: any) {
     console.error('Cloudinary upload error:', error);
-    console.error('Error message:', error.message);
-    console.error('Error details:', error.error || error);
-    throw new Error(`Failed to upload image: ${error.message || 'Unknown error'}`);
+    throw new Error(`Failed to upload ${resourceType}: ${error.message || 'Unknown error'}`);
   }
 }
 
@@ -43,6 +35,8 @@ export async function POST(request: NextRequest) {
       aspectRatio = '16:9',
       apiKey,
       videoModel = 'sora-2',
+      videoFiles = [],
+      audioFiles = [],
       videoUrls = [],
       audioUrls = [],
       imageRoles = []
@@ -70,6 +64,24 @@ export async function POST(request: NextRequest) {
 
     const allImageUrls = [mainImageUrl, ...refImageUrls];
 
+    // 上传视频文件
+    const uploadedVideoUrls = [...videoUrls];
+    for (let i = 0; i < videoFiles.length; i++) {
+      console.log(`Uploading video ${i + 1}...`);
+      const videoUrl = await uploadBase64ToCloudinary(videoFiles[i], 'video');
+      uploadedVideoUrls.push(videoUrl);
+      console.log(`Video ${i + 1} URL:`, videoUrl);
+    }
+
+    // 上传音频文件
+    const uploadedAudioUrls = [...audioUrls];
+    for (let i = 0; i < audioFiles.length; i++) {
+      console.log(`Uploading audio ${i + 1}...`);
+      const audioUrl = await uploadBase64ToCloudinary(audioFiles[i], 'video');
+      uploadedAudioUrls.push(audioUrl);
+      console.log(`Audio ${i + 1} URL:`, audioUrl);
+    }
+
     console.log('=== Image URLs ===');
     console.log('All image URLs:', allImageUrls);
     console.log('==================');
@@ -81,8 +93,8 @@ export async function POST(request: NextRequest) {
       videoModel,
       aspectRatio,
       {
-        videoUrls,
-        audioUrls,
+        videoUrls: uploadedVideoUrls,
+        audioUrls: uploadedAudioUrls,
         imageRoles: imageRoles.length > 0 ? imageRoles : undefined
       }
     );
