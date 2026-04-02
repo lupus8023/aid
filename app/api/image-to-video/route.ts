@@ -36,7 +36,17 @@ async function uploadBase64ToCloudinary(base64Data: string): Promise<string> {
 
 export async function POST(request: NextRequest) {
   try {
-    const { mainImage, referenceImages = [], prompt, aspectRatio = '16:9', apiKey, videoModel = 'sora-2' } = await request.json();
+    const {
+      mainImage,
+      referenceImages = [],
+      prompt,
+      aspectRatio = '16:9',
+      apiKey,
+      videoModel = 'sora-2',
+      videoUrls = [],
+      audioUrls = [],
+      imageRoles = []
+    } = await request.json();
 
     if (!mainImage || !prompt) {
       return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
@@ -69,7 +79,12 @@ export async function POST(request: NextRequest) {
       allImageUrls,
       apiKey,
       videoModel,
-      aspectRatio
+      aspectRatio,
+      {
+        videoUrls,
+        audioUrls,
+        imageRoles: imageRoles.length > 0 ? imageRoles : undefined
+      }
     );
 
     return NextResponse.json({

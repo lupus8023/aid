@@ -119,7 +119,12 @@ export async function createVideoTask(
   referenceImageUrls: string[],
   apiKey: string,
   model: string = 'sora-2',
-  aspectRatio: '16:9' | '9:16' | '1:1' = '16:9'
+  aspectRatio: '16:9' | '9:16' | '1:1' = '16:9',
+  options?: {
+    videoUrls?: string[];
+    audioUrls?: string[];
+    imageRoles?: Array<{ url: string; role: 'first_frame' | 'last_frame' }>;
+  }
 ): Promise<string> {
   try {
     console.log('=== Video Generation Debug ===');
@@ -142,7 +147,10 @@ export async function createVideoTask(
     }
 
     // 根据模型类型应用参考图
-    if (referenceImageUrls.length > 0) {
+    if (options?.imageRoles && options.imageRoles.length > 0) {
+      // 使用自定义角色
+      requestBody.image_with_roles = options.imageRoles;
+    } else if (referenceImageUrls.length > 0) {
       if (model.includes('doubao') || model.includes('seedance')) {
         // doubao/seedance 使用 image_with_roles 格式
         requestBody.image_with_roles = [
@@ -158,6 +166,14 @@ export async function createVideoTask(
         // veo3/sora/sora-2-vip 等使用 image_urls (数组)
         requestBody.image_urls = referenceImageUrls;
       }
+    }
+
+    // Seedance 2.0 增强功能
+    if (options?.videoUrls && options.videoUrls.length > 0) {
+      requestBody.video_urls = options.videoUrls;
+    }
+    if (options?.audioUrls && options.audioUrls.length > 0) {
+      requestBody.audio_urls = options.audioUrls;
     }
 
     console.log('=== Video Generation Request ===');

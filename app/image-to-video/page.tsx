@@ -17,6 +17,8 @@ export default function ImageToVideoPage() {
   const [mainImage, setMainImage] = useState<string | null>(null);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
   const [lastFrameImage, setLastFrameImage] = useState<string | null>(null);
+  const [videoUrls, setVideoUrls] = useState<string[]>([]);
+  const [audioUrls, setAudioUrls] = useState<string[]>([]);
   const [prompt, setPrompt] = useState('');
   const [cameraParams, setCameraParams] = useState('');
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16' | '1:1'>('16:9');
@@ -107,7 +109,9 @@ export default function ImageToVideoPage() {
           prompt: fullPrompt,
           aspectRatio,
           apiKey: settings.apiKey,
-          videoModel: settings.videoModel
+          videoModel: settings.videoModel,
+          videoUrls,
+          audioUrls
         })
       });
 
@@ -268,6 +272,37 @@ export default function ImageToVideoPage() {
 
               {/* Camera Parameters */}
               <CameraSelector onParamsChange={setCameraParams} />
+
+              {/* Seedance 2.0 增强功能 */}
+              {settings.videoModel?.includes('seedance-2') && (
+                <div className="space-y-4 p-4 border border-[var(--border-color)] rounded-lg bg-[var(--bg-secondary)]">
+                  <h2 className="text-sm font-mono text-[var(--accent-green)]">Seedance 2.0 增强功能</h2>
+
+                  <div>
+                    <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
+                      参考视频 URLs (最多3个，总时长≤15秒)
+                    </label>
+                    <textarea
+                      value={videoUrls.join('\n')}
+                      onChange={(e) => setVideoUrls(e.target.value.split('\n').filter(u => u.trim()))}
+                      placeholder="https://example.com/video1.mp4&#10;https://example.com/video2.mp4"
+                      className="w-full h-20 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs text-[var(--text-primary)] resize-none focus:outline-none focus:border-[var(--accent-blue)] font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
+                      参考音频 URLs (最多3个，总时长≤15秒)
+                    </label>
+                    <textarea
+                      value={audioUrls.join('\n')}
+                      onChange={(e) => setAudioUrls(e.target.value.split('\n').filter(u => u.trim()))}
+                      placeholder="https://example.com/audio1.mp3&#10;https://example.com/audio2.mp3"
+                      className="w-full h-20 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded p-2 text-xs text-[var(--text-primary)] resize-none focus:outline-none focus:border-[var(--accent-blue)] font-mono"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Generate Button */}
               <button
