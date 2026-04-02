@@ -33,6 +33,7 @@ export interface Storyboard {
   videoStatus?: 'pending' | 'generating' | 'completed' | 'failed'; // 视频生成状态
   videoTaskId?: string; // 视频任务 ID
   aspectRatio?: '16:9' | '9:16'; // 宽高比
+  audioFile?: string; // 音频文件 base64
 }
 
 // 故事类型

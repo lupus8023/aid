@@ -132,27 +132,6 @@ export default function Step4({ storyboards, isGenerating, onBack, onRetry, onGe
         </p>
       </div>
 
-      {/* Audio Reference Upload */}
-      <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] p-4 rounded">
-        <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">
-          Audio Reference (for Seedance 2.0)
-        </label>
-        <input
-          type="file"
-          accept="audio/*"
-          multiple
-          onChange={handleAudioUpload}
-          className="hidden"
-          id="audio-reference-upload"
-        />
-        <label
-          htmlFor="audio-reference-upload"
-          className="inline-block px-3 py-1.5 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded cursor-pointer"
-        >
-          Upload Audio ({audioFiles.length})
-        </label>
-      </div>
-
       {/* Progress Bar */}
       {isGenerating && (
         <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] p-4 rounded">

@@ -39,11 +39,13 @@ export async function POST(request: NextRequest) {
     console.log('Aspect ratio:', aspectRatio || '16:9');
     console.log('Image URL:', storyboard.imageUrl);
 
-    // 上传音频文件到 Cloudinary
+    // 上传音频文件到 Cloudinary（优先使用分镜自己的音频）
     const uploadedAudioUrls = [];
-    for (let i = 0; i < audioFiles.length; i++) {
+    const audioToUpload = storyboard.audioFile ? [storyboard.audioFile] : audioFiles;
+
+    for (let i = 0; i < audioToUpload.length; i++) {
       console.log(`Uploading audio ${i + 1}...`);
-      const audioUrl = await uploadAudioToCloudinary(audioFiles[i]);
+      const audioUrl = await uploadAudioToCloudinary(audioToUpload[i]);
       uploadedAudioUrls.push(audioUrl);
       console.log(`Audio ${i + 1} URL:`, audioUrl);
     }

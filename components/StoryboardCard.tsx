@@ -30,6 +30,18 @@ export default function StoryboardCard({
   const [editedDescription, setEditedDescription] = useState(storyboard.description);
   const [editedPrompt, setEditedPrompt] = useState(storyboard.prompt);
 
+  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const audioFile = e.target?.result as string;
+        onUpdate?.({ ...storyboard, audioFile });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   // 当图片加载完成后,检测其宽高比
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
@@ -390,13 +402,28 @@ export default function StoryboardCard({
             )}
 
             {onGenerateVideo && storyboard.videoStatus !== 'generating' && (
-              <button
-                onClick={() => onGenerateVideo(storyboard)}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-purple)] hover:bg-[#9b59b6] text-white rounded transition-colors"
-              >
-                <Video size={14} />
-                {storyboard.videoUrl ? 'Regenerate Video' : 'Generate Video'}
-              </button>
+              <>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={handleAudioUpload}
+                  className="hidden"
+                  id={`audio-upload-${storyboard.id}`}
+                />
+                <label
+                  htmlFor={`audio-upload-${storyboard.id}`}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded cursor-pointer transition-colors"
+                >
+                  🎵 {storyboard.audioFile ? '✓' : 'Audio'}
+                </label>
+                <button
+                  onClick={() => onGenerateVideo(storyboard)}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-purple)] hover:bg-[#9b59b6] text-white rounded transition-colors"
+                >
+                  <Video size={14} />
+                  {storyboard.videoUrl ? 'Regenerate Video' : 'Generate Video'}
+                </button>
+              </>
             )}
 
             {onPreview && (
