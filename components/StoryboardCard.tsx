@@ -357,6 +357,25 @@ export default function StoryboardCard({
       </div>
 
       {/* Actions */}
+      {/* Audio Upload - Above buttons */}
+      {storyboard.status === 'completed' && storyboard.imageUrl && onGenerateVideo && storyboard.videoStatus !== 'generating' && (
+        <div className="px-4 py-2 border-t border-[var(--border-color)]">
+          <input
+            type="file"
+            accept="audio/*"
+            onChange={handleAudioUpload}
+            className="hidden"
+            id={`audio-upload-${storyboard.id}`}
+          />
+          <label
+            htmlFor={`audio-upload-${storyboard.id}`}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded cursor-pointer transition-colors"
+          >
+            🎵 {storyboard.audioFile ? 'Audio Reference ✓' : 'Upload Audio Reference'}
+          </label>
+        </div>
+      )}
+
       <div className="px-4 py-3 border-t border-[var(--border-color)] flex gap-2">
         {storyboard.status === 'failed' && onRetry && (
           <button
@@ -402,28 +421,13 @@ export default function StoryboardCard({
             )}
 
             {onGenerateVideo && storyboard.videoStatus !== 'generating' && (
-              <>
-                <input
-                  type="file"
-                  accept="audio/*"
-                  onChange={handleAudioUpload}
-                  className="hidden"
-                  id={`audio-upload-${storyboard.id}`}
-                />
-                <label
-                  htmlFor={`audio-upload-${storyboard.id}`}
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded cursor-pointer transition-colors"
-                >
-                  🎵 {storyboard.audioFile ? '✓' : 'Audio'}
-                </label>
-                <button
-                  onClick={() => onGenerateVideo(storyboard)}
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-purple)] hover:bg-[#9b59b6] text-white rounded transition-colors"
-                >
-                  <Video size={14} />
-                  {storyboard.videoUrl ? 'Regenerate Video' : 'Generate Video'}
-                </button>
-              </>
+              <button
+                onClick={() => onGenerateVideo(storyboard)}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-purple)] hover:bg-[#9b59b6] text-white rounded transition-colors"
+              >
+                <Video size={14} />
+                {storyboard.videoUrl ? 'Regenerate Video' : 'Generate Video'}
+              </button>
             )}
 
             {onPreview && (
