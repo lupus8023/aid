@@ -148,24 +148,11 @@ export async function createVideoTask(
 
     // 根据模型类型应用参考图
     if (options?.imageRoles && options.imageRoles.length > 0) {
-      // 使用自定义角色
+      // 使用自定义角色（首帧/尾帧）
       requestBody.image_with_roles = options.imageRoles;
     } else if (referenceImageUrls.length > 0) {
-      if (model.includes('doubao') || model.includes('seedance')) {
-        // doubao/seedance 使用 image_with_roles 格式
-        requestBody.image_with_roles = [
-          { url: referenceImageUrls[0], role: 'first_frame' }
-        ];
-        // 如果有第二张图，作为尾帧
-        if (referenceImageUrls.length > 1) {
-          requestBody.image_with_roles.push(
-            { url: referenceImageUrls[1], role: 'last_frame' }
-          );
-        }
-      } else {
-        // veo3/sora/sora-2-vip 等使用 image_urls (数组)
-        requestBody.image_urls = referenceImageUrls;
-      }
+      // 所有模型都使用 image_urls
+      requestBody.image_urls = referenceImageUrls;
     }
 
     // Seedance 2.0 增强功能
