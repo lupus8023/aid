@@ -34,6 +34,8 @@ export interface Storyboard {
   videoTaskId?: string; // 视频任务 ID
   aspectRatio?: '16:9' | '9:16'; // 宽高比
   audioFile?: string; // 音频文件 base64
+  videoPrompt?: string; // 视频生成提示词
+  videoDuration?: number; // 视频时长（秒）5-15
 }
 
 // 故事类型

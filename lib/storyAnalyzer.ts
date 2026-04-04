@@ -129,7 +129,8 @@ ${storyContent}
     "description": "场景描述（中文）：详细描述镜头内容、角色状态、环境氛围、情绪表达",
     "characters": ["角色名"],  // ⚠️ 必须使用用户上传的精确角色名称
     "objects": ["物体名"],     // ⚠️ 必须使用用户上传的精确物体名称，如无则为 []
-    "prompt": "Professional cinematic prompt in English"
+    "prompt": "Professional cinematic image prompt in English",
+    "videoPrompt": "Professional cinematic video motion prompt in English describing camera movement, subject motion, and atmosphere"
   }
 ]
 

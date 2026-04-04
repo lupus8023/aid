@@ -14,17 +14,15 @@ export async function generateStoryboardVideo(
     throw new Error(`Storyboard scene ${storyboard.sceneNumber} does not have a generated image`);
   }
 
-  // 图生视频模式：prompt 聚焦运动和镜头，视觉信息已在输入图片中
-  // 从场景 prompt 中去掉 [brackets]（那是给 LLM 用的标记）
-  const cleanScenePrompt = storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1');
+  // Use dedicated videoPrompt if available, otherwise fall back to image prompt
+  const basePrompt = storyboard.videoPrompt
+    ? storyboard.videoPrompt
+    : storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1');
 
-  const videoPrompt = `Scene: ${cleanScenePrompt}
+  const videoPrompt = `${basePrompt}
 
 Visual consistency: Keep all characters, objects, and scene elements exactly as shown in the image. No changes to appearance, clothing, or environment throughout the video.
-
-Motion: Animate the scene naturally to match the described action. Smooth, realistic movement with appropriate pacing.
-
-IMPORTANT: Do not add dialogue subtitles or speech captions. Any dialogue mentioned in the scene description is for context only and should not appear as subtitles.`;
+IMPORTANT: Do not add dialogue subtitles or speech captions.`;
 
 
   console.log(`Creating video task for storyboard scene ${storyboard.sceneNumber}`);
@@ -36,11 +34,12 @@ IMPORTANT: Do not add dialogue subtitles or speech captions. Any dialogue mentio
   // 创建视频生成任务，使用生成的图片作为参考（图生视频模式）
   const taskId = await createVideoTask(
     videoPrompt,
-    [storyboard.imageUrl], // 传递图片URL数组
+    [storyboard.imageUrl],
     apiKey,
     model,
     aspectRatio,
     {
+      duration: storyboard.videoDuration,
       audioUrls: audioFiles
     }
   );

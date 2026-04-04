@@ -121,6 +121,7 @@ export async function createVideoTask(
   model: string = 'sora-2',
   aspectRatio: '16:9' | '9:16' | '1:1' = '16:9',
   options?: {
+    duration?: number;
     videoUrls?: string[];
     audioUrls?: string[];
     imageRoles?: Array<{ url: string; role: 'first_frame' | 'last_frame' }>;
@@ -136,7 +137,7 @@ export async function createVideoTask(
     const requestBody: any = {
       model,
       prompt,
-      duration: model.includes('sora-2') ? 10 : 5,
+      duration: options?.duration ?? (model.includes('sora-2') ? 10 : 5),
     };
 
     // Doubao Seedance 使用 size 参数，其他模型使用 aspect_ratio
