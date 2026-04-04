@@ -36,6 +36,11 @@ export interface Storyboard {
   audioFile?: string; // 音频文件 base64
   videoPrompt?: string; // 视频生成提示词
   videoDuration?: number; // 视频时长（秒）5-15
+  // 定妆/场景参考图
+  characterCostume?: Record<string, string>; // { 角色名: 造型描述 }
+  sceneStyle?: string;                       // 场景风格描述
+  costumeStatus?: 'pending' | 'generating' | 'completed'; // 定妆图生成状态
+  // costumeImages and sceneImage are now global, stored in page state
 }
 
 // 故事类型

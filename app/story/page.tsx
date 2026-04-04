@@ -26,6 +26,10 @@ export default function StoryPage() {
   const [storyContent, setStoryContent] = useState('');
   const [storyboards, setStoryboards] = useState<Storyboard[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [costumeImages, setCostumeImages] = useState<Record<string, string>>({}); // { 角色名: URL }
+  const [costumeGenerating, setCostumeGenerating] = useState<Record<string, boolean>>({}); // { 角色名: bool }
+  const [sceneImage, setSceneImage] = useState<string>('');
+  const [sceneGenerating, setSceneGenerating] = useState(false);
 
   useEffect(() => {
     const savedProject = loadProject();
@@ -115,7 +119,7 @@ export default function StoryPage() {
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey })
+        body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages, sceneImage })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate image');
       const data = await response.json();
@@ -147,6 +151,51 @@ export default function StoryPage() {
       } catch { /* continue polling */ }
     }
     setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, status: 'failed' } : sb));
+  };
+
+  const handleGenerateCostume = async (type: 'costume' | 'scene', characterName?: string) => {
+    if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
+    const character = characterName ? characters.find(c => c.name === characterName) : undefined;
+    // Use first storyboard's sceneStyle for scene generation
+    const sceneStyle = storyboards[0]?.sceneStyle;
+
+    if (type === 'costume' && characterName) {
+      setCostumeGenerating(prev => ({ ...prev, [characterName]: true }));
+    } else {
+      setSceneGenerating(true);
+    }
+
+    try {
+      const response = await fetch('/api/generate-costume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type, name: characterName,
+          description: character?.description || '',
+          costumeDesc: characterName ? storyboards[0]?.characterCostume?.[characterName] : undefined,
+          sceneStyle,
+          referenceImageUrl: character?.imageUrl,
+          aspectRatio: settings.aspectRatio,
+          imageModel: settings.imageModel,
+          apiKey: settings.apiKey
+        })
+      });
+      if (!response.ok) throw new Error((await response.json()).error || 'Failed');
+      const data = await response.json();
+      if (type === 'costume' && characterName) {
+        setCostumeImages(prev => ({ ...prev, [characterName]: data.imageUrl }));
+      } else {
+        setSceneImage(data.imageUrl);
+      }
+    } catch (error) {
+      alert(`Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      if (type === 'costume' && characterName) {
+        setCostumeGenerating(prev => ({ ...prev, [characterName]: false }));
+      } else {
+        setSceneGenerating(false);
+      }
+    }
   };
 
   const handleGenerateVideoPrompt = async (storyboard: Storyboard) => {
@@ -240,23 +289,25 @@ export default function StoryPage() {
         <div className="max-w-7xl mx-auto p-3 md:p-6">
           <StepIndicator
             currentStep={currentStep}
-            steps={['Story', 'Characters', 'Script', 'Images', 'Videos', 'Export']}
+            steps={['Characters', 'Story', 'Script', 'Images', 'Videos', 'Export']}
           />
           {currentStep === 1 && (
-            <Step1
-              storyContent={storyContent}
-              onStoryLoad={setStoryContent}
-              onNext={() => setCurrentStep(2)}
-            />
-          )}
-          {currentStep === 2 && (
             <Step2
               characters={characters}
               objects={objects}
               onCharactersChange={setCharacters}
               onObjectsChange={setObjects}
-              onBack={() => setCurrentStep(1)}
+              onBack={() => {}}
+              onNext={() => setCurrentStep(2)}
+              isLoading={false}
+            />
+          )}
+          {currentStep === 2 && (
+            <Step1
+              storyContent={storyContent}
+              onStoryLoad={setStoryContent}
               onNext={handleGenerateScript}
+              onBack={() => setCurrentStep(1)}
               isLoading={isLoading}
             />
           )}
@@ -265,9 +316,14 @@ export default function StoryPage() {
               storyboards={storyboards}
               characters={characters}
               objects={objects}
+              costumeImages={costumeImages}
+              costumeGenerating={costumeGenerating}
+              sceneImage={sceneImage}
+              sceneGenerating={sceneGenerating}
               onBack={() => setCurrentStep(2)}
               onNext={() => setCurrentStep(4)}
               onUpdate={handleUpdateStoryboard}
+              onGenerateCostume={handleGenerateCostume}
             />
           )}
           {currentStep === 4 && (

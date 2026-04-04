@@ -130,7 +130,9 @@ ${storyContent}
     "characters": ["角色名"],  // ⚠️ 必须使用用户上传的精确角色名称
     "objects": ["物体名"],     // ⚠️ 必须使用用户上传的精确物体名称，如无则为 []
     "prompt": "Professional cinematic image prompt in English",
-    "videoPrompt": "Professional cinematic video motion prompt in English describing camera movement, subject motion, and atmosphere"
+    "videoPrompt": "Professional cinematic video motion prompt in English describing camera movement, subject motion, and atmosphere",
+    "characterCostume": { "角色名": "Detailed costume description: clothing, hair, accessories, colors" },
+    "sceneStyle": "Scene environment and lighting style description in English"
   }
 ]
 

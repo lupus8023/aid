@@ -1,57 +1,120 @@
-import { Storyboard, Character, ObjectItem } from '@/types';
+'use client';
+
 import { useState } from 'react';
+import { Storyboard, Character, ObjectItem } from '@/types';
+import { Loader2, RefreshCw, ZoomIn, X } from 'lucide-react';
 
 interface Step3Props {
   storyboards: Storyboard[];
   characters: Character[];
   objects: ObjectItem[];
+  costumeImages: Record<string, string>;
+  costumeGenerating: Record<string, boolean>;
+  sceneImage: string;
+  sceneGenerating: boolean;
   onBack: () => void;
   onNext: () => void;
   onUpdate?: (storyboard: Storyboard) => void;
+  onGenerateCostume?: (type: 'costume' | 'scene', characterName?: string) => void;
 }
 
-export default function Step3({ storyboards, characters, objects, onBack, onNext, onUpdate }: Step3Props) {
+function ImageThumb({ src, label, generating, onGenerate }: {
+  src?: string; label: string; generating?: boolean; onGenerate: () => void;
+}) {
+  const [lightbox, setLightbox] = useState(false);
+  return (
+    <>
+      <div className="flex flex-col gap-1">
+        <div className="relative group aspect-square bg-[var(--bg-tertiary)] rounded border border-[var(--border-color)] overflow-hidden">
+          {src ? (
+            <>
+              <img src={src} alt={label} className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                <button onClick={() => setLightbox(true)} className="p-1 bg-white/20 rounded hover:bg-white/40"><ZoomIn size={12} /></button>
+                <button onClick={onGenerate} className="p-1 bg-white/20 rounded hover:bg-white/40"><RefreshCw size={12} /></button>
+              </div>
+            </>
+          ) : generating ? (
+            <div className="w-full h-full flex items-center justify-center"><Loader2 size={16} className="animate-spin text-[var(--accent-blue)]" /></div>
+          ) : (
+            <button onClick={onGenerate} className="w-full h-full flex flex-col items-center justify-center gap-1 text-[var(--text-secondary)] hover:text-[var(--accent-blue)] transition-colors">
+              <span className="text-xl">+</span>
+            </button>
+          )}
+        </div>
+        <span className="text-[9px] font-mono text-[var(--text-secondary)] text-center truncate">{label}</span>
+      </div>
+      {lightbox && src && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center" onClick={() => setLightbox(false)}>
+          <button className="absolute top-4 right-4 text-white"><X size={24} /></button>
+          <img src={src} alt={label} className="max-w-[90vw] max-h-[90vh] object-contain rounded" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
+    </>
+  );
+}
+
+export default function Step3({ storyboards, characters, objects, costumeImages, costumeGenerating, sceneImage, sceneGenerating, onBack, onNext, onUpdate, onGenerateCostume }: Step3Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedPrompt, setEditedPrompt] = useState('');
 
-  const startEdit = (sb: Storyboard) => {
-    setEditingId(sb.id);
-    setEditedPrompt(sb.prompt);
-  };
-
-  const saveEdit = (sb: Storyboard) => {
-    onUpdate?.({ ...sb, prompt: editedPrompt });
-    setEditingId(null);
-  };
-
-  const getCharacterImage = (name: string) =>
-    characters.find(c => c.name === name)?.imageUrl;
-
-  const getObjectImage = (name: string) =>
-    objects.find(o => o.name === name)?.imageUrl;
+  const startEdit = (sb: Storyboard) => { setEditingId(sb.id); setEditedPrompt(sb.prompt); };
+  const saveEdit = (sb: Storyboard) => { onUpdate?.({ ...sb, prompt: editedPrompt }); setEditingId(null); };
+  const getObject = (name: string) => objects.find(o => o.name === name);
 
   return (
     <div className="space-y-6">
-      <div className="border-l-4 border-[var(--accent-orange)] pl-4 mb-8">
+      <div className="border-l-4 border-[var(--accent-orange)] pl-4 mb-6">
         <h2 className="text-2xl font-mono text-[var(--accent-green)] mb-2">
           <span className="text-[var(--text-secondary)]">03.</span> Shot Script
         </h2>
         <p className="text-[var(--text-secondary)] font-mono text-sm">
-          Review and edit shot descriptions before generating images
+          Generate costume & scene references, then review shots
         </p>
       </div>
 
+      {/* Global costume/scene reference panel */}
+      <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-4">
+        <p className="text-xs font-mono text-[var(--text-secondary)] mb-3">Global References — generated once, applied to all shots</p>
+        <div className="flex gap-3 flex-wrap">
+          {characters.map(char => (
+            <div key={char.name} className="w-20">
+              <ImageThumb
+                src={costumeImages[char.name]}
+                label={char.name}
+                generating={costumeGenerating[char.name]}
+                onGenerate={() => onGenerateCostume?.('costume', char.name)}
+              />
+            </div>
+          ))}
+          <div className="w-20">
+            <ImageThumb
+              src={sceneImage}
+              label="Scene"
+              generating={sceneGenerating}
+              onGenerate={() => onGenerateCostume?.('scene')}
+            />
+          </div>
+          {objects.map(obj => obj.imageUrl ? (
+            <div key={obj.name} className="w-20 flex flex-col gap-1">
+              <div className="aspect-square rounded border border-[var(--accent-orange)]/40 overflow-hidden">
+                <img src={obj.imageUrl} alt={obj.name} className="w-full h-full object-cover" />
+              </div>
+              <span className="text-[9px] font-mono text-[var(--text-secondary)] text-center truncate">{obj.name}</span>
+            </div>
+          ) : null)}
+        </div>
+      </div>
+
+      {/* Shot list */}
       <div className="space-y-3">
         {storyboards.map((sb) => (
           <div key={sb.id} className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-4 flex gap-4">
-            {/* Left: content */}
-            <div className="flex-1 min-w-0 w-2/3">
+            <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-mono text-[var(--accent-yellow)]">Scene {sb.sceneNumber}</span>
                 {editingId !== sb.id && (
-                  <button onClick={() => startEdit(sb)} className="text-xs font-mono text-[var(--accent-blue)] hover:underline">
-                    Edit
-                  </button>
+                  <button onClick={() => startEdit(sb)} className="text-xs font-mono text-[var(--accent-blue)] hover:underline">Edit</button>
                 )}
               </div>
               <p className="text-sm text-[var(--text-primary)] mb-2">{sb.description}</p>
@@ -72,33 +135,35 @@ export default function Step3({ storyboards, characters, objects, onBack, onNext
               )}
             </div>
 
-            {/* Right: character/object thumbnails - 1/3 width */}
-            {((sb.characters?.length ?? 0) > 0 || (sb.objects?.length ?? 0) > 0) && (
-              <div className="w-1/3 shrink-0 grid grid-cols-3 gap-1 content-start">
-                {sb.characters?.map(name => {
-                  const img = getCharacterImage(name);
-                  return img ? (
-                    <div key={name} className="relative group aspect-square">
-                      <img src={img} alt={name} className="w-full h-full object-cover rounded border border-[var(--border-color)]" />
-                      <span className="absolute bottom-0 left-0 right-0 text-center text-[9px] font-mono bg-black/60 text-white rounded-b truncate px-0.5 opacity-0 group-hover:opacity-100 transition-opacity">{name}</span>
-                    </div>
-                  ) : (
-                    <div key={name} className="aspect-square flex items-center justify-center bg-[var(--bg-tertiary)] rounded border border-[var(--border-color)] text-[9px] font-mono text-[var(--text-secondary)] text-center p-0.5">{name}</div>
-                  );
-                })}
+            {/* Right: show which references apply to this shot */}
+            <div className="w-1/3 shrink-0">
+              <p className="text-[9px] font-mono text-[var(--text-secondary)] mb-1">This shot uses</p>
+              <div className="grid grid-cols-3 gap-1">
+                {sb.characters?.map(name => (
+                  <div key={name} className="relative group aspect-square rounded border border-[var(--border-color)] overflow-hidden bg-[var(--bg-tertiary)]">
+                    {costumeImages[name] ? (
+                      <img src={costumeImages[name]} alt={name} className="w-full h-full object-cover" />
+                    ) : characters.find(c => c.name === name)?.imageUrl ? (
+                      <img src={characters.find(c => c.name === name)!.imageUrl} alt={name} className="w-full h-full object-cover opacity-40" />
+                    ) : null}
+                    <span className="absolute bottom-0 left-0 right-0 text-[9px] font-mono bg-black/60 text-white text-center truncate px-0.5">{name}</span>
+                  </div>
+                ))}
+                {sceneImage && (
+                  <div className="aspect-square rounded border border-[var(--border-color)] overflow-hidden">
+                    <img src={sceneImage} alt="Scene" className="w-full h-full object-cover" />
+                  </div>
+                )}
                 {sb.objects?.map(name => {
-                  const img = getObjectImage(name);
-                  return img ? (
-                    <div key={name} className="relative group aspect-square">
-                      <img src={img} alt={name} className="w-full h-full object-cover rounded border border-[var(--accent-orange)]/40" />
-                      <span className="absolute bottom-0 left-0 right-0 text-center text-[9px] font-mono bg-black/60 text-white rounded-b truncate px-0.5 opacity-0 group-hover:opacity-100 transition-opacity">{name}</span>
+                  const obj = getObject(name);
+                  return obj?.imageUrl ? (
+                    <div key={name} className="aspect-square rounded border border-[var(--accent-orange)]/40 overflow-hidden">
+                      <img src={obj.imageUrl} alt={name} className="w-full h-full object-cover" />
                     </div>
-                  ) : (
-                    <div key={name} className="aspect-square flex items-center justify-center bg-[var(--bg-tertiary)] rounded border border-[var(--accent-orange)]/40 text-[9px] font-mono text-[var(--text-secondary)] text-center p-0.5">{name}</div>
-                  );
+                  ) : null;
                 })}
               </div>
-            )}
+            </div>
           </div>
         ))}
       </div>

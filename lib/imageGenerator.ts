@@ -8,7 +8,9 @@ export async function generateStoryboardImage(
   apiKey: string,
   objects: ObjectItem[] = [],
   aspectRatio: '16:9' | '9:16' = '16:9',
-  imageModel?: string
+  imageModel?: string,
+  globalCostumeImages: Record<string, string> = {},
+  globalSceneImage?: string
 ): Promise<string> {
   // 找到该分镜中出现的角色
   const sceneCharacters = characters.filter(c =>
@@ -25,18 +27,21 @@ export async function generateStoryboardImage(
   console.log('- Available objects:', objects.map(o => o.name));
   console.log('- Matched scene objects:', sceneObjects.map(o => o.name));
 
-  // 收集所有角色的参考图片
+  // 收集所有角色的参考图片 — 优先使用全局定妆图
   const characterImages = sceneCharacters
-    .map(char => char.imageBase64 || char.imageUrl)
+    .map(char => globalCostumeImages[char.name] || char.imageBase64 || char.imageUrl)
     .filter(img => img);
+
+  // 场景参考图
+  const sceneImages = globalSceneImage ? [globalSceneImage] : [];
 
   // 收集所有物体的参考图片
   const objectImages = sceneObjects
     .map(obj => obj.imageBase64 || obj.imageUrl)
     .filter(img => img);
 
-  // 合并所有参考图片
-  const referenceImages = [...characterImages, ...objectImages];
+  // 合并所有参考图片：定妆图 + 场景图 + 物体图
+  const referenceImages = [...characterImages, ...sceneImages, ...objectImages];
 
   // 如果既没有角色也没有物体，使用纯文生图
   if (referenceImages.length === 0) {
@@ -67,11 +72,19 @@ export async function generateStoryboardImage(
   let imgIndex = 1;
 
   sceneCharacters.forEach((char) => {
+    const usingCostume = !!globalCostumeImages[char.name];
     referenceDescriptions.push(
-      `Reference image ${imgIndex}: "${char.name}" - ${char.description}. MUST copy exact face, hair, skin tone, body type, and clothing from this reference image.`
+      `Reference image ${imgIndex}: "${char.name}" - ${usingCostume ? 'COSTUME REFERENCE (use this exact costume/appearance)' : char.description}. MUST copy exact face, hair, skin tone, body type, and clothing from this reference image.`
     );
     imgIndex++;
   });
+
+  if (globalSceneImage) {
+    referenceDescriptions.push(
+      `Reference image ${imgIndex}: SCENE REFERENCE - Use this as the environment/background style. Match the lighting, atmosphere, and setting exactly.`
+    );
+    imgIndex++;
+  }
 
   sceneObjects.forEach((obj) => {
     referenceDescriptions.push(

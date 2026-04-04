@@ -6,9 +6,11 @@ interface Step1Props {
   storyContent: string;
   onStoryLoad: (content: string) => void;
   onNext: () => void;
+  onBack?: () => void;
+  isLoading?: boolean;
 }
 
-export default function Step1({ storyContent, onStoryLoad, onNext }: Step1Props) {
+export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading }: Step1Props) {
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text');
   const [textInput, setTextInput] = useState(storyContent);
 
@@ -79,13 +81,18 @@ export default function Step1({ storyContent, onStoryLoad, onNext }: Step1Props)
         />
       )}
 
-      <div className="flex justify-end pt-4 border-t border-[var(--border-color)]">
+      <div className="flex justify-between pt-4 border-t border-[var(--border-color)]">
+        {onBack && (
+          <button onClick={onBack} className="bg-[var(--bg-tertiary)] text-[var(--text-primary)] px-6 py-2.5 rounded font-mono text-sm hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-2">
+            <span>←</span> Back
+          </button>
+        )}
         <button
           onClick={onNext}
-          disabled={!textInput.trim()}
-          className="bg-[var(--accent-blue)] text-white px-6 py-2.5 rounded font-mono text-sm hover:bg-[#0098ff] disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:cursor-not-allowed transition-colors"
+          disabled={!textInput.trim() || isLoading}
+          className="ml-auto bg-[var(--accent-blue)] text-white px-6 py-2.5 rounded font-mono text-sm hover:bg-[#0098ff] disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:cursor-not-allowed transition-colors"
         >
-          Next: Select Characters →
+          {isLoading ? <span className="animate-pulse">Generating script...</span> : 'Next: Generate Script →'}
         </button>
       </div>
     </div>

@@ -4,7 +4,7 @@ import { Storyboard, Character, ObjectItem } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const { storyboard, characters, objects, aspectRatio, imageModel, apiKey } = await request.json();
+    const { storyboard, characters, objects, aspectRatio, imageModel, apiKey, costumeImages, sceneImage } = await request.json();
 
     if (!storyboard || !characters || characters.length === 0) {
       return NextResponse.json(
@@ -26,7 +26,9 @@ export async function POST(request: NextRequest) {
       apiKey,
       objects || [],
       aspectRatio || '16:9',
-      imageModel
+      imageModel,
+      costumeImages || {},
+      sceneImage
     );
 
     return NextResponse.json({ taskId });
