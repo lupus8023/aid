@@ -20,11 +20,9 @@ export async function POST(request: NextRequest) {
 
     let prompt = '';
     if (type === 'costume') {
-      // Character costume reference image
-      prompt = `Character costume reference sheet. [${name}](${description}) wearing: ${costumeDesc}. Full body shot, neutral pose, white/neutral background, clear visibility of costume details, consistent lighting. This is a costume reference for film production.`;
+      prompt = `Character costume reference sheet. [${name}](${description}) wearing: ${costumeDesc}. Full body shot, neutral pose, white/neutral background, clear visibility of costume details, consistent lighting. This is a costume reference for film production. No text, no watermark, no labels, no captions.`;
     } else if (type === 'scene') {
-      // Scene environment reference image
-      prompt = `Scene environment reference. ${sceneStyle}. Empty scene without characters, establishing shot, wide angle, detailed environment, consistent lighting and atmosphere. This is a scene reference for film production.`;
+      prompt = `Scene environment reference. ${sceneStyle}. Empty scene without characters, establishing shot, wide angle, detailed environment, consistent lighting and atmosphere. This is a scene reference for film production. No text, no watermark, no labels, no captions.`;
     } else {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
     }
