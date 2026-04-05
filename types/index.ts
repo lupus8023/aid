@@ -36,7 +36,8 @@ export interface Storyboard {
   aspectRatio?: '16:9' | '9:16' | '1:1'; // 宽高比
   audioUrl?: string; // 生成的音频 URL
   audioStatus?: 'generating' | 'completed' | 'failed';
-  dialogue?: Record<string, string>; // { 角色名: 台词 }
+  dialogue?: Record<string, string>; // { 角色名: 台词 } - legacy
+  dialogueLines?: { character: string; text: string }[]; // ordered dialogue lines
   videoPrompt?: string; // 视频生成提示词
   videoDuration?: number; // 视频时长（秒）5-15
   // 定妆/场景参考图

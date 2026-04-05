@@ -238,12 +238,16 @@ export default function StoryPage() {
 
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, audioStatus: 'generating' } : sb));
     try {
-      // Build lines in character appearance order, filtered to those with dialogue
-      const lines = storyboard.characters
-        .filter(name => storyboard.dialogue![name]?.trim())
-        .map(name => ({
-          text: storyboard.dialogue![name],
-          voiceId: characters.find(c => c.name === name)?.voiceId
+      // Use ordered dialogueLines if available, fall back to dialogue object
+      const rawLines = storyboard.dialogueLines?.length
+        ? storyboard.dialogueLines
+        : Object.entries(storyboard.dialogue || {}).map(([character, text]) => ({ character, text }));
+
+      const lines = rawLines
+        .filter(l => l.text?.trim())
+        .map(l => ({
+          text: l.text,
+          voiceId: characters.find(c => c.name === l.character)?.voiceId
         }));
 
       const response = await fetch('/api/generate-audio', {

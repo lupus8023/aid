@@ -31,10 +31,6 @@ export default function Step5({ storyboards, characters, onBack, onNext, onGener
     setEditingId(null);
   };
 
-  const updateDialogue = (sb: Storyboard, charName: string, text: string) => {
-    onUpdate?.({ ...sb, dialogue: { ...sb.dialogue, [charName]: text } });
-  };
-
   return (
     <div className="space-y-6">
       <div className="border-l-4 border-[var(--accent-purple)] pl-4 mb-8">
@@ -48,8 +44,7 @@ export default function Step5({ storyboards, characters, onBack, onNext, onGener
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {withImages.map((sb) => {
-          const sceneChars = characters.filter(c => sb.characters.includes(c.name));
-          const hasDialogue = sb.dialogue && Object.keys(sb.dialogue).length > 0;
+          const hasDialogue = (sb.dialogueLines?.length ?? 0) > 0 || Object.keys(sb.dialogue || {}).length > 0;
 
           return (
             <div key={sb.id} className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded overflow-hidden">
@@ -95,29 +90,40 @@ export default function Step5({ storyboards, characters, onBack, onNext, onGener
                   </div>
                 )}
 
-                {/* Dialogue per character */}
-                {sceneChars.length > 0 && (
-                  <div className="space-y-1 pt-1 border-t border-[var(--border-color)]">
-                    <span className="text-xs font-mono text-[var(--text-secondary)]">Dialogue:</span>
-                    {sceneChars.map(char => (
-                      <div key={char.id}>
-                        <span className="text-xs font-mono text-[var(--accent-green)]">{char.name}: </span>
-                        <input
-                          type="text"
-                          value={sb.dialogue?.[char.name] || ''}
-                          onChange={(e) => updateDialogue(sb, char.name, e.target.value)}
-                          placeholder="no dialogue"
-                          className="w-full mt-0.5 px-2 py-1 text-xs font-mono bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)] placeholder:text-[var(--text-secondary)]"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {/* Dialogue lines in order */}
+                {(() => {
+                  const lines = sb.dialogueLines?.length
+                    ? sb.dialogueLines
+                    : Object.entries(sb.dialogue || {}).map(([character, text]) => ({ character, text }));
+                  return lines.length > 0 ? (
+                    <div className="space-y-1 pt-1 border-t border-[var(--border-color)]">
+                      <span className="text-xs font-mono text-[var(--text-secondary)]">Dialogue:</span>
+                      {lines.map((line, i) => (
+                        <div key={i}>
+                          <span className="text-xs font-mono text-[var(--accent-green)]">{line.character}: </span>
+                          <input
+                            type="text"
+                            value={line.text}
+                            onChange={(e) => {
+                              const updated = [...lines];
+                              updated[i] = { ...line, text: e.target.value };
+                              onUpdate?.({ ...sb, dialogueLines: updated });
+                            }}
+                            className="w-full mt-0.5 px-2 py-1 text-xs font-mono bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
 
                 {/* Audio status */}
                 {sb.audioUrl && (
-                  <div className="flex items-center gap-1 text-xs font-mono text-[var(--accent-green)]">
-                    <Mic size={10} /> Audio ready
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1 text-xs font-mono text-[var(--accent-green)]">
+                      <Mic size={10} /> Audio ready
+                    </div>
+                    <audio src={sb.audioUrl} controls className="w-full h-8" />
                   </div>
                 )}
 
