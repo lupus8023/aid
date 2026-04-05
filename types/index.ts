@@ -32,7 +32,7 @@ export interface Storyboard {
   videoUrl?: string; // 视频 URL
   videoStatus?: 'pending' | 'generating' | 'completed' | 'failed'; // 视频生成状态
   videoTaskId?: string; // 视频任务 ID
-  aspectRatio?: '16:9' | '9:16'; // 宽高比
+  aspectRatio?: '16:9' | '9:16' | '1:1'; // 宽高比
   audioFile?: string; // 音频文件 base64
   videoPrompt?: string; // 视频生成提示词
   videoDuration?: number; // 视频时长（秒）5-15
@@ -99,5 +99,5 @@ export interface AppSettings {
   scriptModel: string; // 脚本生成模型
   imageModel: string; // 图片生成模型
   videoModel: string; // 视频生成模型
-  aspectRatio: '16:9' | '9:16'; // 横屏或竖屏
+  aspectRatio: '16:9' | '9:16' | '1:1'; // 横屏或竖屏
 }

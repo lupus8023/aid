@@ -156,12 +156,15 @@ export default function SettingsModal({
               value={localSettings.aspectRatio}
               onChange={(e) => setLocalSettings({
                 ...localSettings,
-                aspectRatio: e.target.value as '16:9' | '9:16'
+                aspectRatio: e.target.value as '16:9' | '9:16' | '1:1'
               })}
               className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
             >
               <option value="16:9">16:9 (横屏 Landscape)</option>
               <option value="9:16">9:16 (竖屏 Portrait)</option>
+              {localSettings.videoModel.includes('seedance') && (
+                <option value="1:1">1:1 (方形 Square)</option>
+              )}
             </select>
           </div>
         </div>
