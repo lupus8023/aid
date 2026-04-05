@@ -147,6 +147,21 @@ export default function SettingsModal({
             </select>
           </div>
 
+          {/* Language */}
+          <div>
+            <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">
+              Output Language
+            </label>
+            <select
+              value={localSettings.language || 'zh'}
+              onChange={(e) => setLocalSettings({ ...localSettings, language: e.target.value as 'zh' | 'en' })}
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+            >
+              <option value="zh">中文 Chinese</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+
           {/* Fish Audio API Key */}
           <div>
             <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">

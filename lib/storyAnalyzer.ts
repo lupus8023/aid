@@ -7,7 +7,8 @@ export async function analyzeStory(
   characters: Character[],
   apiKey: string,
   objects: ObjectItem[] = [],
-  aspectRatio: '16:9' | '9:16' = '16:9'
+  aspectRatio: '16:9' | '9:16' = '16:9',
+  language: 'zh' | 'en' = 'zh'
 ): Promise<Storyboard[]> {
   const characterNames = characters.map(c => c.name).join('、');
 
@@ -24,6 +25,8 @@ export async function analyzeStory(
 
   const prompt = `
 你是一位资深的电影分镜师和视觉导演。请深度分析以下故事内容,将其拆解成专业的分镜场景。
+
+🌐 输出语言要求：${language === 'en' ? '所有 description、dialogue 字段必须使用英文输出。' : '所有 description、dialogue 字段必须使用中文输出。'}
 
 🚨 核心规则 - 名称精确匹配 🚨
 ═══════════════════════════════════════════════════════════════
