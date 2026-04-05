@@ -7,7 +7,6 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Generate TTS for one line and return raw buffer
 async function generateTTS(text: string, voiceId: string | undefined, fishAudioKey: string): Promise<Buffer> {
   const res = await fetch('https://api.fish.audio/v1/tts', {
     method: 'POST',
@@ -26,7 +25,17 @@ async function generateTTS(text: string, voiceId: string | undefined, fishAudioK
   return Buffer.from(await res.arrayBuffer());
 }
 
-// lines: [{ text, voiceId }] in dialogue order
+async function uploadBuffer(buffer: Buffer): Promise<string> {
+  const base64 = `data:audio/mpeg;base64,${buffer.toString('base64')}`;
+  const result = await cloudinary.uploader.upload(base64, {
+    folder: 'aid-audio',
+    resource_type: 'video',
+  });
+  return result.secure_url;
+}
+
+// lines: [{ text, voiceId, character }] in dialogue order
+// Returns per-character audio files (one per unique character, lines concatenated)
 export async function POST(request: NextRequest) {
   try {
     const { lines, fishAudioKey } = await request.json();
@@ -34,23 +43,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'lines and fishAudioKey are required' }, { status: 400 });
     }
 
-    // Generate each line sequentially, then concat buffers
-    const buffers: Buffer[] = [];
-    for (const { text, voiceId } of lines) {
-      if (text?.trim()) {
-        buffers.push(await generateTTS(text, voiceId, fishAudioKey));
+    // Group lines by character (preserving first-seen order)
+    const characterOrder: string[] = [];
+    const characterLines: Record<string, { text: string; voiceId?: string }[]> = {};
+    for (const { character, text, voiceId } of lines) {
+      if (!text?.trim()) continue;
+      if (!characterLines[character]) {
+        characterOrder.push(character);
+        characterLines[character] = [];
       }
+      characterLines[character].push({ text, voiceId });
     }
 
-    const combined = Buffer.concat(buffers);
-    const base64 = `data:audio/mpeg;base64,${combined.toString('base64')}`;
+    // Generate and upload audio per character
+    const characterAudios: { character: string; audioUrl: string }[] = [];
+    for (const character of characterOrder) {
+      const charLines = characterLines[character];
+      const buffers: Buffer[] = [];
+      for (const { text, voiceId } of charLines) {
+        buffers.push(await generateTTS(text, voiceId, fishAudioKey));
+      }
+      const combined = Buffer.concat(buffers);
+      const audioUrl = await uploadBuffer(combined);
+      characterAudios.push({ character, audioUrl });
+    }
 
-    const result = await cloudinary.uploader.upload(base64, {
-      folder: 'aid-audio',
-      resource_type: 'video',
-    });
-
-    return NextResponse.json({ audioUrl: result.secure_url });
+    return NextResponse.json({ characterAudios });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to generate audio' }, { status: 500 });
   }

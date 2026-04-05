@@ -247,12 +247,10 @@ export default function StoryPage() {
       const lines = rawLines
         .filter(l => l.text?.trim())
         .map(l => ({
+          character: l.character,
           text: l.text,
           voiceId: characters.find(c => c.name === l.character)?.voiceId
         }));
-
-      console.log('Audio lines:', lines.map(l => ({ text: l.text.slice(0, 20), voiceId: l.voiceId })));
-      console.log('Available characters:', characters.map(c => ({ name: c.name, voiceId: c.voiceId })));
 
       const response = await fetch('/api/generate-audio', {
         method: 'POST',
@@ -260,10 +258,10 @@ export default function StoryPage() {
         body: JSON.stringify({ lines, fishAudioKey: settings.fishAudioKey })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed');
-      const { audioUrl } = await response.json();
+      const { characterAudios } = await response.json();
 
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id
-        ? { ...sb, audioStatus: 'completed', audioUrl }
+        ? { ...sb, audioStatus: 'completed', characterAudios }
         : sb
       ));
     } catch (error) {
@@ -279,7 +277,7 @@ export default function StoryPage() {
       const response = await fetch('/api/generate-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, audioFiles: storyboard.audioUrl ? [storyboard.audioUrl] : [] })
+        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, characterAudios: storyboard.characterAudios || [] })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate video');
       const data = await response.json();

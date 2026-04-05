@@ -7,7 +7,8 @@ export async function generateStoryboardVideo(
   apiKey: string,
   model: string = 'sora-2',
   aspectRatio: '16:9' | '9:16' = '16:9',
-  audioFiles: string[] = []
+  audioFiles: string[] = [],
+  characterAudios: { character: string; audioUrl: string }[] = []
 ): Promise<string> {
   // 确保有生成的图片
   if (!storyboard.imageUrl) {
@@ -19,7 +20,12 @@ export async function generateStoryboardVideo(
     ? storyboard.videoPrompt
     : storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1');
 
-  const videoPrompt = `${basePrompt}
+  // Build character-audio mapping lines
+  const audioMapping = characterAudios.length > 0
+    ? '\n' + characterAudios.map(a => `@[${a.character}] 使用@[${a.audioUrl}]`).join('\n')
+    : '';
+
+  const videoPrompt = `${basePrompt}${audioMapping}
 
 Visual consistency: Keep all characters, objects, and scene elements exactly as shown in the image. No changes to appearance, clothing, or environment throughout the video.
 Shot completeness: The shot must have a complete action arc — a clear beginning, middle, and natural end. Do not cut off mid-action.

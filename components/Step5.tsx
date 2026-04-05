@@ -119,12 +119,16 @@ export default function Step5({ storyboards, characters, onBack, onNext, onGener
                 })()}
 
                 {/* Audio status */}
-                {sb.audioUrl && (
+                {sb.characterAudios && sb.characterAudios.length > 0 && (
                   <div className="space-y-1">
-                    <div className="flex items-center gap-1 text-xs font-mono text-[var(--accent-green)]">
-                      <Mic size={10} /> Audio ready
-                    </div>
-                    <audio src={sb.audioUrl} controls className="w-full h-8" />
+                    {sb.characterAudios.map((ca, i) => (
+                      <div key={i} className="space-y-0.5">
+                        <div className="flex items-center gap-1 text-xs font-mono text-[var(--accent-green)]">
+                          <Mic size={10} /> {ca.character}
+                        </div>
+                        <audio src={ca.audioUrl} controls className="w-full h-8" />
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -152,7 +156,7 @@ export default function Step5({ storyboards, characters, onBack, onNext, onGener
                     {sb.audioStatus === 'generating' ? (
                       <><Loader2 size={10} className="animate-spin" /> Generating Audio...</>
                     ) : (
-                      <><Mic size={10} /> {sb.audioUrl ? 'Regenerate Audio' : 'Generate Audio'}</>
+                      <><Mic size={10} /> {sb.characterAudios?.length ? 'Regenerate Audio' : 'Generate Audio'}</>
                     )}
                   </button>
                 )}

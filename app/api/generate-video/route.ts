@@ -3,7 +3,7 @@ import { generateStoryboardVideo, waitForVideoGeneration } from '@/lib/videoGene
 
 export async function POST(request: NextRequest) {
   try {
-    const { storyboard, apiKey, videoModel, aspectRatio, audioFiles = [] } = await request.json();
+    const { storyboard, apiKey, videoModel, aspectRatio, characterAudios = [] } = await request.json();
 
     if (!storyboard) {
       return NextResponse.json(
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     console.log('Image URL:', storyboard.imageUrl);
 
     // audioFiles are already public URLs (from fish.audio → Cloudinary), pass directly
-    const uploadedAudioUrls = audioFiles.filter(Boolean);
+    const uploadedAudioUrls = characterAudios.map((a: { audioUrl: string }) => a.audioUrl).filter(Boolean);
 
     // 生成视频任务（image-to-video 模式，视觉信息已在图片中）
     const taskId = await generateStoryboardVideo(
@@ -33,7 +33,8 @@ export async function POST(request: NextRequest) {
       apiKey,
       videoModel,
       aspectRatio || '16:9',
-      uploadedAudioUrls
+      uploadedAudioUrls,
+      characterAudios
     );
     console.log('Video task created, ID:', taskId);
 

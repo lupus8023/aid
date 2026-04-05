@@ -34,7 +34,8 @@ export interface Storyboard {
   videoStatus?: 'pending' | 'generating' | 'completed' | 'failed'; // 视频生成状态
   videoTaskId?: string; // 视频任务 ID
   aspectRatio?: '16:9' | '9:16' | '1:1'; // 宽高比
-  audioUrl?: string; // 生成的音频 URL
+  audioUrl?: string; // 生成的音频 URL (legacy single)
+  characterAudios?: { character: string; audioUrl: string }[]; // per-character audio
   audioStatus?: 'generating' | 'completed' | 'failed';
   dialogue?: Record<string, string>; // { 角色名: 台词 } - legacy
   dialogueLines?: { character: string; text: string }[]; // ordered dialogue lines
