@@ -156,7 +156,6 @@ export default function StoryPage() {
   const handleGenerateCostume = async (type: 'costume' | 'scene', characterName?: string) => {
     if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
     const character = characterName ? characters.find(c => c.name === characterName) : undefined;
-    // Use first storyboard's sceneStyle for scene generation
     const sceneStyle = storyboards[0]?.sceneStyle;
 
     if (type === 'costume' && characterName) {
@@ -181,12 +180,29 @@ export default function StoryPage() {
         })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed');
-      const data = await response.json();
-      if (type === 'costume' && characterName) {
-        setCostumeImages(prev => ({ ...prev, [characterName]: data.imageUrl }));
-      } else {
-        setSceneImage(data.imageUrl);
+      const { taskId } = await response.json();
+
+      // Poll for completion
+      for (let i = 0; i < 90; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const statusRes = await fetch('/api/check-image-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskId, apiKey: settings.apiKey })
+        });
+        if (!statusRes.ok) continue;
+        const statusData = await statusRes.json();
+        if (statusData.status === 'completed' && statusData.imageUrl) {
+          if (type === 'costume' && characterName) {
+            setCostumeImages(prev => ({ ...prev, [characterName]: statusData.imageUrl }));
+          } else {
+            setSceneImage(statusData.imageUrl);
+          }
+          return;
+        }
+        if (statusData.status === 'failed') throw new Error('Image generation failed');
       }
+      throw new Error('Timeout');
     } catch (error) {
       alert(`Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
