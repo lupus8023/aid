@@ -22,7 +22,8 @@ export async function generateStoryboardVideo(
   const videoPrompt = `${basePrompt}
 
 Visual consistency: Keep all characters, objects, and scene elements exactly as shown in the image. No changes to appearance, clothing, or environment throughout the video.
-IMPORTANT: Do not add dialogue subtitles or speech captions.`;
+Shot completeness: The shot must have a complete action arc — a clear beginning, middle, and natural end. Do not cut off mid-action.
+IMPORTANT: No background music. No sound effects. No dialogue subtitles. Silent video only.`;
 
 
   console.log(`Creating video task for storyboard scene ${storyboard.sceneNumber}`);

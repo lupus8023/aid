@@ -48,6 +48,7 @@ Lighting changes, environmental motion (wind, particles, etc.), depth of field b
 - Focus on MOTION, not static description (the image already handles visuals)
 - Do NOT describe character appearance (already in the reference image)
 - Do NOT mention art style
+- IMPORTANT: The shot must feel complete — describe a full action arc with a clear beginning, middle, and end. The motion should resolve naturally, not cut off abruptly.
 - Output ONLY the prompt text, no labels or headers
 
 ## Example Output
