@@ -234,7 +234,8 @@ export default function StoryPage() {
 
   const handleGenerateAudio = async (storyboard: Storyboard) => {
     if (!settings.fishAudioKey) { alert('Please configure Fish Audio API Key in settings'); return; }
-    if (!storyboard.dialogue || Object.keys(storyboard.dialogue).length === 0) return;
+    const hasLines = (storyboard.dialogueLines?.length ?? 0) > 0 || Object.keys(storyboard.dialogue || {}).length > 0;
+    if (!hasLines) return;
 
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, audioStatus: 'generating' } : sb));
     try {

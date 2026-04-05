@@ -178,7 +178,7 @@ export default function StoryboardCard({
       </div>
 
       {/* Image Preview */}
-      <div className={`relative bg-[var(--bg-tertiary)] ${getAspectRatio() === '9:16' ? 'aspect-[9/16]' : 'aspect-video'}`}>
+      <div className={`relative bg-[var(--bg-tertiary)] ${getAspectRatio() === '9:16' ? 'aspect-[9/16]' : getAspectRatio() === '1:1' ? 'aspect-square' : 'aspect-video'}`}>
         {storyboard.imageUrl ? (
           <img
             src={storyboard.imageUrl}
@@ -195,7 +195,7 @@ export default function StoryboardCard({
 
       {/* Video Preview */}
       {storyboard.videoUrl && (
-        <div className={`relative bg-[var(--bg-primary)] ${getAspectRatio() === '9:16' ? 'aspect-[9/16]' : 'aspect-video'}`}>
+        <div className={`relative bg-[var(--bg-primary)] ${getAspectRatio() === '9:16' ? 'aspect-[9/16]' : getAspectRatio() === '1:1' ? 'aspect-square' : 'aspect-video'}`}>
           <video
             src={storyboard.videoUrl}
             controls
