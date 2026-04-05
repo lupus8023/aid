@@ -37,7 +37,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
     <div className="space-y-6">
       <div className="border-l-4 border-[var(--accent-blue)] pl-4 mb-8">
         <h2 className="text-2xl font-mono text-[var(--accent-green)] mb-2">
-          <span className="text-[var(--text-secondary)]">01.</span> Story Brief
+          <span className="text-[var(--text-secondary)]">02.</span> Story Brief
         </h2>
         <p className="text-[var(--text-secondary)] font-mono text-sm">
           Enter your story concept or synopsis

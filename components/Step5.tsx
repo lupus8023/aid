@@ -46,12 +46,13 @@ export default function Step5({ storyboards, characters, onBack, onNext, onGener
         {withImages.map((sb) => {
           const hasDialogue = (sb.dialogueLines?.length ?? 0) > 0 || Object.keys(sb.dialogue || {}).length > 0;
 
+          const aspectClass = sb.aspectRatio === '9:16' ? 'aspect-[9/16]' : sb.aspectRatio === '1:1' ? 'aspect-square' : 'aspect-video';
           return (
-            <div key={sb.id} className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded overflow-hidden">
+            <div key={sb.id} className={`bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded overflow-hidden ${sb.aspectRatio === '9:16' ? 'max-w-[200px] mx-auto' : ''}`}>
               {sb.videoUrl ? (
-                <video src={sb.videoUrl} className="w-full aspect-video object-cover" controls muted />
+                <video src={sb.videoUrl} className={`w-full ${aspectClass} object-cover`} controls muted />
               ) : (
-                <img src={sb.imageUrl} alt={`Scene ${sb.sceneNumber}`} className="w-full aspect-video object-cover opacity-60" />
+                <img src={sb.imageUrl} alt={`Scene ${sb.sceneNumber}`} className={`w-full ${aspectClass} object-cover opacity-60`} />
               )}
               <div className="p-3 space-y-2">
                 <div className="flex items-center justify-between">

@@ -26,7 +26,10 @@ export async function analyzeStory(
   const prompt = `
 你是一位资深的电影分镜师和视觉导演。请深度分析以下故事内容,将其拆解成专业的分镜场景。
 
-🌐 输出语言要求：${language === 'en' ? '所有 description、dialogue 字段必须使用英文输出。' : '所有 description、dialogue 字段必须使用中文输出。'}
+🌐 输出语言要求（强制执行）：
+${language === 'en'
+  ? '⚠️ MANDATORY: ALL text output MUST be in ENGLISH. This includes description, dialogueLines[].text, characterCostume values, sceneStyle. NO Chinese characters allowed in any field except character/object names.'
+  : '⚠️ 强制要求：所有文本输出必须使用中文，包括 description、dialogueLines[].text、characterCostume 的值、sceneStyle。除角色/物体名称外，不允许出现英文句子。'}
 
 🚨 核心规则 - 名称精确匹配 🚨
 ═══════════════════════════════════════════════════════════════
