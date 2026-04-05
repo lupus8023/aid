@@ -40,12 +40,14 @@ export default function Step4({ storyboards, onBack, onNext, onGenerateImage, on
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {storyboards.map((sb) => (
+        {storyboards.map((sb) => {
+          const aspectClass = sb.aspectRatio === '9:16' ? 'aspect-[9/16]' : sb.aspectRatio === '1:1' ? 'aspect-square' : 'aspect-video';
+          return (
           <div key={sb.id} className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded overflow-hidden">
             {sb.imageUrl ? (
-              <img src={sb.imageUrl} alt={`Scene ${sb.sceneNumber}`} className="w-full aspect-video object-cover" />
+              <img src={sb.imageUrl} alt={`Scene ${sb.sceneNumber}`} className={`w-full ${aspectClass} object-cover`} />
             ) : (
-              <div className="w-full aspect-video bg-[var(--bg-tertiary)] flex items-center justify-center">
+              <div className={`w-full ${aspectClass} bg-[var(--bg-tertiary)] flex items-center justify-center`}>
                 {sb.status === 'generating' ? (
                   <Loader2 size={24} className="text-[var(--accent-blue)] animate-spin" />
                 ) : (
@@ -82,7 +84,8 @@ export default function Step4({ storyboards, onBack, onNext, onGenerateImage, on
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="flex justify-between pt-4 border-t border-[var(--border-color)]">

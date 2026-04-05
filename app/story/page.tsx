@@ -251,6 +251,9 @@ export default function StoryPage() {
           voiceId: characters.find(c => c.name === l.character)?.voiceId
         }));
 
+      console.log('Audio lines:', lines.map(l => ({ text: l.text.slice(0, 20), voiceId: l.voiceId })));
+      console.log('Available characters:', characters.map(c => ({ name: c.name, voiceId: c.voiceId })));
+
       const response = await fetch('/api/generate-audio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
