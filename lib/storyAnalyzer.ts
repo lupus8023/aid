@@ -142,6 +142,8 @@ ${storyContent}
     "dialogueLines": [
       { "character": "角色名", "text": "台词原文，按说话先后顺序排列" }
     ]
+    // ⚠️ 关键：dialogueLines 的顺序必须与故事中实际说话的先后顺序完全一致
+    // ⚠️ 关键：prompt 中提到角色时，也必须按照说话先后顺序排列（先说话的角色先出现）
   }
 ]
 
