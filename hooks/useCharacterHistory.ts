@@ -35,8 +35,9 @@ export function useCharacterHistory() {
         id: character.id,
         name: character.name,
         description: character.description,
-        imageUrl: thumbnailBase64, // 保存缩略图
-        imageBase64: thumbnailBase64, // 保存缩略图
+        imageUrl: thumbnailBase64,
+        imageBase64: thumbnailBase64,
+        voiceId: character.voiceId,
       };
 
       // 检查是否已存在相同名称的角色

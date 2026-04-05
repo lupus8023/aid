@@ -357,6 +357,8 @@ export default function StoryPage() {
               onNext={handleGenerateScript}
               onBack={() => setCurrentStep(1)}
               isLoading={isLoading}
+              language={settings.language || 'zh'}
+              onLanguageChange={(lang) => saveSettings({ ...settings, language: lang })}
             />
           )}
           {currentStep === 3 && (

@@ -8,9 +8,11 @@ interface Step1Props {
   onNext: () => void;
   onBack?: () => void;
   isLoading?: boolean;
+  language?: 'zh' | 'en';
+  onLanguageChange?: (lang: 'zh' | 'en') => void;
 }
 
-export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading }: Step1Props) {
+export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange }: Step1Props) {
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text');
   const [textInput, setTextInput] = useState(storyContent);
 
@@ -40,6 +42,18 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
         <p className="text-[var(--text-secondary)] font-mono text-sm">
           Enter your story concept or synopsis
         </p>
+      </div>
+
+      <div className="flex items-center gap-3 mb-4">
+        <span className="text-xs font-mono text-[var(--text-secondary)]">Output Language:</span>
+        <button
+          onClick={() => onLanguageChange?.('zh')}
+          className={`px-3 py-1 rounded font-mono text-xs transition-colors ${language === 'zh' ? 'bg-[var(--accent-blue)] text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
+        >中文</button>
+        <button
+          onClick={() => onLanguageChange?.('en')}
+          className={`px-3 py-1 rounded font-mono text-xs transition-colors ${language === 'en' ? 'bg-[var(--accent-blue)] text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
+        >English</button>
       </div>
 
       <div className="flex gap-2 mb-4">
