@@ -14,6 +14,7 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
   const [characters, setCharacters] = useState<Character[]>([]);
   const [newCharacterName, setNewCharacterName] = useState('');
   const [newCharacterDescription, setNewCharacterDescription] = useState('');
+  const [newCharacterVoiceId, setNewCharacterVoiceId] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -40,7 +41,8 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
         description: newCharacterDescription.trim(),
         imageUrl,
         imageBase64,
-        imageFile: file
+        imageFile: file,
+        voiceId: newCharacterVoiceId.trim() || undefined
       };
 
       let updatedCharacters;
@@ -64,6 +66,7 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
       // 清空输入框
       setNewCharacterName('');
       setNewCharacterDescription('');
+      setNewCharacterVoiceId('');
     };
     reader.readAsDataURL(file);
   };
@@ -73,6 +76,7 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
     setEditingId(character.id);
     setNewCharacterName(character.name);
     setNewCharacterDescription(character.description);
+    setNewCharacterVoiceId(character.voiceId || '');
   };
 
   // 取消编辑
@@ -160,6 +164,19 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
 
       <div className="mb-4">
         <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
+          <span className="text-[var(--accent-orange)]">voiceId:</span> string (fish.audio)
+        </label>
+        <input
+          type="text"
+          value={newCharacterVoiceId}
+          onChange={(e) => setNewCharacterVoiceId(e.target.value)}
+          placeholder="fish.audio reference_id (optional)"
+          className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] font-mono text-sm focus:outline-none focus:border-[var(--accent-blue)] placeholder:text-[var(--text-secondary)]"
+        />
+      </div>
+
+      <div className="mb-4">
+        <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
           <span className="text-[var(--accent-orange)]">image:</span> File
         </label>
         <input
@@ -190,6 +207,7 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
                 />
                 <p className="text-sm font-mono text-[var(--accent-green)] truncate">{char.name}</p>
                 <p className="text-xs text-[var(--text-secondary)] font-mono mt-1 line-clamp-2">{char.description}</p>
+                {char.voiceId && <p className="text-xs font-mono text-[var(--accent-purple)] mt-1 truncate">🎙 {char.voiceId}</p>}
 
                 {/* Edit button */}
                 <button

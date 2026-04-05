@@ -132,7 +132,8 @@ ${storyContent}
     "prompt": "Professional cinematic image prompt in English",
     "videoPrompt": "Professional cinematic video motion prompt in English describing camera movement, subject motion, and atmosphere",
     "characterCostume": { "角色名": "Detailed costume description: clothing, hair, accessories, colors" },
-    "sceneStyle": "Scene environment and lighting style description in English"
+    "sceneStyle": "Scene environment and lighting style description in English",
+    "dialogue": { "角色名": "该角色在本场景中说的台词原文，如无台词则不包含此角色" }
   }
 ]
 

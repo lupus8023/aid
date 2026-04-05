@@ -6,6 +6,7 @@ export interface Character {
   imageUrl: string;
   imageBase64?: string; // base64 格式的图片，用于 API 调用
   imageFile?: File;
+  voiceId?: string; // fish.audio reference_id
 }
 
 // 物体类型
@@ -33,7 +34,9 @@ export interface Storyboard {
   videoStatus?: 'pending' | 'generating' | 'completed' | 'failed'; // 视频生成状态
   videoTaskId?: string; // 视频任务 ID
   aspectRatio?: '16:9' | '9:16' | '1:1'; // 宽高比
-  audioFile?: string; // 音频文件 base64
+  audioUrl?: string; // 生成的音频 URL
+  audioStatus?: 'generating' | 'completed' | 'failed';
+  dialogue?: Record<string, string>; // { 角色名: 台词 }
   videoPrompt?: string; // 视频生成提示词
   videoDuration?: number; // 视频时长（秒）5-15
   // 定妆/场景参考图
@@ -100,4 +103,5 @@ export interface AppSettings {
   imageModel: string; // 图片生成模型
   videoModel: string; // 视频生成模型
   aspectRatio: '16:9' | '9:16' | '1:1'; // 横屏或竖屏
+  fishAudioKey?: string; // fish.audio API key
 }

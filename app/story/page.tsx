@@ -232,6 +232,38 @@ export default function StoryPage() {
     }
   };
 
+  const handleGenerateAudio = async (storyboard: Storyboard) => {
+    if (!settings.fishAudioKey) { alert('Please configure Fish Audio API Key in settings'); return; }
+    if (!storyboard.dialogue || Object.keys(storyboard.dialogue).length === 0) return;
+
+    setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, audioStatus: 'generating' } : sb));
+    try {
+      // Build lines in character appearance order, filtered to those with dialogue
+      const lines = storyboard.characters
+        .filter(name => storyboard.dialogue![name]?.trim())
+        .map(name => ({
+          text: storyboard.dialogue![name],
+          voiceId: characters.find(c => c.name === name)?.voiceId
+        }));
+
+      const response = await fetch('/api/generate-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lines, fishAudioKey: settings.fishAudioKey })
+      });
+      if (!response.ok) throw new Error((await response.json()).error || 'Failed');
+      const { audioUrl } = await response.json();
+
+      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id
+        ? { ...sb, audioStatus: 'completed', audioUrl }
+        : sb
+      ));
+    } catch (error) {
+      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, audioStatus: 'failed' } : sb));
+      alert(`Audio generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   const handleGenerateVideo = async (storyboard: Storyboard) => {
     if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoStatus: 'generating' } : sb));
@@ -239,7 +271,7 @@ export default function StoryPage() {
       const response = await fetch('/api/generate-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, audioFiles: [] })
+        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, audioFiles: storyboard.audioUrl ? [storyboard.audioUrl] : [] })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate video');
       const data = await response.json();
@@ -355,10 +387,12 @@ export default function StoryPage() {
           {currentStep === 5 && (
             <Step5
               storyboards={storyboards}
+              characters={characters}
               onBack={() => setCurrentStep(4)}
               onNext={() => setCurrentStep(6)}
               onGenerateVideo={handleGenerateVideo}
               onGenerateVideoPrompt={handleGenerateVideoPrompt}
+              onGenerateAudio={handleGenerateAudio}
               onUpdate={handleUpdateStoryboard}
             />
           )}

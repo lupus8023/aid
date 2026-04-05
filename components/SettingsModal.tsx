@@ -147,6 +147,20 @@ export default function SettingsModal({
             </select>
           </div>
 
+          {/* Fish Audio API Key */}
+          <div>
+            <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">
+              Fish Audio API Key
+            </label>
+            <input
+              type="password"
+              value={localSettings.fishAudioKey || ''}
+              onChange={(e) => setLocalSettings({ ...localSettings, fishAudioKey: e.target.value })}
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+              placeholder="fish.audio API key for TTS"
+            />
+          </div>
+
           {/* Aspect Ratio */}
           <div>
             <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">

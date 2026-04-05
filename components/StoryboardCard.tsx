@@ -35,8 +35,8 @@ export default function StoryboardCard({
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        const audioFile = e.target?.result as string;
-        onUpdate?.({ ...storyboard, audioFile });
+        const audioUrl = e.target?.result as string;
+        onUpdate?.({ ...storyboard, audioUrl });
       };
       reader.readAsDataURL(file);
     }
@@ -371,7 +371,7 @@ export default function StoryboardCard({
             htmlFor={`audio-upload-${storyboard.id}`}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded cursor-pointer transition-colors"
           >
-            🎵 {storyboard.audioFile ? 'Audio Reference ✓' : 'Upload Audio Reference'}
+            🎵 {storyboard.audioUrl ? 'Audio Reference ✓' : 'Upload Audio Reference'}
           </label>
         </div>
       )}
