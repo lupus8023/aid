@@ -74,7 +74,7 @@ export async function generateStoryboardImage(
   sceneCharacters.forEach((char) => {
     const usingCostume = !!globalCostumeImages[char.name];
     referenceDescriptions.push(
-      `Reference image ${imgIndex}: "${char.name}" - ${usingCostume ? 'COSTUME REFERENCE (use this exact costume/appearance)' : char.description}. MUST copy exact face, hair, skin tone, body type, and clothing from this reference image.`
+      `Reference image ${imgIndex}: "${char.name}" - ${usingCostume ? 'COSTUME & IDENTITY REFERENCE. CRITICAL: preserve exact face shape, facial features, skin tone, eye color, hair style, hair color, and all costume details from this reference. Do not alter appearance in any way.' : `${char.description}. MUST copy exact face, hair, skin tone, body type, and clothing from this reference image.`}`
     );
     imgIndex++;
   });
@@ -93,17 +93,18 @@ export async function generateStoryboardImage(
     imgIndex++;
   });
 
-  const enhancedPrompt = `IMAGE-TO-IMAGE GENERATION: Use the provided reference images to generate the scene below. All characters and objects MUST match their reference images exactly.
+  const enhancedPrompt = `IMAGE-TO-IMAGE GENERATION: Use the provided reference images to generate the scene below. Character identity consistency is the highest priority.
 
 ${referenceDescriptions.join('\n')}
 
 SCENE: ${cleanedScenePrompt}
 
 CRITICAL RULES:
-- Characters: Copy exact appearance from reference images (face, hair, body, clothing). DO NOT change or reinterpret.
+- Characters: The face, facial features, skin tone, hair, and clothing MUST be identical to the reference images. This is non-negotiable.
 - Objects: Copy exact appearance from reference images (shape, color, texture, details). DO NOT change or reinterpret.
 - Only adjust: pose, position, expression, camera angle, lighting.
-- DO NOT add characters/objects not in references.`;
+- DO NOT add characters/objects not in references.
+- DO NOT generate text, watermarks, or captions.`;
 
 
   // 创建图像生成任务
