@@ -126,6 +126,26 @@ ${storyContent}
    - 营造场景的氛围感和张力
    - 考虑节奏：静态 vs 动态、紧张 vs 舒缓
 
+5. **运镜设计（videoPrompt 专用）**
+   根据场景情绪和内容，为每个镜头选择最合适的运镜手法：
+   - 推镜(push in / dolly in)：强调细节、情绪升温、揭示重要信息
+   - 拉镜(pull out / dolly out)：展示环境、角色孤立感、结局收尾
+   - 摇镜(pan left/right)：跟随角色移动、展示空间关系
+   - 移镜(tracking shot / lateral dolly)：跟随动作、保持紧张感
+   - 升降镜(crane up/down)：宏大开场、俯瞰全局、情绪释放
+   - 定焦静止(static shot)：强调对话、沉默张力、庄重时刻
+   - 手持抖动(handheld)：紧张追逐、混乱冲突、真实感
+   - 希区柯克变焦(dolly zoom)：心理冲击、恐惧/震惊时刻
+   - 环绕镜(orbit / 360 arc)：展示角色关系、戏剧性揭示
+   - 低角度仰拍(low angle push in)：强调权威感、英雄时刻
+   - 过肩跟随(over-shoulder tracking)：对话场景、主观视角
+
+   videoPrompt 格式要求：
+   [运镜指令], [主体动作], [环境氛围]
+   示例："Slow dolly in toward [Character], camera closes in as tension builds, shallow depth of field, warm backlight"
+   示例："Crane shot sweeping down from above the crowd to [Character] standing alone, dramatic reveal"
+   示例："Dolly zoom on [Character]'s face as realization hits, background distorts, frozen moment"
+
 ═══════════════════════════════════════════════════════════════
 📝 输出格式（只输出 JSON，不要其他内容）
 ═══════════════════════════════════════════════════════════════
