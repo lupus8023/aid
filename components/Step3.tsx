@@ -16,10 +16,12 @@ interface Step3Props {
   onNext: () => void;
   onUpdate?: (storyboard: Storyboard) => void;
   onGenerateCostume?: (type: 'costume' | 'scene', characterName?: string) => void;
+  onClearCostumeImage?: (characterName: string) => void;
+  onClearSceneImage?: () => void;
 }
 
-function ImageThumb({ src, label, generating, onGenerate }: {
-  src?: string; label: string; generating?: boolean; onGenerate: () => void;
+function ImageThumb({ src, label, generating, onGenerate, onClear }: {
+  src?: string; label: string; generating?: boolean; onGenerate: () => void; onClear?: () => void;
 }) {
   const [lightbox, setLightbox] = useState(false);
   return (
@@ -32,6 +34,7 @@ function ImageThumb({ src, label, generating, onGenerate }: {
               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
                 <button onClick={() => setLightbox(true)} className="p-1 bg-white/20 rounded hover:bg-white/40"><ZoomIn size={12} /></button>
                 <button onClick={onGenerate} className="p-1 bg-white/20 rounded hover:bg-white/40"><RefreshCw size={12} /></button>
+                {onClear && <button onClick={onClear} className="p-1 bg-white/20 rounded hover:bg-white/40"><X size={12} /></button>}
               </div>
             </>
           ) : generating ? (
@@ -54,7 +57,7 @@ function ImageThumb({ src, label, generating, onGenerate }: {
   );
 }
 
-export default function Step3({ storyboards, characters, objects, costumeImages, costumeGenerating, sceneImage, sceneGenerating, onBack, onNext, onUpdate, onGenerateCostume }: Step3Props) {
+export default function Step3({ storyboards, characters, objects, costumeImages, costumeGenerating, sceneImage, sceneGenerating, onBack, onNext, onUpdate, onGenerateCostume, onClearCostumeImage, onClearSceneImage }: Step3Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedPrompt, setEditedPrompt] = useState('');
 
@@ -84,6 +87,7 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
                 label={char.name}
                 generating={costumeGenerating[char.name]}
                 onGenerate={() => onGenerateCostume?.('costume', char.name)}
+                onClear={() => onClearCostumeImage?.(char.name)}
               />
             </div>
           ))}
@@ -93,6 +97,7 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
               label="Scene"
               generating={sceneGenerating}
               onGenerate={() => onGenerateCostume?.('scene')}
+              onClear={onClearSceneImage}
             />
           </div>
           {objects.map(obj => obj.imageUrl ? (

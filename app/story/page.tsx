@@ -380,6 +380,8 @@ export default function StoryPage() {
               onNext={() => setCurrentStep(4)}
               onUpdate={handleUpdateStoryboard}
               onGenerateCostume={handleGenerateCostume}
+              onClearCostumeImage={(name) => setCostumeImages(prev => { const n = { ...prev }; delete n[name]; return n; })}
+              onClearSceneImage={() => setSceneImage('')}
             />
           )}
           {currentStep === 4 && (
