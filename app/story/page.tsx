@@ -28,7 +28,7 @@ export default function StoryPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [costumeImages, setCostumeImages] = useState<Record<string, string>>({}); // { 角色名: URL }
   const [costumeGenerating, setCostumeGenerating] = useState<Record<string, boolean>>({}); // { 角色名: bool }
-  const [sceneImage, setSceneImage] = useState<string>('');
+  const [sceneImages, setSceneImages] = useState<string[]>([]);
   const [sceneGenerating, setSceneGenerating] = useState(false);
 
   useEffect(() => {
@@ -119,7 +119,7 @@ export default function StoryPage() {
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages, sceneImage })
+        body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages, sceneImage: storyboard.sceneImageOverride || sceneImages[0] || '' })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate image');
       const data = await response.json();
@@ -196,7 +196,7 @@ export default function StoryPage() {
           if (type === 'costume' && characterName) {
             setCostumeImages(prev => ({ ...prev, [characterName]: statusData.imageUrl }));
           } else {
-            setSceneImage(statusData.imageUrl);
+            setSceneImages(prev => [...prev, statusData.imageUrl]);
           }
           return;
         }
@@ -374,14 +374,15 @@ export default function StoryPage() {
               objects={objects}
               costumeImages={costumeImages}
               costumeGenerating={costumeGenerating}
-              sceneImage={sceneImage}
+              sceneImage={sceneImages[0] || ''}
+              sceneImages={sceneImages}
               sceneGenerating={sceneGenerating}
               onBack={() => setCurrentStep(2)}
               onNext={() => setCurrentStep(4)}
               onUpdate={handleUpdateStoryboard}
               onGenerateCostume={handleGenerateCostume}
               onClearCostumeImage={(name) => setCostumeImages(prev => { const n = { ...prev }; delete n[name]; return n; })}
-              onClearSceneImage={() => setSceneImage('')}
+              onClearSceneImage={(idx) => setSceneImages(prev => prev.filter((_, i) => i !== idx))}
             />
           )}
           {currentStep === 4 && (

@@ -11,13 +11,14 @@ interface Step3Props {
   costumeImages: Record<string, string>;
   costumeGenerating: Record<string, boolean>;
   sceneImage: string;
+  sceneImages: string[];
   sceneGenerating: boolean;
   onBack: () => void;
   onNext: () => void;
   onUpdate?: (storyboard: Storyboard) => void;
   onGenerateCostume?: (type: 'costume' | 'scene', characterName?: string) => void;
   onClearCostumeImage?: (characterName: string) => void;
-  onClearSceneImage?: () => void;
+  onClearSceneImage?: (idx: number) => void;
 }
 
 function ImageThumb({ src, label, generating, onGenerate, onClear }: {
@@ -57,9 +58,11 @@ function ImageThumb({ src, label, generating, onGenerate, onClear }: {
   );
 }
 
-export default function Step3({ storyboards, characters, objects, costumeImages, costumeGenerating, sceneImage, sceneGenerating, onBack, onNext, onUpdate, onGenerateCostume, onClearCostumeImage, onClearSceneImage }: Step3Props) {
+export default function Step3({ storyboards, characters, objects, costumeImages, costumeGenerating, sceneImages, sceneGenerating, onBack, onNext, onUpdate, onGenerateCostume, onClearCostumeImage, onClearSceneImage }: Step3Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedPrompt, setEditedPrompt] = useState('');
+  const [draggingScene, setDraggingScene] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const startEdit = (sb: Storyboard) => { setEditingId(sb.id); setEditedPrompt(sb.prompt); };
   const saveEdit = (sb: Storyboard) => { onUpdate?.({ ...sb, prompt: editedPrompt }); setEditingId(null); };
@@ -91,13 +94,32 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
               />
             </div>
           ))}
+          {/* Multiple scene images */}
+          {sceneImages.map((src, idx) => (
+            <div key={idx} className="w-20">
+              <div className="flex flex-col gap-1">
+                <div
+                  className="relative group aspect-square bg-[var(--bg-tertiary)] rounded border border-[var(--border-color)] overflow-hidden cursor-grab active:cursor-grabbing"
+                  draggable
+                  onDragStart={() => setDraggingScene(src)}
+                  onDragEnd={() => setDraggingScene(null)}
+                >
+                  <img src={src} alt={`Scene ${idx + 1}`} className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                    <button onClick={() => onClearSceneImage?.(idx)} className="p-1 bg-white/20 rounded hover:bg-white/40"><X size={12} /></button>
+                  </div>
+                </div>
+                <span className="text-[9px] font-mono text-[var(--text-secondary)] text-center truncate">Scene {idx + 1}</span>
+              </div>
+            </div>
+          ))}
+          {/* Add new scene button */}
           <div className="w-20">
             <ImageThumb
-              src={sceneImage}
-              label="Scene"
+              src={undefined}
+              label="+ Scene"
               generating={sceneGenerating}
               onGenerate={() => onGenerateCostume?.('scene')}
-              onClear={onClearSceneImage}
             />
           </div>
           {objects.map(obj => obj.imageUrl ? (
@@ -143,7 +165,16 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
             {/* Right: show which references apply to this shot */}
             <div className="w-1/3 shrink-0">
               <p className="text-[9px] font-mono text-[var(--text-secondary)] mb-1">This shot uses</p>
-              <div className="grid grid-cols-3 gap-1">
+              <div
+                className={`grid grid-cols-3 gap-1 min-h-[40px] rounded border-2 border-dashed transition-colors ${dragOverId === sb.id ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/10' : 'border-transparent'}`}
+                onDragOver={(e) => { e.preventDefault(); setDragOverId(sb.id); }}
+                onDragLeave={() => setDragOverId(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOverId(null);
+                  if (draggingScene) onUpdate?.({ ...sb, sceneImageOverride: draggingScene });
+                }}
+              >
                 {sb.characters?.map(name => (
                   <div key={name} className="relative group aspect-square rounded border border-[var(--border-color)] overflow-hidden bg-[var(--bg-tertiary)]">
                     {costumeImages[name] ? (
@@ -154,9 +185,16 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
                     <span className="absolute bottom-0 left-0 right-0 text-[9px] font-mono bg-black/60 text-white text-center truncate px-0.5">{name}</span>
                   </div>
                 ))}
-                {sceneImage && (
-                  <div className="aspect-square rounded border border-[var(--border-color)] overflow-hidden">
-                    <img src={sceneImage} alt="Scene" className="w-full h-full object-cover" />
+                {/* Per-shot scene override or fallback to first global scene */}
+                {(sb.sceneImageOverride || sceneImages[0]) && (
+                  <div className="relative aspect-square rounded border border-[var(--accent-blue)]/40 overflow-hidden">
+                    <img src={sb.sceneImageOverride || sceneImages[0]} alt="Scene" className="w-full h-full object-cover" />
+                    {sb.sceneImageOverride && (
+                      <button
+                        onClick={() => onUpdate?.({ ...sb, sceneImageOverride: undefined })}
+                        className="absolute top-0 right-0 p-0.5 bg-black/60 text-white hover:bg-red-500/80"
+                      ><X size={8} /></button>
+                    )}
                   </div>
                 )}
                 {sb.objects?.map(name => {

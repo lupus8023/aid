@@ -44,6 +44,7 @@ export interface Storyboard {
   // 定妆/场景参考图
   characterCostume?: Record<string, string>; // { 角色名: 造型描述 }
   sceneStyle?: string;                       // 场景风格描述
+  sceneImageOverride?: string;               // per-shot scene reference (dragged from global)
   costumeStatus?: 'pending' | 'generating' | 'completed'; // 定妆图生成状态
   // costumeImages and sceneImage are now global, stored in page state
 }
