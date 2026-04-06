@@ -139,7 +139,12 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
           <div key={sb.id} className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-4 flex gap-4">
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-mono text-[var(--accent-yellow)]">Scene {sb.sceneNumber}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-[var(--accent-yellow)]">Scene {sb.sceneNumber}</span>
+                  {sb.locationId && (
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 bg-[var(--bg-tertiary)] text-[var(--accent-purple)] rounded border border-[var(--border-color)]">{sb.locationId}</span>
+                  )}
+                </div>
                 {editingId !== sb.id && (
                   <button onClick={() => startEdit(sb)} className="text-xs font-mono text-[var(--accent-blue)] hover:underline">Edit</button>
                 )}
@@ -172,7 +177,13 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
                 onDrop={(e) => {
                   e.preventDefault();
                   setDragOverId(null);
-                  if (draggingScene) onUpdate?.({ ...sb, sceneImageOverride: draggingScene });
+                  if (draggingScene) {
+                    // Apply to all shots with same locationId, or just this shot
+                    const targets = sb.locationId
+                      ? storyboards.filter(s => s.locationId === sb.locationId)
+                      : [sb];
+                    targets.forEach(s => onUpdate?.({ ...s, sceneImageOverride: draggingScene }));
+                  }
                 }}
               >
                 {sb.characters?.map(name => (
@@ -183,6 +194,13 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
                       <img src={characters.find(c => c.name === name)!.imageUrl} alt={name} className="w-full h-full object-cover opacity-40" />
                     ) : null}
                     <span className="absolute bottom-0 left-0 right-0 text-[9px] font-mono bg-black/60 text-white text-center truncate px-0.5">{name}</span>
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <button
+                        onClick={() => onGenerateCostume?.('costume', name)}
+                        className="p-1 bg-white/20 rounded hover:bg-white/40"
+                        title="Generate costume"
+                      ><RefreshCw size={10} /></button>
+                    </div>
                   </div>
                 ))}
                 {/* Per-shot scene override or fallback to first global scene */}

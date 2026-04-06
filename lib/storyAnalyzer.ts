@@ -24,7 +24,13 @@ export async function analyzeStory(
   ).join('\n') : '无';
 
   const prompt = `
-你是一位资深的电影分镜师和视觉导演。请深度分析以下故事内容,将其拆解成专业的分镜场景。
+你是一位资深的电影导演和分镜师。你的任务是将剧本忠实地拆解成分镜，而不是重新创作。
+
+🎯 最高原则：分镜为剧本服务
+- 每个分镜必须对应剧本中的具体段落
+- 不得添加剧本中没有的情节、台词或角色行为
+- 不得省略剧本中的关键台词和动作
+- 如果剧本有明确的场景描述，必须忠实还原
 
 🌐 输出语言要求（强制执行）：
 ${language === 'en'
@@ -157,6 +163,7 @@ ${storyContent}
     "objects": ["物体名"],     // ⚠️ 必须使用用户上传的精确物体名称，如无则为 []
     "prompt": "Professional cinematic image prompt in English",
     "videoPrompt": "Professional cinematic video motion prompt in English describing camera movement, subject motion, and atmosphere",
+    "locationId": "unique_location_key",  // 该镜头所在地点的唯一标识，同一地点的镜头使用相同的 locationId（如 "gold_mine", "office", "street"）
     "characterCostume": { "角色名": "Detailed costume description: clothing, hair, accessories, colors" },
     "sceneStyle": "Scene environment and lighting style description in English",
     "dialogueLines": [
