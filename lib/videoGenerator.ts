@@ -8,7 +8,8 @@ export async function generateStoryboardVideo(
   model: string = 'sora-2',
   aspectRatio: '16:9' | '9:16' = '16:9',
   audioFiles: string[] = [],
-  characterAudios: { character: string; audioUrl: string }[] = []
+  characterAudios: { character: string; audioUrl: string }[] = [],
+  lastFrameUrl?: string
 ): Promise<string> {
   // 确保有生成的图片
   if (!storyboard.imageUrl) {
@@ -39,15 +40,20 @@ IMPORTANT: No background music. No sound effects. No dialogue subtitles. Maintai
   console.log(`Using model: ${model}`);
 
   // 创建视频生成任务，使用生成的图片作为参考（图生视频模式）
+  const imageRoles = lastFrameUrl
+    ? [{ url: storyboard.imageUrl!, role: 'first_frame' as const }, { url: lastFrameUrl, role: 'last_frame' as const }]
+    : undefined;
+
   const taskId = await createVideoTask(
     videoPrompt,
-    [storyboard.imageUrl],
+    imageRoles ? [] : [storyboard.imageUrl!],
     apiKey,
     model,
     aspectRatio,
     {
       duration: storyboard.videoDuration,
-      audioUrls: audioFiles
+      audioUrls: audioFiles,
+      imageRoles
     }
   );
 

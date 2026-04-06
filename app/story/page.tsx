@@ -278,10 +278,14 @@ export default function StoryPage() {
     if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoStatus: 'generating' } : sb));
     try {
+      // Find previous shot's imageUrl for continuity
+      const idx = storyboards.findIndex(sb => sb.id === storyboard.id);
+      const prevImageUrl = storyboard.continuousFromPrev && idx > 0 ? storyboards[idx - 1].imageUrl : undefined;
+
       const response = await fetch('/api/generate-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, characterAudios: storyboard.characterAudios || [] })
+        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, characterAudios: storyboard.characterAudios || [], lastFrameUrl: prevImageUrl })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate video');
       const data = await response.json();

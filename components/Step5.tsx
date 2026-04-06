@@ -146,6 +146,19 @@ export default function Step5({ storyboards, characters, onBack, onNext, onGener
                   <span className="text-xs font-mono text-[var(--text-secondary)]">s</span>
                 </div>
 
+                {/* Continuity toggle - only show for shots after the first */}
+                {withImages.indexOf(sb) > 0 && (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={sb.continuousFromPrev ?? false}
+                      onChange={(e) => onUpdate?.({ ...sb, continuousFromPrev: e.target.checked })}
+                      className="w-3 h-3"
+                    />
+                    <span className="text-xs font-mono text-[var(--text-secondary)]">连贯上一镜头</span>
+                  </label>
+                )}
+
                 {/* Generate Audio */}
                 {hasDialogue && (
                   <button

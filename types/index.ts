@@ -41,6 +41,7 @@ export interface Storyboard {
   dialogueLines?: { character: string; text: string }[]; // ordered dialogue lines
   videoPrompt?: string; // 视频生成提示词
   videoDuration?: number; // 视频时长（秒）5-15
+  continuousFromPrev?: boolean; // 是否与上一个镜头连贯（使用上一镜头尾帧=本镜头首帧）
   // 定妆/场景参考图
   characterCostume?: Record<string, string>; // { 角色名: 造型描述 }
   sceneStyle?: string;                       // 场景风格描述
