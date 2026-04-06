@@ -246,11 +246,15 @@ export default function StoryPage() {
 
       const lines = rawLines
         .filter(l => l.text?.trim())
-        .map(l => ({
-          character: l.character,
-          text: l.text,
-          voiceId: characters.find(c => c.name === l.character)?.voiceId
-        }));
+        .map(l => {
+          const charName = l.character?.trim().toLowerCase();
+          const matched = characters.find(c => c.name.trim().toLowerCase() === charName);
+          return {
+            character: l.character,
+            text: l.text,
+            voiceId: matched?.voiceId
+          };
+        });
 
       const response = await fetch('/api/generate-audio', {
         method: 'POST',
