@@ -178,11 +178,7 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
                   e.preventDefault();
                   setDragOverId(null);
                   if (draggingScene) {
-                    // Apply to all shots with same locationId, or just this shot
-                    const targets = sb.locationId
-                      ? storyboards.filter(s => s.locationId === sb.locationId)
-                      : [sb];
-                    targets.forEach(s => onUpdate?.({ ...s, sceneImageOverride: draggingScene }));
+                    onUpdate?.({ ...sb, sceneImageOverride: draggingScene });
                   }
                 }}
               >
