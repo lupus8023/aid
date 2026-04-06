@@ -45,7 +45,7 @@ export default function Step5({ storyboards, characters, onBack, onNext, onGener
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {withImages.map((sb) => {
           const hasDialogue = (sb.dialogueLines?.length ?? 0) > 0 || Object.keys(sb.dialogue || {}).length > 0;
-
+          const sbIndex = storyboards.findIndex(s => s.id === sb.id);
           const aspectClass = sb.aspectRatio === '9:16' ? 'aspect-[9/16]' : sb.aspectRatio === '1:1' ? 'aspect-square' : 'aspect-video';
           return (
             <div key={sb.id} className={`bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded overflow-hidden ${sb.aspectRatio === '9:16' ? 'max-w-[200px] mx-auto' : ''}`}>
@@ -147,7 +147,7 @@ export default function Step5({ storyboards, characters, onBack, onNext, onGener
                 </div>
 
                 {/* Continuity toggle - only show for shots after the first */}
-                {withImages.indexOf(sb) > 0 && (
+                {sbIndex > 0 && (
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"

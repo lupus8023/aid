@@ -39,9 +39,9 @@ IMPORTANT: No background music. No sound effects. No dialogue subtitles. Maintai
   console.log(`Reference image: ${storyboard.imageUrl}`);
   console.log(`Using model: ${model}`);
 
-  // 创建视频生成任务，使用生成的图片作为参考（图生视频模式）
+  // lastFrameUrl = previous shot's image (used as first_frame for continuity)
   const imageRoles = lastFrameUrl
-    ? [{ url: storyboard.imageUrl!, role: 'first_frame' as const }, { url: lastFrameUrl, role: 'last_frame' as const }]
+    ? [{ url: lastFrameUrl, role: 'first_frame' as const }, { url: storyboard.imageUrl!, role: 'last_frame' as const }]
     : undefined;
 
   const taskId = await createVideoTask(
