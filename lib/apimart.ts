@@ -29,7 +29,12 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
 
     console.log('API Response:', JSON.stringify(response.data, null, 2));
 
-    return response.data.choices[0].message.content;
+    // Handle both standard OpenAI format and wrapped format
+    const data = response.data?.data || response.data;
+    if (!data?.choices?.[0]?.message?.content) {
+      throw new Error(`Unexpected API response format: ${JSON.stringify(response.data)}`);
+    }
+    return data.choices[0].message.content;
   } catch (error: any) {
     console.error('Chat API error:', error);
     console.error('Error details:', error.response?.data);
