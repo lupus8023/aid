@@ -174,17 +174,26 @@ export default function Step5({ storyboards, characters, onBack, onNext, onGener
                   </button>
                 )}
 
-                <button
-                  onClick={() => onGenerateVideo(sb)}
-                  disabled={sb.videoStatus === 'generating'}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-purple)] hover:bg-[#9b59b6] text-white disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] rounded transition-colors"
-                >
-                  {sb.videoStatus === 'generating' ? (
-                    <><Loader2 size={12} className="animate-spin" /> Generating...</>
-                  ) : (
-                    <><Video size={12} /> {sb.videoUrl ? 'Regenerate' : 'Generate Video'}</>
-                  )}
-                </button>
+                {(() => {
+                  const prevShot = sbIndex > 0 ? storyboards[sbIndex - 1] : undefined;
+                  const prevNotReady = sb.continuousFromPrev && prevShot && typeof prevShot.videoUrl !== 'string' || (sb.continuousFromPrev && prevShot && !prevShot.videoUrl?.includes('res.cloudinary.com'));
+                  return (
+                    <button
+                      onClick={() => onGenerateVideo(sb)}
+                      disabled={sb.videoStatus === 'generating' || !!prevNotReady}
+                      title={prevNotReady ? '请先生成上一镜头的视频（需上传至Cloudinary）' : undefined}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-purple)] hover:bg-[#9b59b6] text-white disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] rounded transition-colors"
+                    >
+                      {sb.videoStatus === 'generating' ? (
+                        <><Loader2 size={12} className="animate-spin" /> Generating...</>
+                      ) : prevNotReady ? (
+                        <><Video size={12} /> 等待上一镜头完成</>
+                      ) : (
+                        <><Video size={12} /> {sb.videoUrl ? 'Regenerate' : 'Generate Video'}</>
+                      )}
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           );
