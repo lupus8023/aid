@@ -67,6 +67,11 @@ export interface ApiMartChatResponse {
       content: string;
     };
   }>;
+  data?: {
+    choices?: Array<{
+      message?: { content?: string };
+    }>;
+  };
 }
 
 export interface ApiMartImageTaskResponse {
