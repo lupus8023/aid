@@ -284,7 +284,8 @@ export default function StoryPage() {
       let firstFrameUrl: string | undefined;
       if (prevShot?.videoUrl && typeof prevShot.videoUrl === 'string') {
         // Extract last frame from Cloudinary video URL
-        firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_last/').replace(/\.\w+$/, '.jpg');
+        // Format: /video/upload/eo_3s/public_id.jpg extracts frame at 3s before end
+        firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/eo_0.1s/').replace(/\.\w+$/, '.jpg');
       }
 
       const response = await fetch('/api/generate-video', {
