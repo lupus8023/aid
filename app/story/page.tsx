@@ -282,7 +282,7 @@ export default function StoryPage() {
       const idx = storyboards.findIndex(sb => sb.id === storyboard.id);
       const prevShot = storyboard.continuousFromPrev && idx > 0 ? storyboards[idx - 1] : undefined;
       let firstFrameUrl: string | undefined;
-      if (prevShot?.videoUrl) {
+      if (prevShot?.videoUrl && typeof prevShot.videoUrl === 'string') {
         // Extract last frame from Cloudinary video URL
         firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_last/').replace(/\.\w+$/, '.jpg');
       }
