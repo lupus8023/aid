@@ -252,7 +252,7 @@ ${storyContent}
 `;
 
   try {
-    const response = await chatCompletion(prompt, apiKey);
+    const response = await chatCompletion(prompt, apiKey, 'gpt-4o-mini');
 
     // 提取 JSON 内容
     const jsonMatch = response.match(/\[[\s\S]*\]/);
