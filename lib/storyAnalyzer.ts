@@ -159,21 +159,25 @@ ${storyContent}
   {
     "sceneNumber": 1,
     "description": "场景描述（中文）：详细描述镜头内容、角色状态、环境氛围、情绪表达",
-    "characters": ["角色名"],  // ⚠️ 必须使用用户上传的精确角色名称
-    "objects": ["物体名"],     // ⚠️ 必须使用用户上传的精确物体名称，如无则为 []
+    "characters": ["角色名"],
+    "objects": ["物体名"],
     "prompt": "Professional cinematic image prompt in English",
     "videoPrompt": "Professional cinematic video motion prompt in English describing camera movement, subject motion, and atmosphere",
-    "locationId": "unique_location_key",  // 该镜头所在地点的唯一标识，同一地点的镜头使用相同的 locationId（如 "gold_mine", "office", "street"）
+    "locationId": "unique_location_key",
     "characterCostume": { "角色名": "Detailed costume description: clothing, hair, accessories, colors" },
     "sceneStyle": "Scene environment and lighting style description in English",
     "dialogueLines": [
       { "character": "角色名", "text": "台词原文，按说话先后顺序排列" }
     ]
-    // ⚠️ 关键：dialogueLines 的顺序必须与故事中实际说话的先后顺序完全一致
-    // ⚠️ 关键：prompt 中提到角色时，也必须按照说话先后顺序排列（先说话的角色先出现）
-    // ⚠️ 关键：每个镜头中，每个角色最多只能说一次话。如果同一角色需要说多句话，必须拆分成多个镜头。
   }
 ]
+
+⚠️ dialogueLines 关键规则：
+- 顺序必须与故事中实际说话的先后顺序完全一致
+- prompt 中提到角色时，也必须按照说话先后顺序排列
+- 每个镜头中，每个角色最多只能说一次话。如果同一角色需要说多句话，必须拆分成多个镜头。
+
+⚠️ locationId 规则：同一地点的所有镜头必须使用相同的 locationId（英文小写下划线，如 gold_mine、office、street）
 
 🚨 关键要求 - characters 和 objects 字段：
 1. characters 数组中的每个名称必须完全匹配用户上传的角色名称
