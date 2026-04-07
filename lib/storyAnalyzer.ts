@@ -146,11 +146,11 @@ ${storyContent}
    - 低角度仰拍(low angle push in)：强调权威感、英雄时刻
    - 过肩跟随(over-shoulder tracking)：对话场景、主观视角
 
-   videoPrompt 格式要求：
-   [运镜指令], [主体动作], [环境氛围]
-   示例："Slow dolly in toward [Character], camera closes in as tension builds, shallow depth of field, warm backlight"
-   示例："Crane shot sweeping down from above the crowd to [Character] standing alone, dramatic reveal"
-   示例："Dolly zoom on [Character]'s face as realization hits, background distorts, frozen moment"
+   videoPrompt 格式（严格按此结构）：
+   【主体】角色/物体描述+动作 【运动】具体动作细节 【环境】场景背景 【运镜】运镜指令 【音频】如有台词，直接写入角色说的话，并描述音色/情绪/语速
+
+   示例（有台词）："【主体】一位面容精致的女主播，手托产品向镜头展示 【运动】她用化妆刷轻扫脸颊，动作优雅 【环境】温馨卧室，暖色台灯背景 【运镜】slow dolly in, shallow depth of field 【音频】她面带微笑自然说话（口播："这个产品真的太好用了"），声音温柔亲切"
+   示例（无台词）："【主体】两人在矿洞中对峙 【运动】角色A缓慢转身，眼神坚定 【环境】昏黄矿灯，岩壁粗糙 【运镜】slow push in toward face, dramatic lighting 【音频】无对白，环境音"
 
 ═══════════════════════════════════════════════════════════════
 📝 输出格式（只输出 JSON，不要其他内容）
