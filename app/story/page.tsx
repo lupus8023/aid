@@ -278,14 +278,19 @@ export default function StoryPage() {
     if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoStatus: 'generating' } : sb));
     try {
-      // Find previous shot's imageUrl for continuity
+      // Get last frame of previous shot's video for continuity (first_frame of current shot)
       const idx = storyboards.findIndex(sb => sb.id === storyboard.id);
-      const prevImageUrl = storyboard.continuousFromPrev && idx > 0 ? storyboards[idx - 1].imageUrl : undefined;
+      const prevShot = storyboard.continuousFromPrev && idx > 0 ? storyboards[idx - 1] : undefined;
+      let firstFrameUrl: string | undefined;
+      if (prevShot?.videoUrl) {
+        // Extract last frame from Cloudinary video URL
+        firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_last/').replace(/\.\w+$/, '.jpg');
+      }
 
       const response = await fetch('/api/generate-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, characterAudios: storyboard.characterAudios || [], lastFrameUrl: prevImageUrl })
+        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, characterAudios: storyboard.characterAudios || [], firstFrameUrl })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate video');
       const data = await response.json();

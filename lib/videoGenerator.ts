@@ -9,7 +9,7 @@ export async function generateStoryboardVideo(
   aspectRatio: '16:9' | '9:16' = '16:9',
   audioFiles: string[] = [],
   characterAudios: { character: string; audioUrl: string }[] = [],
-  lastFrameUrl?: string
+  firstFrameUrl?: string
 ): Promise<string> {
   // 确保有生成的图片
   if (!storyboard.imageUrl) {
@@ -39,9 +39,9 @@ IMPORTANT: No background music. No sound effects. No dialogue subtitles. Maintai
   console.log(`Reference image: ${storyboard.imageUrl}`);
   console.log(`Using model: ${model}`);
 
-  // lastFrameUrl = previous shot's image (used as first_frame for continuity)
-  const imageRoles = lastFrameUrl
-    ? [{ url: lastFrameUrl, role: 'first_frame' as const }, { url: storyboard.imageUrl!, role: 'last_frame' as const }]
+  // firstFrameUrl = last frame of previous shot's video (Cloudinary so_last)
+  const imageRoles = firstFrameUrl
+    ? [{ url: firstFrameUrl, role: 'first_frame' as const }, { url: storyboard.imageUrl!, role: 'last_frame' as const }]
     : undefined;
 
   const taskId = await createVideoTask(

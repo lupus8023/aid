@@ -3,7 +3,7 @@ import { generateStoryboardVideo, waitForVideoGeneration } from '@/lib/videoGene
 
 export async function POST(request: NextRequest) {
   try {
-    const { storyboard, apiKey, videoModel, aspectRatio, characterAudios = [], lastFrameUrl } = await request.json();
+    const { storyboard, apiKey, videoModel, aspectRatio, characterAudios = [], firstFrameUrl } = await request.json();
 
     if (!storyboard) {
       return NextResponse.json(
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       aspectRatio || '16:9',
       uploadedAudioUrls,
       characterAudios,
-      lastFrameUrl
+      firstFrameUrl
     );
     console.log('Video task created, ID:', taskId);
 
