@@ -29,12 +29,18 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
 
     console.log('API Response:', JSON.stringify(response.data, null, 2));
 
-    // Handle both standard OpenAI format and wrapped format
-    const data = response.data?.data || response.data;
-    if (!data?.choices?.[0]?.message?.content) {
-      throw new Error(`Unexpected API response format: ${JSON.stringify(response.data)}`);
+    // Handle SSE format response (": PING\n\n{...json...}")
+    let rawData = response.data as any;
+    if (typeof rawData === 'string') {
+      const jsonMatch = rawData.match(/\{[\s\S]*\}/);
+      if (jsonMatch) rawData = JSON.parse(jsonMatch[0]);
     }
-    return data.choices[0].message.content;
+
+    const content = rawData?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error(`Unexpected API response format: ${JSON.stringify(rawData)}`);
+    }
+    return content;
   } catch (error: any) {
     console.error('Chat API error:', error);
     console.error('Error details:', error.response?.data);
