@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVideoTaskStatus } from '@/lib/apimart';
+import { v2 as cloudinary } from 'cloudinary';
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,10 +38,21 @@ export async function POST(request: NextRequest) {
       status: status.status,
     };
 
-    // 如果完成，返回视频 URL
+    // 如果完成，上传到 Cloudinary 并返回 Cloudinary URL
     if (status.status === 'completed' && status.result?.videos?.[0]?.url) {
-      response.videoUrl = status.result.videos[0].url;
-      console.log('Video completed, URL:', response.videoUrl);
+      const originalUrl = status.result.videos[0].url;
+      try {
+        const uploaded = await cloudinary.uploader.upload(originalUrl, {
+          folder: 'aid-videos',
+          resource_type: 'video',
+        });
+        response.videoUrl = uploaded.secure_url;
+        console.log('Video uploaded to Cloudinary:', response.videoUrl);
+      } catch (e) {
+        // fallback to original URL if upload fails
+        response.videoUrl = originalUrl;
+        console.warn('Cloudinary upload failed, using original URL:', originalUrl);
+      }
     }
 
     return NextResponse.json(response);
