@@ -13,6 +13,7 @@ import Step5 from '@/components/Step5';
 import Step6 from '@/components/Step6';
 import SettingsModal from '@/components/SettingsModal';
 import { Character, ObjectItem, Storyboard } from '@/types';
+import { analyzeStory } from '@/lib/storyAnalyzer';
 import { useProject } from '@/hooks/useProject';
 import { useSettings } from '@/hooks/useSettings';
 
@@ -95,14 +96,8 @@ export default function StoryPage() {
     if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
     setIsLoading(true);
     try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyContent, characters, objects, aspectRatio: settings.aspectRatio, apiKey: settings.apiKey, language: settings.language || 'zh', scriptModel: settings.scriptModel })
-      });
-      if (!response.ok) throw new Error('Failed to generate script');
-      const data = await response.json();
-      setStoryboards(data.storyboards);
+      const storyboards = await analyzeStory(storyContent, characters, settings.apiKey, objects, settings.aspectRatio, settings.language || 'zh', settings.scriptModel);
+      setStoryboards(storyboards);
       setCurrentStep(3);
     } catch (error) {
       alert(`Script generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
