@@ -7,7 +7,7 @@ export async function analyzeStory(
   characters: Character[],
   apiKey: string,
   objects: ObjectItem[] = [],
-  aspectRatio: '16:9' | '9:16' = '16:9',
+  aspectRatio: '16:9' | '9:16' | '1:1' = '16:9',
   language: 'zh' | 'en' = 'zh',
   scriptModel: string = 'gpt-4o-mini'
 ): Promise<Storyboard[]> {
