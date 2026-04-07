@@ -93,18 +93,9 @@ export async function generateStoryboardImage(
     imgIndex++;
   });
 
-  const enhancedPrompt = `IMAGE-TO-IMAGE GENERATION: Use the provided reference images to generate the scene below. Character identity consistency is the highest priority.
+  const enhancedPrompt = `${cleanedScenePrompt}
 
-${referenceDescriptions.join('\n')}
-
-SCENE: ${cleanedScenePrompt}
-
-CRITICAL RULES:
-- Characters: The face, facial features, skin tone, hair, and clothing MUST be identical to the reference images. This is non-negotiable.
-- Objects: Copy exact appearance from reference images (shape, color, texture, details). DO NOT change or reinterpret.
-- Only adjust: pose, position, expression, camera angle, lighting.
-- DO NOT add characters/objects not in references.
-- DO NOT generate text, watermarks, or captions.`;
+Character references provided: ${sceneCharacters.map(c => c.name).join(', ')}. Maintain exact appearance from reference images.${globalSceneImage ? ' Scene environment reference provided.' : ''}${sceneObjects.length > 0 ? ` Object references: ${sceneObjects.map(o => o.name).join(', ')}.` : ''}`;
 
 
   // 创建图像生成任务
