@@ -8,7 +8,8 @@ export async function analyzeStory(
   apiKey: string,
   objects: ObjectItem[] = [],
   aspectRatio: '16:9' | '9:16' = '16:9',
-  language: 'zh' | 'en' = 'zh'
+  language: 'zh' | 'en' = 'zh',
+  scriptModel: string = 'gpt-4o-mini'
 ): Promise<Storyboard[]> {
   const characterNames = characters.map(c => c.name).join('、');
 
@@ -252,7 +253,7 @@ ${storyContent}
 `;
 
   try {
-    const response = await chatCompletion(prompt, apiKey, 'gpt-4o-mini');
+    const response = await chatCompletion(prompt, apiKey, scriptModel);
 
     // 提取 JSON 内容
     const jsonMatch = response.match(/\[[\s\S]*\]/);

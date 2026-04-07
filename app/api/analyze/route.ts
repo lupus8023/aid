@@ -4,7 +4,7 @@ import { Character } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const { storyContent, characters, objects, aspectRatio, apiKey, language } = await request.json();
+    const { storyContent, characters, objects, aspectRatio, apiKey, language, scriptModel } = await request.json();
 
     if (!storyContent || !characters || characters.length === 0) {
       return NextResponse.json(
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 调用故事分析函数
-    const storyboards = await analyzeStory(storyContent, characters, apiKey, objects || [], aspectRatio, language || 'zh');
+    const storyboards = await analyzeStory(storyContent, characters, apiKey, objects || [], aspectRatio, language || 'zh', scriptModel);
 
     return NextResponse.json({ storyboards });
   } catch (error) {

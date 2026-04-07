@@ -98,7 +98,7 @@ export default function StoryPage() {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyContent, characters, objects, aspectRatio: settings.aspectRatio, apiKey: settings.apiKey, language: settings.language || 'zh' })
+        body: JSON.stringify({ storyContent, characters, objects, aspectRatio: settings.aspectRatio, apiKey: settings.apiKey, language: settings.language || 'zh', scriptModel: settings.scriptModel })
       });
       if (!response.ok) throw new Error('Failed to generate script');
       const data = await response.json();
