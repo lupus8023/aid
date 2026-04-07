@@ -11,6 +11,7 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
       {
         model,
         stream: false,
+        max_tokens: 16000,
         messages: [
           {
             role: 'user',
