@@ -40,7 +40,11 @@ export async function POST(request: NextRequest) {
 
     // 如果完成，上传到 Cloudinary 并返回 Cloudinary URL
     if (status.status === 'completed' && status.result?.videos?.[0]?.url) {
-      const originalUrl = status.result.videos[0].url;
+      let originalUrl = status.result.videos[0].url;
+      // Handle case where url is an array
+      if (Array.isArray(originalUrl)) {
+        originalUrl = originalUrl[0];
+      }
       try {
         const uploaded = await cloudinary.uploader.upload(originalUrl, {
           folder: 'aid-videos',
