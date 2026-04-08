@@ -160,12 +160,23 @@ export default function StoryPage() {
         }
         if (!gridUrl) throw new Error('Grid image timeout');
 
-        // Split grid into 9 cells
+        // Split grid into 9 cells and upload to Cloudinary
         const cells = await splitGridImage(gridUrl, aspectRatio);
+        const uploadedCells = await Promise.all(cells.map(async (cell) => {
+          if (!cell.startsWith('data:')) return cell;
+          const uploadRes = await fetch('/api/upload-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageData: cell })
+          });
+          if (!uploadRes.ok) return cell; // fallback to base64 if upload fails
+          const { url } = await uploadRes.json();
+          return url;
+        }));
         setStoryboards(prev => prev.map(sb => {
           const idx = group.findIndex(g => g.id === sb.id);
-          if (idx === -1 || !cells[idx]) return sb;
-          return { ...sb, imageUrl: cells[idx], status: 'completed' as const };
+          if (idx === -1 || !uploadedCells[idx]) return sb;
+          return { ...sb, imageUrl: uploadedCells[idx], status: 'completed' as const };
         }));
       } catch (error) {
         alert(`Grid generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);

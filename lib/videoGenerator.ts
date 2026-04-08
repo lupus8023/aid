@@ -16,6 +16,11 @@ export async function generateStoryboardVideo(
     throw new Error(`Storyboard scene ${storyboard.sceneNumber} does not have a generated image`);
   }
 
+  // Validate imageUrl is a public http/https URL (not base64)
+  if (!storyboard.imageUrl.startsWith('http://') && !storyboard.imageUrl.startsWith('https://')) {
+    throw new Error(`Scene ${storyboard.sceneNumber} image is not a public URL. Please regenerate the image individually first.`);
+  }
+
   // Use dedicated videoPrompt if available, otherwise fall back to image prompt
   const basePrompt = storyboard.videoPrompt
     ? storyboard.videoPrompt
