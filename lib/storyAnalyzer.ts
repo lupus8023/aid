@@ -274,7 +274,7 @@ ${storyContent}
 - 外观描述从用户提供的角色/物体描述中提取最关键的2-4个视觉特征
 - 这些内联描述帮助图像模型理解参考图中的主体是什么样的
 
-现在请开始分析故事并生成专业分镜。分镜数量：5-15个，根据故事复杂度决定。
+现在请开始分析故事并生成专业分镜。分镜数量：最多9个，根据故事复杂度决定，尽量精简。
 `;
 
   try {
@@ -288,7 +288,7 @@ ${storyContent}
       throw new Error('Failed to parse storyboard JSON from AI response');
     }
 
-    const storyboards: Storyboard[] = JSON.parse(jsonMatch[0]);
+    const storyboards: Storyboard[] = JSON.parse(jsonMatch[0]).slice(0, 9);
 
     // 添加 ID 和状态
     return storyboards.map((sb, index) => ({
