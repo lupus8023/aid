@@ -1,6 +1,19 @@
 import { chatCompletion } from './apimart';
 import { Storyboard, Character, ObjectItem } from '@/types';
 
+async function dmxChatCompletion(prompt: string, apiKey: string, model: string): Promise<string> {
+  const response = await fetch('https://www.dmxapi.cn/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, stream: false, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] })
+  });
+  if (!response.ok) throw new Error(`DMXAPI error: ${response.status}`);
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error(`Unexpected DMXAPI response: ${JSON.stringify(data)}`);
+  return content;
+}
+
 // 分析故事并生成分镜
 export async function analyzeStory(
   storyContent: string,
@@ -9,7 +22,8 @@ export async function analyzeStory(
   objects: ObjectItem[] = [],
   aspectRatio: '16:9' | '9:16' | '1:1' = '16:9',
   language: 'zh' | 'en' = 'zh',
-  scriptModel: string = 'gpt-4o-mini'
+  scriptModel: string = 'gpt-4o-mini',
+  dmxApiKey?: string
 ): Promise<Storyboard[]> {
   const characterNames = characters.map(c => c.name).join('、');
 
@@ -262,7 +276,9 @@ ${storyContent}
 `;
 
   try {
-    const response = await chatCompletion(prompt, apiKey, scriptModel);
+    const response = dmxApiKey
+      ? await dmxChatCompletion(prompt, dmxApiKey, scriptModel)
+      : await chatCompletion(prompt, apiKey, scriptModel);
 
     // 提取 JSON 内容
     const jsonMatch = response.match(/\[[\s\S]*\]/);

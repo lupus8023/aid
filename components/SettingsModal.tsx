@@ -176,6 +176,20 @@ export default function SettingsModal({
             />
           </div>
 
+          {/* DMXAPI Key */}
+          <div>
+            <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">
+              DMXAPI Key <span className="text-[var(--text-secondary)] text-xs">(for script generation)</span>
+            </label>
+            <input
+              type="password"
+              value={localSettings.dmxApiKey || ''}
+              onChange={(e) => setLocalSettings({ ...localSettings, dmxApiKey: e.target.value })}
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+              placeholder="dmxapi.cn API key"
+            />
+          </div>
+
           {/* Aspect Ratio */}
           <div>
             <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">

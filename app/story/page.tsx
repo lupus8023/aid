@@ -97,7 +97,7 @@ export default function StoryPage() {
     if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
     setIsLoading(true);
     try {
-      const storyboards = await analyzeStory(storyContent, characters, settings.apiKey, objects, settings.aspectRatio, settings.language || 'zh', settings.scriptModel || 'gpt-4o-mini');
+      const storyboards = await analyzeStory(storyContent, characters, settings.apiKey, objects, settings.aspectRatio, settings.language || 'zh', settings.scriptModel || 'gpt-4o-mini', settings.dmxApiKey);
       setStoryboards(storyboards);
       setCurrentStep(3);
     } catch (error) {

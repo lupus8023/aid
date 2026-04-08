@@ -114,5 +114,6 @@ export interface AppSettings {
   videoModel: string; // 视频生成模型
   aspectRatio: '16:9' | '9:16' | '1:1'; // 横屏或竖屏
   fishAudioKey?: string; // fish.audio API key
+  dmxApiKey?: string; // dmxapi.cn API key for script generation
   language?: 'zh' | 'en'; // output language for dialogue and descriptions
 }
