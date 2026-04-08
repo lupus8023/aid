@@ -57,7 +57,8 @@ IMPORTANT: No background music. No sound effects. No dialogue subtitles. Maintai
     aspectRatio,
     {
       duration: storyboard.videoDuration,
-      audioUrls: audioFiles,
+      // Don't pass audio when using firstFrame/lastFrame continuity mode (API limitation)
+      audioUrls: firstFrameUrl ? [] : audioFiles,
       imageRoles
     }
   );
