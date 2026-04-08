@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Wand2, Loader2 } from 'lucide-react';
 
 interface Step1Props {
   storyContent: string;
@@ -10,11 +11,14 @@ interface Step1Props {
   isLoading?: boolean;
   language?: 'zh' | 'en';
   onLanguageChange?: (lang: 'zh' | 'en') => void;
+  apiKey?: string;
+  scriptModel?: string;
 }
 
-export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange }: Step1Props) {
+export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, apiKey, scriptModel }: Step1Props) {
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text');
   const [textInput, setTextInput] = useState(storyContent);
+  const [isExpanding, setIsExpanding] = useState(false);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -31,6 +35,43 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
   const handleTextChange = (value: string) => {
     setTextInput(value);
     onStoryLoad(value);
+  };
+
+  const handleExpand = async () => {
+    if (!textInput.trim() || !apiKey) return;
+    setIsExpanding(true);
+    try {
+      const res = await fetch('/api/expand-story', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brief: textInput, language, apiKey, scriptModel })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed');
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6));
+            if (data.error) throw new Error(data.error);
+            if (data.script) {
+              setTextInput(data.script);
+              onStoryLoad(data.script);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      alert(`Expand failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsExpanding(false);
+    }
   };
 
   return (
@@ -80,12 +121,23 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
       </div>
 
       {inputMode === 'text' ? (
-        <textarea
-          value={textInput}
-          onChange={(e) => handleTextChange(e.target.value)}
-          placeholder="Enter your story brief, concept, or synopsis here..."
-          className="w-full h-64 p-4 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded text-sm font-mono text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-blue)] resize-none"
-        />
+        <div className="relative">
+          <textarea
+            value={textInput}
+            onChange={(e) => handleTextChange(e.target.value)}
+            placeholder="Enter your story brief, concept, or synopsis here..."
+            className="w-full h-64 p-4 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded text-sm font-mono text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-blue)] resize-none"
+          />
+          {apiKey && (
+            <button
+              onClick={handleExpand}
+              disabled={!textInput.trim() || isExpanding}
+              className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-[var(--accent-purple,#a855f7)] hover:bg-[#9333ea] text-white disabled:opacity-50 rounded transition-colors"
+            >
+              {isExpanding ? <><Loader2 size={11} className="animate-spin" /> Expanding...</> : <><Wand2 size={11} /> AI Expand</>}
+            </button>
+          )}
+        </div>
       ) : (
         <input
           type="file"

@@ -97,7 +97,7 @@ export default function StoryPage() {
     if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
     setIsLoading(true);
     try {
-      const storyboards = await analyzeStory(storyContent, characters, settings.apiKey, objects, settings.aspectRatio, settings.language || 'zh', settings.scriptModel);
+      const storyboards = await analyzeStory(storyContent, characters, settings.apiKey, objects, settings.aspectRatio, settings.language || 'zh', settings.scriptModel || 'gpt-4o-mini');
       setStoryboards(storyboards);
       setCurrentStep(3);
     } catch (error) {
@@ -443,6 +443,8 @@ export default function StoryPage() {
               isLoading={isLoading}
               language={settings.language || 'zh'}
               onLanguageChange={(lang) => saveSettings({ ...settings, language: lang })}
+              apiKey={settings.apiKey}
+              scriptModel={settings.scriptModel}
             />
           )}
           {currentStep === 3 && (
