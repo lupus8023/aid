@@ -1,7 +1,7 @@
 'use client';
 
 import { Storyboard } from '@/types';
-import { CheckCircle2, AlertCircle, Loader2, RefreshCw, Download } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, RefreshCw, Download, Grid3x3 } from 'lucide-react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
@@ -12,9 +12,11 @@ interface Step4Props {
   onGenerateImage: (storyboard: Storyboard) => void;
   onRetry: (storyboard: Storyboard) => void;
   onUpdate?: (storyboard: Storyboard) => void;
+  onGenerateGrid?: (storyboards: Storyboard[]) => void;
+  isGeneratingGrid?: boolean;
 }
 
-export default function Step4({ storyboards, onBack, onNext, onGenerateImage, onRetry, onUpdate }: Step4Props) {
+export default function Step4({ storyboards, onBack, onNext, onGenerateImage, onRetry, onUpdate, onGenerateGrid, isGeneratingGrid }: Step4Props) {
   const completedCount = storyboards.filter(sb => sb.status === 'completed').length;
 
   const handleDownloadAll = async () => {
@@ -34,9 +36,18 @@ export default function Step4({ storyboards, onBack, onNext, onGenerateImage, on
         <h2 className="text-2xl font-mono text-[var(--accent-green)] mb-2">
           <span className="text-[var(--text-secondary)]">04.</span> Generate Images
         </h2>
-        <p className="text-[var(--text-secondary)] font-mono text-sm">
+        <p className="text-[var(--text-secondary)] font-mono text-sm mb-3">
           Generate an image for each shot individually
         </p>
+        {onGenerateGrid && (
+          <button
+            onClick={() => onGenerateGrid(storyboards)}
+            disabled={isGeneratingGrid}
+            className="flex items-center gap-2 px-4 py-2 text-xs font-mono bg-[var(--accent-yellow)] hover:bg-[#e6b800] text-black disabled:opacity-50 rounded transition-colors"
+          >
+            {isGeneratingGrid ? <><Loader2 size={12} className="animate-spin" /> Generating Grid...</> : <><Grid3x3 size={12} /> Batch Generate (3×3 Grid)</>}
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -31,6 +31,7 @@ export default function StoryPage() {
   const [costumeGenerating, setCostumeGenerating] = useState<Record<string, boolean>>({}); // { 角色名: bool }
   const [sceneImages, setSceneImages] = useState<string[]>([]);
   const [sceneGenerating, setSceneGenerating] = useState(false);
+  const [isGeneratingGrid, setIsGeneratingGrid] = useState(false);
 
   useEffect(() => {
     const savedProject = loadProject();
@@ -103,6 +104,69 @@ export default function StoryPage() {
       alert(`Script generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Step4: batch generate via 3x3 grid
+  const handleGenerateGrid = async (batch: Storyboard[]) => {
+    if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
+    const { buildGridPrompt, splitGridImage } = await import('@/lib/gridSplitter');
+    const aspectRatio = settings.aspectRatio;
+    // Process in groups of 9
+    for (let i = 0; i < batch.length; i += 9) {
+      const group = batch.slice(i, i + 9);
+      setIsGeneratingGrid(true);
+      try {
+        // Build grid prompt from group's prompts
+        const sceneStyle = group[0]?.sceneStyle || '';
+        const charDescs = characters.map(c => `${c.name}: ${c.description}`).join(', ');
+        const shotDescs = group.map(sb => sb.prompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1'));
+        const gridPrompt = buildGridPrompt(sceneStyle, charDescs, shotDescs, aspectRatio);
+
+        // Collect reference images
+        const refImages = [...Object.values(costumeImages), ...(sceneImages[0] ? [sceneImages[0]] : [])].filter(Boolean);
+
+        // Generate grid image
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            storyboard: { ...group[0], prompt: gridPrompt },
+            characters, objects, aspectRatio, imageModel: settings.imageModel,
+            apiKey: settings.apiKey, costumeImages, sceneImage: sceneImages[0] || ''
+          })
+        });
+        if (!res.ok) throw new Error('Grid generation failed');
+        const { taskId } = await res.json();
+
+        // Poll for grid image
+        let gridUrl = '';
+        for (let j = 0; j < 90; j++) {
+          await new Promise(r => setTimeout(r, 3000));
+          const statusRes = await fetch('/api/check-image-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId, apiKey: settings.apiKey })
+          });
+          if (!statusRes.ok) continue;
+          const statusData = await statusRes.json();
+          if (statusData.status === 'completed' && statusData.imageUrl) { gridUrl = statusData.imageUrl; break; }
+          if (statusData.status === 'failed') throw new Error('Grid image failed');
+        }
+        if (!gridUrl) throw new Error('Grid image timeout');
+
+        // Split grid into 9 cells
+        const cells = await splitGridImage(gridUrl, aspectRatio);
+        setStoryboards(prev => prev.map(sb => {
+          const idx = group.findIndex(g => g.id === sb.id);
+          if (idx === -1 || !cells[idx]) return sb;
+          return { ...sb, imageUrl: cells[idx], status: 'completed' as const };
+        }));
+      } catch (error) {
+        alert(`Grid generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setIsGeneratingGrid(false);
+      }
     }
   };
 
@@ -402,6 +466,8 @@ export default function StoryPage() {
               onGenerateImage={handleGenerateImage}
               onRetry={handleGenerateImage}
               onUpdate={handleUpdateStoryboard}
+              onGenerateGrid={handleGenerateGrid}
+              isGeneratingGrid={isGeneratingGrid}
             />
           )}
           {currentStep === 5 && (
