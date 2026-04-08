@@ -158,25 +158,38 @@ ${storyContent}
    - 营造场景的氛围感和张力
    - 考虑节奏：静态 vs 动态、紧张 vs 舒缓
 
-5. **运镜设计（videoPrompt 专用）**
-   根据场景情绪和内容，为每个镜头选择最合适的运镜手法：
-   - 推镜(push in / dolly in)：强调细节、情绪升温、揭示重要信息
-   - 拉镜(pull out / dolly out)：展示环境、角色孤立感、结局收尾
-   - 摇镜(pan left/right)：跟随角色移动、展示空间关系
-   - 移镜(tracking shot / lateral dolly)：跟随动作、保持紧张感
-   - 升降镜(crane up/down)：宏大开场、俯瞰全局、情绪释放
-   - 定焦静止(static shot)：强调对话、沉默张力、庄重时刻
-   - 手持抖动(handheld)：紧张追逐、混乱冲突、真实感
-   - 希区柯克变焦(dolly zoom)：心理冲击、恐惧/震惊时刻
-   - 环绕镜(orbit / 360 arc)：展示角色关系、戏剧性揭示
-   - 低角度仰拍(low angle push in)：强调权威感、英雄时刻
-   - 过肩跟随(over-shoulder tracking)：对话场景、主观视角
+5. **运镜与视频提示词设计（Seedance 2.0 标准）**
 
-   videoPrompt 格式（严格按此结构）：
-   【主体】角色/物体描述+动作 【运动】具体动作细节 【环境】场景背景 【运镜】运镜指令 【音频】如有台词，直接写入角色说的话，并描述音色/情绪/语速
+   核心原则：
+   - 时间精确分段（0-2s, 2-5s），每段标注 [Camera: 运镜方式]
+   - 强制物理真实性：realistic physics, natural movement, cloth simulation, fluid dynamics
+   - 动作分解：不写"角色走路"，写"feet plant → body leans → coat billows → stride completes"
+   - 多层音效：wind howl + footsteps + fabric rustle + breathing，不只写"环境音"
+   - 光影质感：rim light, lens flare, motion blur, shallow depth of field
+   - 连贯性：Same shot, no cut / seamless transition / motion continuity
 
-   示例（有台词）："【主体】一位面容精致的女主播，手托产品向镜头展示 【运动】她用化妆刷轻扫脸颊，动作优雅 【环境】温馨卧室，暖色台灯背景 【运镜】slow dolly in, shallow depth of field 【音频】她面带微笑自然说话（口播："这个产品真的太好用了"），声音温柔亲切"
-   示例（无台词）："【主体】两人在矿洞中对峙 【运动】角色A缓慢转身，眼神坚定 【环境】昏黄矿灯，岩壁粗糙 【运镜】slow push in toward face, dramatic lighting 【音频】无对白，环境音"
+   运镜类型：
+   - Push in / Pull out / Pan left/right / Tracking shot / Crane up/down
+   - Static shot / Handheld / Orbit / Low angle / Over-shoulder / FPV
+
+   videoPrompt 格式（必须遵守）：
+
+   TIMELINE:
+   0-2s: [Camera: 运镜] 主体动作分解。物理效果（realistic physics, cloth simulation）。光影细节。SFX: 具体音效1 + 音效2 + 音效3。
+   2-5s: [Camera: 运镜] 动作延续/转折。环境互动。质感描述（motion blur, shallow DOF）。SFX: 音效变化。
+
+   MOOD: 情绪
+   STYLE: 视觉风格（Cinematic realism / Fantasy / Commercial）
+   QUALITY: 8K, natural grain, high dynamic range
+
+   示例：
+   "TIMELINE:
+   0-2s: [Camera: Low angle tracking] Character strides forward, feet striking wet pavement. Coat billows behind with realistic cloth physics. Rain droplets splash on impact. Rim light from streetlamp creates silhouette. SFX: heavy footsteps + rain patter + fabric rustle.
+   2-5s: [Camera: Push in to close-up] Character stops, head turns slowly toward camera. Eyes narrow, jaw tightens. Water drips from hair. Natural facial micro-expressions. Shallow depth of field, background bokeh. SFX: breathing + distant thunder + water drip.
+
+   MOOD: Tense determination
+   STYLE: Cinematic noir realism
+   QUALITY: 8K, film grain, motion blur"
 
 ═══════════════════════════════════════════════════════════════
 📝 输出格式（只输出 JSON，不要其他内容）
@@ -184,11 +197,11 @@ ${storyContent}
 [
   {
     "sceneNumber": 1,
-    "description": "场景描述（中文）：详细描述镜头内容、角色状态、环境氛围、情绪表达",
+    "description": "镜头设计（中文）：[景别 + 角度] 主体动作 + 环境细节 + 情绪氛围。必须包含：景别（远景/全景/中景/近景/特写）、机位角度（平视/仰拍/俯拍）、运镜方式（推/拉/摇/移/跟/静止）、物理细节（布料/水流/光影）",
     "characters": ["角色名"],
     "objects": ["物体名"],
     "prompt": "Professional cinematic image prompt in English",
-    "videoPrompt": "Professional cinematic video motion prompt in English describing camera movement, subject motion, and atmosphere",
+    "videoPrompt": "TIMELINE-based Seedance 2.0 video prompt with camera movements, physics, and SFX",
     "locationId": "unique_location_key",
     "characterCostume": { "角色名": "Detailed costume description: clothing, hair, accessories, colors" },
     "sceneStyle": "Scene environment and lighting style description in English",
@@ -197,6 +210,13 @@ ${storyContent}
     ]
   }
 ]
+
+⚠️ description 关键要求（镜头语言）：
+- 必须以景别开头：[远景/全景/中景/近景/特写/大特写]
+- 必须标注角度：平视/低角度仰拍/俯拍/过肩/FPV
+- 必须包含运镜：推镜/拉镜/摇镜/跟镜/升降/静止/手持
+- 必须描述物理细节：布料飘动/水花飞溅/光影变化/自然动作
+- 示例："[中景，低角度仰拍] 角色A缓步走向镜头，风吹动衣摆，阳光从侧面打来形成轮廓光。推镜逐渐靠近面部，表情坚定。真实布料物理，自然步态。"
 
 ⚠️ dialogueLines 关键规则：
 - 顺序必须与故事中实际说话的先后顺序完全一致
