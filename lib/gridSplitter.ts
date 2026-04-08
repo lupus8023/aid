@@ -40,16 +40,21 @@ export function buildGridPrompt(
   sceneStyle: string,
   characterDescriptions: string,
   shotDescriptions: string[],
-  aspectRatio: '16:9' | '9:16' | '1:1'
+  aspectRatio: '16:9' | '9:16' | '1:1',
+  referenceImageLabels?: string[] // e.g. ['TOTODA (ref image 1)', 'MOMODA (ref image 2)']
 ): string {
   const orientation = aspectRatio === '9:16' ? 'vertical portrait' : aspectRatio === '1:1' ? 'square' : 'horizontal landscape';
   const shots = shotDescriptions.slice(0, 9);
   while (shots.length < 9) shots.push(shots[shots.length - 1] || 'medium shot');
 
+  const refSection = referenceImageLabels && referenceImageLabels.length > 0
+    ? `\nReference image mapping:\n${referenceImageLabels.map((label, i) => `- Reference image ${i + 1}: ${label}`).join('\n')}\n`
+    : '';
+
   return `Generate a 3x3 cinematic storyboard grid. Each of the 9 panels must be ${orientation} (${aspectRatio} aspect ratio). The entire grid image is also ${orientation}.
 
 Scene environment: ${sceneStyle}
-
+${refSection}
 Characters (MUST match reference images exactly — same face, hair, skin tone, body type, clothing in every panel):
 ${characterDescriptions}
 

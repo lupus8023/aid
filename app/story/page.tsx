@@ -119,9 +119,14 @@ export default function StoryPage() {
       try {
         // Build grid prompt from group's prompts
         const sceneStyle = group[0]?.sceneStyle || '';
-        const charDescs = characters.map(c => `${c.name}: ${c.description}`).join(', ');
+        const charDescs = characters.map(c => `${c.name}: ${c.description}`).join('\n');
         const shotDescs = group.map(sb => sb.prompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1'));
-        const gridPrompt = buildGridPrompt(sceneStyle, charDescs, shotDescs, aspectRatio);
+        // Build reference image labels in order: costume images first, then scene image
+        const refLabels: string[] = [
+          ...characters.filter(c => costumeImages[c.name]).map((c, i) => `${c.name} — ${c.description}`),
+          ...(sceneImages[0] ? ['Scene/environment reference'] : [])
+        ];
+        const gridPrompt = buildGridPrompt(sceneStyle, charDescs, shotDescs, aspectRatio, refLabels);
 
         // Collect reference images
         const refImages = [...Object.values(costumeImages), ...(sceneImages[0] ? [sceneImages[0]] : [])].filter(Boolean);
