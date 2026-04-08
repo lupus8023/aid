@@ -3,15 +3,26 @@ import { chatCompletion } from '@/lib/apimart';
 
 export const maxDuration = 300;
 
+async function dmxChatCompletion(prompt: string, apiKey: string, model: string): Promise<string> {
+  const response = await fetch('https://www.dmxapi.cn/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, stream: false, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] })
+  });
+  if (!response.ok) throw new Error(`DMXAPI error: ${response.status}`);
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error(`Unexpected DMXAPI response`);
+  return content;
+}
+
 export async function POST(request: NextRequest) {
-  const { brief, language, apiKey, scriptModel } = await request.json();
-  if (!brief || !apiKey) {
+  const { brief, language, apiKey, scriptModel, dmxApiKey } = await request.json();
+  if (!brief || (!apiKey && !dmxApiKey)) {
     return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400 });
   }
 
-  const langInstruction = language === 'en'
-    ? 'Write the full script in English.'
-    : '用中文写完整剧本。';
+  const langInstruction = language === 'en' ? 'Write the full script in English.' : '用中文写完整剧本。';
 
   const prompt = `你是一位专业编剧。用户提供了一个故事方向或简介，请将其扩写成一个完整的、适合拍摄的剧本。
 
@@ -37,7 +48,9 @@ ${brief}
 
   (async () => {
     try {
-      const script = await chatCompletion(prompt, apiKey, scriptModel || 'gpt-4o-mini');
+      const script = dmxApiKey
+        ? await dmxChatCompletion(prompt, dmxApiKey, scriptModel || 'gpt-4o-mini')
+        : await chatCompletion(prompt, apiKey, scriptModel || 'gpt-4o-mini');
       await writer.write(encoder.encode(`data: ${JSON.stringify({ script })}\n\n`));
     } catch (error) {
       await writer.write(encoder.encode(`data: ${JSON.stringify({ error: error instanceof Error ? error.message : 'Failed' })}\n\n`));

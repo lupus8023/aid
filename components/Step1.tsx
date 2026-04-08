@@ -13,9 +13,10 @@ interface Step1Props {
   onLanguageChange?: (lang: 'zh' | 'en') => void;
   apiKey?: string;
   scriptModel?: string;
+  dmxApiKey?: string;
 }
 
-export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, apiKey, scriptModel }: Step1Props) {
+export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, apiKey, scriptModel, dmxApiKey }: Step1Props) {
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text');
   const [textInput, setTextInput] = useState(storyContent);
   const [isExpanding, setIsExpanding] = useState(false);
@@ -44,7 +45,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
       const res = await fetch('/api/expand-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brief: textInput, language, apiKey, scriptModel })
+        body: JSON.stringify({ brief: textInput, language, apiKey, scriptModel, dmxApiKey })
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed');
       const reader = res.body!.getReader();

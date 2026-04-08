@@ -445,6 +445,7 @@ export default function StoryPage() {
               onLanguageChange={(lang) => saveSettings({ ...settings, language: lang })}
               apiKey={settings.apiKey}
               scriptModel={settings.scriptModel}
+              dmxApiKey={settings.dmxApiKey}
             />
           )}
           {currentStep === 3 && (
