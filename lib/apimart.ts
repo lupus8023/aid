@@ -66,7 +66,7 @@ export async function createImageTask(
       model,
       prompt,
       size: aspectRatio,
-      resolution: '2K',
+      resolution: '4K',
       n: 1
     };
 
