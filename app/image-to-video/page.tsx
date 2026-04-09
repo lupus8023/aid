@@ -24,6 +24,7 @@ export default function ImageToVideoPage() {
   const [prompt, setPrompt] = useState('');
   const [cameraParams, setCameraParams] = useState('');
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16' | '1:1'>('16:9');
+  const [duration, setDuration] = useState(5);
   const [isGenerating, setIsGenerating] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
@@ -128,6 +129,7 @@ export default function ImageToVideoPage() {
           referenceImages: lastFrameImage ? [lastFrameImage] : [],
           prompt: fullPrompt,
           aspectRatio,
+          duration,
           apiKey: settings.apiKey,
           videoModel: settings.videoModel,
           videoFiles,
@@ -278,6 +280,30 @@ export default function ImageToVideoPage() {
                       {ratio.label}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Duration */}
+              <div>
+                <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Duration</h2>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={5}
+                    max={15}
+                    value={duration}
+                    onChange={(e) => setDuration(Number(e.target.value))}
+                    className="flex-1"
+                  />
+                  <input
+                    type="number"
+                    min={5}
+                    max={15}
+                    value={duration}
+                    onChange={(e) => setDuration(Math.min(15, Math.max(5, Number(e.target.value))))}
+                    className="w-16 px-2 py-1 text-sm font-mono bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+                  />
+                  <span className="text-sm font-mono text-[var(--text-secondary)]">seconds</span>
                 </div>
               </div>
 

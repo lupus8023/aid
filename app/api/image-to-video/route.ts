@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
       referenceImages = [],
       prompt,
       aspectRatio = '16:9',
+      duration,
       apiKey,
       videoModel = 'sora-2',
       videoFiles = [],
@@ -93,6 +94,7 @@ export async function POST(request: NextRequest) {
       videoModel,
       aspectRatio,
       {
+        duration,
         videoUrls: uploadedVideoUrls,
         audioUrls: uploadedAudioUrls,
         imageRoles: imageRoles.length > 0 ? imageRoles : undefined
