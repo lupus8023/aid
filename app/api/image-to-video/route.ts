@@ -87,8 +87,16 @@ export async function POST(request: NextRequest) {
     console.log('All image URLs:', allImageUrls);
     console.log('==================');
 
+    // Build enhanced prompt with audio instructions if audio is provided
+    let enhancedPrompt = prompt;
+    if (uploadedAudioUrls.length > 0) {
+      enhancedPrompt = `${prompt}
+
+AUDIO: Use the provided reference audio. Natural sound effects only (footsteps, wind, water, fabric, impacts, ambient). No background music. No dialogue subtitles. Maintain the voice timbre and tone of the reference audio exactly as provided.`;
+    }
+
     const taskId = await createVideoTask(
-      prompt,
+      enhancedPrompt,
       allImageUrls,
       apiKey,
       videoModel,
