@@ -165,36 +165,42 @@ ${storyContent}
 
 5. **运镜与视频提示词设计（Seedance 2.0 标准）**
 
-   核心原则：
-   - 时间精确分段（0-2s, 2-5s），每段标注 [Camera: 运镜方式]
-   - 强制物理真实性：realistic physics, natural movement, cloth simulation, fluid dynamics
+   核心原则（来自最佳实践）：
+   - 时间轴分段：每段标注时间范围和镜头编号，如 [00–03s] Shot 1: (Interior / Close-up)
+   - 每段聚焦一个核心动作，不堆砌多个事件
    - 动作分解：不写"角色走路"，写"feet plant → body leans → coat billows → stride completes"
-   - 多层音效：wind howl + footsteps + fabric rustle + breathing，不只写"环境音"
-   - 光影质感：rim light, lens flare, motion blur, shallow depth of field
-   - 连贯性：Same shot, no cut / seamless transition / motion continuity
+   - 微表情细节：subtle nod、eyes narrow、jaw tightens、breathing heavily
+   - 环境互动：rain lashes windshield、water sprays into lens、motion blur stretches lights
+   - 多层音效（具体化）：rain patter + engine roar + tire screech，不只写"环境音"
+   - 光影质感：rim light、lens flare、motion blur、volumetric god rays、shallow DOF
+   - 连贯性结尾：seamless transition / no cut / smooth camera movement
 
    运镜类型：
-   - Push in / Pull out / Pan left/right / Tracking shot / Crane up/down
-   - Static shot / Handheld / Orbit / Low angle / Over-shoulder / FPV
+   - Push in / Pull out / Pan left/right / Tracking shot / Dolly in
+   - Static shot / Handheld / Orbital shot / Low angle / Over-shoulder / POV / FPV
 
    videoPrompt 格式（必须遵守）：
 
-   TIMELINE:
-   0-2s: [Camera: 运镜] 主体动作分解。物理效果（realistic physics, cloth simulation）。光影细节。SFX: 具体音效1 + 音效2 + 音效3。
-   2-5s: [Camera: 运镜] 动作延续/转折。环境互动。质感描述（motion blur, shallow DOF）。SFX: 音效变化。
+   [00–Xs] Shot N: (景别 / 角度)
+   场景描述。角色动作分解（micro-expression + body movement）。环境互动细节。光影效果。SFX: 音效1 + 音效2 + 音效3。
 
-   MOOD: 情绪
-   STYLE: 视觉风格（Cinematic realism / Fantasy / Commercial）
-   QUALITY: 8K, natural grain, high dynamic range
+   [Xs–Ys] Shot N+1: (景别 / 角度)
+   动作延续或转折。物理效果（cloth simulation / fluid dynamics）。质感（motion blur, shallow DOF）。SFX: 音效变化。
+
+   MOOD: 情绪关键词
+   STYLE: 视觉风格（Cinematic realism / Fantasy / Commercial / Surreal）
+   QUALITY: 4K Ultra HD, cinematic texture, stable face, no deformation, smooth transitions
 
    示例：
-   "TIMELINE:
-   0-2s: [Camera: Low angle tracking] Character strides forward, feet striking wet pavement. Coat billows behind with realistic cloth physics. Rain droplets splash on impact. Rim light from streetlamp creates silhouette. SFX: heavy footsteps + rain patter + fabric rustle.
-   2-5s: [Camera: Push in to close-up] Character stops, head turns slowly toward camera. Eyes narrow, jaw tightens. Water drips from hair. Natural facial micro-expressions. Shallow depth of field, background bokeh. SFX: breathing + distant thunder + water drip.
+   "[00–05s] Shot 1: (Interior / Close-up)
+   Rain lashes the windshield. The driver (in helmet) looks over, calm and focused. Dashboard lights reflect on his visor. He gives a subtle nod and mouths 'Let's go.' SFX: rain patter + engine idle + visor tap.
 
-   MOOD: Tense determination
-   STYLE: Cinematic noir realism
-   QUALITY: 8K, film grain, motion blur"
+   [05–10s] Shot 2: (Wide action)
+   Both cars accelerate in sync on wet asphalt. Water sprays into the camera lens. Motion blur stretches stadium lights into long color streaks. SFX: tire screech + engine roar + crowd cheer.
+
+   MOOD: High-stakes tension
+   STYLE: Hollywood cinematic realism
+   QUALITY: 4K Ultra HD, cinematic texture, stable face, no deformation, smooth transitions"
 
 ═══════════════════════════════════════════════════════════════
 📝 输出格式（只输出 JSON，不要其他内容）
