@@ -137,6 +137,7 @@ export async function createVideoTask(
     videoUrls?: string[];
     audioUrls?: string[];
     imageRoles?: Array<{ url: string; role: 'first_frame' | 'last_frame' }>;
+    resolution?: '720P' | '1080P';
   }
 ): Promise<string> {
   try {
@@ -152,8 +153,12 @@ export async function createVideoTask(
       duration: options?.duration ?? (model.includes('sora-2') ? 10 : 5),
     };
 
-    // Doubao Seedance 使用 size 参数，其他模型使用 aspect_ratio
-    if (model.includes('doubao') || model.includes('seedance')) {
+    // wan2.7 使用 size + resolution 参数
+    if (model.includes('wan2')) {
+      requestBody.size = aspectRatio;
+      requestBody.resolution = options?.resolution ?? '1080P';
+    } else if (model.includes('doubao') || model.includes('seedance')) {
+      // Doubao Seedance 使用 size 参数
       requestBody.size = aspectRatio;
     } else {
       requestBody.aspect_ratio = aspectRatio;

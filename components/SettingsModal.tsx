@@ -122,6 +122,7 @@ export default function SettingsModal({
               <option value="doubao-seedream-5-0-lite">doubao-seedream-5-0-lite</option>
               <option value="doubao-seedance-4-5">doubao-seedance-4-5</option>
               <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview</option>
+              <option value="gpt-image-2">gpt-image-2</option>
             </select>
           </div>
 
@@ -144,6 +145,7 @@ export default function SettingsModal({
               <option value="doubao-seedance-1-5-pro">doubao-seedance-1-5-pro</option>
               <option value="veo3.1-fast">veo3.1-fast (Fast)</option>
               <option value="veo3.1-quality">veo3.1-quality</option>
+              <option value="wan2.7">wan2.7</option>
             </select>
           </div>
 
