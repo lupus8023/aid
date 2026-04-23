@@ -66,9 +66,12 @@ export async function createImageTask(
       model,
       prompt,
       size: aspectRatio,
-      resolution: '3K',
       n: 1
     };
+
+    if (!model.includes('gpt-image')) {
+      requestBody.resolution = '2K';
+    }
 
     if (imageUrls.length > 0 && imageUrls[0]) {
       requestBody.image_urls = imageUrls;
