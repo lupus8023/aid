@@ -114,7 +114,7 @@ Character references provided: ${sceneCharacters.map(c => c.name).join(', ')}. M
 
   const taskId = await createImageTask(
     enhancedPrompt,
-    referenceImages,
+    referenceImages.filter((img): img is string => typeof img === 'string'),
     apiKey,
     imageModel || 'doubao-seedream-5-0-lite',
     aspectRatio
