@@ -29,7 +29,7 @@ export async function generateStoryboardImage(
 
   // 收集所有角色的参考图片 — 优先使用全局定妆图
   const characterImages = sceneCharacters
-    .map(char => globalCostumeImages[char.name] || char.imageBase64 || char.imageUrl)
+    .map(char => globalCostumeImages[char.name] || char.imageUrl || char.imageBase64)
     .filter(img => img);
 
   // 场景参考图
@@ -37,7 +37,7 @@ export async function generateStoryboardImage(
 
   // 收集所有物体的参考图片
   const objectImages = sceneObjects
-    .map(obj => obj.imageBase64 || obj.imageUrl)
+    .map(obj => obj.imageUrl || obj.imageBase64)
     .filter(img => img);
 
   // 合并所有参考图片：定妆图 + 场景图 + 物体图
