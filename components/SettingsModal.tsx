@@ -123,6 +123,7 @@ export default function SettingsModal({
               <option value="doubao-seedance-4-5">doubao-seedance-4-5</option>
               <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview</option>
               <option value="gpt-image-2">gpt-image-2</option>
+              <option value="gpt-image-2-official">gpt-image-2-official</option>
             </select>
           </div>
 

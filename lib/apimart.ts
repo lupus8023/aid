@@ -80,7 +80,9 @@ export async function createImageTask(
     };
 
     if (model.includes('gpt-image')) {
-      requestBody.resolution = '4k';
+      // 4k 仅支持 16:9, 9:16, 2:1, 1:2, 21:9, 9:21；1:1 等比例用 2k
+      const supports4k = ['16:9', '9:16', '2:1', '1:2', '21:9', '9:21'].includes(aspectRatio);
+      requestBody.resolution = supports4k ? '4k' : '2k';
     } else {
       requestBody.resolution = '2K';
     }
