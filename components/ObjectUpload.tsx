@@ -26,13 +26,22 @@ export default function ObjectUpload({ onObjectsChange }: ObjectUploadProps) {
       return;
     }
 
-    // 创建本地预览 URL
-    const imageUrl = URL.createObjectURL(file);
-
-    // 读取文件并转换为 base64
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const imageBase64 = event.target?.result as string;
+
+      let imageUrl = URL.createObjectURL(file);
+      try {
+        const res = await fetch('/api/upload-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageData: imageBase64 })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          imageUrl = data.url;
+        }
+      } catch {}
 
       const newObject: ObjectItem = {
         id: editingId || `obj-${Date.now()}`,
