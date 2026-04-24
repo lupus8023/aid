@@ -58,9 +58,19 @@ export async function createImageTask(
   aspectRatio: '16:9' | '9:16' = '16:9'
 ): Promise<string> {
   try {
-    const imageUrls = Array.isArray(referenceImageUrls)
+    const rawUrls = Array.isArray(referenceImageUrls)
       ? referenceImageUrls
       : [referenceImageUrls];
+
+    // 将 base64 图片上传到 APIMart 获取公网 URL
+    const imageUrls = await Promise.all(
+      rawUrls.map(async (img) => {
+        if (img && img.startsWith('data:')) {
+          return await uploadImageToPublic(img, apiKey);
+        }
+        return img;
+      })
+    );
 
     const requestBody: any = {
       model,
@@ -208,35 +218,28 @@ export async function createVideoTask(
   }
 }
 
-// 上传 base64 图片到 imgbb 获取公网 URL
-export async function uploadImageToPublic(base64Image: string): Promise<string> {
+// 上传 base64 图片到 APIMart 获取公网 URL
+export async function uploadImageToPublic(base64Image: string, apiKey?: string): Promise<string> {
+  if (!apiKey) throw new Error('API key required for image upload');
   try {
-    // 移除 base64 前缀
-    const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
+    const matches = base64Image.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (!matches) throw new Error('Invalid base64 image format');
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, 'base64');
+    const ext = mimeType.split('/')[1];
 
-    // 使用 imgbb 免费 API (需要 API key)
-    const imgbbApiKey = process.env.IMGBB_API_KEY || '8d32e7f2e9fcf21b8cf2b4f3f9c8e7f2'; // 临时测试key
-
-    const formData = new URLSearchParams();
-    formData.append('image', base64Data);
+    const form = new FormData();
+    form.append('file', new Blob([buffer], { type: mimeType }), `image.${ext}`);
 
     const response = await axios.post(
-      `https://api.imgbb.com/1/upload?key=${imgbbApiKey}`,
-      formData,
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
-      }
+      `${APIMART_BASE_URL}/uploads/images`,
+      form,
+      { headers: { 'Authorization': `Bearer ${apiKey}` } }
     );
-
-    if (response.data.success && response.data.data.url) {
-      return response.data.data.url;
-    }
-
-    throw new Error('Failed to upload image to imgbb');
+    return response.data.url;
   } catch (error: any) {
-    console.error('Upload image error:', error);
+    console.error('Upload image error:', error.response?.data || error.message);
     throw new Error(`Failed to upload image: ${error.message}`);
   }
 }
