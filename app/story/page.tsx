@@ -123,13 +123,16 @@ export default function StoryPage() {
         const shotDescs = group.map(sb => sb.prompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1'));
         // Build reference image labels in order: costume images first, then scene image
         const refLabels: string[] = [
-          ...characters.filter(c => costumeImages[c.name]).map((c, i) => `${c.name} — ${c.description}`),
+          ...characters.map(c => `${c.name} — ${c.description}`),
           ...(sceneImages[0] ? ['Scene/environment reference'] : [])
         ];
         const gridPrompt = buildGridPrompt(sceneStyle, charDescs, shotDescs, aspectRatio, refLabels);
 
-        // Collect reference images
-        const refImages = [...Object.values(costumeImages), ...(sceneImages[0] ? [sceneImages[0]] : [])].filter(Boolean);
+        // Collect reference images — prefer costume image, fallback to original imageUrl
+        const refImages = [
+          ...characters.map(c => costumeImages[c.name] || c.imageUrl).filter(Boolean),
+          ...(sceneImages[0] ? [sceneImages[0]] : [])
+        ];
 
         // Generate grid image
         const res = await fetch('/api/generate', {
