@@ -74,7 +74,7 @@ export async function generateStoryboardImage(
   sceneCharacters.forEach((char) => {
     const usingCostume = !!globalCostumeImages[char.name];
     referenceDescriptions.push(
-      `Reference image ${imgIndex}: "${char.name}" - ${usingCostume ? 'COSTUME & IDENTITY REFERENCE. CRITICAL: preserve exact face shape, facial features, skin tone, eye color, hair style, hair color, and all costume details from this reference. Do not alter appearance in any way.' : `${char.description}. MUST copy exact face, hair, skin tone, body type, and clothing from this reference image.`}`
+      `Reference image ${imgIndex}: "${char.name}" - ${usingCostume ? 'CHARACTER REFERENCE. Maintain consistent appearance, hairstyle, clothing, and visual style from this reference.' : `${char.description}. Match the character's appearance and clothing style from this reference image.`}`
     );
     imgIndex++;
   });
