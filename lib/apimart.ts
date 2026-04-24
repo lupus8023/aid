@@ -79,7 +79,9 @@ export async function createImageTask(
       n: 1
     };
 
-    if (!model.includes('gpt-image')) {
+    if (model.includes('gpt-image')) {
+      requestBody.resolution = '4k';
+    } else {
       requestBody.resolution = '2K';
     }
 
