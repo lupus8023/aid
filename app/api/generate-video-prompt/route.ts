@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatCompletion } from '@/lib/apimart';
+import { getStoryboardDuration } from '@/lib/promptArchitecture';
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,11 +9,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'storyboard and apiKey are required' }, { status: 400 });
     }
 
-    const prompt = `You are a professional cinematographer writing AI video generation prompts. Every prompt must produce KINETIC, PRECISELY TIMED motion — specific camera mechanics, not vague intentions.
+    const duration = getStoryboardDuration(storyboard);
+    const firstBreak = Math.max(1, Math.floor(duration / 3));
+    const secondBreak = Math.max(firstBreak + 1, Math.floor(duration * 2 / 3));
+
+    const prompt = `You are a professional cinematographer and animation director writing a ${duration}-second AI image-to-video prompt. The input image is the visual authority and may be live action, CG, anime, illustration, stop motion, or mixed technique. Preserve its medium; never force a different one. Every prompt must produce KINETIC, PRECISELY TIMED motion — specific camera mechanics, not vague intentions.
 
 ## Shot Information
 Scene ${storyboard.sceneNumber}: ${storyboard.description}
 Context: ${storyboard.prompt}
+
+## CAMERA AESTHETIC — Equipment defects for realism
+Choose the appropriate equipment feel, then apply its physical defects:
+- **2000s DV camcorder**: moderate handheld shake, autofocus hunting, lens breathing, exposure fluctuation in sun/shadow transitions, slight motion blur, minor rolling shutter, medium compression artifacts, faded colors, soft contrast, light sensor noise. NO stabilization. NO cinematic camera movements. NO modern color grading.
+- **Professional documentary**: subtle handheld breathing, smooth focus pulls, natural color temperature shifts, real-world lighting imperfections
+- **Modern commercial**: polished but not perfect — minimal shake, occasional exposure adjustment, natural physics
+
+NEGATIVE CONSTRAINTS (critical — prevents AI defaults):
+- NO cinematic camera movements or perfect stabilization
+- NO modern color grading or commercial polish
+- NO perfect composition or beauty-filter smoothing
+- NO exaggerated emotions or theatrical performance
 
 ## PACING — Choose before writing
 - **FAST** (action/shock/chase): explosive weight shifts, zero hesitation, sharp muscle tension; camera: whip pan, snap dolly push, urgent handheld shake, fast arc
@@ -29,13 +46,15 @@ Context: ${storyboard.prompt}
 
 Line 1: PACE: [FAST/MEDIUM/SLOW] — [one-line scene energy statement]
 
-[00-Xs] [Shot size], [lens mm]. [Camera move: speed + easing + amplitude + path]. [Subject action with muscle/weight specifics].
+[00-${firstBreak}s] [Shot size and perspective/lens behavior appropriate to the source medium]. [Camera move: speed + easing + amplitude + path]. [Subject action with weight, pose, or deformation specifics].
 
-[Xs-Ys] [Camera continues or transitions: exact mechanics]. [Subject action develops — body tension, eye line, contact point].
+[${firstBreak}-${secondBreak}s] [Camera continues or transitions: exact mechanics]. [Subject action develops — body tension, eye line, contact point].
 
-[Ys-end] [Final camera state: speed + easing + hold]. [Subject resolves — final body position, breath state].
+[${secondBreak}-${duration}s] [Final camera state: speed + easing + hold]. [Subject resolves into a deliberate final state; never end mid-action].
 
 Lighting: [source direction + quality]. DOF: [aperture feel]. Grain/format: [24fps film grain / clean 4K].
+
+Audio: Natural ambient sound only — [specific environmental sounds appropriate to scene: birds, wind, footsteps, fabric rustle, distant traffic, breathing]. NO music. NO sound design. NO narration.
 
 ## EXAMPLES
 
@@ -57,8 +76,12 @@ Lighting: soft diffused window light from screen left, cool tone. DOF: f/1.8 ext
 - Every camera move must name: speed + easing curve + amplitude + path direction
 - Never write "the camera moves" — write exactly HOW it moves
 - Subject actions: name the specific muscles, weight shifts, contact points
-- Do NOT describe appearance, costume, or art style
+- Do NOT redesign appearance, costume, or art style. Describe only continuity-critical movement.
+- Live action uses believable biomechanics and subtle micro-expression; stylized/CG subjects use motion consistent with their design and animation language. Do not add pores or photographic realism to stylized work.
+- Cover exactly 00-${duration}s with no gaps, overlaps, extra shots, or timestamps beyond the duration.
 - Do NOT add music, subtitles, or sound effects
+- Apply equipment defects consistently throughout the shot (shake, focus hunting, exposure shifts)
+- Character descriptions must be concrete and visual: NO abstract adjectives like "fashionable" or "attractive". Use specific clothing, hairstyle, accessories instead.
 - Output ONLY the prompt — no labels, no section headers
 
 Write the prompt for Scene ${storyboard.sceneNumber}:`;

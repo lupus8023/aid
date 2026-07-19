@@ -1,5 +1,6 @@
 import { createVideoTask, getVideoTaskStatus } from './apimart';
 import { Storyboard } from '@/types';
+import { buildVideoContinuityRules } from './promptArchitecture';
 
 // 为单个分镜生成视频
 export async function generateStoryboardVideo(
@@ -44,14 +45,7 @@ export async function generateStoryboardVideo(
 
   const videoPrompt = `${basePrompt}${dialogueSection}${audioMapping}${continuityRules}
 
-STRICT RULES — follow exactly:
-- Keep the EXACT same face, hairstyle, clothing, object shape, color, text/logo and all scene elements as shown in the reference image. Zero morphing or appearance drift.
-- Motion pacing must match the scene energy: action/conflict = sharp, decisive movements with tension; emotional/intimate = slow, micro-movements with long holds; never uniform speed throughout.
-- One complete action arc only: clear beginning, middle, and natural end. Do not cut off mid-action. Never stack multiple unrelated events.
-- No extra characters not shown in the reference image.
-- No subtitles, no text overlays, no background music.
-- Natural sound effects only (footsteps, wind, water, fabric, impacts, ambient).
-${characterAudios.length > 0 ? '- Mouth and body motion must naturally synchronize with the provided character audio.' : ''}`;
+${buildVideoContinuityRules(characterAudios.length > 0)}`;
 
 
   console.log(`Creating video task for storyboard scene ${storyboard.sceneNumber}`);

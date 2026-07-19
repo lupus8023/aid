@@ -266,13 +266,15 @@ ${storyContent}
    - 多层音效（具体化）：rain patter + engine roar + tire screech，不只写"环境音"
    - 连贯性结尾：seamless transition / no cut / smooth camera movement
 
-   🎬 **电影级真实感要求**（关键新增）：
-   - **皮肤真实纹理**：visible pores, fine facial hair, natural skin texture, subtle under-eye lines, NO excessive smoothing, NO plastic skin
+   🎬 **媒介自适应质感要求**（关键）：
+   - **先识别参考图媒介**：真人实拍 / 3D CG / 动漫 / 插画 / 定格；全程保持同一种视觉语言，禁止跨媒介漂移
+   - **真人实拍**：natural skin texture, stable facial anatomy, believable biomechanics, NO excessive smoothing, NO plastic skin
+   - **CG / 动漫 / 插画**：保持原始轮廓、比例、线条、材质、着色与动画语言；禁止强加毛孔、摄影皮肤或真人化五官
    - **泪水物理效果**：tears gathering in eyes → moisture reflects light → single tear slowly rolls down cheek → clear tear track visible on skin surface, wet eyelashes
    - **微表情时间轴**（人物特写必备）：
      * 0-5s: eyes downcast, suppressing emotion, reddening eyes, moisture beginning to appear
      * 6-10s: slowly lifting gaze toward camera, eyes glistening with tears gathering in lower eyelid
-     * 11-15s: single tear falls, rolls down cheek naturally, tear track clearly visible
+     * 11-15s: single tear falls only when the story requires it; otherwise resolve the requested action naturally
    - **光线的电影级控制**：
      * 主光源方向：left side cool moonlight / right side warm candlelight / backlit rim light
      * 光线性格：soft and delicate / dramatic and contrasty / restrained and melancholic
@@ -282,11 +284,11 @@ ${storyContent}
      * slow push-in with slight handheld breathing feel
      * background completely blurred with soft bokeh
      * face sharp and detailed in foreground
-   - **克制的情绪表达**：
+   - **表演匹配题材与角色**：
      * quiet and suppressed, NOT exaggerated crying or shouting
      * lips gently closed, breathing very light
-     * eyes slowly reddening, tears gathering but NOT streaming
-     * broken gaze, restrained sadness
+     * 情绪强度由剧情决定，不要默认所有角色哭泣或悲伤
+     * 真人使用自然微表情；风格化角色保持其既有表演与形变语言
 
    运镜类型：
    - Push in / Pull out / Pan left/right / Tracking shot / Dolly in / Slow push-in
@@ -304,7 +306,7 @@ ${storyContent}
    MOOD: 情绪关键词（restrained / melancholic / tense / joyful）
    STYLE: 视觉风格（Cinematic realism / Period drama / Commercial / Editorial portrait）
    LIGHTING: 光线设置（left cool moonlight + right warm candlelight / natural window light / dramatic side light）
-   QUALITY: 8K ultra-clear, realistic skin texture, cinema-grade color grading, real portrait photography feel, HDR, high dynamic range, realistic tear physics, visible pores and fine hair, NO plastic skin, NO beauty filter
+   QUALITY: preserve source medium, stable identity and anatomy, coherent physics, cinema-grade finish, no flicker, no morphing, no medium drift; for live action only: natural skin texture, no plastic skin or beauty filter
 
    示例 1 - 动作场景：
    "[00–05s] Shot 1: (Interior / Close-up / 85mm f/2.0)

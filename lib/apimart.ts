@@ -55,7 +55,7 @@ export async function createImageTask(
   referenceImageUrls: string | string[],
   apiKey: string,
   model: string = 'doubao-seedream-5-0-lite',
-  aspectRatio: '16:9' | '9:16' | '1:1' = '16:9'
+  aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' = '16:9'
 ): Promise<string> {
   try {
     const rawUrls = Array.isArray(referenceImageUrls)

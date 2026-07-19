@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createImageTask } from '@/lib/apimart';
+import { buildCharacterBiblePrompt, buildSceneReferencePrompt } from '@/lib/promptArchitecture';
 
 export async function POST(request: NextRequest) {
   try {
@@ -7,9 +8,14 @@ export async function POST(request: NextRequest) {
 
     let prompt = '';
     if (type === 'costume') {
-      prompt = `Character costume reference sheet. [${name}](${description}) wearing: ${costumeDesc}. Full body shot, neutral pose, white/neutral background, clear visibility of costume details, consistent lighting. No text, no watermark, no labels, no captions.`;
+      prompt = buildCharacterBiblePrompt({
+        name,
+        description,
+        costumeDesc,
+        hasIdentityReference: Boolean(referenceImageUrl),
+      });
     } else if (type === 'scene') {
-      prompt = `Scene environment reference. ${sceneStyle}. Empty scene without characters, establishing shot, wide angle, detailed environment, consistent lighting and atmosphere. No text, no watermark, no labels, no captions.`;
+      prompt = buildSceneReferencePrompt(sceneStyle);
     } else {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
     }
@@ -19,7 +25,7 @@ export async function POST(request: NextRequest) {
       referenceImageUrl ? [referenceImageUrl] : [],
       apiKey,
       imageModel || 'doubao-seedream-5-0-lite',
-      aspectRatio || '16:9'
+      type === 'costume' ? '4:3' : (aspectRatio || '16:9')
     );
 
     return NextResponse.json({ taskId });

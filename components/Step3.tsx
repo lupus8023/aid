@@ -79,13 +79,14 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
           <span className="text-[var(--text-secondary)]">03.</span> Shot Script
         </h2>
         <p className="text-[var(--text-secondary)] font-mono text-sm">
-          Generate costume & scene references, then review shots
+          Generate character bibles & scene references, then review shots
         </p>
       </div>
 
       {/* Global costume/scene reference panel */}
       <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-4">
-        <p className="text-xs font-mono text-[var(--text-secondary)] mb-3">Global References — generated once, applied to all shots</p>
+        <p className="text-xs font-mono text-[var(--text-secondary)] mb-1">Global References — generated once, applied to all shots</p>
+        <p className="text-[10px] font-mono text-[var(--text-secondary)] mb-3 opacity-60">Character bibles are 4:3 high-density sheets with turnarounds, expressions, micro-expressions, head/hand studies, silhouettes, and medium preservation for live action, CG, anime, or illustration.</p>
         <div className="flex gap-3 flex-wrap">
           {characters.map(char => (
             <div key={char.name} className="w-20">
