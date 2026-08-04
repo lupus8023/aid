@@ -326,9 +326,7 @@ export async function createVideoTask(
         } else if (referenceImageUrls.length > 0) {
           requestBody.image_urls = referenceImageUrls.slice(0, 9);
         }
-        requestBody.audio_urls = options.audioUrls.slice(0, 3);
-      } else {
-        // I2V 模式：直接用 first_frame_image / last_frame_image
+        requestBody.audio_urls = options.audioUrls!.slice(0, 3);
         if (options?.imageRoles && options.imageRoles.length > 0) {
           const firstFrame = options.imageRoles.find(r => r.role === 'first_frame');
           const lastFrame = options.imageRoles.find(r => r.role === 'last_frame');
