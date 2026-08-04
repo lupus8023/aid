@@ -10,81 +10,116 @@ export async function POST(request: NextRequest) {
     }
 
     const duration = getStoryboardDuration(storyboard);
-    const firstBreak = Math.max(1, Math.floor(duration / 3));
-    const secondBreak = Math.max(firstBreak + 1, Math.floor(duration * 2 / 3));
+    const durationStr = duration < 10 ? `0${duration}` : `${duration}`;
 
-    const prompt = `You are a professional cinematographer and animation director writing a ${duration}-second AI image-to-video prompt. The input image is the visual authority and may be live action, CG, anime, illustration, stop motion, or mixed technique. Preserve its medium; never force a different one. Every prompt must produce KINETIC, PRECISELY TIMED motion — specific camera mechanics, not vague intentions.
+    const prompt = `You are a professional cinematographer and animation director writing a structured ${duration}-second video director's brief. The input image is the visual authority — preserve its exact medium (live action, CG, anime, illustration) without conversion.
 
-## Shot Information
+## Shot Input
 Scene ${storyboard.sceneNumber}: ${storyboard.description}
 Context: ${storyboard.prompt}
 
-## CAMERA AESTHETIC — Equipment defects for realism
-Choose the appropriate equipment feel, then apply its physical defects:
-- **2000s DV camcorder**: moderate handheld shake, autofocus hunting, lens breathing, exposure fluctuation in sun/shadow transitions, slight motion blur, minor rolling shutter, medium compression artifacts, faded colors, soft contrast, light sensor noise. NO stabilization. NO cinematic camera movements. NO modern color grading.
-- **Professional documentary**: subtle handheld breathing, smooth focus pulls, natural color temperature shifts, real-world lighting imperfections
-- **Modern commercial**: polished but not perfect — minimal shake, occasional exposure adjustment, natural physics
-
-NEGATIVE CONSTRAINTS (critical — prevents AI defaults):
-- NO cinematic camera movements or perfect stabilization
-- NO modern color grading or commercial polish
-- NO perfect composition or beauty-filter smoothing
-- NO exaggerated emotions or theatrical performance
-
-## PACING — Choose before writing
-- **FAST** (action/shock/chase): explosive weight shifts, zero hesitation, sharp muscle tension; camera: whip pan, snap dolly push, urgent handheld shake, fast arc
-- **MEDIUM** (conversation/discovery): natural gait, controlled gestures, eye contact; camera: smooth tracking, gentle arc, breathing Steadicam
-- **SLOW** (grief/awe/intimacy/dread): micro-tremors only — finger curl, slow blink, chest rise; camera: imperceptible creep, glacial pull-back, locked-off hold
-
-## CAMERA MOVEMENT — Always specify ALL of these:
-**Speed**: instant / snap (0–0.2s) | quick (0.2–0.5s) | moderate (0.5–1.5s) | slow (1.5–3s) | glacial (3s+)
-**Easing**: linear | ease-in (starts slow, accelerates) | ease-out (decelerates into hold) | ease-in-out (smooth S-curve) | snap-hold (instant move, hard stop)
-**Amplitude**: micro (1–3cm / 1–3°) | small (5–10cm / 5–10°) | medium (20–50cm / 15–30°) | large (1–2m / 45°+)
-**Path**: straight axis push/pull | curved arc (concave/convex) | spiral | pendulum swing | floating drift
-
-## REQUIRED OUTPUT STRUCTURE
-
-Line 1: PACE: [FAST/MEDIUM/SLOW] — [one-line scene energy statement]
-
-[00-${firstBreak}s] [Shot size and perspective/lens behavior appropriate to the source medium]. [Camera move: speed + easing + amplitude + path]. [Subject action with weight, pose, or deformation specifics].
-
-[${firstBreak}-${secondBreak}s] [Camera continues or transitions: exact mechanics]. [Subject action develops — body tension, eye line, contact point].
-
-[${secondBreak}-${duration}s] [Final camera state: speed + easing + hold]. [Subject resolves into a deliberate final state; never end mid-action].
-
-Lighting: [source direction + quality]. DOF: [aperture feel]. Grain/format: [24fps film grain / clean 4K].
-
-Audio: Natural ambient sound only — [specific environmental sounds appropriate to scene: birds, wind, footsteps, fabric rustle, distant traffic, breathing]. NO music. NO sound design. NO narration.
-
-## EXAMPLES
-
-PACE: FAST — explosive confrontation, no room to breathe
-[00-01s] MCU, 35mm. Snap dolly push-in (instant ease-in, 40cm straight axis). Subject's torso lurches forward — weight slams onto front foot, jaw tightens, fists clench at sides.
-[01-03s] Camera holds locked-off with micro handheld flutter (±2mm, random). Subject's arm snaps up in a single hard movement — elbow fully extended, finger pointing off-screen right. Shoulder muscles visibly strain.
-[03-04s] Slow ease-out pull-back (1.5s, 30cm, straight axis). Subject holds rigid pose, then chest deflates in one sharp exhale. Eyes stay locked forward. Hard hold.
-Lighting: harsh overhead practical, hard shadows under brow. DOF: f/2.8 shallow. 24fps, film grain.
+## Required Output Structure
+Write exactly these sections in order. Be specific and concrete. Never use abstract adjectives (beautiful, elegant, stunning, cinematic). Describe only what a camera can capture or a body can perform.
 
 ---
 
-PACE: SLOW — suffocating grief, time has stopped
-[00-03s] CU, 85mm. Glacial creep inward (3s, ease-in-out, 8cm straight axis, barely perceptible). Subject's eyes downcast — a single slow blink, lashes wet. No other movement.
-[03-05s] Camera locks off completely. Subject's hand, resting on a surface, curls one finger inward — micro-movement, 2cm arc. Breath is held, then releases as near-silent exhale that barely moves the chest.
-[05-06s] Micro pull-back (1s, ease-out, 5cm). Eyes lift fractionally — not to look at anything, just upward. Hold.
-Lighting: soft diffused window light from screen left, cool tone. DOF: f/1.8 extreme shallow, background dissolved. 24fps, heavy grain.
+GOAL:
+One sentence: the shot type, emotional purpose, and how it should feel to watch.
 
-## RULES
-- Every camera move must name: speed + easing curve + amplitude + path direction
-- Never write "the camera moves" — write exactly HOW it moves
-- Subject actions: name the specific muscles, weight shifts, contact points
-- Do NOT redesign appearance, costume, or art style. Describe only continuity-critical movement.
-- Live action uses believable biomechanics and subtle micro-expression; stylized/CG subjects use motion consistent with their design and animation language. Do not add pores or photographic realism to stylized work.
-- Cover exactly 00-${duration}s with no gaps, overlaps, extra shots, or timestamps beyond the duration.
-- Do NOT add music, subtitles, or sound effects
-- Apply equipment defects consistently throughout the shot (shake, focus hunting, exposure shifts)
-- Character descriptions must be concrete and visual: NO abstract adjectives like "fashionable" or "attractive". Use specific clothing, hairstyle, accessories instead.
-- Output ONLY the prompt — no labels, no section headers
+CHARACTER:
+Use the uploaded reference image as the exact character authority. Preserve the same facial identity, age, skin tone, eye shape, hairstyle, makeup, body proportions, clothing, and accessories throughout the entire video.
+[One concrete identifying line with specific clothing colors and textures, hairstyle detail, visible accessories — no abstract praise.]
 
-Write the prompt for Scene ${storyboard.sceneNumber}:`;
+LOCATION:
+[Specific place. Time of day. Direction of the light source. Key architectural or natural elements. Background details. Spatial density and atmosphere. Write only environment — no action, no camera.]
+
+LOOK:
+[Visual material quality only — separate from camera movement. Include: color palette, contrast level, film or tape format feel, grain or texture, highlight rendering, depth-of-field character, skin quality, any format-specific artifacts. Describe what the image is made of, not what happens in it.]
+
+CAMERA:
+[Camera type and its physical defects. Specify: lens focal length, handheld behavior, autofocus behavior, exposure behavior, stabilization level. Give the camera a personality — how it makes imperfect but motivated choices. One movement per shot: name speed + easing curve + amplitude + path direction.]
+
+STYLE:
+[FAST / MEDIUM / SLOW. Editing rhythm. Emotional arc from opening to close. Narrative point of view. Keep this separate from Look — Style is about pacing and story logic, not visual texture.]
+
+AUDIO:
+Natural ambient sound only. List the specific sounds that are present. Then explicitly list what is absent. No internal conflicts.
+
+STORYBOARD — ${duration}s:
+
+[00:00–00:Xs] | [Location] | [Shot size, lens] | [Light quality]
+[Subject does one specific action: name the body part, movement direction, weight shift, or contact point.]
+[Camera does one specific movement: speed + easing + amplitude + path.]
+[Sound note for this shot.]
+
+[Continue, covering 00:00 to 00:${durationStr} with no gaps.]
+
+---
+
+## Shot Count Guide
+${duration <= 6 ? `- ${duration}s total → 2 shots` : duration <= 10 ? `- ${duration}s total → 3 shots` : `- ${duration}s total → 4–5 shots`}
+Each shot: 1.5–3 seconds. No shot should try to contain more than one primary action.
+
+## Performance: Convert States to Actions
+Visible actions only — no internal states:
+- NOT: "she looks confident" → YES: "raises her chin slightly, shoulders square back, one slow exhale visible"
+- NOT: "he's nervous" → YES: "fidgets with sleeve hem, gaze drops briefly then returns, jaw tightens"
+- NOT: "she smiles" → YES: "corners of her mouth lift as her eyes narrow slightly"
+One body action per shot. Name the body part and direction.
+
+## Camera Move Specification
+Every camera movement must state all four properties:
+- Speed: instant (0–0.2s) | quick (0.2–0.5s) | moderate (0.5–1.5s) | slow (1.5–3s) | glacial (3s+)
+- Easing: linear | ease-in | ease-out | ease-in-out | snap-hold
+- Amplitude: micro (1–3 cm/°) | small (5–10 cm/5–10°) | medium (20–50 cm/15–30°) | large (1–2 m/45°+)
+- Path: straight push/pull | curved arc | spiral | pendulum | floating drift
+
+## Examples
+
+GOAL:
+A forgotten MiniDV home video from 2004 — warm, imperfect, and completely authentic.
+
+CHARACTER:
+Use the uploaded reference image as the exact character authority. Preserve facial identity, age, skin tone, hairstyle, and appearance throughout.
+Young woman, faded charcoal sleeveless crop top, high-waist light-wash denim jeans, loose black hair with wispy bangs, natural daily makeup.
+
+LOCATION:
+A quiet beach on Jeju Island, early summer morning. Soft golden sunlight from screen left. Black volcanic rocks, clear turquoise water, wet sand. A few distant fishermen. Uncrowded.
+
+LOOK:
+Soft analog tape texture, slight blur, faint tape grain, blooming highlights, auto-exposure flicker, muted contrast, lifelike skin tones, subtle MiniDV compression artifacts.
+
+CAMERA:
+Early-2000s Sony MiniDV camcorder. Heavy handheld shake, imperfect framing, autofocus hunting between the waves and her face, exposure pumping toward the bright ocean, no stabilization. The camcorder itself is never visible.
+
+STYLE:
+SLOW. Unedited single take. Mood: warm nostalgia building to quiet joy. Observational — the operator is a family member, not a professional.
+
+AUDIO:
+Present: gentle waves, seabirds, light wind, distant fishermen talking, footsteps on wet sand, water splashing, rustling fabric.
+Absent: music, narration, sound effects.
+
+STORYBOARD — 8s:
+
+[00:00–00:03] | Beach shoreline | Medium handheld, 35mm equivalent | Warm golden backlight
+She walks barefoot along the wet sand, sandals held loosely in one hand at her side. Small waves wash over her feet — she pauses, toes curling into the sand.
+Camera drifts slightly left (moderate ease-in-out, small amplitude, floating drift), autofocus briefly hunts to the water surface before snapping back to her face.
+Waves, wind, fabric rustle.
+
+[00:03–00:08] | Same beach | Close handheld, 50mm | Soft diffused light from screen left
+She crouches, picks up a seashell, brushes sand from it with her thumb — a single deliberate gesture, weight shifting onto her left foot.
+Camera creeps closer (glacial, ease-in-out, micro amplitude, straight push), slight autofocus breathing as she moves. Exposure pumps briefly as her face moves into backlight.
+Water, her quiet exhale, distant voices.
+
+---
+
+## Output Rules
+- Output ONLY the sections above — no labels, no commentary, no preamble, no preamble sentence before GOAL
+- Do NOT write PHYSICS or CONSTRAINTS sections — those are added separately
+- Live action: believable biomechanics and micro-expression; no smoothing, no beauty-filter descriptions
+- Stylized/CG: motion consistent with the design and animation language — no forced photorealism
+
+Write the director's brief for Scene ${storyboard.sceneNumber}:`;
 
     const videoPrompt = await chatCompletion(prompt, apiKey);
     return NextResponse.json({ videoPrompt: videoPrompt.trim() });

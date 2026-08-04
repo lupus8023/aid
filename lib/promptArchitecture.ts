@@ -62,33 +62,24 @@ Show one coherent location through a hero establishing view plus complementary w
 }
 
 export function buildVideoContinuityRules(hasAudioReference: boolean) {
-  return `REFERENCE AND CONTINUITY — highest priority:
-- Treat the input frame/reference board as ground truth. Preserve the same identity, facial geometry or head design, age, body proportions, hair, wardrobe, accessories, markings, materials, and companion/object design in every frame.
-- Preserve the source medium. A real person stays natural live action; CG stays CG; anime/illustration keeps its line, shape, shading, and motion language. Never drift into another medium.
-- For live action: retain natural skin texture, stable facial anatomy and believable biomechanics; no beauty-filter skin, face replacement, waxiness, or uncanny eye/teeth changes.
-- For stylized/CG subjects: retain the exact silhouette, topology/design language, palette, render style, and intended stylized motion; do not force photographic skin detail.
-- Hair, cloth, fur, skin/surfaces, water, smoke, and carried objects obey coherent physics and inertia. Contact points do not slide or detach.
-- Maintain screen direction, scale, spatial relationships, lighting direction, and environment geography. No morphing, flicker, teleporting, costume swaps, duplicate limbs, disappearing accessories, or unrequested characters.
-- Use one readable action arc with a motivated beginning, development, and resolved final pose. If the prompt requests a continuous take, use natural occlusion and camera travel for transitions—no hidden cuts.
-- No subtitles, text overlays, watermark, or background music. Natural production sound only.${hasAudioReference ? '\n- Speech, mouth shapes, breath, and body performance synchronize naturally to the supplied character audio.' : ''}
+  const audioSync = hasAudioReference
+    ? '\nSpeech, mouth shapes, breath timing, and body performance synchronize naturally to the supplied character audio.'
+    : '';
 
-REALISTIC CAMERA DEFECTS (for documentary/natural feel):
-- Moderate handheld shake and breathing motion (not excessive)
-- Autofocus hunting when subject moves or lighting changes
-- Lens breathing (subtle focal length shift during focus adjustments)
-- Exposure fluctuation when moving between bright and shadowed areas
-- Slight motion blur during quick movements
-- Minor rolling shutter distortion
-- Natural sensor noise in low light
+  return `
+PHYSICS:
 
-NEGATIVE CONSTRAINTS (anti-AI defaults):
-- NO cinematic camera movements or perfect stabilization
-- NO modern color grading or commercial polish
-- NO perfect composition or beauty-filter smoothing
-- NO music, narration, or designed sound effects
+Maintain continuous temporal causality from frame to frame.
+Hair placement, clothing folds, jewelry, hand contact points, object edges, cast shadows, reflections, and body orientation must evolve naturally from the preceding state — not reset between frames.
+Fabric, hair, and carried objects obey coherent physical inertia. No sudden pose teleportation, material freeze, or object regeneration.
+Screen direction, spatial relationships, lighting direction, and environment geography remain stable throughout.
+Preserve the source visual medium throughout — real people stay natural live action; CG stays CG; anime/illustration keeps its exact design language, line quality, and shading style. No medium drift between frames.${audioSync}
 
-AUDIO GUIDANCE:
-Natural ambient sound only — environmental acoustics appropriate to the scene (birds, wind, footsteps, fabric rustle, distant traffic, breathing, natural vocal timbre). NO music. NO sound design. NO narration.`;
+CONSTRAINTS:
+
+Preserve exact identity, facial structure, age, body proportions, hair, wardrobe, accessories, and environment in every frame.
+No face change, beauty filter, skin smoothing, limb duplication, duplicate characters, costume swap, pose teleport, morphing, or scene replacement.
+No subtitles, text overlays, watermarks, logos, or background music. Natural production sound only.`;
 }
 
 export function getStoryboardDuration(storyboard: Pick<Storyboard, 'videoDuration'>) {
