@@ -16,7 +16,7 @@ export default function ImageToVideoPage() {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [mainImage, setMainImage] = useState<string | null>(null);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
-  const [lastFrameImage, setLastFrameImage] = useState<string | null>(null);
+  const [secondImage, setSecondImage] = useState<string | null>(null);
   const [videoFiles, setVideoFiles] = useState<string[]>([]);
   const [audioFiles, setAudioFiles] = useState<string[]>([]);
   const [videoUrls, setVideoUrls] = useState<string[]>([]);
@@ -29,9 +29,23 @@ export default function ImageToVideoPage() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   // 根据 videoModel 动态调整参数
-  const isOmniFlashExt = settings.videoModel?.toLowerCase().includes('omni-flash-ext');
-  const isGrokImagine = settings.videoModel?.toLowerCase().includes('grok-imagine');
-  const durationMin = isOmniFlashExt ? 4 : (isGrokImagine ? 6 : 5);
+  const modelName = settings.videoModel?.toLowerCase() || '';
+  const isOmniFlashExt = modelName.includes('omni-flash-ext');
+  const isGrokImagine = modelName.includes('grok-imagine');
+  const isMiniMaxH3 = modelName.includes('minimax-h3');
+
+  // 第二张图的语义按模型区分：
+  // - seedance/doubao/wan/veo 支持首尾帧 → last_frame
+  // - grok-imagine 只有参考图概念 → reference
+  // - sora-2 最多 1 张图、omni-flash-ext 不支持 2 张图、happyhorse 首帧与参考图互斥 → none
+  const secondImageMode: 'last_frame' | 'reference' | 'none' =
+    modelName.includes('seedance') || modelName.includes('doubao') || modelName.includes('wan') ||
+    modelName.includes('veo') || isMiniMaxH3
+      ? 'last_frame'
+      : isGrokImagine
+        ? 'reference'
+        : 'none';
+  const durationMin = isOmniFlashExt ? 4 : (isGrokImagine ? 6 : (isMiniMaxH3 ? 4 : 5));
   const durationMax = isOmniFlashExt ? 10 : (isGrokImagine ? 30 : 15);
   const durationOptions = isOmniFlashExt ? [4, 6, 8, 10] : undefined;
 
@@ -60,7 +74,7 @@ export default function ImageToVideoPage() {
     }
   };
 
-  const handleLastFrameImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSecondImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const maxSize = 6 * 1024 * 1024;
@@ -70,7 +84,7 @@ export default function ImageToVideoPage() {
         return;
       }
       const reader = new FileReader();
-      reader.onload = (e) => setLastFrameImage(e.target?.result as string);
+      reader.onload = (e) => setSecondImage(e.target?.result as string);
       reader.readAsDataURL(file);
     }
   };
@@ -143,7 +157,8 @@ export default function ImageToVideoPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mainImage,
-          referenceImages: lastFrameImage ? [lastFrameImage] : [],
+          referenceImages: secondImage ? [secondImage] : [],
+          secondImageRole: secondImage ? secondImageMode : undefined,
           prompt: fullPrompt,
           aspectRatio,
           duration,
@@ -216,8 +231,8 @@ export default function ImageToVideoPage() {
           {/* Left: Input Controls */}
           <div className="w-full md:w-2/3 p-4 md:p-6 overflow-y-auto md:border-r border-[var(--border-color)]">
             <div className="space-y-4 md:space-y-6">
-              {/* First Frame and Last Frame */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* First Frame and Second Image (Last Frame / Reference) */}
+              <div className={`grid grid-cols-1 ${secondImageMode !== 'none' ? 'md:grid-cols-2' : ''} gap-4`}>
                 {/* First Frame */}
                 <div>
                   <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">First Frame</h2>
@@ -247,34 +262,44 @@ export default function ImageToVideoPage() {
                   </div>
                 </div>
 
-                {/* Last Frame */}
+                {/* Second Image: Last Frame or Reference Image, depending on model support */}
+                {secondImageMode !== 'none' && (
                 <div>
-                  <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Last Frame (Optional)</h2>
-                  <p className="text-xs text-[var(--text-secondary)] mb-2">Image size &lt; 6MB</p>
+                  <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">
+                    {secondImageMode === 'last_frame' ? 'Last Frame (Optional)' : 'Reference Image (Optional)'}
+                  </h2>
+                  <p className="text-xs text-[var(--text-secondary)] mb-2">
+                    {secondImageMode === 'last_frame'
+                      ? 'Image size < 6MB'
+                      : 'Used as style/subject reference, not as last frame. Image size < 6MB'}
+                  </p>
                   <div className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 text-center bg-[var(--bg-secondary)]">
-                    {lastFrameImage ? (
-                      <img src={lastFrameImage} alt="Last Frame" className="max-h-48 mx-auto rounded" />
+                    {secondImage ? (
+                      <img src={secondImage} alt={secondImageMode === 'last_frame' ? 'Last Frame' : 'Reference Image'} className="max-h-48 mx-auto rounded" />
                     ) : (
                       <div>
                         <Upload className="w-10 h-10 mx-auto mb-3 text-[var(--text-secondary)]" />
-                        <p className="text-[var(--text-secondary)] text-sm mb-3">Upload last frame</p>
+                        <p className="text-[var(--text-secondary)] text-sm mb-3">
+                          {secondImageMode === 'last_frame' ? 'Upload last frame' : 'Upload reference image'}
+                        </p>
                       </div>
                     )}
                     <input
                       type="file"
                       accept="image/*"
-                      onChange={handleLastFrameImageUpload}
+                      onChange={handleSecondImageUpload}
                       className="hidden"
-                      id="last-frame-upload"
+                      id="second-image-upload"
                     />
                     <label
-                      htmlFor="last-frame-upload"
+                      htmlFor="second-image-upload"
                       className="inline-block px-4 py-2 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded cursor-pointer"
                     >
-                      {lastFrameImage ? 'Change' : 'Select'}
+                      {secondImage ? 'Change' : 'Select'}
                     </label>
                   </div>
                 </div>
+                )}
               </div>
 
               {/* Aspect Ratio */}
@@ -377,6 +402,43 @@ export default function ImageToVideoPage() {
 
               {/* Camera Parameters */}
               <CameraSelector onParamsChange={setCameraParams} />
+
+              {/* MiniMax-H3 Audio Sync */}
+              {isMiniMaxH3 && (
+                <div className="space-y-4 p-4 border border-[var(--border-color)] rounded-lg bg-[var(--bg-secondary)]">
+                  <h2 className="text-sm font-mono text-[var(--accent-green)]">MiniMax-H3 Audio Sync</h2>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Upload reference audio (WAV/MP3, 2–15s each, max 3 clips, total ≤15s). When provided, the model generates video in R2V mode and clones the voice/tone from the reference audio.
+                  </p>
+                  <div>
+                    <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
+                      Reference Audio (Max 3, Total ≤15s)
+                    </label>
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      multiple
+                      onChange={handleAudioUpload}
+                      className="hidden"
+                      id="minimax-audio-upload"
+                    />
+                    <label
+                      htmlFor="minimax-audio-upload"
+                      className="inline-block px-3 py-1.5 text-xs font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded cursor-pointer"
+                    >
+                      Upload Audio ({audioFiles.length})
+                    </label>
+                    {audioFiles.length > 0 && (
+                      <button
+                        onClick={() => setAudioFiles([])}
+                        className="ml-2 px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Seedance 2.0 Enhanced Features */}
               {settings.videoModel?.includes('seedance-2') && (

@@ -19,14 +19,15 @@ export async function POST(request: NextRequest) {
     const m = (videoModel || '').toLowerCase();
     const isSeedance20 = m.includes('seedance-2') || m.includes('seedance-4') || m.includes('seedance-5');
     const isWanAudio   = m.includes('wan2.6') || m.includes('wan2.7') || m.includes('wan 2.6') || m.includes('wan 2.7');
+    const isMiniMaxH3  = m.includes('minimax-h3');
 
-    // 声音参考模式（Seedance 2.0）：从当前分镜出现的角色中取声音参考 URL
+    // 声音参考模式（Seedance 2.0 / MiniMax-H3）：从当前分镜出现的角色中取声音参考 URL
     const storyboardChars: string[] = storyboard.characters || [];
-    const voiceRefUrls: string[] = isSeedance20
+    const voiceRefUrls: string[] = (isSeedance20 || isMiniMaxH3)
       ? storyboardChars
           .map((name: string) => voiceReferences[name])
           .filter(Boolean)
-          .slice(0, 3)  // Seedance 2.0 最多 3 个
+          .slice(0, 3)  // 最多 3 个
       : [];
 
     // Wan 系列：取第一个角色的声音参考作为 audio_url（单轨）

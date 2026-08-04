@@ -141,6 +141,7 @@ export default function SettingsModal({
               className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
             >
               <option value="sora-2-vip">sora-2-vip</option>
+              <option value="MiniMax-H3">MiniMax-H3 (4-15s, 2K, audio sync)</option>
               <option value="grok-imagine-1.5-video-apimart">Grok Imagine 1.5 (6-30s, 480p/720p)</option>
               <option value="Omni-Flash-Ext">Omni-Flash-Ext (4/6/8/10s, 720p/1080p/4k)</option>
               <option value="doubao-seedance-2.0">doubao-seedance-2.0</option>

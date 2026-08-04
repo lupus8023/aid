@@ -211,6 +211,10 @@ export function snapDurationToModel(desiredSeconds: number, model: string): numb
     // seedance 1.x: 4–12s
     return Math.min(12, Math.max(4, Math.ceil(desiredSeconds)));
   }
+  if (m.includes('minimax-h3')) {
+    // MiniMax-H3: 4–15s
+    return Math.min(15, Math.max(4, Math.round(desiredSeconds)));
+  }
   // sora-2 / 其他：5–10s
   return Math.min(10, Math.max(5, Math.round(desiredSeconds)));
 }
@@ -249,6 +253,7 @@ export async function createVideoTask(
     const isOmniFlashExt = model.toLowerCase().includes('omni-flash-ext');
     const isGrokImagine = model.toLowerCase().includes('grok-imagine');
     const isDoubaoSeedance = model.includes('doubao') || model.includes('seedance');
+    const isMiniMaxH3 = model.toLowerCase().includes('minimax-h3');
 
     // Grok Imagine 使用 /videos/generations 的 size + quality + image_urls 参数格式
     if (isGrokImagine) {
@@ -279,6 +284,12 @@ export async function createVideoTask(
     } else if (model.includes('doubao') || model.includes('seedance')) {
       // Doubao Seedance 使用 size 参数
       requestBody.size = aspectRatio;
+    } else if (isMiniMaxH3) {
+      // MiniMax-H3: aspect_ratio + resolution 2K (only 2K supported) + duration 4–15s
+      requestBody.aspect_ratio = aspectRatio;
+      requestBody.resolution = '2K';
+      const rawDuration = options?.duration ?? 5;
+      requestBody.duration = Math.min(15, Math.max(4, rawDuration));
     } else {
       requestBody.aspect_ratio = aspectRatio;
     }
@@ -293,26 +304,64 @@ export async function createVideoTask(
       }
       // 2 张图片不被支持，会返回错误
     } else if (isHappyHorse) {
+      // HappyHorse 只支持 first_frame_image（无尾帧参数），且与 image_urls 互斥
       if (options?.imageRoles && options.imageRoles.length > 0) {
         const firstFrame = options.imageRoles.find(img => img.role === 'first_frame');
-        const lastFrame = options.imageRoles.find(img => img.role === 'last_frame');
         if (firstFrame) requestBody.first_frame_image = firstFrame.url;
-        if (lastFrame) requestBody.last_frame_image = lastFrame.url;
       } else if (referenceImageUrls.length === 1) {
         requestBody.first_frame_image = referenceImageUrls[0];
       } else if (referenceImageUrls.length > 1) {
-        requestBody.image_urls = referenceImageUrls;
+        // R2V 参考图模式：1~9 张
+        requestBody.image_urls = referenceImageUrls.slice(0, 9);
+      }
+    } else if (isMiniMaxH3) {
+      // MiniMax-H3: I2V 和 R2V 模式严格互斥
+      // 有音频 → R2V 模式（image_with_roles / image_urls + audio_urls）
+      // 无音频 → I2V 模式（first_frame_image / last_frame_image）
+      const hasAudio = options?.audioUrls && options.audioUrls.length > 0;
+      if (hasAudio) {
+        // R2V 模式：image_with_roles 同样支持 first_frame / last_frame 角色
+        if (options?.imageRoles && options.imageRoles.length > 0) {
+          requestBody.image_with_roles = options.imageRoles;
+        } else if (referenceImageUrls.length > 0) {
+          requestBody.image_urls = referenceImageUrls.slice(0, 9);
+        }
+        requestBody.audio_urls = options.audioUrls.slice(0, 3);
+      } else {
+        // I2V 模式：直接用 first_frame_image / last_frame_image
+        if (options?.imageRoles && options.imageRoles.length > 0) {
+          const firstFrame = options.imageRoles.find(r => r.role === 'first_frame');
+          const lastFrame = options.imageRoles.find(r => r.role === 'last_frame');
+          if (firstFrame) requestBody.first_frame_image = firstFrame.url;
+          if (lastFrame) requestBody.last_frame_image = lastFrame.url;
+        } else if (referenceImageUrls.length > 0) {
+          requestBody.first_frame_image = referenceImageUrls[0];
+        }
       }
     } else if (options?.imageRoles && options.imageRoles.length > 0) {
-      // 使用自定义角色（首帧/尾帧）
-      requestBody.image_with_roles = isDoubaoSeedance
-        ? options.imageRoles.map(r => ({ ...r, url: ensureCloudinaryMinHeight(r.url) }))
-        : options.imageRoles;
+      const firstFrame = options.imageRoles.find(img => img.role === 'first_frame');
+      const lastFrame = options.imageRoles.find(img => img.role === 'last_frame');
+      if (model.toLowerCase().includes('veo')) {
+        // veo3.1: 首尾帧通过 image_urls 传递（第1张首帧、第2张尾帧）+ generation_type: frame
+        requestBody.image_urls = [firstFrame?.url, lastFrame?.url].filter(Boolean);
+        if (firstFrame && lastFrame) requestBody.generation_type = 'frame';
+      } else if (model.toLowerCase().includes('sora')) {
+        // sora-2: 不支持首尾帧，只取首帧作为参考图（最多1张）
+        requestBody.image_urls = [firstFrame?.url ?? options.imageRoles[0].url];
+      } else {
+        // seedance / doubao / wan2.x: 使用 image_with_roles 指定首帧/尾帧
+        requestBody.image_with_roles = isDoubaoSeedance
+          ? options.imageRoles.map(r => ({ ...r, url: ensureCloudinaryMinHeight(r.url) }))
+          : options.imageRoles;
+      }
     } else if (referenceImageUrls.length > 0) {
-      // 所有模型都使用 image_urls
-      requestBody.image_urls = isDoubaoSeedance
-        ? referenceImageUrls.map(ensureCloudinaryMinHeight)
+      // sora-2 最多支持 1 张参考图
+      const urls = model.toLowerCase().includes('sora')
+        ? referenceImageUrls.slice(0, 1)
         : referenceImageUrls;
+      requestBody.image_urls = isDoubaoSeedance
+        ? urls.map(ensureCloudinaryMinHeight)
+        : urls;
     }
 
     // Seedance 2.0 / HappyHorse 增强功能
