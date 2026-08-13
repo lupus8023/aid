@@ -42,7 +42,7 @@ function resolveServerRoot() {
     : path.join(__dirname, '..', '.next-companion', 'standalone');
 }
 
-function startServer(privatePem) {
+function startServer(privatePem, directSshHost = '') {
   serverRoot = resolveServerRoot();
   const serverFile = path.join(serverRoot, 'server.js');
   const logPath = path.join(app.getPath('userData'), 'companion.log');
@@ -55,6 +55,8 @@ function startServer(privatePem) {
       AID_LOCAL_COMPANION: '1',
       AID_COMPANION_VERSION: app.getVersion(),
       COMFYUI_SSH_PRIVATE_KEY_B64: Buffer.from(privatePem).toString('base64'),
+      COMFYUI_SSH_ORIGINAL_HOST: 'me21gb3rds8p0h44.ssh.x-gpu.com',
+      COMFYUI_SSH_DIRECT_HOST: directSshHost,
       FFMPEG_PATH: path.join(app.isPackaged ? process.resourcesPath : path.join(__dirname, '..'), '.companion-media', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
       FFPROBE_PATH: path.join(app.isPackaged ? process.resourcesPath : path.join(__dirname, '..'), '.companion-media', process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'),
       HOSTNAME: '127.0.0.1',
@@ -144,11 +146,33 @@ function authorizeOnce({ host, port, user, password }) {
   });
 }
 
+function isPrivateOrFakeIp(value) {
+  return /^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(String(value || ''));
+}
+
+async function resolveDirectHost(host) {
+  const hostname = String(host || '').trim();
+  if (!hostname || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) return hostname;
+  try {
+    const response = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(hostname)}&type=A`, {
+      signal: AbortSignal.timeout(10000),
+      headers: { accept: 'application/dns-json' },
+    });
+    const data = await response.json();
+    const address = data?.Answer?.find(item => item.type === 1 && !isPrivateOrFakeIp(item.data))?.data;
+    return address || hostname;
+  } catch {
+    return hostname;
+  }
+}
+
 async function authorizeWithPassword(input) {
   let lastError;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  const directHost = await resolveDirectHost(input.host);
+  const candidates = directHost && directHost !== input.host ? [input.host, directHost, directHost] : [input.host, input.host, input.host];
+  for (let attempt = 1; attempt <= candidates.length; attempt += 1) {
     try {
-      return await authorizeOnce(input);
+      return await authorizeOnce({ ...input, host: candidates[attempt - 1] });
     } catch (error) {
       lastError = error;
       const transient = /ECONNRESET|connection lost before handshake|timed out|timeout|handshake|banner/i.test(String(error?.message || error));
@@ -163,10 +187,11 @@ async function authorizeWithPassword(input) {
   throw lastError;
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
   const key = ensureKeyPair();
-  startServer(key.privatePem);
+  const directSshHost = await resolveDirectHost('me21gb3rds8p0h44.ssh.x-gpu.com');
+  startServer(key.privatePem, directSshHost);
   createWindow();
   createTray();
 

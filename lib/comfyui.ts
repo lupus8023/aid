@@ -120,7 +120,14 @@ function privateKeyFromSettingsOrEnv(settings: ComfyUIClientSettings): string {
 }
 
 export function getComfyUIConfig(settings: ComfyUIClientSettings = {}): ComfyUIConfig {
-  const sshHost = envOrValue(settings.sshHost, 'COMFYUI_SSH_HOST', '');
+  const requestedSshHost = envOrValue(settings.sshHost, 'COMFYUI_SSH_HOST', '');
+  const directSshHost = String(process.env.COMFYUI_SSH_DIRECT_HOST || '').trim();
+  const originalSshHost = String(process.env.COMFYUI_SSH_ORIGINAL_HOST || '').trim();
+  const sshHost = process.env.AID_LOCAL_COMPANION === '1'
+    && directSshHost
+    && requestedSshHost === originalSshHost
+    ? directSshHost
+    : requestedSshHost;
   const sshUser = envOrValue(settings.sshUser, 'COMFYUI_SSH_USER', 'root');
   if (sshHost && !/^[a-zA-Z0-9._:-]+$/.test(sshHost)) {
     throw new ComfyUIError('ComfyUI SSH Host 格式无效');

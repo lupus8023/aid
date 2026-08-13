@@ -1,8 +1,10 @@
 import packager from '@electron/packager';
-import { access, cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const root = process.cwd();
+const rootPackage = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+const appVersion = String(rootPackage.version || '0.1.0');
 const platformArg = process.argv.find(value => value.startsWith('--platform='));
 const archArg = process.argv.find(value => value.startsWith('--arch='));
 const platform = platformArg?.split('=')[1] || process.platform;
@@ -24,7 +26,7 @@ await cp(ffmpegPath, path.join(mediaDir, platform === 'win32' ? 'ffmpeg.exe' : '
 await cp(ffprobePath, path.join(mediaDir, platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'));
 await writeFile(path.join(appDir, 'package.json'), JSON.stringify({
   name: 'aid-companion',
-  version: '0.1.0',
+  version: appVersion,
   main: 'main.cjs',
 }, null, 2));
 
@@ -36,7 +38,7 @@ const output = await packager({
   arch,
   name: 'AID Companion',
   appBundleId: 'beauty.pandais.companion',
-  appVersion: '0.1.0',
+  appVersion,
   buildVersion: '1',
   asar: true,
   extraResource: [serverDir, mediaDir],
