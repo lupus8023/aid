@@ -40,6 +40,8 @@ const output = await packager({
   appBundleId: 'beauty.pandais.companion',
   appVersion,
   buildVersion: '1',
+  // Packager appends the native extension (.icns/.ico) itself.
+  icon: path.join(root, 'companion', 'app-icon'),
   asar: true,
   extraResource: [serverDir, mediaDir],
   prune: false,

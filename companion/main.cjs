@@ -87,6 +87,7 @@ function createWindow() {
     minWidth: 660,
     minHeight: 640,
     title: 'AID Companion',
+    icon: path.join(__dirname, 'app-icon.png'),
     backgroundColor: '#101214',
     show: false,
     webPreferences: {
@@ -107,7 +108,7 @@ function createWindow() {
 }
 
 function createTray() {
-  const icon = nativeImage.createFromPath(path.join(__dirname, 'icon.png')).resize({ width: 18, height: 18 });
+  const icon = nativeImage.createFromPath(path.join(__dirname, 'app-icon.png')).resize({ width: 18, height: 18 });
   tray = new Tray(icon);
   tray.setToolTip('AID Companion');
   tray.setContextMenu(Menu.buildFromTemplate([
@@ -266,6 +267,9 @@ async function verifyExistingAuthorization(input = {}) {
 
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
+  if (process.platform === 'darwin') {
+    app.dock.setIcon(path.join(__dirname, 'app-icon.png'));
+  }
   await stopStaleCompanionServer();
   const key = ensureKeyPair();
   const directSshHost = await resolveDirectHost('me21gb3rds8p0h44.ssh.x-gpu.com');

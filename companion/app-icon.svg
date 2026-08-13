@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="AID Companion">
+  <rect width="1024" height="1024" rx="224" fill="#0A1D31"/>
+  <path id="corner" d="M144 300V184q0-40 40-40h116v58h-98v98h-58Z" fill="#F3F6F8"/>
+  <use href="#corner" transform="rotate(90 512 512)"/>
+  <use href="#corner" transform="rotate(180 512 512)"/>
+  <use href="#corner" transform="rotate(270 512 512)"/>
+  <path d="M298 744 488 300q9-22 32-22t32 22l184 444h-104l-39-100H444l-42 100H298Zm181-188h79l-38-101-41 101Z" fill="#F3F6F8"/>
+  <path d="M716 452a24 24 0 0 1 38-19l106 79a24 24 0 0 1 0 38l-106 79a24 24 0 0 1-38-19V452Z" fill="#4B9FFF"/>
+  <circle cx="694" cy="604" r="35" fill="#4B9FFF"/>
+</svg>
