@@ -108,7 +108,7 @@ function createTray() {
   tray.on('double-click', () => window.show());
 }
 
-function authorizeWithPassword({ host, port, user, password }) {
+function authorizeOnce({ host, port, user, password }) {
   return new Promise((resolve, reject) => {
     const { Client } = require(path.join(serverRoot, 'node_modules', 'ssh2'));
     const client = new Client();
@@ -142,6 +142,25 @@ function authorizeWithPassword({ host, port, user, password }) {
       readyTimeout: 90000,
     });
   });
+}
+
+async function authorizeWithPassword(input) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await authorizeOnce(input);
+    } catch (error) {
+      lastError = error;
+      const transient = /ECONNRESET|connection lost before handshake|timed out|timeout|handshake|banner/i.test(String(error?.message || error));
+      if (!transient || attempt === 3) break;
+      await new Promise(resolve => setTimeout(resolve, attempt * 1800));
+    }
+  }
+  const message = String(lastError?.message || lastError || '连接失败');
+  if (/ECONNRESET|connection lost before handshake|timed out|timeout|handshake|banner/i.test(message)) {
+    throw new Error('仙宫云 SSH 服务尚未就绪或连接被入口重置。请确认实例处于运行状态，并检查控制台显示的 SSH Host/Port 是否仍为当前值；等待约 30 秒后再试。');
+  }
+  throw lastError;
 }
 
 app.whenReady().then(() => {

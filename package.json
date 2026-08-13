@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "companion": "AID_LOCAL_COMPANION=1 next dev -p 3018",
-    "build:companion": "AID_LOCAL_COMPANION=1 next build && node scripts/prepare-companion.mjs",
+    "companion": "cross-env AID_LOCAL_COMPANION=1 next dev -p 3018",
+    "build:companion": "cross-env AID_LOCAL_COMPANION=1 next build && node scripts/prepare-companion.mjs",
     "package:companion": "node scripts/package-companion.mjs",
     "dist:companion": "npm run build:companion && npm run package:companion",
     "build": "next build",
@@ -40,6 +40,7 @@
     "@types/react-dom": "^18.3.5",
     "@types/ssh2": "^1.15.5",
     "autoprefixer": "^10.4.20",
+    "cross-env": "^7.0.3",
     "electron": "^37.2.6",
     "eslint": "^9.18.0",
     "eslint-config-next": "^15.1.4",
