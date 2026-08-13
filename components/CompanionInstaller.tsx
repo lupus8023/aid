@@ -44,18 +44,29 @@ export default function CompanionInstaller() {
   useEffect(() => setPlatform(detectPlatform()), []);
   useEffect(() => {
     let active = true;
+    let timer: number | undefined;
     const probe = async () => {
+      let nextProbeDelay = 2000;
       try {
-        const response = await fetch('http://127.0.0.1:3018/api/companion/status', { signal: AbortSignal.timeout(1800) });
+        const response = await fetch('http://127.0.0.1:3018/api/companion/status', {
+          cache: 'no-store',
+          signal: AbortSignal.timeout(1800),
+        });
         if (!response.ok) throw new Error('offline');
-        if (active) setStatus('online');
+        const result = await response.json();
+        if (!result?.ok) throw new Error('offline');
+        if (active) {
+          setStatus('online');
+          nextProbeDelay = 12000;
+        }
       } catch {
         if (active) setStatus('offline');
+      } finally {
+        if (active) timer = window.setTimeout(probe, nextProbeDelay);
       }
     };
-    probe();
-    const timer = window.setInterval(probe, 12000);
-    return () => { active = false; window.clearInterval(timer); };
+    void probe();
+    return () => { active = false; if (timer) window.clearTimeout(timer); };
   }, []);
 
   const selected = downloads[platform];

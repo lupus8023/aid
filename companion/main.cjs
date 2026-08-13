@@ -14,6 +14,8 @@ let publicKey = '';
 let privateKeyPath = '';
 let resolvedSshHost = '';
 let isQuitting = false;
+let serverRestartTimer;
+let serverLaunchConfig;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
@@ -45,6 +47,11 @@ function resolveServerRoot() {
 }
 
 function startServer(privatePath, privatePem, directSshHost = '') {
+  serverLaunchConfig = { privatePath, privatePem, directSshHost };
+  if (serverRestartTimer) {
+    clearTimeout(serverRestartTimer);
+    serverRestartTimer = undefined;
+  }
   serverRoot = resolveServerRoot();
   const serverFile = path.join(serverRoot, 'server.js');
   const logPath = path.join(app.getPath('userData'), 'companion.log');
@@ -77,7 +84,22 @@ function startServer(privatePath, privatePem, directSshHost = '') {
   });
   serverProcess.stdout.pipe(log);
   serverProcess.stderr.pipe(log);
-  serverProcess.once('exit', () => window?.webContents.send('companion:server-exit'));
+  serverProcess.once('exit', (code, signal) => {
+    serverProcess = undefined;
+    window?.webContents.send('companion:server-exit', { code, signal });
+    if (isQuitting || !serverLaunchConfig) return;
+    // The local API is the actual Companion service. Keep it alive even when
+    // Next.js exits unexpectedly so a packaged install never depends on the
+    // source repository or `npm run companion`.
+    serverRestartTimer = setTimeout(() => {
+      serverRestartTimer = undefined;
+      if (!isQuitting && serverLaunchConfig) startServer(
+        serverLaunchConfig.privatePath,
+        serverLaunchConfig.privatePem,
+        serverLaunchConfig.directSshHost,
+      );
+    }, 1500);
+  });
 }
 
 function createWindow() {
@@ -306,6 +328,7 @@ app.on('second-instance', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  if (serverRestartTimer) clearTimeout(serverRestartTimer);
   if (serverProcess && !serverProcess.killed) serverProcess.kill();
 });
 
