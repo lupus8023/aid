@@ -20,6 +20,22 @@ let serverLaunchConfig;
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
 
+function hasLiveWindow() {
+  return Boolean(window && !window.isDestroyed() && !window.webContents.isDestroyed());
+}
+
+function showWindow() {
+  if (!hasLiveWindow()) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+
+function sendToWindow(channel, payload) {
+  if (!hasLiveWindow() || isQuitting) return;
+  window.webContents.send(channel, payload);
+}
+
 function ensureKeyPair() {
   const keyDir = path.join(app.getPath('userData'), 'ssh');
   const privatePath = path.join(keyDir, 'id_ed25519');
@@ -86,7 +102,8 @@ function startServer(privatePath, privatePem, directSshHost = '') {
   serverProcess.stderr.pipe(log);
   serverProcess.once('exit', (code, signal) => {
     serverProcess = undefined;
-    window?.webContents.send('companion:server-exit', { code, signal });
+    log.end();
+    sendToWindow('companion:server-exit', { code, signal });
     if (isQuitting || !serverLaunchConfig) return;
     // The local API is the actual Companion service. Keep it alive even when
     // Next.js exits unexpectedly so a packaged install never depends on the
@@ -120,13 +137,14 @@ function createWindow() {
   });
   window.removeMenu();
   window.loadFile(path.join(__dirname, 'window.html'));
-  window.once('ready-to-show', () => window.show());
+  window.once('ready-to-show', showWindow);
   window.on('close', event => {
     if (!isQuitting) {
       event.preventDefault();
-      window.hide();
+      if (hasLiveWindow()) window.hide();
     }
   });
+  window.once('closed', () => { window = undefined; });
 }
 
 function createTray() {
@@ -134,12 +152,12 @@ function createTray() {
   tray = new Tray(icon);
   tray.setToolTip('AID Companion');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '显示 AID Companion', click: () => { window.show(); window.focus(); } },
+    { label: '显示 AID Companion', click: showWindow },
     { label: '打开 pandais.beauty', click: () => shell.openExternal(WEBSITE) },
     { type: 'separator' },
     { label: '退出', click: () => { isQuitting = true; app.quit(); } },
   ]));
-  tray.on('double-click', () => window.show());
+  tray.on('double-click', showWindow);
 }
 
 function authorizeOnce({ host, port, user, password }) {
@@ -320,15 +338,16 @@ app.whenReady().then(async () => {
 });
 
 app.on('second-instance', () => {
-  if (!window) return;
-  if (window.isMinimized()) window.restore();
-  window.show();
-  window.focus();
+  showWindow();
 });
 
 app.on('before-quit', () => {
   isQuitting = true;
-  if (serverRestartTimer) clearTimeout(serverRestartTimer);
+  serverLaunchConfig = undefined;
+  if (serverRestartTimer) {
+    clearTimeout(serverRestartTimer);
+    serverRestartTimer = undefined;
+  }
   if (serverProcess && !serverProcess.killed) serverProcess.kill();
 });
 
