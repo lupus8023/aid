@@ -1,6 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, clipboard, ipcMain, shell, nativeImage } = require('electron');
 const { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync, createWriteStream } = require('node:fs');
-const { spawn } = require('node:child_process');
+const { spawn, execFile } = require('node:child_process');
 const path = require('node:path');
 const os = require('node:os');
 
@@ -11,6 +11,8 @@ let tray;
 let serverProcess;
 let serverRoot;
 let publicKey = '';
+let privateKeyPath = '';
+let resolvedSshHost = '';
 let isQuitting = false;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -42,7 +44,7 @@ function resolveServerRoot() {
     : path.join(__dirname, '..', '.next-companion', 'standalone');
 }
 
-function startServer(privatePem, directSshHost = '') {
+function startServer(privatePath, privatePem, directSshHost = '') {
   serverRoot = resolveServerRoot();
   const serverFile = path.join(serverRoot, 'server.js');
   const logPath = path.join(app.getPath('userData'), 'companion.log');
@@ -53,8 +55,15 @@ function startServer(privatePem, directSshHost = '') {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
       AID_LOCAL_COMPANION: '1',
+      AID_COMPANION_SYSTEM_SSH: process.platform === 'win32' ? '0' : '1',
       AID_COMPANION_VERSION: app.getVersion(),
-      COMFYUI_SSH_PRIVATE_KEY_B64: Buffer.from(privatePem).toString('base64'),
+      // macOS/Linux ship OpenSSH and it is considerably more resilient on the
+      // high-latency X-GPU gateway. Windows keeps the bundled ssh2 path so the
+      // Companion does not depend on an optional Windows feature.
+      COMFYUI_SSH_KEY_PATH: process.platform === 'win32' ? '' : privatePath,
+      COMFYUI_SSH_PRIVATE_KEY_B64: process.platform === 'win32'
+        ? Buffer.from(privatePem).toString('base64')
+        : '',
       COMFYUI_SSH_ORIGINAL_HOST: 'me21gb3rds8p0h44.ssh.x-gpu.com',
       COMFYUI_SSH_DIRECT_HOST: directSshHost,
       FFMPEG_PATH: path.join(app.isPackaged ? process.resourcesPath : path.join(__dirname, '..'), '.companion-media', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
@@ -141,7 +150,7 @@ function authorizeOnce({ host, port, user, password }) {
       port: Number(port) || 22,
       username: String(user || 'root').trim(),
       password: String(password || ''),
-      readyTimeout: 90000,
+      readyTimeout: 60000,
     });
   });
 }
@@ -166,10 +175,36 @@ async function resolveDirectHost(host) {
   }
 }
 
+async function stopStaleCompanionServer() {
+  if (process.platform === 'win32') return;
+  try {
+    const response = await fetch(`http://127.0.0.1:${PORT}/api/companion/status`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    const status = await response.json();
+    if (status?.name !== 'AID Companion' || status?.version === app.getVersion()) return;
+    await new Promise(resolve => {
+      execFile('lsof', ['-tiTCP:3018', '-sTCP:LISTEN'], { encoding: 'utf8' }, (_error, stdout) => {
+        const pid = Number(String(stdout || '').trim().split(/\s+/)[0]);
+        if (Number.isInteger(pid) && pid > 1 && pid !== process.pid) {
+          try { process.kill(pid, 'SIGTERM'); } catch {}
+        }
+        resolve();
+      });
+    });
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  } catch {}
+}
+
 async function authorizeWithPassword(input) {
+  const existing = await verifyExistingAuthorization(input);
+  if (existing.ok) return { ok: true, alreadyAuthorized: true };
+  if (!String(input.password || '')) {
+    throw new Error('当前密钥尚未授权，请输入仙宫云 SSH 密码');
+  }
   let lastError;
   const directHost = await resolveDirectHost(input.host);
-  const candidates = directHost && directHost !== input.host ? [input.host, directHost, directHost] : [input.host, input.host, input.host];
+  const candidates = directHost && directHost !== input.host ? [directHost, directHost, input.host] : [input.host, input.host, input.host];
   for (let attempt = 1; attempt <= candidates.length; attempt += 1) {
     try {
       return await authorizeOnce({ ...input, host: candidates[attempt - 1] });
@@ -187,11 +222,56 @@ async function authorizeWithPassword(input) {
   throw lastError;
 }
 
+async function verifyExistingAuthorization(input = {}) {
+  const host = String(input.host || 'me21gb3rds8p0h44.ssh.x-gpu.com').trim();
+  const directHost = host === 'me21gb3rds8p0h44.ssh.x-gpu.com'
+    ? (resolvedSshHost || await resolveDirectHost(host))
+    : await resolveDirectHost(host);
+  const port = Number(input.port) || 43213;
+  const user = String(input.user || 'root').trim();
+  if (process.platform !== 'win32') {
+    return await new Promise(resolve => {
+      execFile('ssh', [
+        '-T', '-o', 'BatchMode=yes',
+        '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
+        '-o', 'ConnectTimeout=45', '-o', 'ConnectionAttempts=2',
+        '-i', privateKeyPath, '-p', String(port), `${user}@${directHost}`,
+        'printf AID_AUTHORIZED',
+      ], { timeout: 120000, encoding: 'utf8' }, (error, stdout) => {
+        resolve({ ok: !error && stdout === 'AID_AUTHORIZED', error: error?.message || '' });
+      });
+    });
+  }
+  return await new Promise(resolve => {
+    const { Client } = require(path.join(serverRoot, 'node_modules', 'ssh2'));
+    const client = new Client();
+    const finish = result => { client.end(); resolve(result); };
+    const timer = setTimeout(() => finish({ ok: false, error: '连接超时' }), 120000);
+    client.once('ready', () => {
+      clearTimeout(timer);
+      client.exec('printf AID_AUTHORIZED', (error, stream) => {
+        if (error) return finish({ ok: false, error: error.message });
+        let stdout = '';
+        stream.on('data', chunk => { stdout += String(chunk); });
+        stream.once('close', code => finish({ ok: code === 0 && stdout === 'AID_AUTHORIZED' }));
+      });
+    });
+    client.once('error', error => { clearTimeout(timer); finish({ ok: false, error: error.message }); });
+    client.connect({
+      host: directHost, port, username: user,
+      privateKey: readFileSync(privateKeyPath), readyTimeout: 60000,
+    });
+  });
+}
+
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
+  await stopStaleCompanionServer();
   const key = ensureKeyPair();
   const directSshHost = await resolveDirectHost('me21gb3rds8p0h44.ssh.x-gpu.com');
-  startServer(key.privatePem, directSshHost);
+  privateKeyPath = key.privatePath;
+  resolvedSshHost = directSshHost;
+  startServer(key.privatePath, key.privatePem, directSshHost);
   createWindow();
   createTray();
 
@@ -209,6 +289,7 @@ app.whenReady().then(async () => {
     return app.getLoginItemSettings().openAtLogin;
   });
   ipcMain.handle('companion:authorize', async (_event, input) => await authorizeWithPassword(input || {}));
+  ipcMain.handle('companion:check-authorization', async (_event, input) => await verifyExistingAuthorization(input || {}));
   ipcMain.handle('companion:quit', () => { isQuitting = true; app.quit(); });
 });
 

@@ -108,6 +108,10 @@ function privateKeyFromSettingsOrEnv(settings: ComfyUIClientSettings): string {
   const requestKey = String(settings.sshPrivateKey || '');
   if (requestKey.trim()) return normalizePrivateKey(requestKey, '浏览器选择的文件');
 
+  // The packaged macOS/Linux Companion deliberately uses the system OpenSSH
+  // client. It handles X-GPU's slow banner/handshake more reliably than ssh2.
+  if (process.env.AID_COMPANION_SYSTEM_SSH === '1') return '';
+
   const encoded = String(process.env.COMFYUI_SSH_PRIVATE_KEY_B64 || '').trim();
   if (!encoded) return '';
   let decoded = '';
@@ -303,9 +307,15 @@ function connectionReuseArgs(config: ComfyUIConfig, persist = true): string[] {
 }
 
 async function sshPrefix(config: ComfyUIConfig, persist = true): Promise<string[]> {
+  const companionHostKeyArgs = process.env.AID_LOCAL_COMPANION === '1'
+    ? ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null']
+    : ['-o', 'StrictHostKeyChecking=accept-new'];
   return [
     '-T',
     '-o', 'BatchMode=yes',
+    // X-GPU's direct gateway IP and host key can rotate. Isolate that exception
+    // to the local Companion instead of modifying the user's known_hosts file.
+    ...companionHostKeyArgs,
     '-o', `ConnectTimeout=${SSH_CONNECT_TIMEOUT_SECONDS}`,
     '-o', 'ConnectionAttempts=2',
     '-o', 'ServerAliveInterval=30',
@@ -531,9 +541,32 @@ function configuredWorkflowPath(config: ComfyUIConfig, variant: ComfyUIWorkflow)
 }
 
 const workflowCache = new Map<string, { workflow: JsonRecord; path: string }>();
+const definitionCache = new Map<string, JsonRecord>();
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
+}
+
+async function readRemoteDefinitions(config: ComfyUIConfig): Promise<JsonRecord> {
+  const cacheKey = [config.sshHost, config.sshPort, config.sshUser, config.comfyPort].join('|');
+  const cached = definitionCache.get(cacheKey);
+  if (cached) return cached;
+  // Fetch and compress on the server. Streaming the multi-megabyte JSON through
+  // many HTTP requests over X-GPU's SSH forward is prone to partial responses.
+  const encoded = await runSsh(
+    config,
+    `curl -fsS --max-time 180 http://127.0.0.1:${config.comfyPort}/object_info | gzip -c | base64`,
+  );
+  try {
+    const definitions = JSON.parse(gunzipSync(Buffer.from(encoded.replace(/\s/g, ''), 'base64')).toString('utf8'));
+    if (!definitions || typeof definitions !== 'object' || Array.isArray(definitions)) throw new Error('missing definitions');
+    definitionCache.set(cacheKey, definitions);
+    return definitions;
+  } catch (error) {
+    throw new ComfyUIError(
+      `云端节点定义不是有效 JSON：${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 async function readRemoteWorkflow(config: ComfyUIConfig, variant: ComfyUIWorkflow): Promise<{ workflow: JsonRecord; path: string }> {
@@ -911,9 +944,22 @@ async function uploadAsset(config: ComfyUIConfig, localPath: string, subfolder: 
 }
 
 async function fetchJson(baseUrl: string, route: string, init: RequestInit = {}, timeout = 120_000): Promise<JsonRecord> {
-  const response = await fetch(`${baseUrl}${route}`, { ...init, signal: AbortSignal.timeout(timeout) });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${route}`, { ...init, signal: AbortSignal.timeout(timeout) });
+  } catch (error) {
+    throw new ComfyUIError(
+      `ComfyUI API ${route} 请求失败：${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   if (!response.ok) throw new ComfyUIError(`ComfyUI API ${route} 请求失败：${await responseError(response)}`);
-  return await response.json();
+  try {
+    return await response.json();
+  } catch (error) {
+    throw new ComfyUIError(
+      `ComfyUI API ${route} 返回了不完整 JSON：${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 const characterReplacePromptCache = new Map<string, JsonRecord>();
@@ -1148,7 +1194,7 @@ export async function createComfyUICharacterReplaceTask(input: {
       requirePromptNode(prompt, '202').inputs.filename_prefix = `aid/character_replace/${runId}/result`;
 
       const promptId = await withTunnel(config, async baseUrl => {
-        const definitions = await fetchJson(baseUrl, '/object_info');
+        const definitions = await readRemoteDefinitions(config);
         validatePrompt(prompt, definitions);
         const response = await fetchJson(baseUrl, '/prompt', {
           method: 'POST',
@@ -1235,7 +1281,7 @@ export async function createComfyUIVideoTask(input: {
       injectReferenceAudios(apiPrompt, remoteAudios);
 
       const promptId = await withTunnel(config, async baseUrl => {
-        const definitions = await fetchJson(baseUrl, '/object_info');
+        const definitions = await readRemoteDefinitions(config);
         validatePrompt(apiPrompt, definitions);
         const response = await fetchJson(baseUrl, '/prompt', {
           method: 'POST',
@@ -1351,15 +1397,22 @@ export async function downloadComfyUIOutput(taskId: string, output: ComfyOutputR
 
 export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}): Promise<JsonRecord> {
   const config = getComfyUIConfig(settings);
+  const stage = async <T>(name: string, action: () => Promise<T>): Promise<T> => {
+    try {
+      return await action();
+    } catch (error) {
+      throw new ComfyUIError(`${name}失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
   try {
     if (!config.sshHost) throw new ComfyUIError('ComfyUI SSH Host 未配置');
-    const { stats, definitions } = await withTunnel(config, async baseUrl => ({
-      stats: await fetchJson(baseUrl, '/system_stats', {}, 15_000),
-      definitions: await fetchJson(baseUrl, '/object_info', {}, 30_000),
-    }));
     const workflows: Record<string, JsonRecord> = {};
+    const prompts: Array<{ variant: ComfyUIWorkflow; prompt: JsonRecord; workflowPath: string; baseReferenceImages: number }> = [];
     for (const variant of ['aid_single_reference', 'aid_multi_reference', 'aid_first_last'] as ComfyUIWorkflow[]) {
-      const { workflow, path: workflowPath } = await readRemoteWorkflow(config, variant);
+      const { workflow, path: workflowPath } = await stage(
+        `读取 ${variant} 工作流`,
+        () => readRemoteWorkflow(config, variant),
+      );
       const apiPrompt = compileFrontendWorkflow(workflow);
       const baseReferenceImages = Object.keys(conditioningNode(apiPrompt).inputs)
         .filter(key => key.startsWith('ref_images.ref_image_')).length;
@@ -1371,7 +1424,17 @@ export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}
         );
       }
       injectReferenceAudios(apiPrompt, []);
-      validatePrompt(apiPrompt, definitions);
+      prompts.push({ variant, prompt: apiPrompt, workflowPath, baseReferenceImages });
+    }
+    const characterReplacePrompt = await stage(
+      '读取换人物工作流',
+      () => readCharacterReplacePrompt(config),
+    );
+    const { stats, h3Definition } = await stage('检查 ComfyUI API', () => withTunnel(config, async baseUrl => ({
+      stats: await fetchJson(baseUrl, '/system_stats', {}, 30_000),
+      h3Definition: await fetchJson(baseUrl, '/object_info/MiniMaxH3AudioConditioningT8', {}, 30_000),
+    })));
+    for (const { variant, prompt: apiPrompt, workflowPath, baseReferenceImages } of prompts) {
       const h3Inputs = conditioningNode(apiPrompt).inputs;
       workflows[variant] = {
         path: workflowPath,
@@ -1383,8 +1446,6 @@ export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}
         hasLastFrame: Boolean(h3Inputs.last_frame),
       };
     }
-    const characterReplacePrompt = await readCharacterReplacePrompt(config);
-    validatePrompt(characterReplacePrompt, definitions);
     workflows.scail2_character_replace = {
       path: config.characterReplaceWorkflowPath,
       mode: 'replacement',
@@ -1400,7 +1461,7 @@ export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}
       sam3ImageObject: requirePromptNode(characterReplacePrompt, '213:212').inputs.text,
     };
     const remoteRefImageMax = Number(
-      definitions.MiniMaxH3AudioConditioningT8?.input?.optional?.ref_images?.[1]?.template?.max || 0,
+      h3Definition.MiniMaxH3AudioConditioningT8?.input?.optional?.ref_images?.[1]?.template?.max || 0,
     );
     return {
       ok: true,
