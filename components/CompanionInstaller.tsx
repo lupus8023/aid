@@ -78,7 +78,7 @@ export default function CompanionInstaller() {
               <StatusIcon size={14} className={status === 'checking' ? 'animate-spin' : ''} /> {statusView.label}
             </span>
           </div>
-          <p className="mt-5 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
+          <p className="mt-5 text-sm leading-6 text-[var(--text-secondary)] lg:pr-2">
             使用 ComfyUI 前安装一次即可。它不是本地模型，不占用显卡；只负责在这台电脑安全连接仙宫云，SSH 私钥不会上传到网站。
           </p>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
