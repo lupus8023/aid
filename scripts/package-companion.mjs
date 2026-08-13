@@ -1,6 +1,10 @@
 import packager from '@electron/packager';
+import { execFile } from 'node:child_process';
 import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 const root = process.cwd();
 const rootPackage = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
@@ -46,5 +50,25 @@ const output = await packager({
   extraResource: [serverDir, mediaDir],
   prune: false,
 });
+
+// Electron's downloaded binaries carry linker signatures. After Packager adds
+// resources those signatures no longer seal the final bundle, and Gatekeeper
+// reports the downloaded app as "damaged". Apply a complete bundle signature
+// before archiving. CI can provide an Apple Developer ID through
+// MACOS_CODESIGN_IDENTITY; local/community builds use a valid ad-hoc signature.
+if (platform === 'darwin') {
+  const identity = String(process.env.MACOS_CODESIGN_IDENTITY || '-').trim() || '-';
+  for (const outputDirectory of output) {
+    const appPath = path.join(outputDirectory, 'AID Companion.app');
+    await execFileAsync('codesign', [
+      '--force', '--deep', '--sign', identity,
+      ...(identity === '-' ? ['--timestamp=none'] : ['--timestamp', '--options', 'runtime']),
+      appPath,
+    ], { maxBuffer: 8 * 1024 * 1024 });
+    await execFileAsync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], {
+      maxBuffer: 8 * 1024 * 1024,
+    });
+  }
+}
 
 console.log(output.join('\n'));

@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ChevronDown, CircleAlert, Download, Laptop, LoaderCircle, ShieldCheck } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, CircleAlert, Clipboard, Download, Laptop, LoaderCircle, ShieldCheck } from 'lucide-react';
 
 const RELEASE_BASE = 'https://github.com/unclewongwong/aid/releases/latest/download';
+const MAC_OPEN_COMMAND = "xattr -dr com.apple.quarantine '/Applications/AID Companion.app' && open '/Applications/AID Companion.app'";
 
 type Platform = 'mac-arm' | 'mac-intel' | 'windows';
 
@@ -38,6 +39,7 @@ export default function CompanionInstaller() {
   const [platform, setPlatform] = useState<Platform>('mac-arm');
   const [status, setStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [expanded, setExpanded] = useState(false);
+  const [commandCopied, setCommandCopied] = useState(false);
 
   useEffect(() => setPlatform(detectPlatform()), []);
   useEffect(() => {
@@ -63,6 +65,11 @@ export default function CompanionInstaller() {
     return { icon: LoaderCircle, label: '正在检测本地服务', className: 'text-[var(--text-secondary)]' };
   }, [status]);
   const StatusIcon = statusView.icon;
+  const copyMacOpenCommand = async () => {
+    await navigator.clipboard.writeText(MAC_OPEN_COMMAND);
+    setCommandCopied(true);
+    window.setTimeout(() => setCommandCopied(false), 1800);
+  };
 
   return (
     <section className="mt-12 overflow-hidden rounded-[16px] border border-[#4da3ff]/30 bg-[linear-gradient(135deg,rgba(77,163,255,.12),rgba(20,23,26,.94)_42%)]" aria-labelledby="companion-heading">
@@ -122,8 +129,16 @@ export default function CompanionInstaller() {
           )}
           <div className="mt-4 flex gap-2 rounded-lg border border-[#55d6c2]/20 bg-[#55d6c2]/5 p-3 text-[11px] leading-5 text-[var(--text-muted)]">
             <ShieldCheck size={15} className="mt-0.5 shrink-0 text-[#55d6c2]" />
-            <span>首次运行若被系统拦截：Mac 在“隐私与安全性”点仍要打开；Windows 点“更多信息 → 仍要运行”。正式签名后将不再出现。</span>
+            <span>首次运行：Mac 请把 App 拖入“应用程序”，再右键 App 选择“打开”；Windows 点“更多信息 → 仍要运行”。</span>
           </div>
+          {platform !== 'windows' && (
+            <div className="mt-3 rounded-lg border border-[#ffc078]/20 bg-[#ffc078]/5 p-3">
+              <p className="text-[11px] leading-5 text-[var(--text-muted)]">若 Mac 仍提示“已损坏”，确认 App 已放入“应用程序”，复制下面的命令到“终端”执行一次：</p>
+              <button type="button" onClick={() => void copyMacOpenCommand()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-[#ffc078]/30 px-3 py-2 text-xs text-[#ffc078] hover:bg-[#ffc078]/10">
+                {commandCopied ? <Check size={14} /> : <Clipboard size={14} />}{commandCopied ? '已复制，去终端粘贴运行' : '复制 Mac 修复并打开命令'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </section>
