@@ -32,7 +32,7 @@ jobs:
             arch: x64
             asset: AID-Companion-mac-Intel.zip
           - label: Windows x64
-            os: windows-latest
+            os: ubuntu-latest
             platform: win32
             arch: x64
             asset: AID-Companion-Windows-x64.zip
@@ -43,20 +43,28 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "win32" ]; then
+            npm_config_platform=win32 npm_config_arch=x64 npm ci
+          else
+            npm ci
+          fi
       - run: npm run build:companion
       - run: node scripts/package-companion.mjs --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
       - name: Archive macOS app
-        if: runner.os == 'macOS'
+        if: matrix.platform == 'darwin'
         run: |
           mkdir -p dist
           ditto -c -k --sequesterRsrc --keepParent "out/companion/AID Companion-${{ matrix.platform }}-${{ matrix.arch }}/AID Companion.app" "dist/${{ matrix.asset }}"
       - name: Archive Windows app
-        if: runner.os == 'Windows'
-        shell: pwsh
+        if: matrix.platform == 'win32'
+        shell: bash
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path "out/companion/AID Companion-${{ matrix.platform }}-${{ matrix.arch }}/*" -DestinationPath "dist/${{ matrix.asset }}" -Force
+          mkdir -p dist
+          cd "out/companion/AID Companion-${{ matrix.platform }}-${{ matrix.arch }}"
+          zip -qr "../../../dist/${{ matrix.asset }}" .
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
