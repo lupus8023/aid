@@ -33,7 +33,7 @@ const MAX_VIDEO_SIZE = 500 * 1024 * 1024;
 const MAX_IMAGE_SIZE = 8 * 1024 * 1024;
 const FRAME_OPTIONS = ['full', '17', '33', '49', '65', '81'] as const;
 
-type TaskState = 'idle' | 'uploading' | 'queued' | 'processing' | 'completed' | 'failed';
+type TaskState = 'idle' | 'uploading' | 'queued' | 'processing' | 'downloading' | 'downloadReady' | 'completed' | 'failed';
 type ProductMode = 'preserve' | 'replace' | 'none';
 
 interface MediaValue {
@@ -91,6 +91,7 @@ export default function CharacterReplacePage() {
   const [taskState, setTaskState] = useState<TaskState>('idle');
   const [taskId, setTaskId] = useState('');
   const [error, setError] = useState('');
+  const [downloadNotice, setDownloadNotice] = useState('');
   const [outputUrl, setOutputUrl] = useState('');
   const [parameters, setParameters] = useState<RunParameters | null>(null);
   const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
@@ -158,6 +159,27 @@ export default function CharacterReplacePage() {
     }
   };
 
+  const downloadCompletedOutput = async (id: string): Promise<boolean> => {
+    setTaskState('downloading');
+    setError('');
+    setDownloadNotice('');
+    try {
+      const url = await downloadComfyUIVideo(id, settings.comfyui);
+      if (outputUrl) URL.revokeObjectURL(outputUrl);
+      setOutputUrl(url);
+      setTaskState('completed');
+      setDownloadNotice('');
+      return true;
+    } catch (downloadError) {
+      // The cloud render is already complete. A transfer/authentication error
+      // must not turn the render itself into a failed task or trigger a rerun.
+      console.error('Completed ComfyUI output download failed:', downloadError);
+      setTaskState('downloadReady');
+      setDownloadNotice('成片已在云端生成，但暂未下载到本机。可以重新下载，不会重新生成任务。');
+      return false;
+    }
+  };
+
   const pollStatus = async (id: string) => {
     setTaskState('processing');
     let consecutiveErrors = 0;
@@ -186,10 +208,7 @@ export default function CharacterReplacePage() {
         }
         if (data.status === 'failed') throw new Error(data.error || 'ComfyUI 执行失败');
         if (data.status === 'completed' && data.readyForDownload) {
-          const url = await downloadComfyUIVideo(id, settings.comfyui);
-          if (outputUrl) URL.revokeObjectURL(outputUrl);
-          setOutputUrl(url);
-          setTaskState('completed');
+          await downloadCompletedOutput(id);
           return;
         }
         consecutiveErrors = 0;
@@ -221,6 +240,7 @@ export default function CharacterReplacePage() {
       return;
     }
     setError('');
+    setDownloadNotice('');
     setOutputUrl(previous => {
       if (previous) URL.revokeObjectURL(previous);
       return '';
@@ -271,12 +291,14 @@ export default function CharacterReplacePage() {
     anchor.click();
   };
 
-  const isBusy = ['uploading', 'queued', 'processing'].includes(taskState);
+  const isBusy = ['uploading', 'queued', 'processing', 'downloading'].includes(taskState);
   const stateLabel: Record<TaskState, string> = {
     idle: '等待素材',
     uploading: '正在上传到仙宫云',
     queued: '已进入 ComfyUI 队列',
     processing: 'SAM3 / SCAIL2 处理中',
+    downloading: '成片已生成，正在传回本机',
+    downloadReady: '云端已完成，等待下载',
     completed: '生成完成',
     failed: '任务失败',
   };
@@ -458,7 +480,7 @@ export default function CharacterReplacePage() {
 
             {error && <div className="mt-4 flex items-start gap-3 border border-[var(--error)]/40 bg-[var(--error)]/10 p-4 text-sm text-[var(--error)]"><AlertCircle className="mt-0.5 shrink-0" size={16} /><div className="min-w-0"><p className="font-medium">{error}</p>{taskId && <p className="mt-1 break-all font-mono text-[10px] opacity-80">{taskId}</p>}</div><button onClick={() => setError('')} className="ml-auto shrink-0"><X size={15} /></button></div>}
 
-            <button type="button" disabled={isBusy || !drivingVideo || !referenceImage || !prompt.trim()} onClick={submit} className="mt-5 flex min-h-14 w-full items-center justify-center gap-3 bg-[var(--workspace-accent)] px-5 text-sm font-semibold text-[var(--workspace-on-accent)] hover:bg-[var(--workspace-accent-strong)] active:translate-y-px disabled:cursor-not-allowed">
+            <button type="button" disabled={isBusy || taskState === 'downloadReady' || !drivingVideo || !referenceImage || !prompt.trim()} onClick={submit} className="mt-5 flex min-h-14 w-full items-center justify-center gap-3 bg-[var(--workspace-accent)] px-5 text-sm font-semibold text-[var(--workspace-on-accent)] hover:bg-[var(--workspace-accent-strong)] active:translate-y-px disabled:cursor-not-allowed">
               {isBusy ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}{isBusy ? stateLabel[taskState] : '开始替换人物'}
             </button>
           </section>
@@ -467,7 +489,7 @@ export default function CharacterReplacePage() {
             <div className="sticky top-0">
               <div className="flex items-center justify-between gap-3 border-b border-[var(--border-color)] pb-4">
                 <div><p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--workspace-accent)]">Output monitor</p><h2 className="mt-1 text-lg font-semibold text-white">任务监控与下载</h2></div>
-                <span className={`h-2.5 w-2.5 ${taskState === 'completed' ? 'bg-[var(--success)]' : taskState === 'failed' ? 'bg-[var(--error)]' : isBusy ? 'animate-pulse bg-[var(--workspace-accent)]' : 'bg-[var(--text-muted)]'}`} />
+                <span className={`h-2.5 w-2.5 ${taskState === 'completed' || taskState === 'downloadReady' ? 'bg-[var(--success)]' : taskState === 'failed' ? 'bg-[var(--error)]' : isBusy ? 'animate-pulse bg-[var(--workspace-accent)]' : 'bg-[var(--text-muted)]'}`} />
               </div>
 
               <div className="mt-4 border border-[var(--border-color)] bg-[var(--bg-primary)]">
@@ -476,10 +498,15 @@ export default function CharacterReplacePage() {
                 </div>
                 <div className="border-t border-[var(--border-color)] p-4">
                   <div className="flex items-center gap-2 text-sm text-white">
-                    {taskState === 'completed' ? <CheckCircle2 size={16} className="text-[var(--success)]" /> : isBusy ? <Loader2 size={16} className="animate-spin text-[var(--workspace-accent)]" /> : taskState === 'failed' ? <AlertCircle size={16} className="text-[var(--error)]" /> : <Play size={16} className="text-[var(--text-muted)]" />}
+                    {taskState === 'completed' || taskState === 'downloadReady' ? <CheckCircle2 size={16} className="text-[var(--success)]" /> : isBusy ? <Loader2 size={16} className="animate-spin text-[var(--workspace-accent)]" /> : taskState === 'failed' ? <AlertCircle size={16} className="text-[var(--error)]" /> : <Play size={16} className="text-[var(--text-muted)]" />}
                     {stateLabel[taskState]}
                   </div>
                   {taskId && <p className="mt-2 break-all font-mono text-[10px] text-[var(--text-muted)]">{taskId}</p>}
+                  {downloadNotice && (
+                    <div className="mt-3 border-l-2 border-[var(--success)] bg-[var(--success)]/5 px-3 py-2 text-xs leading-5 text-[var(--text-secondary)]">
+                      {downloadNotice}
+                    </div>
+                  )}
                   {taskProgress && taskState === 'processing' && (
                     <div className="mt-3">
                       <div className="mb-2 flex items-center justify-between gap-3 font-mono text-[10px] text-[var(--text-muted)]">
@@ -500,7 +527,15 @@ export default function CharacterReplacePage() {
                 </div>
               )}
 
-              <button type="button" onClick={downloadOutput} disabled={!outputUrl} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 border border-[var(--workspace-accent)] bg-[var(--workspace-accent)]/10 text-sm font-medium text-[var(--workspace-accent)] hover:bg-[var(--workspace-accent)] hover:text-[var(--workspace-on-accent)] disabled:cursor-not-allowed"><Download size={16} />下载 MP4</button>
+              <button
+                type="button"
+                onClick={() => taskState === 'downloadReady' ? void downloadCompletedOutput(taskId) : downloadOutput()}
+                disabled={taskState === 'downloading' || (taskState !== 'downloadReady' && !outputUrl)}
+                className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 border border-[var(--workspace-accent)] bg-[var(--workspace-accent)]/10 text-sm font-medium text-[var(--workspace-accent)] hover:bg-[var(--workspace-accent)] hover:text-[var(--workspace-on-accent)] disabled:cursor-not-allowed"
+              >
+                {taskState === 'downloading' ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                {taskState === 'downloadReady' ? '重新下载成片' : taskState === 'downloading' ? '正在传回本机…' : '下载 MP4'}
+              </button>
               <div className="mt-4 space-y-2 text-[11px] leading-5 text-[var(--text-muted)]">
                 <p>尺寸由源视频自动缩放并对齐到 32 的倍数，最长边不超过 896。</p>
                 <p>长视频会在云端按 Base + Extend 自动续写；段间重叠 5 帧并在拼接时去重，最终恢复原视频音轨。</p>

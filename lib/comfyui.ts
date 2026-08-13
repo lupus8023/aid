@@ -103,14 +103,15 @@ function normalizePrivateKey(value: string, source: string): string {
 }
 
 function privateKeyFromSettingsOrEnv(settings: ComfyUIClientSettings): string {
+  const isLocalCompanion = process.env.AID_LOCAL_COMPANION === '1';
+  // A packaged Companion owns its key material. Never allow browser settings
+  // to override it with a different machine key during polling or download.
+  if (isLocalCompanion && process.env.AID_COMPANION_SYSTEM_SSH === '1') return '';
+
   // A key selected in the browser is request-scoped and takes precedence over
   // the optional Netlify/server environment-variable fallback.
   const requestKey = String(settings.sshPrivateKey || '');
-  if (requestKey.trim()) return normalizePrivateKey(requestKey, '浏览器选择的文件');
-
-  // The packaged macOS/Linux Companion deliberately uses the system OpenSSH
-  // client. It handles X-GPU's slow banner/handshake more reliably than ssh2.
-  if (process.env.AID_COMPANION_SYSTEM_SSH === '1') return '';
+  if (!isLocalCompanion && requestKey.trim()) return normalizePrivateKey(requestKey, '浏览器选择的文件');
 
   const encoded = String(process.env.COMFYUI_SSH_PRIVATE_KEY_B64 || '').trim();
   if (!encoded) return '';
@@ -124,10 +125,11 @@ function privateKeyFromSettingsOrEnv(settings: ComfyUIClientSettings): string {
 }
 
 export function getComfyUIConfig(settings: ComfyUIClientSettings = {}): ComfyUIConfig {
+  const isLocalCompanion = process.env.AID_LOCAL_COMPANION === '1';
   const requestedSshHost = envOrValue(settings.sshHost, 'COMFYUI_SSH_HOST', '');
   const directSshHost = String(process.env.COMFYUI_SSH_DIRECT_HOST || '').trim();
   const originalSshHost = String(process.env.COMFYUI_SSH_ORIGINAL_HOST || '').trim();
-  const sshHost = process.env.AID_LOCAL_COMPANION === '1'
+  const sshHost = isLocalCompanion
     && directSshHost
     && requestedSshHost === originalSshHost
     ? directSshHost
@@ -143,7 +145,11 @@ export function getComfyUIConfig(settings: ComfyUIClientSettings = {}): ComfyUIC
     sshHost,
     sshPort: positiveInt(envOrValue(settings.sshPort, 'COMFYUI_SSH_PORT', '22'), 22),
     sshUser,
-    sshKeyPath: envOrValue(settings.sshKeyPath, 'COMFYUI_SSH_KEY_PATH', ''),
+    // The local Companion's generated key is authoritative. A website-stored
+    // ~/.ssh path belongs to the browser machine and must not replace it.
+    sshKeyPath: isLocalCompanion
+      ? String(process.env.COMFYUI_SSH_KEY_PATH || '').trim()
+      : envOrValue(settings.sshKeyPath, 'COMFYUI_SSH_KEY_PATH', ''),
     sshPrivateKey: privateKeyFromSettingsOrEnv(settings),
     sshPrivateKeyPassphrase: String(settings.sshPrivateKeyPassphrase || ''),
     sshHostFingerprint: String(process.env.COMFYUI_SSH_HOST_FINGERPRINT || '').trim(),
@@ -359,6 +365,81 @@ async function runSsh(config: ComfyUIConfig, remoteCommand: string): Promise<str
     }
   }
   throw new ComfyUIError(`读取云端工作流失败：${lastError || 'SSH 命令失败'}`);
+}
+
+async function runSshUntilMarker(
+  config: ComfyUIConfig,
+  remoteCommand: string,
+  marker: string,
+): Promise<string> {
+  if (config.sshPrivateKey) return await runSsh(config, remoteCommand);
+  const markerLine = `\n${marker}\n`;
+  let lastError = '';
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const args = [...await sshPrefix(config), remoteCommand];
+      return await new Promise<string>((resolve, reject) => {
+        const child = spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        const finish = (error?: Error, value = '') => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (child.exitCode === null) child.kill('SIGTERM');
+          if (error) reject(error);
+          else resolve(value);
+        };
+        const timer = setTimeout(
+          () => finish(new Error(stderr.trim() || 'SSH 文件分块传输超时')),
+          180_000,
+        );
+        child.stdout?.on('data', chunk => {
+          stdout += String(chunk);
+          const markerOffset = stdout.indexOf(markerLine);
+          if (markerOffset >= 0) finish(undefined, stdout.slice(0, markerOffset));
+        });
+        child.stderr?.on('data', chunk => { stderr += String(chunk); });
+        child.once('error', error => finish(error));
+        child.once('exit', code => {
+          if (!settled) finish(new Error(stderr.trim() || `SSH 文件分块命令退出：${code ?? '未知'}`));
+        });
+      });
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      if (attempt < 2) await delay(1000 * 2 ** attempt);
+    }
+  }
+  throw new ComfyUIError(`云端视频下载失败：${lastError || 'SSH 文件传输失败'}`);
+}
+
+async function downloadRemoteFileInChunks(config: ComfyUIConfig, remotePath: string): Promise<Buffer> {
+  const sizeText = (await runSsh(config, `wc -c < ${shellQuote(remotePath)}`)).trim();
+  const size = Number(sizeText);
+  if (!Number.isSafeInteger(size) || size <= 0) throw new ComfyUIError('云端视频文件大小无效');
+  if (size > 4 * 1024 * 1024 * 1024) throw new ComfyUIError('云端视频超过 4GB，暂不支持浏览器下载');
+  // X-GPU's SSH gateway can stall after roughly 256KB of command output.
+  // Base64 expands data by 4/3, so keep each raw block comfortably below it.
+  const chunkSize = 64 * 1024;
+  const chunks: Buffer[] = [];
+  for (let index = 0, offset = 0; offset < size; index += 1, offset += chunkSize) {
+    const expected = Math.min(chunkSize, size - offset);
+    const marker = `AID_CHUNK_END_${index}_${randomBytes(6).toString('hex')}`;
+    const encoded = await runSshUntilMarker(
+      config,
+      `dd if=${shellQuote(remotePath)} bs=${chunkSize} skip=${index} count=1 2>/dev/null | base64; printf '\\n%s\\n' ${shellQuote(marker)}`,
+      marker,
+    );
+    const chunk = Buffer.from(encoded.replace(/\s/g, ''), 'base64');
+    if (chunk.length !== expected) {
+      throw new ComfyUIError(`云端视频第 ${index + 1} 块不完整（${chunk.length}/${expected} bytes）`);
+    }
+    chunks.push(chunk);
+  }
+  const buffer = Buffer.concat(chunks);
+  if (buffer.length !== size) throw new ComfyUIError(`云端视频下载不完整（${buffer.length}/${size} bytes）`);
+  return buffer;
 }
 
 async function chooseFreePort(): Promise<number> {
@@ -1379,9 +1460,18 @@ export async function getComfyUIVideoStatus(taskId: string, settings: ComfyUICli
 }
 
 export async function downloadComfyUIOutput(taskId: string, output: ComfyOutputRef, settings: ComfyUIClientSettings = {}): Promise<Buffer> {
-  unwrapComfyUITaskId(taskId);
+  const promptId = unwrapComfyUITaskId(taskId);
   const config = getComfyUIConfig(settings);
   try {
+    if (String(taskId).startsWith(COMFYUI_LONG_TASK_PREFIX)) {
+      const safeFilename = path.basename(String(output.filename || 'final.mp4'));
+      const expectedSubfolder = `aid/character_replace/${promptId}`;
+      if (String(output.subfolder || '') !== expectedSubfolder || !VIDEO_SUFFIXES.has(path.extname(safeFilename).toLowerCase())) {
+        throw new ComfyUIError('长视频输出路径无效');
+      }
+      const remotePath = `${config.workflowRoot.replace(/\/$/, '')}/output/${expectedSubfolder}/${safeFilename}`;
+      return await downloadRemoteFileInChunks(config, remotePath);
+    }
     return await withTunnel(config, async baseUrl => {
       const params = new URLSearchParams({ filename: output.filename, subfolder: output.subfolder, type: output.type });
       const response = await fetch(`${baseUrl}/view?${params}`, { signal: AbortSignal.timeout(300_000) });
