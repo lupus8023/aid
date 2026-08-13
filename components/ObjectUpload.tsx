@@ -120,20 +120,16 @@ export default function ObjectUpload({ onObjectsChange }: ObjectUploadProps) {
   };
 
   return (
-    <div className="bg-[var(--bg-secondary)] p-6 rounded border border-[var(--border-color)]">
+    <section className="aid-panel p-5 md:p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-mono text-[var(--accent-green)] flex items-center gap-2">
-          <span className="text-[var(--accent-blue)]">{'{'}</span>
-          objects
-          <span className="text-[var(--accent-blue)]">{'}'}</span>
-        </h3>
+        <div><p className="aid-step-kicker">Optional</p><h3 className="mt-1 text-lg font-semibold text-white">关键物件</h3></div>
         <button
           onClick={() => setShowHistory(true)}
           className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg-tertiary)] text-[var(--text-secondary)] rounded font-mono text-xs hover:bg-[var(--bg-hover)] hover:text-[var(--accent-blue)] transition-colors"
           title="View history"
         >
           <History size={14} />
-          History
+          历史物件
         </button>
       </div>
 
@@ -153,26 +149,25 @@ export default function ObjectUpload({ onObjectsChange }: ObjectUploadProps) {
 
       <div className="mb-4">
         <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
-          <span className="text-[var(--accent-orange)]">name:</span> string
+          物件名称
         </label>
         <input
           type="text"
           value={newObjectName}
           onChange={(e) => setNewObjectName(e.target.value)}
-          placeholder="object_name"
+          placeholder="例如：红色手提箱"
           className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] font-mono text-sm focus:outline-none focus:border-[var(--accent-blue)] placeholder:text-[var(--text-secondary)]"
         />
       </div>
 
       <div className="mb-4">
         <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
-          <span className="text-[var(--accent-orange)]">description:</span> string
-          <span className="text-[var(--text-tertiary)] ml-2">(include details, text, etc.)</span>
+          外观与细节描述
         </label>
         <textarea
           value={newObjectDescription}
           onChange={(e) => setNewObjectDescription(e.target.value)}
-          placeholder="Detailed object appearance, features, text content, etc..."
+          placeholder="描述材质、颜色、文字、磨损和尺寸特征…"
           rows={3}
           className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] font-mono text-sm focus:outline-none focus:border-[var(--accent-blue)] placeholder:text-[var(--text-secondary)] resize-none"
         />
@@ -180,7 +175,7 @@ export default function ObjectUpload({ onObjectsChange }: ObjectUploadProps) {
 
       <div className="mb-4">
         <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
-          <span className="text-[var(--accent-orange)]">image:</span> File
+          物件参考图
         </label>
         <input
           type="file"
@@ -243,6 +238,6 @@ export default function ObjectUpload({ onObjectsChange }: ObjectUploadProps) {
         onSelect={handleSelectFromHistory}
         onDelete={removeFromHistory}
       />
-    </div>
+    </section>
   );
 }

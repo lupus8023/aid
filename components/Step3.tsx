@@ -142,7 +142,7 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
       {characters.length > 0 && (
         <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-4">
           <p className="text-xs font-mono text-[var(--text-secondary)] mb-1">Voice References — generate once to lock character voice timbre</p>
-          <p className="text-[10px] font-mono text-[var(--text-secondary)] mb-3 opacity-60">Used as audio reference for Seedance 2.0 to maintain consistent voice across shots</p>
+          <p className="text-[10px] font-mono text-[var(--text-secondary)] mb-3 opacity-60">Used as optional audio reference for Seedance 2.0 and ComfyUI MiniMax H3 to maintain consistent voice across shots</p>
           <div className="flex gap-3 flex-wrap">
             {characters.map(char => {
               const hasRef = !!voiceReferences[char.name];

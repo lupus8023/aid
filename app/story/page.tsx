@@ -17,6 +17,7 @@ import { Character, ObjectItem, Storyboard } from '@/types';
 import { analyzeStory } from '@/lib/storyAnalyzer';
 import { useProject } from '@/hooks/useProject';
 import { useSettings } from '@/hooks/useSettings';
+import { comfyUIApiUrl, downloadComfyUIVideo, isComfyUIClientTask, localComfyUISettings, videoStatusResponseError } from '@/lib/comfyuiClient';
 import { Grid3x3, List } from 'lucide-react';
 
 export default function StoryPage() {
@@ -465,10 +466,10 @@ export default function StoryPage() {
         body: JSON.stringify({ lines, fishAudioKey: settings.fishAudioKey })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed');
-      const { characterAudios } = await response.json();
+      const { characterAudios, audioUrl } = await response.json();
 
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id
-        ? { ...sb, audioStatus: 'completed', characterAudios }
+        ? { ...sb, audioStatus: 'completed', characterAudios, audioUrl }
         : sb
       ));
     } catch (error) {
@@ -478,7 +479,8 @@ export default function StoryPage() {
   };
 
   const handleGenerateVideo = async (storyboard: Storyboard) => {
-    if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
+    const videoProvider = settings.videoProvider || 'apimart';
+    if (videoProvider === 'apimart' && !settings.apiKey) { alert('Please configure API Key in settings'); return; }
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoStatus: 'generating' } : sb));
     try {
       // Get last frame of previous shot's video for continuity (first_frame of current shot)
@@ -491,10 +493,13 @@ export default function StoryPage() {
         firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_100p/').replace(/\.\w+$/, '.jpg');
       }
 
-      const response = await fetch('/api/generate-video', {
+      const generationUrl = videoProvider === 'comfyui'
+        ? comfyUIApiUrl('/api/generate-video', settings.comfyui)
+        : '/api/generate-video';
+      const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, characterAudios: storyboard.characterAudios || [], firstFrameUrl, voiceReferences: voiceReferences || {} })
+        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, characterAudios: storyboard.characterAudios || [], firstFrameUrl, voiceReferences: voiceReferences || {}, videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate video');
       const data = await response.json();
@@ -507,16 +512,33 @@ export default function StoryPage() {
   };
 
   const pollVideoStatus = async (storyboardId: string, taskId: string) => {
+    const isComfyTask = isComfyUIClientTask(taskId);
+    let consecutiveErrors = 0;
     for (let i = 0; i < 180; i++) {
       await new Promise(resolve => setTimeout(resolve, 10000));
       try {
-        const response = await fetch('/api/check-video-status', {
+        const statusUrl = isComfyTask
+          ? comfyUIApiUrl('/api/check-video-status', settings.comfyui)
+          : '/api/check-video-status';
+        const response = await fetch(statusUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ taskId, apiKey: settings.apiKey })
+          body: JSON.stringify({
+            taskId,
+            apiKey: settings.apiKey,
+            localDelivery: isComfyTask,
+            comfyui: localComfyUISettings(settings.comfyui),
+          })
         });
-        if (!response.ok) continue;
+        if (!response.ok) throw new Error(await videoStatusResponseError(response));
+
         const data = await response.json();
+
+        if (isComfyTask && data.status === 'completed' && data.readyForDownload) {
+          const localVideoUrl = await downloadComfyUIVideo(taskId, settings.comfyui);
+          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, videoStatus: 'completed', videoUrl: localVideoUrl } : sb));
+          return;
+        }
         if (data.status === 'completed' && data.videoUrl) {
           setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, videoStatus: 'completed', videoUrl: data.videoUrl } : sb));
           return;
@@ -525,7 +547,16 @@ export default function StoryPage() {
           setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, videoStatus: 'failed' } : sb));
           return;
         }
-      } catch { /* continue polling */ }
+        consecutiveErrors = 0;
+      } catch (error) {
+        console.error('Video status polling error:', error);
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 3) {
+          alert(`视频回传失败：${error instanceof Error ? error.message : '无法连接本地 Companion'}`);
+          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, videoStatus: 'failed' } : sb));
+          return;
+        }
+      }
     }
     setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, videoStatus: 'failed' } : sb));
   };
@@ -534,6 +565,7 @@ export default function StoryPage() {
   const completedVideos = storyboards.filter(s => s.videoStatus === 'completed').length;
 
   return (
+    <div className="aid-theme-teal contents">
     <DevToolsLayout
       toolbar={
         <Toolbar
@@ -557,7 +589,7 @@ export default function StoryPage() {
       }
     >
       {isCanvasMode && storyboards.length > 0 ? (
-        <div className="relative h-full">
+        <div className="relative h-full bg-[var(--bg-primary)]">
           <CanvasMode
             storyboards={storyboards}
             onUpdate={handleUpdateStoryboard}
@@ -575,12 +607,16 @@ export default function StoryPage() {
           </button>
         </div>
       ) : (
-        <div className="h-full overflow-y-auto bg-[var(--bg-primary)]">
-          <div className="max-w-7xl mx-auto p-3 md:p-6">
+        <div className="min-h-full bg-[var(--bg-primary)]">
+          <div className="mx-auto max-w-[1440px] p-3 md:p-7">
+            <div className="aid-page-lead mb-5">
+              <div><p className="aid-eyebrow">Story production pipeline</p><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">从故事设定到完整视频</h1><p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">按步骤固定角色、剧本与视觉参考，每一步的结果都会带到下一阶段。</p></div>
+              <div className="flex gap-2"><span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-1.5 font-mono text-[10px] text-[var(--text-secondary)]">STEP {String(currentStep).padStart(2, '0')} / 06</span><span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-1.5 font-mono text-[10px] text-[var(--text-secondary)]">{storyboards.length} SCENES</span></div>
+            </div>
             <div className="flex items-center justify-between mb-4">
               <StepIndicator
                 currentStep={currentStep}
-                steps={['Characters', 'Story', 'Script', 'Images', 'Videos', 'Export']}
+                steps={['角色', '故事', '剧本', '图片', '视频', '导出']}
               />
               {storyboards.length > 0 && (
                 <button
@@ -656,6 +692,7 @@ export default function StoryPage() {
                 storyboards={storyboards}
                 characters={characters}
                 videoModel={settings.videoModel}
+                videoProvider={settings.videoProvider || 'apimart'}
                 onBack={() => setCurrentStep(4)}
                 onNext={() => setCurrentStep(6)}
                 onGenerateVideo={handleGenerateVideo}
@@ -680,5 +717,6 @@ export default function StoryPage() {
         onSave={saveSettings}
       />
     </DevToolsLayout>
+    </div>
   );
 }

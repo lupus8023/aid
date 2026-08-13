@@ -5,16 +5,16 @@ interface StepIndicatorProps {
 
 export default function StepIndicator({ currentStep, steps }: StepIndicatorProps) {
   return (
-    <div className="mb-4 md:mb-8 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-3 md:p-4">
-      <div className="flex items-center justify-between">
+    <nav aria-label="故事创作进度" className="mb-5 overflow-x-auto rounded-2xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-2 md:mb-7 md:p-3">
+      <div className="flex min-w-[620px] items-center justify-between">
         {steps.map((step, index) => (
           <div key={index} className="flex items-center flex-1">
-            <div className="flex items-center gap-1 md:gap-3 flex-1">
+            <div className="flex flex-1 items-center gap-2 md:gap-3">
               <div
-                className={`w-6 h-6 md:w-8 md:h-8 rounded flex items-center justify-center font-mono text-xs md:text-sm font-bold transition-colors ${
+                className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border font-mono text-xs font-bold ${
                   index + 1 <= currentStep
-                    ? 'bg-[var(--accent-blue)] text-white'
-                    : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
+                    ? 'border-[var(--accent-green)]/50 bg-[var(--accent-green)]/15 text-[var(--accent-green)]'
+                    : 'border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
                 }`}
               >
                 {index + 1}
@@ -31,14 +31,14 @@ export default function StepIndicator({ currentStep, steps }: StepIndicatorProps
             </div>
             {index < steps.length - 1 && (
               <div
-                className={`w-4 md:w-8 h-0.5 mx-1 md:mx-2 transition-colors ${
-                  index + 1 < currentStep ? 'bg-[var(--accent-blue)]' : 'bg-[var(--border-color)]'
+                className={`mx-2 h-px w-4 md:w-8 ${
+                  index + 1 < currentStep ? 'bg-[var(--accent-green)]' : 'bg-[var(--border-color)]'
                 }`}
               />
             )}
           </div>
         ))}
       </div>
-    </div>
+    </nav>
   );
 }

@@ -8,7 +8,10 @@
 
 # next.js
 /.next/
+/.next-companion/
 /out/
+/.companion-app/
+/.companion-media/
 
 # production
 /build
@@ -34,3 +37,9 @@ next-env.d.ts
 
 # uploads
 /public/uploads
+/outputs/
+/deno.lock
+/.claude/skills/aionui-config
+
+# Local Netlify folder
+.netlify

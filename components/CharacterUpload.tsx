@@ -115,20 +115,16 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
   };
 
   return (
-    <div className="bg-[var(--bg-secondary)] p-6 rounded border border-[var(--border-color)]">
+    <section className="aid-panel p-5 md:p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-mono text-[var(--accent-green)] flex items-center gap-2">
-          <span className="text-[var(--accent-blue)]">{'{'}</span>
-          characters
-          <span className="text-[var(--accent-blue)]">{'}'}</span>
-        </h3>
+        <div><p className="aid-step-kicker">Required</p><h3 className="mt-1 text-lg font-semibold text-white">角色参考</h3></div>
         <button
           onClick={() => setShowHistory(true)}
           className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg-tertiary)] text-[var(--text-secondary)] rounded font-mono text-xs hover:bg-[var(--bg-hover)] hover:text-[var(--accent-blue)] transition-colors"
           title="View history"
         >
           <History size={14} />
-          History
+          历史角色
         </button>
       </div>
 
@@ -148,25 +144,25 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
 
       <div className="mb-4">
         <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
-          <span className="text-[var(--accent-orange)]">name:</span> string
+          角色名称
         </label>
         <input
           type="text"
           value={newCharacterName}
           onChange={(e) => setNewCharacterName(e.target.value)}
-          placeholder="character_name"
+          placeholder="例如：林遥"
           className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] font-mono text-sm focus:outline-none focus:border-[var(--accent-blue)] placeholder:text-[var(--text-secondary)]"
         />
       </div>
 
       <div className="mb-4">
         <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
-          <span className="text-[var(--accent-orange)]">description:</span> string
+          外观与人物描述
         </label>
         <textarea
           value={newCharacterDescription}
           onChange={(e) => setNewCharacterDescription(e.target.value)}
-          placeholder="Detailed character appearance description..."
+          placeholder="描述年龄、发型、服装、气质和稳定的辨识特征…"
           className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] font-mono text-sm focus:outline-none focus:border-[var(--accent-blue)] placeholder:text-[var(--text-secondary)] resize-none"
           rows={3}
         />
@@ -174,20 +170,20 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
 
       <div className="mb-4">
         <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
-          <span className="text-[var(--accent-orange)]">voiceId:</span> string (fish.audio)
+          Fish Audio 音色 ID（可选）
         </label>
         <input
           type="text"
           value={newCharacterVoiceId}
           onChange={(e) => setNewCharacterVoiceId(e.target.value)}
-          placeholder="fish.audio reference_id (optional)"
+          placeholder="fish.audio reference_id"
           className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] font-mono text-sm focus:outline-none focus:border-[var(--accent-blue)] placeholder:text-[var(--text-secondary)]"
         />
       </div>
 
       <div className="mb-4">
         <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">
-          <span className="text-[var(--accent-orange)]">image:</span> File
+          角色参考图
         </label>
         <input
           type="file"
@@ -251,6 +247,6 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
         onSelect={handleSelectFromHistory}
         onDelete={removeFromHistory}
       />
-    </div>
+    </section>
   );
 }

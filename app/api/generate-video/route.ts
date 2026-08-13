@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateStoryboardVideo } from '@/lib/videoGenerator';
+import { buildStoryboardVideoPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
 import { snapDurationToModel } from '@/lib/apimart';
+import { createComfyUIVideoTask } from '@/lib/comfyui';
+
+export const runtime = 'nodejs';
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,10 +12,35 @@ export async function POST(request: NextRequest) {
       storyboard, apiKey, videoModel, aspectRatio,
       characterAudios = [], firstFrameUrl,
       voiceReferences = {},  // { 角色名: CloudinaryURL }
+      videoProvider = 'apimart', comfyui = {},
     } = await request.json();
 
     if (!storyboard) return NextResponse.json({ error: 'Storyboard is required' }, { status: 400 });
-    if (!apiKey)     return NextResponse.json({ error: 'API key is required' }, { status: 400 });
+    if (videoProvider === 'comfyui') {
+      if (!storyboard.imageUrl) return NextResponse.json({ error: 'Storyboard image is required' }, { status: 400 });
+      const referenceAudios = (storyboard.characters || [])
+        .map((name: string) => voiceReferences[name])
+        .filter(Boolean)
+        .slice(0, 3);
+      const result = await createComfyUIVideoTask({
+        firstFrame: firstFrameUrl || storyboard.imageUrl,
+        endFrame: firstFrameUrl ? storyboard.imageUrl : undefined,
+        referenceAudios,
+        // H3 generates the synchronized soundtrack natively. Voice samples are
+        // optional references, so APIMart's URL-tag syntax must not enter the prompt.
+        prompt: buildStoryboardVideoPrompt(storyboard, [], firstFrameUrl),
+        duration: Number(storyboard.videoDuration) || 5,
+        aspectRatio: aspectRatio || '16:9',
+        settings: comfyui,
+      });
+      return NextResponse.json({
+        taskId: result.taskId,
+        status: 'processing',
+        provider: 'comfyui',
+        workflow: result.workflow,
+      });
+    }
+    if (!apiKey) return NextResponse.json({ error: 'API key is required' }, { status: 400 });
 
     console.log('Starting video generation for scene:', storyboard.sceneNumber);
     console.log('Using model:', videoModel || 'sora-2');

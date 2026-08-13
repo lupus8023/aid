@@ -24,14 +24,14 @@ export default function StatusBar({
         {isGenerating && (
           <div className="flex items-center gap-2 text-[var(--accent-blue)] font-mono text-xs">
             <Loader2 size={12} className="animate-spin" />
-            <span>{currentTask || 'Processing...'}</span>
+            <span>{currentTask || '处理中…'}</span>
           </div>
         )}
 
         {!isGenerating && completedScenes === totalScenes && totalScenes > 0 && (
           <div className="flex items-center gap-2 text-[var(--success)] font-mono text-xs">
             <CheckCircle2 size={12} />
-            <span>All tasks completed</span>
+            <span>全部任务已完成</span>
           </div>
         )}
       </div>
@@ -40,17 +40,17 @@ export default function StatusBar({
       <div className="flex items-center gap-4 text-[var(--text-secondary)] font-mono text-xs">
         <span className="flex items-center gap-1">
           <CheckCircle2 size={12} className="text-[var(--success)]" />
-          Done: {completedScenes}
+          完成 {completedScenes}
         </span>
 
         {failedScenes > 0 && (
           <span className="flex items-center gap-1">
             <AlertCircle size={12} className="text-[var(--error)]" />
-            Failed: {failedScenes}
+            失败 {failedScenes}
           </span>
         )}
 
-        <span>Total: {totalScenes}</span>
+        <span>总计 {totalScenes}</span>
       </div>
     </div>
   );

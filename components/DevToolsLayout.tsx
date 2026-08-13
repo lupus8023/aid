@@ -16,32 +16,32 @@ export default function DevToolsLayout({
   statusBar
 }: DevToolsLayoutProps) {
   return (
-    <div className="flex flex-col h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
+    <div className="flex h-screen min-h-[560px] flex-col bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {/* Top Toolbar */}
       {toolbar && (
-        <div className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border-color)] flex items-center px-4">
+        <div className="relative z-30 flex h-14 shrink-0 items-center border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/95 px-3 shadow-[0_8px_32px_-24px_var(--shadow)] backdrop-blur md:px-5">
           {toolbar}
         </div>
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* Left Sidebar */}
         {sidebar && (
-          <div className="w-80 bg-[var(--bg-secondary)] border-r border-[var(--border-color)] overflow-y-auto">
+          <div className="w-80 shrink-0 overflow-y-auto border-r border-[var(--border-color)] bg-[var(--bg-secondary)]">
             {sidebar}
           </div>
         )}
 
         {/* Center Content */}
-        <div className="flex-1 overflow-y-auto">
+        <main className="min-w-0 flex-1 overflow-y-auto scroll-smooth">
           {children}
-        </div>
+        </main>
       </div>
 
       {/* Bottom Status Bar */}
       {statusBar && (
-        <div className="h-8 bg-[var(--bg-secondary)] border-t border-[var(--border-color)] flex items-center px-4 text-xs">
+        <div className="flex h-8 shrink-0 items-center border-t border-[var(--border-color)] bg-[var(--bg-secondary)] px-4 text-xs">
           {statusBar}
         </div>
       )}

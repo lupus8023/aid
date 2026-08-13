@@ -1,18 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import { Camera } from 'lucide-react';
+import { Camera, Clapperboard, Smartphone, Video } from 'lucide-react';
 
 interface CameraSelectorProps {
   onParamsChange: (params: string) => void;
 }
 
 const cameras = [
-  { id: 'sony-a7', name: 'Sony A7', icon: '📷' },
-  { id: 'canon-5d', name: 'Canon 5D', icon: '📷' },
-  { id: 'iphone-15', name: 'iPhone 15 Pro', icon: '📱' },
-  { id: 'red-komodo', name: 'RED Komodo', icon: '🎥' },
-  { id: 'arri-alexa', name: 'ARRI Alexa', icon: '🎬' },
+  { id: 'sony-a7', name: 'Sony A7', icon: Camera },
+  { id: 'canon-5d', name: 'Canon 5D', icon: Camera },
+  { id: 'iphone-15', name: 'iPhone 15 Pro', icon: Smartphone },
+  { id: 'red-komodo', name: 'RED Komodo', icon: Video },
+  { id: 'arri-alexa', name: 'ARRI Alexa', icon: Clapperboard },
 ];
 
 const focalLengths = [
@@ -56,38 +56,40 @@ export default function CameraSelector({ onParamsChange }: CameraSelectorProps) 
 
   return (
     <div>
-      <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Camera Parameters</h2>
-      <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-4">
+      <div className="mb-4"><p className="aid-step-kicker">04 · 镜头语言</p><h2 className="mt-1 text-base font-semibold text-white">相机参数</h2></div>
+      <div>
         <div className="space-y-4">
           {/* Camera Selection */}
           <div>
-            <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">Camera Model</label>
-            <div className="grid grid-cols-5 gap-2">
-              {cameras.map((cam) => (
+            <label className="aid-field-label">相机型号</label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+              {cameras.map((cam) => {
+                const Icon = cam.icon;
+                return (
                 <button
                   key={cam.id}
                   onClick={() => {
                     setCamera(cam.id);
                     updateParams(cam.id, focal, aperture, iso);
                   }}
-                  className={`p-2 rounded border text-xs font-mono ${
+                  className={`min-h-[76px] rounded-xl border p-2 text-xs ${
                     camera === cam.id
                       ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)] text-white'
                       : 'border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]'
                   }`}
                 >
-                  <div className="text-lg mb-1">{cam.icon}</div>
-                  <div className="text-[10px]">{cam.name}</div>
+                  <Icon size={18} className="mx-auto mb-2" />
+                  <div className="text-[10px] font-mono">{cam.name}</div>
                 </button>
-              ))}
+              );})}
             </div>
           </div>
 
           {/* Focal Length, Aperture, ISO in one row */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {/* Focal Length */}
             <div>
-              <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">Focal Length</label>
+              <label className="aid-field-label">焦距</label>
               <select
                 value={focal}
                 onChange={(e) => {
@@ -105,7 +107,7 @@ export default function CameraSelector({ onParamsChange }: CameraSelectorProps) 
 
             {/* Aperture */}
             <div>
-              <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">Aperture</label>
+              <label className="aid-field-label">光圈</label>
               <select
                 value={aperture}
                 onChange={(e) => {
@@ -123,7 +125,7 @@ export default function CameraSelector({ onParamsChange }: CameraSelectorProps) 
 
             {/* ISO */}
             <div>
-              <label className="block text-xs font-mono text-[var(--text-secondary)] mb-2">ISO</label>
+              <label className="aid-field-label">感光度</label>
               <select
                 value={iso}
                 onChange={(e) => {

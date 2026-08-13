@@ -77,17 +77,12 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
 
   return (
     <div className="space-y-6">
-      <div className="border-l-4 border-[var(--accent-blue)] pl-4 mb-8">
-        <h2 className="text-2xl font-mono text-[var(--accent-green)] mb-2">
-          <span className="text-[var(--text-secondary)]">02.</span> Story Brief
-        </h2>
-        <p className="text-[var(--text-secondary)] font-mono text-sm">
-          Enter your story concept or synopsis
-        </p>
+      <div className="aid-page-lead">
+        <div><p className="aid-eyebrow">Step 02 · Story brief</p><h2 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">输入故事构想</h2><p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">粘贴故事梗概或上传文本，AID 会整理为可执行的分镜剧本。</p></div>
       </div>
 
       <div className="flex items-center gap-3 mb-4">
-        <span className="text-xs font-mono text-[var(--text-secondary)]">Output Language:</span>
+        <span className="text-xs font-mono text-[var(--text-secondary)]">输出语言</span>
         <button
           onClick={() => onLanguageChange?.('zh')}
           className={`px-3 py-1 rounded font-mono text-xs transition-colors ${language === 'zh' ? 'bg-[var(--accent-blue)] text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
@@ -107,7 +102,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
               : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
           }`}
         >
-          Direct Input
+          直接输入
         </button>
         <button
           onClick={() => setInputMode('file')}
@@ -117,7 +112,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
               : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
           }`}
         >
-          Upload File
+          上传文件
         </button>
       </div>
 
@@ -126,7 +121,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
           <textarea
             value={textInput}
             onChange={(e) => handleTextChange(e.target.value)}
-            placeholder="Enter your story brief, concept, or synopsis here..."
+            placeholder="输入故事梗概、人物关系、情绪和关键情节…"
             className="w-full h-64 p-4 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded text-sm font-mono text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-blue)] resize-none"
           />
           {apiKey && (
@@ -135,7 +130,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
               disabled={!textInput.trim() || isExpanding}
               className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-[var(--accent-purple,#a855f7)] hover:bg-[#9333ea] text-white disabled:opacity-50 rounded transition-colors"
             >
-              {isExpanding ? <><Loader2 size={11} className="animate-spin" /> Expanding...</> : <><Wand2 size={11} /> AI Expand</>}
+              {isExpanding ? <><Loader2 size={11} className="animate-spin" /> 正在扩写…</> : <><Wand2 size={11} /> AI 扩写</>}
             </button>
           )}
         </div>
@@ -151,7 +146,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
       <div className="flex justify-between pt-4 border-t border-[var(--border-color)]">
         {onBack && (
           <button onClick={onBack} className="bg-[var(--bg-tertiary)] text-[var(--text-primary)] px-6 py-2.5 rounded font-mono text-sm hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-2">
-            <span>←</span> Back
+            <span>←</span> 返回
           </button>
         )}
         <button
@@ -159,7 +154,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
           disabled={!textInput.trim() || isLoading}
           className="ml-auto bg-[var(--accent-blue)] text-white px-6 py-2.5 rounded font-mono text-sm hover:bg-[#0098ff] disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:cursor-not-allowed transition-colors"
         >
-          {isLoading ? <span className="animate-pulse">Generating script...</span> : 'Next: Generate Script →'}
+          {isLoading ? <span className="animate-pulse">正在生成剧本…</span> : '生成分镜剧本 →'}
         </button>
       </div>
     </div>

@@ -113,6 +113,25 @@ CLOUDINARY_API_KEY=your_cloudinary_key
 CLOUDINARY_API_SECRET=your_cloudinary_secret
 ```
 
+### ComfyUI（可选）
+
+视频生成通道可在 Settings 中切换为 `Cloud ComfyUI · SSH Private Workflow`。该通道沿用 J18IP 的 MiniMax H3 接口链路：
+
+1. aid 通过 SSH/SCP 上传首帧、可选尾帧和一条完整音轨；
+2. 自动查找或读取单图、多图、首尾帧 4-step LoRA 工作流；
+3. 将前端工作流转换为 ComfyUI API prompt，通过 `/prompt` 提交；
+4. 使用 `/history/{prompt_id}` 轮询，完成后从 `/view` 下载并上传到 Cloudinary。
+
+运行 aid 的机器需要安装 `ssh` 和 `scp`，并能以无交互方式登录 ComfyUI 主机。ComfyUI H3 当前要求每个任务恰好一条音频；分镜模式请先点击“Generate Audio”。连接字段既可在 Settings 中填写，也可通过 `.env.local.example` 中的 `COMFYUI_*` 变量配置。若两处都填写，以 Settings 为准。
+
+`pandais.beauty` 上的 ComfyUI 通道默认通过本机 aid companion 使用 SSH，不把私钥交给 Netlify。先在 aid 项目目录运行 `npm run companion`，保持 `http://127.0.0.1:3018` 可用；网页会把 ComfyUI 的测试、提交和轮询请求发给这个本地服务，由它使用 `~/.ssh`、ssh-agent 和持久控制连接完成 SSH/SFTP。其他云端 API 仍走 Netlify。companion 只允许 `pandais.beauty` 与本机 origin 跨域访问。
+
+普通用户可直接从 AID 首页下载桌面版 Companion。桌面版内置 Node.js 运行环境、FFmpeg/FFprobe 和独立 SSH 客户端，支持 macOS Apple Silicon、macOS Intel 与 Windows x64；启动时会生成仅保存在本机应用数据目录的专属 Ed25519 密钥，并可使用仙宫云 SSH 密码一键完成公钥授权。
+
+维护者可创建 `companion-v*` Git tag，或在 GitHub Actions 手动运行 `Release AID Companion`，自动生成三个平台包并发布到 GitHub Releases。首页下载链接始终指向 latest release。
+
+无人值守的纯服务端部署仍可用 `COMFYUI_SSH_PRIVATE_KEY_B64` 作为后备密钥，并用 `COMFYUI_SSH_HOST_FINGERPRINT` 固定远端主机指纹；该模式不是浏览器默认路径。
+
 ### Run Development Server
 
 ```bash

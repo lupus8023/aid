@@ -43,32 +43,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'lines and fishAudioKey are required' }, { status: 400 });
     }
 
-    // Group lines by character (preserving first-seen order)
+    const normalizedLines = lines.filter(({ text }: { text?: string }) => text?.trim());
+
+    // Generate once in dialogue order so ComfyUI can receive one exact segment track.
+    const generatedLines: { character: string; buffer: Buffer }[] = [];
+    for (const { character, text, voiceId } of normalizedLines) {
+      generatedLines.push({ character, buffer: await generateTTS(text, voiceId, fishAudioKey) });
+    }
+
+    // Group the same generated lines by character for providers that use voice references.
     const characterOrder: string[] = [];
-    const characterLines: Record<string, { text: string; voiceId?: string }[]> = {};
-    for (const { character, text, voiceId } of lines) {
-      if (!text?.trim()) continue;
-      if (!characterLines[character]) {
+    const characterBuffers: Record<string, Buffer[]> = {};
+    for (const { character, buffer } of generatedLines) {
+      if (!characterBuffers[character]) {
         characterOrder.push(character);
-        characterLines[character] = [];
+        characterBuffers[character] = [];
       }
-      characterLines[character].push({ text, voiceId });
+      characterBuffers[character].push(buffer);
     }
 
     // Generate and upload audio per character
     const characterAudios: { character: string; audioUrl: string; audioDuration: number }[] = [];
     for (const character of characterOrder) {
-      const charLines = characterLines[character];
-      const buffers: Buffer[] = [];
-      for (const { text, voiceId } of charLines) {
-        buffers.push(await generateTTS(text, voiceId, fishAudioKey));
-      }
-      const combined = Buffer.concat(buffers);
+      const combined = Buffer.concat(characterBuffers[character]);
       const { url: audioUrl, duration: audioDuration } = await uploadBuffer(combined);
       characterAudios.push({ character, audioUrl, audioDuration });
     }
 
-    return NextResponse.json({ characterAudios });
+    const segmentAudio = characterAudios.length === 1
+      ? { url: characterAudios[0].audioUrl, duration: characterAudios[0].audioDuration }
+      : await uploadBuffer(Buffer.concat(generatedLines.map(item => item.buffer)));
+
+    return NextResponse.json({
+      characterAudios,
+      audioUrl: segmentAudio.url,
+      audioDuration: segmentAudio.duration,
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to generate audio' }, { status: 500 });
   }

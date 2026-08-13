@@ -9,6 +9,21 @@ const DEFAULT_SETTINGS: AppSettings = {
   scriptModel: 'gpt-4o',
   imageModel: 'doubao-seedream-5-0-lite',
   videoModel: 'doubao-seedance-1-5-pro',
+  videoProvider: 'apimart',
+  comfyui: {
+    sshHost: 'me21gb3rds8p0h44.ssh.x-gpu.com',
+    sshPort: 43213,
+    sshUser: 'root',
+    sshKeyPath: '~/.ssh/id_ed25519',
+    useLocalCompanion: true,
+    localCompanionUrl: 'http://127.0.0.1:3018',
+    comfyPort: 8188,
+    workflowRoot: '/root/ComfyUI',
+    imageWorkflowPath: '',
+    multiImageWorkflowPath: '',
+    firstLastWorkflowPath: '',
+    timeoutSeconds: 7200,
+  },
   aspectRatio: '16:9', // 默认横屏
 };
 
@@ -18,9 +33,28 @@ const LEGACY_VIDEO_MODEL_MAP: Record<string, string> = {
 
 function migrateSettings(settings: AppSettings): AppSettings {
   const migratedVideoModel = LEGACY_VIDEO_MODEL_MAP[settings.videoModel] || settings.videoModel;
+  const legacyComfyUI = settings.comfyui as (AppSettings['comfyui'] & {
+    sshPrivateKey?: string;
+    sshPrivateKeyPassphrase?: string;
+  }) | undefined;
+  const legacyKeyPath = String(legacyComfyUI?.sshKeyPath || '');
+  const comfyui = {
+    ...DEFAULT_SETTINGS.comfyui!,
+    ...(legacyComfyUI || {}),
+    sshKeyPath: /^(?:\/|~\/)/.test(legacyKeyPath)
+      ? legacyKeyPath
+      : DEFAULT_SETTINGS.comfyui!.sshKeyPath,
+    useLocalCompanion: legacyComfyUI?.useLocalCompanion ?? true,
+    localCompanionUrl: legacyComfyUI?.localCompanionUrl || 'http://127.0.0.1:3018',
+  };
+  delete comfyui.sshPrivateKey;
+  delete comfyui.sshPrivateKeyPassphrase;
   return {
+    ...DEFAULT_SETTINGS,
     ...settings,
     videoModel: migratedVideoModel,
+    videoProvider: settings.videoProvider || 'apimart',
+    comfyui,
   };
 }
 
@@ -46,7 +80,6 @@ export function useSettings() {
     const migrated = migrateSettings(newSettings);
     setSettings(migrated);
     localStorage.setItem('appSettings', JSON.stringify(migrated));
-    console.log('Settings saved:', migrated);
   }, []);
 
   // 重置为默认设置

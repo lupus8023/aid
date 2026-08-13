@@ -8,6 +8,7 @@ interface Step5Props {
   storyboards: Storyboard[];
   characters: Character[];
   videoModel?: string;
+  videoProvider?: 'apimart' | 'comfyui';
   onBack: () => void;
   onNext: () => void;
   onGenerateVideo: (storyboard: Storyboard) => void;
@@ -16,16 +17,16 @@ interface Step5Props {
   onUpdate?: (storyboard: Storyboard) => void;
 }
 
-export default function Step5({ storyboards, characters, videoModel, onBack, onNext, onGenerateVideo, onGenerateVideoPrompt, onGenerateAudio, onUpdate }: Step5Props) {
+export default function Step5({ storyboards, characters, videoModel, videoProvider = 'apimart', onBack, onNext, onGenerateVideo, onGenerateVideoPrompt, onGenerateAudio, onUpdate }: Step5Props) {
   const completedCount = storyboards.filter(sb => sb.videoStatus === 'completed').length;
   const withImages = storyboards.filter(sb => sb.imageUrl);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedPrompt, setEditedPrompt] = useState('');
 
-  // 只有 Wan2.6/Wan2.7 使用 audio_url（实际音轨），需要预先生成 TTS
-  // Seedance 2.0 用声音参考、其他模型不支持音频 → 隐藏按钮
+  const isComfyUI = videoProvider === 'comfyui';
+  // Wan2.6/Wan2.7 使用实际音轨；仙宫云 MiniMax H3 会原生生成同步音频。
   const m = (videoModel || '').toLowerCase();
-  const showAudioButton = m.includes('wan2.6') || m.includes('wan2.7') || m.includes('wan 2.6') || m.includes('wan 2.7');
+  const showAudioButton = !isComfyUI && (m.includes('wan2.6') || m.includes('wan2.7') || m.includes('wan 2.6') || m.includes('wan 2.7'));
 
   const startEdit = (sb: Storyboard) => {
     setEditingId(sb.id);
@@ -44,9 +45,20 @@ export default function Step5({ storyboards, characters, videoModel, onBack, onN
           <span className="text-[var(--text-secondary)]">05.</span> Generate Videos
         </h2>
         <p className="text-[var(--text-secondary)] font-mono text-sm">
-          Generate audio from dialogue, then generate video for each shot
+          {isComfyUI
+            ? 'MiniMax H3 generates synchronized dialogue, ambience and music with each shot'
+            : 'Generate audio from dialogue, then generate video for each shot'}
         </p>
       </div>
+
+      {isComfyUI && (
+        <div className="p-4 border border-[var(--accent-green)]/40 rounded bg-[var(--bg-secondary)]">
+          <div className="text-sm font-mono text-[var(--accent-green)]">仙宫云 MiniMax H3 · Native Audio</div>
+          <p className="mt-1 text-xs font-mono text-[var(--text-secondary)]">
+            普通分镜使用单图 Ref2VA；开启“连贯上一镜头”时使用首尾帧 FL2VA。无需先生成完整音轨，角色声音参考会在有配置时自动使用。
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {withImages.map((sb) => {
@@ -143,10 +155,10 @@ export default function Step5({ storyboards, characters, videoModel, onBack, onN
                   <span className="text-xs font-mono text-[var(--text-secondary)]">Duration:</span>
                   <input
                     type="number"
-                    min={5}
+                    min={isComfyUI ? 2 : 5}
                     max={15}
                     value={sb.videoDuration ?? 5}
-                    onChange={(e) => onUpdate?.({ ...sb, videoDuration: Math.min(15, Math.max(5, Number(e.target.value))) })}
+                    onChange={(e) => onUpdate?.({ ...sb, videoDuration: Math.min(15, Math.max(isComfyUI ? 2 : 5, Number(e.target.value))) })}
                     className="w-16 px-2 py-1 text-xs font-mono bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
                   />
                   <span className="text-xs font-mono text-[var(--text-secondary)]">s</span>
@@ -165,10 +177,25 @@ export default function Step5({ storyboards, characters, videoModel, onBack, onN
                       <span className="text-xs font-mono text-[var(--text-secondary)]">连贯上一镜头</span>
                     </label>
                     {sb.continuousFromPrev && hasDialogue && (
-                      <p className="text-[10px] font-mono text-[var(--accent-yellow)] leading-tight">
-                        提示：连续模式下视频不会传入配音音频。如需台词同步，建议关闭此选项。
-                      </p>
+                      isComfyUI ? (
+                        <p className="text-[10px] font-mono text-[var(--accent-green)] leading-tight">
+                          使用 FL2VA：上一镜头尾帧 → 本镜头画面，并原生生成本镜头对白和声音。
+                        </p>
+                      ) : (
+                        <p className="text-[10px] font-mono text-[var(--accent-yellow)] leading-tight">
+                          提示：连续模式下视频不会传入配音音频。如需台词同步，建议关闭此选项。
+                        </p>
+                      )
                     )}
+                  </div>
+                )}
+
+                {isComfyUI && (
+                  <div className="flex items-center justify-between px-2 py-1.5 rounded bg-[var(--bg-primary)] border border-[var(--border-color)]">
+                    <span className="text-[10px] font-mono text-[var(--text-secondary)]">H3 Workflow</span>
+                    <span className="text-[10px] font-mono text-[var(--accent-green)]">
+                      {sb.continuousFromPrev ? 'FL2VA · 首尾帧' : 'Ref2VA · 单图参考'}
+                    </span>
                   </div>
                 )}
 

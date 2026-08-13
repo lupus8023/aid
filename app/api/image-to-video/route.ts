@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createVideoTask } from '@/lib/apimart';
 import { v2 as cloudinary } from 'cloudinary';
+import { createComfyUIVideoTask, MAX_COMFYUI_REFERENCE_IMAGES } from '@/lib/comfyui';
+
+export const runtime = 'nodejs';
+export const maxDuration = 300;
 
 // 配置 Cloudinary
 cloudinary.config({
@@ -31,6 +35,8 @@ export async function POST(request: NextRequest) {
     const {
       mainImage,
       referenceImages = [],
+      secondImageRole,
+      comfyWorkflowMode,
       prompt,
       aspectRatio = '16:9',
       duration,
@@ -41,11 +47,59 @@ export async function POST(request: NextRequest) {
       audioFiles = [],
       videoUrls = [],
       audioUrls = [],
-      imageRoles = []
+      imageRoles = [],
+      videoProvider = 'apimart',
+      comfyui = {},
     } = await request.json();
 
     if (!mainImage || !prompt) {
       return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
+    }
+
+    if (videoProvider === 'comfyui') {
+      const audioInputs = [...audioFiles, ...audioUrls].filter(Boolean);
+      if (audioInputs.length > 3) {
+        return NextResponse.json(
+          { error: 'ComfyUI MiniMax H3 最多使用 3 条参考音频' },
+          { status: 400 },
+        );
+      }
+      const mode = ['single_reference', 'multi_reference', 'first_last'].includes(comfyWorkflowMode)
+        ? comfyWorkflowMode
+        : secondImageRole === 'last_frame'
+          ? 'first_last'
+          : secondImageRole === 'reference'
+            ? 'multi_reference'
+            : 'single_reference';
+      if (mode !== 'single_reference' && !referenceImages[0]) {
+        return NextResponse.json(
+          { error: mode === 'first_last' ? '首尾帧工作流需要上传尾帧' : '多图参考工作流需要上传第二张参考图' },
+          { status: 400 },
+        );
+      }
+      if (mode === 'multi_reference' && referenceImages.length + 1 > MAX_COMFYUI_REFERENCE_IMAGES) {
+        return NextResponse.json(
+          { error: `ComfyUI MiniMax H3 多图参考最多上传 ${MAX_COMFYUI_REFERENCE_IMAGES} 张图片` },
+          { status: 400 },
+        );
+      }
+      const result = await createComfyUIVideoTask({
+        firstFrame: mainImage,
+        endFrame: mode === 'first_last' ? referenceImages[0] : undefined,
+        auxiliaryImages: mode === 'multi_reference' ? referenceImages : [],
+        referenceAudios: audioInputs,
+        prompt,
+        aspectRatio,
+        duration: Number(duration) || 5,
+        settings: comfyui,
+      });
+      return NextResponse.json({
+        success: true,
+        taskId: result.taskId,
+        provider: 'comfyui',
+        workflow: result.workflow,
+        message: 'ComfyUI 视频生成任务已提交',
+      });
     }
 
     if (!apiKey) {
@@ -65,6 +119,16 @@ export async function POST(request: NextRequest) {
     }
 
     const allImageUrls = [mainImageUrl, ...refImageUrls];
+
+    // 当第二张图作为尾帧时，构建首尾帧角色（模型支持首尾帧模式）
+    const effectiveImageRoles = imageRoles.length > 0
+      ? imageRoles
+      : secondImageRole === 'last_frame' && refImageUrls.length > 0
+        ? [
+            { url: mainImageUrl, role: 'first_frame' as const },
+            { url: refImageUrls[0], role: 'last_frame' as const }
+          ]
+        : [];
 
     // 上传视频文件
     const uploadedVideoUrls = [...videoUrls];
@@ -107,7 +171,7 @@ AUDIO: Use the provided reference audio. Natural sound effects only (footsteps, 
         quality,
         videoUrls: uploadedVideoUrls,
         audioUrls: uploadedAudioUrls,
-        imageRoles: imageRoles.length > 0 ? imageRoles : undefined
+        imageRoles: effectiveImageRoles.length > 0 ? effectiveImageRoles : undefined
       }
     );
 

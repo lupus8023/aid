@@ -40,7 +40,7 @@ export interface Storyboard {
   dialogue?: Record<string, string>; // { 角色名: 台词 } - legacy
   dialogueLines?: { character: string; text: string }[]; // ordered dialogue lines
   videoPrompt?: string; // 视频生成提示词
-  videoDuration?: number; // 视频时长（秒）5-15
+  videoDuration?: number; // 视频时长（秒）；ComfyUI H3 为 2-15，其他模型按各自限制
   continuousFromPrev?: boolean; // 是否与上一个镜头连贯（使用上一镜头尾帧=本镜头首帧）
   // 定妆/场景参考图
   characterCostume?: Record<string, string>; // { 角色名: 造型描述 }
@@ -114,6 +114,22 @@ export interface AppSettings {
   scriptModel: string; // 脚本生成模型
   imageModel: string; // 图片生成模型
   videoModel: string; // 视频生成模型
+  videoProvider?: 'apimart' | 'comfyui'; // 视频生成通道
+  comfyui?: {
+    sshHost: string;
+    sshPort: number;
+    sshUser: string;
+    sshKeyPath: string;
+    useLocalCompanion?: boolean;
+    localCompanionUrl?: string;
+    comfyPort: number;
+    workflowRoot: string;
+    imageWorkflowPath: string;
+    multiImageWorkflowPath: string;
+    firstLastWorkflowPath: string;
+    characterReplaceWorkflowPath?: string;
+    timeoutSeconds: number;
+  };
   aspectRatio: '16:9' | '9:16' | '1:1'; // 横屏或竖屏
   fishAudioKey?: string; // fish.audio API key
   dmxApiKey?: string; // dmxapi.cn API key for script generation

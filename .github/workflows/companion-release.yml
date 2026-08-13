@@ -1,0 +1,79 @@
+name: Release AID Companion
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example companion-v0.1.0
+        required: true
+        default: companion-v0.1.0
+  push:
+    tags:
+      - 'companion-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon
+            os: macos-15
+            platform: darwin
+            arch: arm64
+            asset: AID-Companion-mac-Apple-Silicon.zip
+          - label: macOS Intel
+            os: macos-15-intel
+            platform: darwin
+            arch: x64
+            asset: AID-Companion-mac-Intel.zip
+          - label: Windows x64
+            os: windows-latest
+            platform: win32
+            arch: x64
+            asset: AID-Companion-Windows-x64.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:companion
+      - run: node scripts/package-companion.mjs --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
+      - name: Archive macOS app
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent "out/companion/AID Companion-${{ matrix.platform }}-${{ matrix.arch }}/AID Companion.app" "dist/${{ matrix.asset }}"
+      - name: Archive Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "out/companion/AID Companion-${{ matrix.platform }}-${{ matrix.arch }}/*" -DestinationPath "dist/${{ matrix.asset }}" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          name: AID Companion ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: dist/*.zip
