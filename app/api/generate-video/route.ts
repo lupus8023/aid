@@ -18,14 +18,19 @@ export async function POST(request: NextRequest) {
     if (!storyboard) return NextResponse.json({ error: 'Storyboard is required' }, { status: 400 });
     if (videoProvider === 'comfyui') {
       if (!storyboard.imageUrl) return NextResponse.json({ error: 'Storyboard image is required' }, { status: 400 });
-      const referenceAudios = (storyboard.characters || [])
-        .map((name: string) => voiceReferences[name])
-        .filter(Boolean)
-        .slice(0, 3);
+      // 保持「过滤后有音色参考的角色」与参考音频同序，用于在 prompt 里显式绑定 <Audio N> = 角色名。
+      const storyboardCharacters: string[] = Array.isArray(storyboard.characters) ? storyboard.characters : [];
+      const referenceAudioNames: string[] = [];
+      const referenceAudios = storyboardCharacters
+        .map((name) => ({ name, url: voiceReferences[name] }))
+        .filter((x): x is { name: string; url: string } => Boolean(x.url))
+        .slice(0, 3)
+        .map((x) => { referenceAudioNames.push(x.name); return x.url; });
       const result = await createComfyUIVideoTask({
         firstFrame: firstFrameUrl || storyboard.imageUrl,
         endFrame: firstFrameUrl ? storyboard.imageUrl : undefined,
         referenceAudios,
+        referenceAudioNames,
         // H3 generates the synchronized soundtrack natively. Voice samples are
         // optional references, so APIMart's URL-tag syntax must not enter the prompt.
         prompt: buildStoryboardVideoPrompt(storyboard, [], firstFrameUrl),

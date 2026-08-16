@@ -1,25 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createVideoTask } from '@/lib/apimart';
-import { v2 as cloudinary } from 'cloudinary';
 import { createComfyUIVideoTask, MAX_COMFYUI_REFERENCE_IMAGES } from '@/lib/comfyui';
+import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-// 配置 Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
 async function uploadBase64ToCloudinary(base64Data: string, resourceType: 'image' | 'video' | 'raw' = 'image'): Promise<string> {
   try {
-    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-      throw new Error('Cloudinary credentials not configured');
-    }
-
-    const result = await cloudinary.uploader.upload(base64Data, {
+    const result = await uploadToCloudinary(base64Data, {
       folder: 'aid-video',
       resource_type: resourceType,
     });

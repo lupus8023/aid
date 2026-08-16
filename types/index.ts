@@ -42,6 +42,10 @@ export interface Storyboard {
   videoPrompt?: string; // 视频生成提示词
   videoDuration?: number; // 视频时长（秒）；ComfyUI H3 为 2-15，其他模型按各自限制
   continuousFromPrev?: boolean; // 是否与上一个镜头连贯（使用上一镜头尾帧=本镜头首帧）
+  sequenceId?: string; // 所属场/段落（导演阶段产出，用于共享场景参考与连续性）
+  durationHint?: number; // 内容推导的建议时长（秒），作为 videoDuration 的默认取值来源
+  transition?: 'cut' | 'dissolve' | 'fade' | 'wipe'; // 转场
+  continuityFrom?: string; // 显式记录接哪个镜头的尾帧（storyboard.id），替代 continuousFromPrev 布尔
   // 定妆/场景参考图
   characterCostume?: Record<string, string>; // { 角色名: 造型描述 }
   sceneStyle?: string;                       // 场景风格描述

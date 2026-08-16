@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import DevToolsLayout from '@/components/DevToolsLayout';
 import Toolbar from '@/components/Toolbar';
 import StatusBar from '@/components/StatusBar';
@@ -12,13 +12,13 @@ import Step4 from '@/components/Step4';
 import Step5 from '@/components/Step5';
 import Step6 from '@/components/Step6';
 import SettingsModal from '@/components/SettingsModal';
-import CanvasMode from '@/components/CanvasModeTldraw';
+import CanvasMode from '@/components/CanvasMode';
 import { Character, ObjectItem, Storyboard } from '@/types';
-import { analyzeStory } from '@/lib/storyAnalyzer';
+import { StoryPlan } from '@/lib/pipeline/types';
 import { useProject } from '@/hooks/useProject';
 import { useSettings } from '@/hooks/useSettings';
 import { comfyUIApiUrl, downloadComfyUIVideo, isComfyUIClientTask, localComfyUISettings, videoStatusResponseError } from '@/lib/comfyuiClient';
-import { Grid3x3, List } from 'lucide-react';
+import { Grid3x3 } from 'lucide-react';
 
 export default function StoryPage() {
   const { projectName, setProjectName, saveProject, loadProject, exportProject, newProject } = useProject();
@@ -30,6 +30,7 @@ export default function StoryPage() {
   const [objects, setObjects] = useState<ObjectItem[]>([]);
   const [storyContent, setStoryContent] = useState('');
   const [storyboards, setStoryboards] = useState<Storyboard[]>([]);
+  const [storyPlan, setStoryPlan] = useState<StoryPlan | undefined>();
   const [isLoading, setIsLoading] = useState(false);
   const [costumeImages, setCostumeImages] = useState<Record<string, string>>({}); // { 角色名: URL }
   const [costumeGenerating, setCostumeGenerating] = useState<Record<string, boolean>>({}); // { 角色名: bool }
@@ -38,6 +39,27 @@ export default function StoryPage() {
   const [sceneImages, setSceneImages] = useState<string[]>([]);
   const [sceneGenerating, setSceneGenerating] = useState(false);
   const [isGeneratingGrid, setIsGeneratingGrid] = useState(false);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [autoStage, setAutoStage] = useState('');
+  const autoAbortRef = useRef(false);
+
+  // 全自动编排需要读取「最新」状态（避免长异步闭包里的旧值）
+  const storyboardsRef = useRef(storyboards);
+  const charactersRef = useRef(characters);
+  const objectsRef = useRef(objects);
+  const costumeImagesRef = useRef(costumeImages);
+  const voiceReferencesRef = useRef(voiceReferences);
+  const sceneImagesRef = useRef(sceneImages);
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    storyboardsRef.current = storyboards;
+    charactersRef.current = characters;
+    objectsRef.current = objects;
+    costumeImagesRef.current = costumeImages;
+    voiceReferencesRef.current = voiceReferences;
+    sceneImagesRef.current = sceneImages;
+    settingsRef.current = settings;
+  }, [storyboards, characters, objects, costumeImages, voiceReferences, sceneImages, settings]);
 
   useEffect(() => {
     const savedProject = loadProject();
@@ -46,6 +68,10 @@ export default function StoryPage() {
       setObjects(savedProject.objects || []);
       setStoryContent(savedProject.storyContent || '');
       setStoryboards(savedProject.storyboards || []);
+      setVoiceReferences(savedProject.voiceReferences);
+      setCostumeImages(savedProject.costumeImages || {});
+      setSceneImages(savedProject.sceneImages || []);
+      setStoryPlan(savedProject.storyPlan);
       if (savedProject.storyboards?.length > 0) setCurrentStep(4);
       else if (savedProject.storyContent && savedProject.characters?.length > 0) setCurrentStep(2);
     }
@@ -54,14 +80,14 @@ export default function StoryPage() {
   useEffect(() => {
     const timer = setInterval(() => {
       if (characters.length > 0 || storyContent || storyboards.length > 0) {
-        saveProject({ characters, objects, storyContent, storyOutline: '', storyboards, createdAt: new Date().toISOString() });
+        saveProject({ characters, objects, storyContent, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
       }
     }, 30000);
     return () => clearInterval(timer);
-  }, [characters, objects, storyContent, storyboards, saveProject]);
+  }, [characters, objects, storyContent, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, saveProject]);
 
   const handleSave = () => {
-    saveProject({ characters, objects, storyContent, storyOutline: '', storyboards, createdAt: new Date().toISOString() });
+    saveProject({ characters, objects, storyContent, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
     alert('Project saved!');
   };
 
@@ -79,6 +105,10 @@ export default function StoryPage() {
         setObjects(data.objects || []);
         setStoryContent(data.storyContent || '');
         setStoryboards(data.storyboards || []);
+        setVoiceReferences(data.voiceReferences);
+        setCostumeImages(data.costumeImages || {});
+        setSceneImages(data.sceneImages || []);
+        setStoryPlan(data.storyPlan);
         if (data.storyboards?.length > 0) setCurrentStep(4);
         else if (data.storyContent && data.characters?.length > 0) setCurrentStep(2);
         else setCurrentStep(1);
@@ -91,7 +121,7 @@ export default function StoryPage() {
   };
 
   const handleExport = () => {
-    exportProject({ name: projectName, characters, objects, storyContent, storyOutline: '', storyboards, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    exportProject({ name: projectName, characters, objects, storyContent, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   };
 
   const handleUpdateStoryboard = (updated: Storyboard) => {
@@ -99,12 +129,33 @@ export default function StoryPage() {
   };
 
   // Step2 → Step3: generate shot script from story + characters
+  // ① 编剧 + ② 导演：梗概 → StoryPlan → 分镜。返回生成的分镜数组供编排器使用。
+  const runScript = async (): Promise<Storyboard[]> => {
+    const planRes = await fetch('/api/generate-story-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ synopsis: storyContent, characters, objects, apiKey: settings.apiKey, language: settings.language || 'zh', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
+    });
+    if (!planRes.ok) throw new Error((await planRes.json()).error || 'Failed to generate story plan');
+    const { storyPlan } = await planRes.json();
+    setStoryPlan(storyPlan);
+
+    const dirRes = await fetch('/api/direct-storyboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storyPlan, characters, objects, apiKey: settings.apiKey, aspectRatio: settings.aspectRatio, language: settings.language || 'zh', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
+    });
+    if (!dirRes.ok) throw new Error((await dirRes.json()).error || 'Failed to direct storyboard');
+    const { storyboards } = await dirRes.json();
+    setStoryboards(storyboards);
+    return storyboards;
+  };
+
   const handleGenerateScript = async () => {
-    if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
+    if (!settings.apiKey && !settings.dmxApiKey) { alert('Please configure API Key in settings'); return; }
     setIsLoading(true);
     try {
-      const storyboards = await analyzeStory(storyContent, characters, settings.apiKey, objects, settings.aspectRatio, settings.language || 'zh', settings.scriptModel || 'gpt-4o-mini', settings.dmxApiKey);
-      setStoryboards(storyboards);
+      await runScript();
       setCurrentStep(3);
     } catch (error) {
       alert(`Script generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -295,11 +346,11 @@ export default function StoryPage() {
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages, sceneImage: storyboard.sceneImageOverride || sceneImages[0] || '' })
+        body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '' })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate image');
       const data = await response.json();
-      pollImageStatus(storyboard.id, data.taskId);
+      await pollImageStatus(storyboard.id, data.taskId);
     } catch (error) {
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, status: 'failed' } : sb));
     }
@@ -331,8 +382,8 @@ export default function StoryPage() {
 
   const handleGenerateCostume = async (type: 'costume' | 'scene', characterName?: string) => {
     if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
-    const character = characterName ? characters.find(c => c.name === characterName) : undefined;
-    const sceneStyle = storyboards[0]?.sceneStyle;
+    const character = characterName ? charactersRef.current.find(c => c.name === characterName) : undefined;
+    const sceneStyle = storyboardsRef.current[0]?.sceneStyle;
 
     if (type === 'costume' && characterName) {
       setCostumeGenerating(prev => ({ ...prev, [characterName]: true }));
@@ -347,7 +398,7 @@ export default function StoryPage() {
         body: JSON.stringify({
           type, name: characterName,
           description: character?.description || '',
-          costumeDesc: characterName ? storyboards[0]?.characterCostume?.[characterName] : undefined,
+          costumeDesc: characterName ? storyboardsRef.current[0]?.characterCostume?.[characterName] : undefined,
           sceneStyle,
           referenceImageUrl: character?.imageUrl,
           aspectRatio: settings.aspectRatio,
@@ -484,8 +535,9 @@ export default function StoryPage() {
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoStatus: 'generating' } : sb));
     try {
       // Get last frame of previous shot's video for continuity (first_frame of current shot)
-      const idx = storyboards.findIndex(sb => sb.id === storyboard.id);
-      const prevShot = storyboard.continuousFromPrev && idx > 0 ? storyboards[idx - 1] : undefined;
+      const currentShots = storyboardsRef.current;
+      const idx = currentShots.findIndex(sb => sb.id === storyboard.id);
+      const prevShot = storyboard.continuousFromPrev && idx > 0 ? currentShots[idx - 1] : undefined;
       let firstFrameUrl: string | undefined;
       if (prevShot?.videoUrl && typeof prevShot.videoUrl === 'string') {
         // Extract last frame from Cloudinary video URL
@@ -499,14 +551,14 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, characterAudios: storyboard.characterAudios || [], firstFrameUrl, voiceReferences: voiceReferences || {}, videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
+        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, characterAudios: storyboard.characterAudios || [], firstFrameUrl, voiceReferences: voiceReferencesRef.current || {}, videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate video');
       const data = await response.json();
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoTaskId: data.taskId } : sb));
-      pollVideoStatus(storyboard.id, data.taskId);
+      await pollVideoStatus(storyboard.id, data.taskId);
     } catch (error) {
-      alert(`Video generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Video generation failed:', error);
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoStatus: 'failed' } : sb));
     }
   };
@@ -561,6 +613,67 @@ export default function StoryPage() {
     setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, videoStatus: 'failed' } : sb));
   };
 
+  // 一键成片：编剧 → 定妆/音色 → 图片 → 视频 → 成片，全自动顺序执行。
+  const handleAutoGenerate = async () => {
+    if (!settings.apiKey && !settings.dmxApiKey) { alert('Please configure API Key in settings'); return; }
+    setAutoRunning(true);
+    setAutoStage('编剧 + 分镜');
+    autoAbortRef.current = false;
+    try {
+      // ① 剧本（若尚未生成）
+      let shots = storyboardsRef.current;
+      if (shots.length === 0) {
+        shots = await runScript();
+        setCurrentStep(3);
+      }
+      if (autoAbortRef.current) return;
+
+      // ② 定妆 + 场景 + 音色参考（每角色/每场景生成一次，复用）
+      setAutoStage('生成定妆与音色参考');
+      for (const c of charactersRef.current) {
+        if (autoAbortRef.current) return;
+        if (!costumeImagesRef.current[c.name]) await handleGenerateCostume('costume', c.name);
+      }
+      if (sceneImagesRef.current.length === 0) {
+        if (autoAbortRef.current) return;
+        await handleGenerateCostume('scene');
+      }
+      for (const c of charactersRef.current) {
+        if (autoAbortRef.current) return;
+        if (settings.fishAudioKey && !voiceReferencesRef.current?.[c.name]) await handleGenerateVoiceReference(c.name);
+      }
+
+      // ③ 图片（顺序生成，尊重每镜 prompt/时长/场景）
+      setAutoStage('生成分镜图');
+      for (const sb of shots) {
+        if (autoAbortRef.current) return;
+        if (sb.status !== 'completed') await handleGenerateImage(sb);
+      }
+
+      // ④ 视频（顺序生成，连续镜头自动接上一镜尾帧）
+      setAutoStage('生成视频');
+      for (const sb of shots) {
+        if (autoAbortRef.current) return;
+        if (sb.videoStatus !== 'completed' && sb.imageUrl) await handleGenerateVideo(sb);
+      }
+
+      // ⑤ 成片
+      setAutoStage('成片');
+      setCurrentStep(6);
+    } catch (error) {
+      alert(`自动生成中断：${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setAutoRunning(false);
+      setAutoStage('');
+    }
+  };
+
+  const handleAutoStop = () => {
+    autoAbortRef.current = true;
+    setAutoRunning(false);
+    setAutoStage('');
+  };
+
   const completedImages = storyboards.filter(s => s.status === 'completed').length;
   const completedVideos = storyboards.filter(s => s.videoStatus === 'completed').length;
 
@@ -591,20 +704,16 @@ export default function StoryPage() {
       {isCanvasMode && storyboards.length > 0 ? (
         <div className="relative h-full bg-[var(--bg-primary)]">
           <CanvasMode
+            storyContent={storyContent}
             storyboards={storyboards}
+            onExit={() => setIsCanvasMode(false)}
             onUpdate={handleUpdateStoryboard}
             onGenerateImage={handleGenerateImage}
             onGenerateVideoPrompt={handleGenerateVideoPrompt}
             onGenerateAudio={handleGenerateAudio}
             onGenerateVideo={handleGenerateVideo}
+            onGenerateGrid={handleGenerateGrid}
           />
-          <button
-            onClick={() => setIsCanvasMode(false)}
-            className="absolute top-4 right-4 z-10 flex items-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded transition-colors"
-          >
-            <List size={14} />
-            List Mode
-          </button>
         </div>
       ) : (
         <div className="min-h-full bg-[var(--bg-primary)]">
@@ -618,15 +727,37 @@ export default function StoryPage() {
                 currentStep={currentStep}
                 steps={['角色', '故事', '剧本', '图片', '视频', '导出']}
               />
-              {storyboards.length > 0 && (
-                <button
-                  onClick={() => setIsCanvasMode(true)}
-                  className="flex items-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded transition-colors"
-                >
-                  <Grid3x3 size={14} />
-                  Canvas Mode
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {(storyContent.trim() || storyboards.length > 0) && (
+                  autoRunning ? (
+                    <button
+                      onClick={handleAutoStop}
+                      className="flex items-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--error)] hover:bg-[#c0392b] text-white border border-[var(--border-color)] rounded transition-colors"
+                    >
+                      ⏹ 停止
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleAutoGenerate}
+                      className="flex items-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-green)] hover:bg-[#5dd18d] text-[var(--bg-primary)] border border-[var(--border-color)] rounded transition-colors"
+                    >
+                      ✨ 一键成片
+                    </button>
+                  )
+                )}
+                {autoRunning && (
+                  <span className="text-xs font-mono text-[var(--accent-yellow)]">{autoStage}…</span>
+                )}
+                {storyboards.length > 0 && (
+                  <button
+                    onClick={() => setIsCanvasMode(true)}
+                    className="flex items-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded transition-colors"
+                  >
+                    <Grid3x3 size={14} />
+                    无限画布
+                  </button>
+                )}
+              </div>
             </div>
             {currentStep === 1 && (
               <Step2

@@ -880,15 +880,21 @@ function sanitizeUnavailablePictureOrdinals(prompt: string, availableCount: numb
   ));
 }
 
-function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, auxiliaryCount: number, referenceAudioCount: number): string {
+function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, auxiliaryCount: number, referenceAudioCount: number, referenceAudioNames?: string[]): string {
   const prompt = sanitizeUnavailablePictureOrdinals(visualPrompt, 1 + Math.max(0, auxiliaryCount));
   const rules = variant === 'aid_first_last'
-    ? ['Use the supplied first frame as the exact opening frame and the supplied last frame as the exact ending frame.']
+    ? ['Use the supplied first frame as the exact opening frame and the supplied last frame as the exact ending frame. Every person and object in the motion must already be present in one of these two frames — introduce no new character or subject.']
     : auxiliaryCount
-      ? [`Use ${Array.from({ length: 1 + auxiliaryCount }, (_, index) => `<Picture ${index + 1}>`).join(', ')} as distinct visual identity, product, wardrobe, and scene references. Do not merge or duplicate their subjects unless the prompt explicitly asks for it.`]
-      : ['Use <Picture 1> as the visual identity, product, wardrobe, composition, and scene reference.'];
+      ? [`Use ${Array.from({ length: 1 + auxiliaryCount }, (_, index) => `<Picture ${index + 1}>`).join(', ')} as distinct visual identity, product, wardrobe, and scene references. Do not merge or duplicate their subjects unless the prompt explicitly asks for it. Do not introduce any character, person, or subject that is not already present in these reference images.`]
+      : ['Use <Picture 1> as the sole visual source of truth for this shot. The video is a motion rendering of <Picture 1> only — every person, character, product, object, costume, and environment element in the frame must come from <Picture 1>. Do not introduce any new character, person, or subject that is not already present in <Picture 1>. Do not add, remove, swap, or re-cast people. Dialogue, if any, may only be performed by the characters already visible in <Picture 1>.'];
   if (referenceAudioCount) {
-    rules.push(`Use ${Array.from({ length: referenceAudioCount }, (_, index) => `<Audio ${index + 1}>`).join(', ')} only as voice, timbre, delivery, or sound-style references; generate a new synchronized soundtrack for this shot.`);
+    const bindings = (referenceAudioNames || []).slice(0, referenceAudioCount);
+    if (bindings.length === referenceAudioCount && bindings.every(Boolean)) {
+      const bindingText = bindings.map((name, i) => `<Audio ${i + 1}> = ${name}`).join(', ');
+      rules.push(`Voice-to-character binding (authoritative): ${bindingText}. Use each audio ONLY as its bound character's voice, timbre, delivery, and sound-style reference. When a bound character has a dialogue line in this shot, that line must be spoken with the matching reference timbre and lip sync. Generate a new synchronized soundtrack for this shot.`);
+    } else {
+      rules.push(`Use ${Array.from({ length: referenceAudioCount }, (_, index) => `<Audio ${index + 1}>`).join(', ')} only as voice, timbre, delivery, or sound-style references; generate a new synchronized soundtrack for this shot.`);
+    }
   } else {
     rules.push('Generate synchronized dialogue, ambience, sound effects, and music natively from the prompt.');
   }
@@ -1315,6 +1321,7 @@ export async function createComfyUIVideoTask(input: {
   auxiliaryImages?: string[];
   endFrame?: string;
   referenceAudios?: string[];
+  referenceAudioNames?: string[];
   settings?: ComfyUIClientSettings;
 }): Promise<{ taskId: string; promptId: string; workflow: ComfyUIWorkflow; workflowPath: string }> {
   const config = getComfyUIConfig(input.settings);
@@ -1351,7 +1358,7 @@ export async function createComfyUIVideoTask(input: {
       patchWorkflow(workflow, {
         variant,
         imageRefs: remoteImages,
-        prompt: taggedPrompt(input.prompt, variant, variant === 'aid_multi_reference' ? auxiliaryImages.length : 0, referenceAudios.length),
+        prompt: taggedPrompt(input.prompt, variant, variant === 'aid_multi_reference' ? auxiliaryImages.length : 0, referenceAudios.length, input.referenceAudioNames),
         duration: Math.min(15, Math.max(2, Number(input.duration) || 5)),
         aspectRatio: input.aspectRatio || '9:16',
         seed: Number(BigInt(`0x${randomBytes(7).toString('hex')}`)),

@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v2 as cloudinary } from 'cloudinary';
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 
 // 生成角色声音参考音频：用一段简短文本捕捉音色，上传到 Cloudinary
 export async function POST(request: NextRequest) {
@@ -45,7 +39,7 @@ export async function POST(request: NextRequest) {
     const audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
     const base64 = `data:audio/mpeg;base64,${audioBuffer.toString('base64')}`;
 
-    const result = await cloudinary.uploader.upload(base64, {
+    const result = await uploadToCloudinary(base64, {
       folder: 'aid-voice-refs',
       resource_type: 'video',
       public_id: `voice-ref-${characterName?.replace(/\s+/g, '-') || 'character'}-${Date.now()}`,

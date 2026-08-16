@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v2 as cloudinary } from 'cloudinary';
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 
 async function generateTTS(text: string, voiceId: string | undefined, fishAudioKey: string): Promise<Buffer> {
   const res = await fetch('https://api.fish.audio/v1/tts', {
@@ -27,7 +21,7 @@ async function generateTTS(text: string, voiceId: string | undefined, fishAudioK
 
 async function uploadBuffer(buffer: Buffer): Promise<{ url: string; duration: number }> {
   const base64 = `data:audio/mpeg;base64,${buffer.toString('base64')}`;
-  const result = await cloudinary.uploader.upload(base64, {
+  const result = await uploadToCloudinary(base64, {
     folder: 'aid-audio',
     resource_type: 'video',
   });

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
-  Connection,
   Controls,
   Edge,
   Handle,
@@ -14,675 +13,235 @@ import ReactFlow, {
   Panel,
   Position,
   ReactFlowProvider,
-  addEdge,
   useEdgesState,
   useNodesState,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import {
-  Bot,
-  Clapperboard,
-  Edit2,
-  FileVideo,
+  BookOpenText,
+  Edit3,
+  Film,
+  Grid2X2Plus,
   Image as ImageIcon,
-  Layers3,
-  Mic2,
+  LayoutGrid,
+  List,
+  Loader2,
   Play,
+  RefreshCw,
   Save,
-  Scissors,
   Sparkles,
   Video,
   X,
 } from 'lucide-react';
 import { Storyboard } from '@/types';
 
-type WorkflowNodeKind = 'scene' | 'operation' | 'output';
-type OperationKind = 'image' | 'videoPrompt' | 'audio' | 'video' | 'export';
+type CanvasNodeKind = 'story' | 'grid' | 'scene' | 'video';
 
-type WorkflowNodeData = {
-  kind: WorkflowNodeKind;
+type CanvasNodeData = {
+  kind: CanvasNodeKind;
   title: string;
-  subtitle?: string;
-  description?: string;
   storyboardId?: string;
-  operation?: OperationKind;
   sceneNumber?: number;
+  batchNumber?: number;
+  sceneCount?: number;
+  storyText?: string;
   prompt?: string;
-  videoPrompt?: string;
   imageUrl?: string;
   videoUrl?: string;
+  imageUrls?: string[];
   status?: string;
-  videoStatus?: string;
-  audioStatus?: string;
+  completedCount?: number;
+  onGenerateGrid?: () => void;
+  onGenerateImage?: () => void;
+  onGenerateVideo?: () => void;
+  onPreviewVideo?: () => void;
 };
 
-type WorkflowNode = Node<WorkflowNodeData>;
+type CanvasNode = Node<CanvasNodeData>;
 
 interface CanvasModeProps {
+  storyContent?: string;
   storyboards: Storyboard[];
+  onExit?: () => void;
   onUpdate?: (storyboard: Storyboard) => void;
   onGenerateImage?: (storyboard: Storyboard) => void | Promise<void>;
   onGenerateVideoPrompt?: (storyboard: Storyboard) => void | Promise<void>;
   onGenerateAudio?: (storyboard: Storyboard) => void | Promise<void>;
   onGenerateVideo?: (storyboard: Storyboard) => void | Promise<void>;
+  onGenerateGrid?: (storyboards: Storyboard[]) => void | Promise<void>;
 }
 
-const operations: Array<{
-  id: OperationKind;
-  title: string;
-  subtitle: string;
-  description: string;
-}> = [
-  {
-    id: 'image',
-    title: 'Generate Image',
-    subtitle: 'Prompt to keyframe',
-    description: 'Use each connected scene prompt and references to create storyboard images.',
-  },
-  {
-    id: 'videoPrompt',
-    title: 'Motion Prompt',
-    subtitle: 'Shot to movement',
-    description: 'Write a motion/video prompt for every connected scene.',
-  },
-  {
-    id: 'audio',
-    title: 'Dialogue Audio',
-    subtitle: 'Lines to voice',
-    description: 'Generate per-character audio from connected scene dialogue.',
-  },
-  {
-    id: 'video',
-    title: 'Generate Video',
-    subtitle: 'Image + prompt to clip',
-    description: 'Generate clips from connected scene images, motion prompts, and optional audio.',
-  },
-  {
-    id: 'export',
-    title: 'Review Output',
-    subtitle: 'Ready clips',
-    description: 'Collect connected clips for final review and export.',
-  },
-];
-
-const operationIcon: Record<OperationKind, typeof ImageIcon> = {
-  image: ImageIcon,
-  videoPrompt: Sparkles,
-  audio: Mic2,
-  video: Video,
-  export: FileVideo,
+const nodeTypes = {
+  storyNode: StoryNode,
+  gridNode: GridNode,
+  sceneNode: SceneNode,
+  videoNode: VideoNode,
 };
 
-const operationOrder: OperationKind[] = ['image', 'videoPrompt', 'audio', 'video', 'export'];
-
-function statusTone(status?: string) {
-  if (status === 'completed') return 'bg-[var(--accent-green)]';
-  if (status === 'generating') return 'bg-[var(--accent-orange)]';
-  if (status === 'failed') return 'bg-[var(--accent-red)]';
-  return 'bg-[var(--text-secondary)]';
+function StateDot({ status }: { status?: string }) {
+  return <span className={`h-2 w-2 rounded-full ${status === 'completed' ? 'bg-[var(--success)]' : status === 'generating' ? 'animate-pulse bg-[var(--workspace-accent)]' : status === 'failed' ? 'bg-[var(--error)]' : 'bg-[var(--text-muted)]'}`} />;
 }
 
-function SceneNode({ data, selected }: NodeProps<WorkflowNodeData>) {
+function StoryNode({ data, selected }: NodeProps<CanvasNodeData>) {
   return (
-    <div className={`w-[280px] overflow-hidden rounded border bg-[var(--bg-secondary)] shadow-lg ${selected ? 'border-[var(--accent-blue)]' : 'border-[var(--border-color)]'}`}>
-      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[var(--accent-blue)]" />
-      <div className="relative aspect-video bg-[var(--bg-tertiary)]">
-        {data.imageUrl ? (
-          <img src={data.imageUrl} alt={data.title} className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full items-center justify-center text-[var(--text-secondary)]">
-            <ImageIcon size={28} />
-          </div>
-        )}
-        <div className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[11px] font-mono text-white">
-          Scene {data.sceneNumber}
-        </div>
-        {data.videoUrl && (
-          <div className="absolute bottom-2 right-2 rounded bg-[var(--accent-green)] px-2 py-1 text-[11px] font-mono text-white">
-            Video
-          </div>
-        )}
-      </div>
-      <div className="space-y-3 p-3">
-        <p className="line-clamp-3 text-xs leading-5 text-[var(--text-primary)]">{data.prompt}</p>
-        <div className="grid grid-cols-3 gap-2 text-[10px] font-mono text-[var(--text-secondary)]">
-          <div className="flex items-center gap-1">
-            <span className={`h-2 w-2 rounded-full ${statusTone(data.status)}`} />
-            Image
-          </div>
-          <div className="flex items-center gap-1">
-            <span className={`h-2 w-2 rounded-full ${statusTone(data.audioStatus)}`} />
-            Audio
-          </div>
-          <div className="flex items-center gap-1">
-            <span className={`h-2 w-2 rounded-full ${statusTone(data.videoStatus)}`} />
-            Video
-          </div>
-        </div>
-      </div>
-    </div>
+    <article className={`w-[330px] overflow-hidden rounded-[14px] border bg-[var(--bg-secondary)] shadow-[0_20px_55px_-35px_#000] ${selected ? 'border-[var(--workspace-accent)] ring-1 ring-[var(--workspace-accent)]/25' : 'border-[var(--border-color)]'}`}>
+      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[var(--workspace-accent)]" />
+      <header className="flex items-center gap-3 border-b border-[var(--border-color)] px-4 py-4">
+        <span className="grid h-10 w-10 place-items-center rounded-[10px] bg-[var(--workspace-accent)]/12 text-[var(--workspace-accent)]"><BookOpenText size={18} /></span>
+        <div><p className="font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--workspace-accent)]">Master prompt</p><h3 className="mt-1 text-sm font-semibold text-white">整体 Prompt</h3></div>
+      </header>
+      <div className="p-4"><p className="line-clamp-9 whitespace-pre-wrap text-xs leading-5 text-[var(--text-secondary)]">{data.storyText || '当前项目没有保存最初的整体 Prompt。'}</p><div className="mt-4 flex items-center justify-between border-t border-[var(--border-color)] pt-3 text-[11px] text-[var(--text-muted)]"><span>{data.sceneCount} 个镜头</span><span>每 9 镜头一批</span></div></div>
+    </article>
   );
 }
 
-function OperationNode({ data, selected }: NodeProps<WorkflowNodeData>) {
-  const Icon = data.operation ? operationIcon[data.operation] : Bot;
-
+function GridNode({ data, selected }: NodeProps<CanvasNodeData>) {
+  const generating = data.status === 'generating';
+  const completed = data.status === 'completed';
+  const imageUrls = data.imageUrls || [];
   return (
-    <div className={`w-[230px] rounded border bg-[var(--bg-secondary)] p-3 shadow-lg ${selected ? 'border-[var(--accent-blue)]' : 'border-[var(--border-color)]'}`}>
-      <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[var(--accent-green)]" />
-      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[var(--accent-blue)]" />
-      <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-[var(--bg-tertiary)] text-[var(--text-accent)]">
-          <Icon size={18} />
-        </div>
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-[var(--text-primary)]">{data.title}</div>
-          <div className="text-[11px] font-mono text-[var(--text-secondary)]">{data.subtitle}</div>
-        </div>
+    <article className={`w-[270px] rounded-[14px] border bg-[var(--bg-secondary)] p-4 shadow-[0_20px_55px_-35px_#000] ${selected ? 'border-[#f0b95d] ring-1 ring-[#f0b95d]/25' : 'border-[var(--border-color)]'}`}>
+      <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[#f0b95d]" />
+      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[#f0b95d]" />
+      <div className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-[#f0b95d]/12 text-[#f0b95d]">{generating ? <Loader2 size={18} className="animate-spin" /> : <Grid2X2Plus size={18} />}</span><div><p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#f0b95d]">Batch {String(data.batchNumber).padStart(2, '0')}</p><h3 className="mt-1 text-sm font-semibold text-white">九宫格生成</h3></div></div>
+      <p className="mt-3 text-[11px] leading-5 text-[var(--text-muted)]">本批 {data.sceneCount} 个镜头；生成完成后自动拆分并回填各分镜。</p>
+      <div className="mt-3 grid grid-cols-3 gap-1 rounded-[9px] border border-white/5 bg-black/25 p-1.5">
+        {Array.from({ length: 9 }).map((_, index) => <div key={index} className="aspect-video overflow-hidden rounded-[3px] bg-white/5">{imageUrls[index] && <img src={imageUrls[index]} alt={`第 ${index + 1} 格`} className="h-full w-full object-cover" />}</div>)}
       </div>
-      <p className="mt-3 text-xs leading-5 text-[var(--text-secondary)]">{data.description}</p>
-    </div>
+      <div className="mt-3 flex items-center gap-2 text-[10px] text-[var(--text-secondary)]"><StateDot status={data.status} />{completed ? `已拆分 ${data.completedCount}/${data.sceneCount}` : generating ? `生成和拆分中 ${data.completedCount}/${data.sceneCount}` : data.completedCount ? `已生成 ${data.completedCount}/${data.sceneCount}` : `等待生成 0/${data.sceneCount}`}</div>
+      <button type="button" disabled={generating} onClick={(event) => { event.stopPropagation(); data.onGenerateGrid?.(); }} className="nodrag mt-3 flex min-h-10 w-full items-center justify-center gap-2 rounded-[9px] bg-[#f0b95d] px-3 text-xs font-semibold text-[#17130b] disabled:opacity-60">{generating ? <Loader2 size={14} className="animate-spin" /> : completed ? <RefreshCw size={14} /> : <Sparkles size={14} />}{generating ? '生成并拆分中' : completed ? '重新生成本批' : '生成并自动拆分'}</button>
+    </article>
   );
 }
 
-function OutputNode({ data, selected }: NodeProps<WorkflowNodeData>) {
+function SceneNode({ data, selected }: NodeProps<CanvasNodeData>) {
+  const generating = data.status === 'generating';
   return (
-    <div className={`w-[220px] rounded border bg-[var(--bg-secondary)] p-3 shadow-lg ${selected ? 'border-[var(--accent-blue)]' : 'border-[var(--border-color)]'}`}>
-      <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[var(--accent-green)]" />
-      <div className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded bg-[var(--bg-tertiary)] text-[var(--accent-green)]">
-          <Clapperboard size={18} />
-        </div>
-        <div>
-          <div className="text-sm font-semibold text-[var(--text-primary)]">{data.title}</div>
-          <div className="text-[11px] font-mono text-[var(--text-secondary)]">{data.subtitle}</div>
-        </div>
-      </div>
-      <p className="mt-3 text-xs leading-5 text-[var(--text-secondary)]">{data.description}</p>
-    </div>
+    <article className={`w-[300px] overflow-hidden rounded-[14px] border bg-[var(--bg-secondary)] shadow-[0_20px_55px_-35px_#000] ${selected ? 'border-[var(--workspace-accent)] ring-1 ring-[var(--workspace-accent)]/25' : 'border-[var(--border-color)]'}`}>
+      <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[var(--workspace-accent)]" />
+      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[var(--workspace-accent)]" />
+      <div className="relative aspect-video bg-black/35">{data.imageUrl ? <img src={data.imageUrl} alt={`分镜 ${data.sceneNumber}`} className="h-full w-full object-contain" /> : <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--text-muted)]">{generating ? <Loader2 size={27} className="animate-spin text-[var(--workspace-accent)]" /> : <ImageIcon size={27} />}<span className="text-[11px]">{generating ? '等待九宫格拆分' : '尚无分镜图'}</span></div>}<span className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/70 px-2 py-1 font-mono text-[9px] text-white">SHOT · {String(data.sceneNumber).padStart(2, '0')}</span></div>
+      <div className="p-3"><p className="line-clamp-2 min-h-10 text-[11px] leading-5 text-[var(--text-secondary)]">{data.prompt}</p><button type="button" disabled={generating} onClick={(event) => { event.stopPropagation(); data.onGenerateImage?.(); }} className="nodrag mt-3 flex min-h-9 w-full items-center justify-center gap-2 rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs text-white disabled:opacity-50">{data.imageUrl ? <RefreshCw size={13} /> : <Sparkles size={13} />}{data.imageUrl ? '单独重新生成' : '单独生成分镜'}</button></div>
+    </article>
   );
 }
 
-function buildNodes(storyboards: Storyboard[], previousNodes: WorkflowNode[] = []): WorkflowNode[] {
-  const previousPositions = new Map(previousNodes.map((node) => [node.id, node.position]));
-  const sceneNodes: WorkflowNode[] = storyboards.map((sb, index) => ({
-    id: `scene:${sb.id}`,
-    type: 'sceneNode',
-    position: previousPositions.get(`scene:${sb.id}`) || { x: 40, y: 60 + index * 220 },
-    data: {
-      kind: 'scene',
-      title: `Scene ${sb.sceneNumber}`,
-      storyboardId: sb.id,
-      sceneNumber: sb.sceneNumber,
-      prompt: sb.prompt,
-      videoPrompt: sb.videoPrompt,
-      imageUrl: sb.imageUrl,
-      videoUrl: sb.videoUrl,
-      status: sb.status,
-      videoStatus: sb.videoStatus,
-      audioStatus: sb.audioStatus,
-    },
-  }));
-
-  const operationNodes: WorkflowNode[] = operations.map((operation, index) => ({
-    id: `op:${operation.id}`,
-    type: 'operationNode',
-    position: previousPositions.get(`op:${operation.id}`) || { x: 430 + index * 290, y: 120 },
-    data: {
-      kind: 'operation',
-      operation: operation.id,
-      title: operation.title,
-      subtitle: operation.subtitle,
-      description: operation.description,
-    },
-  }));
-
-  return [
-    ...sceneNodes,
-    ...operationNodes,
-    {
-      id: 'output:timeline',
-      type: 'outputNode',
-      position: previousPositions.get('output:timeline') || { x: 430 + operations.length * 290, y: 120 },
-      data: {
-        kind: 'output',
-        title: 'Timeline Output',
-        subtitle: 'final assembly',
-        description: 'Connect the last operation here to make the intended production path explicit.',
-      },
-    },
-  ];
+function VideoNode({ data, selected }: NodeProps<CanvasNodeData>) {
+  const generating = data.status === 'generating';
+  const blocked = !data.imageUrl;
+  return (
+    <article className={`w-[300px] overflow-hidden rounded-[14px] border bg-[var(--bg-secondary)] shadow-[0_20px_55px_-35px_#000] ${selected ? 'border-[var(--workspace-accent)] ring-1 ring-[var(--workspace-accent)]/25' : 'border-[var(--border-color)]'}`}>
+      <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[var(--workspace-accent)]" />
+      <div className="relative aspect-video bg-black/45">{data.videoUrl ? <video src={data.videoUrl} muted playsInline className="h-full w-full object-contain" /> : data.imageUrl ? <img src={data.imageUrl} alt="视频首帧" className="h-full w-full object-contain opacity-60" /> : <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--text-muted)]"><Video size={28} /><span className="text-[11px]">等待分镜图</span></div>}{generating && <div className="absolute inset-0 flex items-center justify-center bg-black/55"><Loader2 size={30} className="animate-spin text-[var(--workspace-accent)]" /></div>}<span className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/70 px-2 py-1 font-mono text-[9px] text-white">VIDEO · {String(data.sceneNumber).padStart(2, '0')}</span>{data.videoUrl && <button type="button" onClick={(event) => { event.stopPropagation(); data.onPreviewVideo?.(); }} className="nodrag absolute inset-0 m-auto grid h-11 w-11 place-items-center rounded-full bg-black/65 text-white"><Play size={18} fill="currentColor" /></button>}</div>
+      <div className="p-3"><div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><StateDot status={data.status} />{blocked ? '等待分镜' : data.status === 'completed' ? '已完成' : generating ? '生成中' : '可以生成'}</div><button type="button" disabled={generating || blocked} onClick={(event) => { event.stopPropagation(); data.onGenerateVideo?.(); }} className="nodrag mt-3 flex min-h-9 w-full items-center justify-center gap-2 rounded-[9px] bg-[var(--workspace-accent)] px-3 text-xs font-semibold text-[var(--workspace-on-accent)] disabled:cursor-not-allowed disabled:opacity-45">{generating ? <Loader2 size={13} className="animate-spin" /> : data.videoUrl ? <RefreshCw size={13} /> : <Sparkles size={13} />}{blocked ? '等待分镜图' : generating ? '生成中' : data.videoUrl ? '重新生成视频' : '生成视频'}</button></div>
+    </article>
+  );
 }
 
-function buildDefaultEdges(storyboards: Storyboard[]): Edge[] {
-  const sceneEdges = storyboards.map((sb) => ({
-    id: `edge:scene:${sb.id}:image`,
-    source: `scene:${sb.id}`,
-    target: 'op:image',
-    type: 'smoothstep',
-    animated: false,
-    markerEnd: { type: MarkerType.ArrowClosed },
-  }));
-
-  const operationEdges = operationOrder.slice(0, -1).map((operation, index) => ({
-    id: `edge:op:${operation}:${operationOrder[index + 1]}`,
-    source: `op:${operation}`,
-    target: `op:${operationOrder[index + 1]}`,
-    type: 'smoothstep',
-    animated: true,
-    style: { strokeWidth: 2 },
-    markerEnd: { type: MarkerType.ArrowClosed },
-  }));
-
-  return [
-    ...sceneEdges,
-    ...operationEdges,
-    {
-      id: 'edge:op:export:output',
-      source: 'op:export',
-      target: 'output:timeline',
-      type: 'smoothstep',
-      animated: true,
-      style: { strokeWidth: 2 },
-      markerEnd: { type: MarkerType.ArrowClosed },
-    },
-  ];
-}
-
-function CanvasModeContent({
-  storyboards,
-  onUpdate,
-  onGenerateImage,
-  onGenerateVideoPrompt,
-  onGenerateAudio,
-  onGenerateVideo,
-}: CanvasModeProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowNodeData>([]);
+function CanvasModeContent({ storyContent, storyboards, onExit, onUpdate, onGenerateImage, onGenerateVideoPrompt, onGenerateVideo, onGenerateGrid }: CanvasModeProps) {
+  const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const [editPrompt, setEditPrompt] = useState('');
   const [editVideoPrompt, setEditVideoPrompt] = useState('');
   const [previewVideo, setPreviewVideo] = useState<string | null>(null);
-  const [runLog, setRunLog] = useState<string[]>([]);
-  const [isRunning, setIsRunning] = useState(false);
-  const initializedEdges = useRef(false);
+  const [notice, setNotice] = useState('按流程从左向右：整体 Prompt → 九宫格（自动拆分）→ 分镜 → 视频。');
+  const previousPositions = useRef(new Map<string, { x: number; y: number }>());
 
-  const storyboardById = useMemo(() => new Map(storyboards.map((sb) => [sb.id, sb])), [storyboards]);
-  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
-  const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) : undefined;
+  const batches = useMemo(() => {
+    const result: Storyboard[][] = [];
+    for (let index = 0; index < storyboards.length; index += 9) result.push(storyboards.slice(index, index + 9));
+    return result;
+  }, [storyboards]);
+  const storyboardById = useMemo(() => new Map(storyboards.map(item => [item.id, item])), [storyboards]);
+  const selectedNode = nodes.find(node => node.id === selectedNodeId);
   const selectedStoryboard = selectedNode?.data.storyboardId ? storyboardById.get(selectedNode.data.storyboardId) : undefined;
-  const editingStoryboard = editingNodeId?.startsWith('scene:')
-    ? storyboardById.get(editingNodeId.replace('scene:', ''))
-    : undefined;
 
-  const nodeTypes = useMemo(() => ({
-    sceneNode: SceneNode,
-    operationNode: OperationNode,
-    outputNode: OutputNode,
-  }), []);
+  const generateGridBatch = useCallback((batch: Storyboard[], batchNumber: number) => {
+    setSelectedNodeId(`grid:${batchNumber}`);
+    setNotice(`正在生成第 ${batchNumber} 批九宫格，完成后会自动拆成 ${batch.length} 张分镜。`);
+    void onGenerateGrid?.(batch);
+  }, [onGenerateGrid]);
+
+  const generateImage = useCallback((storyboard: Storyboard) => {
+    setNotice(`正在单独生成分镜 ${storyboard.sceneNumber}。`);
+    void onGenerateImage?.(storyboard);
+  }, [onGenerateImage]);
+
+  const generateVideo = useCallback((storyboard: Storyboard) => {
+    if (!storyboard.imageUrl) { setNotice(`分镜 ${storyboard.sceneNumber} 还没有图片，请先完成九宫格拆分。`); return; }
+    setNotice(`正在生成分镜 ${storyboard.sceneNumber} 的视频。`);
+    void onGenerateVideo?.(storyboard);
+  }, [onGenerateVideo]);
 
   useEffect(() => {
-    setNodes((current) => buildNodes(storyboards, current as WorkflowNode[]));
-  }, [setNodes, storyboards]);
+    const positionFor = (id: string, fallback: { x: number; y: number }) => previousPositions.current.get(id) || fallback;
+    const nextNodes: CanvasNode[] = [];
+    const nextEdges: Edge[] = [];
+    const storyId = 'story:source';
+    const totalHeight = batches.reduce((sum, batch) => sum + Math.max(520, batch.length * 245 + 100), 0);
+    nextNodes.push({ id: storyId, type: 'storyNode', position: positionFor(storyId, { x: 60, y: Math.max(120, totalHeight / 2 - 150) }), data: { kind: 'story', title: '故事', storyText: storyContent, sceneCount: storyboards.length } });
 
-  useEffect(() => {
-    if (initializedEdges.current || storyboards.length === 0) return;
-    setEdges(buildDefaultEdges(storyboards));
-    initializedEdges.current = true;
-  }, [setEdges, storyboards]);
+    let batchY = 80;
+    batches.forEach((batch, batchIndex) => {
+      const batchNumber = batchIndex + 1;
+      const gridId = `grid:${batchNumber}`;
+      const completedCount = batch.filter(item => Boolean(item.imageUrl)).length;
+      const generating = batch.some(item => item.status === 'generating');
+      const failed = batch.some(item => item.status === 'failed');
+      const batchStatus = completedCount === batch.length ? 'completed' : generating ? 'generating' : failed ? 'failed' : 'pending';
+      const batchCenterY = batchY + Math.max(90, batch.length * 122 - 80);
 
-  const canConnect = useCallback((connection: Connection) => {
-    if (!connection.source || !connection.target || connection.source === connection.target) return false;
-    const source = nodeById.get(connection.source);
-    const target = nodeById.get(connection.target);
-    if (!source || !target) return false;
-    if (target.data.kind === 'scene') return false;
-    if (source.data.kind === 'output') return false;
-    if (source.data.kind === 'operation' && target.data.kind === 'operation') {
-      const sourceIndex = operationOrder.indexOf(source.data.operation as OperationKind);
-      const targetIndex = operationOrder.indexOf(target.data.operation as OperationKind);
-      return sourceIndex !== -1 && targetIndex !== -1 && sourceIndex < targetIndex;
-    }
-    return target.data.kind === 'output';
-  }, [nodeById]);
+      nextNodes.push({ id: gridId, type: 'gridNode', position: positionFor(gridId, { x: 470, y: batchCenterY }), data: { kind: 'grid', title: `第 ${batchNumber} 批 · 九宫格`, batchNumber, sceneCount: batch.length, completedCount, imageUrls: batch.map(item => item.imageUrl || ''), status: batchStatus, onGenerateGrid: () => generateGridBatch(batch, batchNumber) } });
+      nextEdges.push({ id: `${storyId}->${gridId}`, source: storyId, target: gridId, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } });
 
-  const onConnect = useCallback((connection: Connection) => {
-    if (!canConnect(connection)) return;
-    setEdges((current) => {
-      const duplicate = current.some((edge) => edge.source === connection.source && edge.target === connection.target);
-      if (duplicate) return current;
-      return addEdge({
-        ...connection,
-        id: `edge:${connection.source}:${connection.target}`,
-        type: 'smoothstep',
-        animated: true,
-        markerEnd: { type: MarkerType.ArrowClosed },
-      }, current);
-    });
-  }, [canConnect, setEdges]);
-
-  const startEdit = useCallback((storyboard: Storyboard) => {
-    setEditingNodeId(`scene:${storyboard.id}`);
-    setEditPrompt(storyboard.prompt);
-    setEditVideoPrompt(storyboard.videoPrompt || '');
-  }, []);
-
-  const saveEdit = useCallback(() => {
-    if (!editingStoryboard || !onUpdate) return;
-    onUpdate({ ...editingStoryboard, prompt: editPrompt, videoPrompt: editVideoPrompt });
-    setEditingNodeId(null);
-  }, [editPrompt, editVideoPrompt, editingStoryboard, onUpdate]);
-
-  const resetLayout = useCallback(() => {
-    setNodes(buildNodes(storyboards));
-    setEdges(buildDefaultEdges(storyboards));
-  }, [setEdges, setNodes, storyboards]);
-
-  const getUpstreamScenes = useCallback((nodeId: string) => {
-    const visited = new Set<string>();
-    const result = new Set<string>();
-
-    const visit = (id: string) => {
-      if (visited.has(id)) return;
-      visited.add(id);
-      const node = nodeById.get(id);
-      if (node?.data.kind === 'scene' && node.data.storyboardId) {
-        result.add(node.data.storyboardId);
-        return;
-      }
-      edges.filter((edge) => edge.target === id).forEach((edge) => visit(edge.source));
-    };
-
-    visit(nodeId);
-    return Array.from(result).map((id) => storyboardById.get(id)).filter(Boolean) as Storyboard[];
-  }, [edges, nodeById, storyboardById]);
-
-  const getDownstreamOperations = useCallback((nodeId: string) => {
-    const visited = new Set<string>();
-    const found = new Set<OperationKind>();
-
-    const visit = (id: string) => {
-      if (visited.has(id)) return;
-      visited.add(id);
-      edges.filter((edge) => edge.source === id).forEach((edge) => {
-        const target = nodeById.get(edge.target);
-        if (target?.data.operation) found.add(target.data.operation);
-        visit(edge.target);
+      batch.forEach((storyboard, shotIndex) => {
+        const sceneId = `scene:${storyboard.id}`;
+        const videoId = `video:${storyboard.id}`;
+        const rowY = batchY + shotIndex * 245;
+        nextNodes.push({ id: sceneId, type: 'sceneNode', position: positionFor(sceneId, { x: 850, y: rowY }), data: { kind: 'scene', title: `分镜 ${storyboard.sceneNumber}`, storyboardId: storyboard.id, sceneNumber: storyboard.sceneNumber, prompt: storyboard.prompt, imageUrl: storyboard.imageUrl, status: storyboard.status, onGenerateImage: () => generateImage(storyboard) } });
+        nextNodes.push({ id: videoId, type: 'videoNode', position: positionFor(videoId, { x: 1230, y: rowY }), data: { kind: 'video', title: `分镜 ${storyboard.sceneNumber} · 视频`, storyboardId: storyboard.id, sceneNumber: storyboard.sceneNumber, imageUrl: storyboard.imageUrl, videoUrl: storyboard.videoUrl, status: storyboard.videoStatus, onGenerateVideo: () => generateVideo(storyboard), onPreviewVideo: () => storyboard.videoUrl && setPreviewVideo(storyboard.videoUrl) } });
+        nextEdges.push({ id: `${gridId}->${sceneId}`, source: gridId, target: sceneId, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } });
+        nextEdges.push({ id: `${sceneId}->${videoId}`, source: sceneId, target: videoId, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } });
       });
-    };
+      batchY += Math.max(520, batch.length * 245 + 100);
+    });
+    setNodes(nextNodes);
+    setEdges(nextEdges);
+  }, [batches, generateGridBatch, generateImage, generateVideo, setEdges, setNodes, storyContent, storyboards]);
 
-    const node = nodeById.get(nodeId);
-    if (node?.data.operation) found.add(node.data.operation);
-    visit(nodeId);
-    return operationOrder.filter((operation) => found.has(operation));
-  }, [edges, nodeById]);
+  useEffect(() => { nodes.forEach(node => previousPositions.current.set(node.id, node.position)); }, [nodes]);
 
-  const getOperationBlocker = useCallback((operation: OperationKind, storyboard: Storyboard) => {
-    if (operation === 'videoPrompt' || operation === 'image') return null;
-    if (operation === 'audio') {
-      const hasDialogue = (storyboard.dialogueLines?.length ?? 0) > 0 || Object.keys(storyboard.dialogue || {}).length > 0;
-      return hasDialogue ? null : 'no dialogue lines';
-    }
-    if (operation === 'video') {
-      if (!storyboard.imageUrl) return 'image is not ready';
-      if (storyboard.videoStatus === 'generating') return 'video is already generating';
-    }
-    return null;
-  }, []);
+  const startEditing = useCallback(() => {
+    if (!selectedStoryboard) return;
+    setEditPrompt(selectedStoryboard.prompt || '');
+    setEditVideoPrompt(selectedStoryboard.videoPrompt || '');
+    setEditing(true);
+  }, [selectedStoryboard]);
 
-  const runOperation = useCallback(async (operation: OperationKind, storyboard: Storyboard) => {
-    if (operation === 'image') return onGenerateImage?.(storyboard);
-    if (operation === 'videoPrompt') return onGenerateVideoPrompt?.(storyboard);
-    if (operation === 'audio') return onGenerateAudio?.(storyboard);
-    if (operation === 'video') return onGenerateVideo?.(storyboard);
-    return undefined;
-  }, [onGenerateAudio, onGenerateImage, onGenerateVideo, onGenerateVideoPrompt]);
-
-  const runSelectedPath = useCallback(async () => {
-    if (!selectedNodeId || isRunning) return;
-    const operationsToRun = getDownstreamOperations(selectedNodeId).filter((operation) => operation !== 'export');
-    const sourceScenes = selectedNode?.data.kind === 'scene' && selectedNode.data.storyboardId
-      ? [storyboardById.get(selectedNode.data.storyboardId)].filter(Boolean) as Storyboard[]
-      : getUpstreamScenes(selectedNodeId);
-
-    if (sourceScenes.length === 0 || operationsToRun.length === 0) {
-      setRunLog(['No runnable path. Connect scenes to operation nodes first.']);
-      return;
-    }
-
-    setIsRunning(true);
-    setRunLog([`Running ${operationsToRun.length} operation(s) for ${sourceScenes.length} scene(s).`]);
-    try {
-      for (const operation of operationsToRun) {
-        for (const scene of sourceScenes) {
-          const blocker = getOperationBlocker(operation, scene);
-          if (blocker) {
-            setRunLog((current) => [...current, `Scene ${scene.sceneNumber}: skipped ${operations.find((op) => op.id === operation)?.title} (${blocker})`]);
-            continue;
-          }
-          setRunLog((current) => [...current, `Scene ${scene.sceneNumber}: ${operations.find((op) => op.id === operation)?.title}`]);
-          await runOperation(operation, scene);
-        }
-      }
-      setRunLog((current) => [...current, 'Workflow submitted. Generation status will update on the scene nodes.']);
-    } finally {
-      setIsRunning(false);
-    }
-  }, [getDownstreamOperations, getOperationBlocker, getUpstreamScenes, isRunning, runOperation, selectedNode, selectedNodeId, storyboardById]);
-
-  const visibleClips = useMemo(() => {
-    if (!selectedNodeId) return storyboards.filter((sb) => sb.videoUrl);
-    const scenes = selectedNode?.data.kind === 'scene' && selectedNode.data.storyboardId
-      ? [storyboardById.get(selectedNode.data.storyboardId)].filter(Boolean) as Storyboard[]
-      : getUpstreamScenes(selectedNodeId);
-    return scenes.filter((sb) => sb.videoUrl);
-  }, [getUpstreamScenes, selectedNode, selectedNodeId, storyboardById, storyboards]);
+  const saveEditing = useCallback(() => {
+    if (!selectedStoryboard || !onUpdate) return;
+    onUpdate({ ...selectedStoryboard, prompt: editPrompt, videoPrompt: editVideoPrompt });
+    setEditing(false);
+    setNotice(`分镜 ${selectedStoryboard.sceneNumber} 的提示词已更新。`);
+  }, [editPrompt, editVideoPrompt, onUpdate, selectedStoryboard]);
 
   return (
-    <>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        isValidConnection={canConnect}
-        onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-        onNodeDoubleClick={(_, node) => {
-          if (node.data.videoUrl) setPreviewVideo(node.data.videoUrl);
-        }}
-        fitView
-        className="bg-[var(--bg-primary)]"
-        defaultEdgeOptions={{
-          type: 'smoothstep',
-          markerEnd: { type: MarkerType.ArrowClosed },
-          style: { strokeWidth: 2 },
-        }}
-      >
+    <div className="relative h-full w-full overflow-hidden bg-[var(--bg-primary)]">
+      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onNodeClick={(_, node) => { setSelectedNodeId(node.id); setEditing(false); }} onPaneClick={() => { setSelectedNodeId(null); setEditing(false); }} fitView fitViewOptions={{ padding: 0.12, maxZoom: 0.82 }} minZoom={0.12} maxZoom={2} defaultEdgeOptions={{ type: 'smoothstep', style: { stroke: 'var(--workspace-accent)', strokeWidth: 1.5 }, markerEnd: { type: MarkerType.ArrowClosed } }} className="bg-[radial-gradient(circle_at_50%_0,rgba(var(--workspace-accent-rgb),.06),transparent_36%)]">
         <Background color="var(--border-color)" gap={24} size={1} />
-        <Controls />
-        <MiniMap
-          pannable
-          zoomable
-          nodeColor={(node) => {
-            if (node.data?.kind === 'scene') return '#007acc';
-            if (node.data?.kind === 'operation') return '#4ec9b0';
-            return '#dcdcaa';
-          }}
-          maskColor="rgba(0,0,0,0.25)"
-          style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}
-        />
+        <Controls showInteractive={false} className="!overflow-hidden !rounded-[10px] !border !border-[var(--border-color)] !bg-[var(--bg-secondary)] !shadow-lg" />
+        <MiniMap pannable zoomable nodeColor={node => node.data.kind === 'story' ? '#55d6c2' : node.data.kind === 'grid' ? '#f0b95d' : node.data.kind === 'scene' ? '#8be7da' : '#35bca7'} maskColor="rgba(10,13,15,.7)" className="!rounded-[10px] !border !border-[var(--border-color)] !bg-[var(--bg-secondary)]" />
+        <Panel position="top-left" className="!m-4"><div className="flex items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-secondary)]/95 p-2 shadow-xl backdrop-blur"><div className="flex items-center gap-2 px-2 text-xs font-semibold text-white"><LayoutGrid size={15} className="text-[var(--workspace-accent)]" />无限画布</div><span className="h-6 w-px bg-[var(--border-color)]" /><span className="hidden max-w-[560px] truncate px-2 text-[11px] text-[var(--text-muted)] md:block">{notice}</span><button type="button" onClick={onExit} className="ml-1 flex min-h-9 items-center gap-2 rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs text-white"><List size={14} />返回列表</button></div></Panel>
 
-        <Panel position="top-left">
-          <div className="flex items-center gap-2 rounded border border-[var(--border-color)] bg-[var(--bg-secondary)] p-2 shadow-lg">
-            <div className="flex items-center gap-2 px-2 text-xs font-mono text-[var(--text-primary)]">
-              <Layers3 size={14} />
-              Workflow Canvas
-            </div>
-            <div className="h-6 w-px bg-[var(--border-color)]" />
-            <button
-              onClick={runSelectedPath}
-              disabled={!selectedNodeId || isRunning}
-              className="flex items-center gap-2 rounded bg-[var(--accent-blue)] px-3 py-2 text-xs font-mono text-white disabled:cursor-not-allowed disabled:opacity-50"
-              title="Run the selected node and its connected downstream operations"
-            >
-              <Play size={13} />
-              {isRunning ? 'Running' : 'Run Path'}
-            </button>
-            <button
-              onClick={resetLayout}
-              className="flex items-center gap-2 rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-              title="Reset workflow nodes and default connections"
-            >
-              <Scissors size={13} />
-              Reset
-            </button>
-          </div>
-        </Panel>
-
-        <Panel position="top-right">
-          <div className="w-[360px] rounded border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4 shadow-lg">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-mono text-[var(--text-primary)]">
-                {selectedNode?.data.title || 'Select a node'}
-              </h3>
-              {selectedNodeId && (
-                <button onClick={() => setSelectedNodeId(null)} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" title="Close details">
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-
-            {!selectedNode && (
-              <p className="text-xs leading-5 text-[var(--text-secondary)]">
-                Connect scene nodes to operations, then select any scene or operation and run that connected path.
-              </p>
-            )}
-
-            {selectedStoryboard && !editingNodeId && (
-              <div className="space-y-4">
-                {selectedStoryboard.imageUrl && (
-                  <img src={selectedStoryboard.imageUrl} alt={`Scene ${selectedStoryboard.sceneNumber}`} className="aspect-video w-full rounded border border-[var(--border-color)] object-contain" />
-                )}
-                <div>
-                  <div className="mb-2 text-[11px] font-mono text-[var(--text-secondary)]">Image Prompt</div>
-                  <p className="max-h-32 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[var(--text-primary)]">{selectedStoryboard.prompt}</p>
-                </div>
-                {selectedStoryboard.videoPrompt && (
-                  <div>
-                    <div className="mb-2 text-[11px] font-mono text-[var(--text-secondary)]">Video Prompt</div>
-                    <p className="max-h-28 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[var(--text-primary)]">{selectedStoryboard.videoPrompt}</p>
-                  </div>
-                )}
-                <div className="flex gap-2">
-                  {onUpdate && (
-                    <button onClick={() => startEdit(selectedStoryboard)} className="flex flex-1 items-center justify-center gap-2 rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 py-2 text-xs font-mono hover:bg-[var(--bg-hover)]">
-                      <Edit2 size={13} />
-                      Edit
-                    </button>
-                  )}
-                  {selectedStoryboard.videoUrl && (
-                    <button onClick={() => setPreviewVideo(selectedStoryboard.videoUrl!)} className="flex flex-1 items-center justify-center gap-2 rounded bg-[var(--accent-green)] px-3 py-2 text-xs font-mono text-white">
-                      <Play size={13} />
-                      Preview
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {editingStoryboard && (
-              <div className="space-y-3">
-                <label className="block text-[11px] font-mono text-[var(--text-secondary)]">Image Prompt</label>
-                <textarea
-                  value={editPrompt}
-                  onChange={(event) => setEditPrompt(event.target.value)}
-                  className="h-28 w-full resize-none rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] p-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent-blue)]"
-                />
-                <label className="block text-[11px] font-mono text-[var(--text-secondary)]">Video Prompt</label>
-                <textarea
-                  value={editVideoPrompt}
-                  onChange={(event) => setEditVideoPrompt(event.target.value)}
-                  className="h-28 w-full resize-none rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] p-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent-blue)]"
-                />
-                <div className="flex gap-2">
-                  <button onClick={saveEdit} className="flex flex-1 items-center justify-center gap-2 rounded bg-[var(--accent-blue)] px-3 py-2 text-xs font-mono text-white">
-                    <Save size={13} />
-                    Save
-                  </button>
-                  <button onClick={() => setEditingNodeId(null)} className="flex-1 rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 py-2 text-xs font-mono hover:bg-[var(--bg-hover)]">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {selectedNode?.data.kind === 'operation' && (
-              <div className="space-y-4">
-                <p className="text-xs leading-5 text-[var(--text-secondary)]">{selectedNode.data.description}</p>
-                <div className="rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] p-3">
-                  <div className="mb-2 text-[11px] font-mono text-[var(--text-secondary)]">Connected Scenes</div>
-                  <div className="text-xs text-[var(--text-primary)]">
-                    {getUpstreamScenes(selectedNode.id).map((scene) => `Scene ${scene.sceneNumber}`).join(', ') || 'None'}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {selectedNode?.data.kind === 'output' && (
-              <div className="space-y-3">
-                <p className="text-xs leading-5 text-[var(--text-secondary)]">{selectedNode.data.description}</p>
-                {visibleClips.length === 0 ? (
-                  <div className="rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] p-3 text-xs text-[var(--text-secondary)]">
-                    No completed clips connected yet.
-                  </div>
-                ) : visibleClips.map((clip) => (
-                  <button
-                    key={clip.id}
-                    onClick={() => setPreviewVideo(clip.videoUrl!)}
-                    className="flex w-full items-center justify-between rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 py-2 text-left text-xs hover:bg-[var(--bg-hover)]"
-                  >
-                    <span>Scene {clip.sceneNumber}</span>
-                    <Play size={13} />
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {runLog.length > 0 && (
-              <div className="mt-4 border-t border-[var(--border-color)] pt-3">
-                <div className="mb-2 text-[11px] font-mono text-[var(--text-secondary)]">Run Log</div>
-                <div className="max-h-32 space-y-1 overflow-y-auto text-[11px] leading-5 text-[var(--text-secondary)]">
-                  {runLog.map((entry, index) => <div key={`${entry}-${index}`}>{entry}</div>)}
-                </div>
-              </div>
-            )}
-          </div>
-        </Panel>
+        {selectedStoryboard && <Panel position="top-right" className="!m-4 !mt-[72px]"><aside className="w-[340px] max-w-[calc(100vw-32px)] rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-secondary)]/97 p-4 shadow-2xl backdrop-blur"><div className="flex items-start justify-between gap-3"><div><p className="font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--workspace-accent)]">Node inspector</p><h3 className="mt-1 text-sm font-semibold text-white">{selectedNode?.data.title}</h3></div><button type="button" onClick={() => setSelectedNodeId(null)} className="rounded p-1 text-[var(--text-muted)] hover:text-white"><X size={15} /></button></div>{editing ? <div className="mt-4 space-y-3"><label className="block text-[11px] text-[var(--text-muted)]">图片提示词</label><textarea value={editPrompt} onChange={event => setEditPrompt(event.target.value)} rows={6} className="w-full rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 text-xs leading-5 text-white" /><label className="block text-[11px] text-[var(--text-muted)]">视频提示词</label><textarea value={editVideoPrompt} onChange={event => setEditVideoPrompt(event.target.value)} rows={5} className="w-full rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 text-xs leading-5 text-white" /><div className="flex gap-2"><button type="button" onClick={saveEditing} className="flex flex-1 items-center justify-center gap-2 rounded-[9px] bg-[var(--workspace-accent)] px-3 py-2 text-xs font-semibold text-[var(--workspace-on-accent)]"><Save size={13} />保存</button><button type="button" onClick={() => setEditing(false)} className="flex-1 rounded-[9px] border border-[var(--border-color)] px-3 py-2 text-xs text-white">取消</button></div></div> : <div className="mt-4 space-y-3"><p className="max-h-28 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[var(--text-secondary)]">{selectedStoryboard.prompt}</p><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => generateImage(selectedStoryboard)} className="flex min-h-10 items-center justify-center gap-2 rounded-[9px] bg-[var(--workspace-accent)] px-3 text-xs font-semibold text-[var(--workspace-on-accent)]"><ImageIcon size={14} />生成分镜</button><button type="button" onClick={() => generateVideo(selectedStoryboard)} className="flex min-h-10 items-center justify-center gap-2 rounded-[9px] border border-[var(--workspace-accent)]/40 bg-[var(--workspace-accent)]/10 px-3 text-xs font-semibold text-[var(--workspace-accent)]"><Video size={14} />生成视频</button><button type="button" onClick={() => void onGenerateVideoPrompt?.(selectedStoryboard)} className="flex min-h-9 items-center justify-center gap-2 rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs text-white"><Sparkles size={13} />视频提示词</button><button type="button" onClick={startEditing} className="flex min-h-9 items-center justify-center gap-2 rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs text-white"><Edit3 size={13} />编辑提示词</button></div></div>}</aside></Panel>}
       </ReactFlow>
-
-      {previewVideo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setPreviewVideo(null)}>
-          <div className="relative flex h-full w-full items-center justify-center p-6" onClick={(event) => event.stopPropagation()}>
-            <button onClick={() => setPreviewVideo(null)} className="absolute right-6 top-6 text-white hover:text-[var(--accent-blue)]" title="Close preview">
-              <X size={24} />
-            </button>
-            <video src={previewVideo} controls autoPlay className="max-h-full max-w-full rounded border border-white/20" />
-          </div>
-        </div>
-      )}
-    </>
+      {previewVideo && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6" onClick={() => setPreviewVideo(null)}><div className="relative flex h-full w-full items-center justify-center" onClick={event => event.stopPropagation()}><button type="button" onClick={() => setPreviewVideo(null)} className="absolute right-0 top-0 rounded-full bg-white/10 p-2 text-white"><X size={20} /></button><video src={previewVideo} controls autoPlay className="max-h-full max-w-full rounded-[14px] border border-white/15" /></div></div>}
+    </div>
   );
 }
 
 export default function CanvasMode(props: CanvasModeProps) {
-  return (
-    <ReactFlowProvider>
-      <div className="h-full w-full bg-[var(--bg-primary)]">
-        <CanvasModeContent {...props} />
-      </div>
-    </ReactFlowProvider>
-  );
+  return <ReactFlowProvider><CanvasModeContent {...props} /></ReactFlowProvider>;
 }

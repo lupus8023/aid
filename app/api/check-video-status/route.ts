@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVideoTaskStatus } from '@/lib/apimart';
-import { v2 as cloudinary } from 'cloudinary';
 import { downloadComfyUIOutput, getComfyUIVideoStatus, isComfyUITask } from '@/lib/comfyui';
+import { hasCloudinaryUploadTarget, uploadBufferToCloudinary, uploadToCloudinary } from '@/lib/cloudinaryUpload';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,7 +43,7 @@ export async function POST(request: NextRequest) {
           totalSegments: status.totalSegments,
         });
       }
-      if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      if (!hasCloudinaryUploadTarget()) {
         return NextResponse.json(
           { taskId, status: 'failed', error: 'ComfyUI 输出需要配置 Cloudinary 才能回传到浏览器' },
           { status: 500 },
@@ -57,12 +51,8 @@ export async function POST(request: NextRequest) {
       }
       const buffer = await downloadComfyUIOutput(taskId, status.output, comfyui);
       const promptId = taskId.replace(/^comfyui(?:-long)?:/, '').replace(/[^a-zA-Z0-9_-]/g, '');
-      const uploaded: any = await new Promise((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          { folder: 'aid-videos/comfyui', public_id: promptId, resource_type: 'video', overwrite: true },
-          (error, result) => error ? reject(error) : resolve(result),
-        );
-        stream.end(buffer);
+      const uploaded = await uploadBufferToCloudinary(buffer, {
+        folder: 'aid-videos/comfyui', public_id: promptId, resource_type: 'video', overwrite: true,
       });
       return NextResponse.json({ taskId, status: 'completed', videoUrl: uploaded.secure_url, provider: 'comfyui' });
     }
@@ -94,7 +84,7 @@ export async function POST(request: NextRequest) {
         originalUrl = originalUrl[0];
       }
       try {
-        const uploaded = await cloudinary.uploader.upload(originalUrl, {
+        const uploaded = await uploadToCloudinary(originalUrl, {
           folder: 'aid-videos',
           resource_type: 'video',
         });

@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { Character, Storyboard, ObjectItem } from '@/types';
+import { StoryPlan, PipelineState } from '@/lib/pipeline/types';
 
 export interface ProjectData {
   name: string;
@@ -10,8 +11,43 @@ export interface ProjectData {
   storyContent: string;
   storyOutline: string;
   storyboards: Storyboard[];
+  // 全量持久化：音色参考 / 定妆 bible / 场景参考 / 编剧计划 / 编排状态
+  voiceReferences?: Record<string, string>;
+  costumeImages?: Record<string, string>;
+  sceneImages?: string[];
+  storyPlan?: StoryPlan;
+  pipelineState?: PipelineState;
   createdAt: string;
   updatedAt: string;
+}
+
+// 判断 imageUrl 是否为可长期访问的云端 URL（blob URL 在刷新后失效）
+function hasPublicUrl(imageUrl?: string): boolean {
+  return typeof imageUrl === 'string' && /^https?:\/\//i.test(imageUrl);
+}
+
+// 清洗角色：保留 voiceId（音色参考依赖它，之前被误删）；有云端 URL 时丢弃 base64 省空间，
+// 否则用 base64 兜底（blob URL 不可持久化）；丢弃不可序列化的 File 对象。
+function cleanCharacter(char: Character): Character {
+  return {
+    id: char.id,
+    name: char.name,
+    description: char.description,
+    imageUrl: char.imageUrl || '',
+    voiceId: char.voiceId,
+    ...(hasPublicUrl(char.imageUrl) ? {} : { imageBase64: char.imageBase64 }),
+  };
+}
+
+// 清洗物件：与角色同规则（修复之前角色/物件不对称的问题）。
+function cleanObject(obj: ObjectItem): ObjectItem {
+  return {
+    id: obj.id,
+    name: obj.name,
+    description: obj.description,
+    imageUrl: obj.imageUrl || '',
+    ...(hasPublicUrl(obj.imageUrl) ? {} : { imageBase64: obj.imageBase64 }),
+  };
 }
 
 export function useProject() {
@@ -19,22 +55,18 @@ export function useProject() {
 
   // 保存项目到本地存储
   const saveProject = useCallback((data: Partial<ProjectData>) => {
-    // 清理角色数据，移除大体积的 base64 和 File 对象
-    const cleanedCharacters = (data.characters || []).map(char => ({
-      id: char.id,
-      name: char.name,
-      description: char.description,
-      imageUrl: char.imageUrl,
-      // 不保存 imageBase64 和 imageFile，避免超出 localStorage 限制
-    }));
-
     const projectData: ProjectData = {
       name: projectName,
-      characters: cleanedCharacters,
-      objects: data.objects || [],
+      characters: (data.characters || []).map(cleanCharacter),
+      objects: (data.objects || []).map(cleanObject),
       storyContent: data.storyContent || '',
       storyOutline: data.storyOutline || '',
       storyboards: data.storyboards || [],
+      voiceReferences: data.voiceReferences,
+      costumeImages: data.costumeImages,
+      sceneImages: data.sceneImages,
+      storyPlan: data.storyPlan,
+      pipelineState: data.pipelineState,
       createdAt: data.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -44,11 +76,11 @@ export function useProject() {
       console.log('项目已保存:', projectName);
     } catch (error) {
       console.error('保存项目失败:', error);
-      // 如果仍然超限，尝试只保存基本信息
+      // 如果仍然超限，尝试只保存基本信息（丢弃体积大的资产）
       try {
         const minimalData = {
           name: projectName,
-          characters: cleanedCharacters,
+          characters: projectData.characters,
           storyContent: '',
           storyOutline: '',
           storyboards: [],
