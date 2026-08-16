@@ -111,6 +111,9 @@ export interface ApiMartVideoStatusResponse {
   };
 }
 
+// 全局视觉风格锁：把「角色参考图的媒介」钉死到所有生成环节
+export type VisualStyle = 'follow-reference' | 'live-action' | '3d-cg' | 'anime' | 'illustration' | 'stop-motion';
+
 // 应用设置类型
 export interface AppSettings {
   apiProvider: 'apimart' | 'openai' | 'anthropic'; // API 提供商
@@ -138,4 +141,5 @@ export interface AppSettings {
   fishAudioKey?: string; // fish.audio API key
   dmxApiKey?: string; // dmxapi.cn API key for script generation
   language?: 'zh' | 'en'; // output language for dialogue and descriptions
+  visualStyle?: VisualStyle; // 全局视觉风格锁（默认跟随角色参考图）
 }

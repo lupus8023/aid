@@ -4,7 +4,7 @@ import { buildCharacterBiblePrompt, buildSceneReferencePrompt } from '@/lib/prom
 
 export async function POST(request: NextRequest) {
   try {
-    const { type, name, description, costumeDesc, sceneStyle, referenceImageUrl, aspectRatio, imageModel, apiKey } = await request.json();
+    const { type, name, description, costumeDesc, sceneStyle, referenceImageUrl, aspectRatio, imageModel, apiKey, visualStyle } = await request.json();
 
     let prompt = '';
     if (type === 'costume') {
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
         hasIdentityReference: Boolean(referenceImageUrl),
       });
     } else if (type === 'scene') {
-      prompt = buildSceneReferencePrompt(sceneStyle);
+      prompt = buildSceneReferencePrompt(sceneStyle, visualStyle);
     } else {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
     }

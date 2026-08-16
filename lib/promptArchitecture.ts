@@ -1,6 +1,22 @@
-import { Storyboard } from '@/types';
+import { Storyboard, VisualStyle } from '@/types';
 
 const clean = (value?: string) => value?.trim() || 'not specified; infer only from the supplied reference image';
+
+const MEDIUM_LOOK: Record<Exclude<VisualStyle, 'follow-reference'>, string> = {
+  'live-action': 'realistic live-action photography — natural skin texture, believable photographic lighting and optics, no illustration/anime/CG look',
+  '3d-cg': 'consistent 3D CG rendering — accurate materials, shading, and lighting, no 2D line art or photographic look',
+  'anime': 'anime style — clean line art and flat cel shading, no photorealism or 3D look',
+  'illustration': 'flat stylized illustration — painterly rendering and graphic shapes, no photorealism',
+  'stop-motion': 'stop-motion / analog look — tactile handmade materials with subtle frame texture, no smooth CG or photographic look',
+};
+
+// 风格锁：把「媒介」正向钉死到整个画面（角色+环境+光影），避免角色一种风格、背景另一种风格。
+export function buildMediumLock(style?: VisualStyle): string {
+  if (style && style !== 'follow-reference') {
+    return `STYLE LOCK (authoritative): render the ENTIRE frame — every character, object, environment, and the lighting — in ${MEDIUM_LOOK[style]}. One medium only across the whole image; no part may drift to a different visual medium.`;
+  }
+  return `STYLE LOCK (authoritative): the entire frame — every character, object, environment, and the lighting — must be rendered in the exact same visual medium as the character reference image. If the reference is anime/illustration, render the whole scene as anime/illustration (line art + cel shading); if it is 3D CG, render as 3D CG; if it is live action, render as realistic photography. Never render the character in one medium and the background in another — one medium, one style, whole frame.`;
+}
 
 /**
  * Builds a production reference board rather than a single "costume photo".
@@ -56,9 +72,11 @@ CHARACTER DESCRIPTION RULES (Visual Specificity)
 - Every character description must end with: "Consistent identity, costume, hairstyle and appearance throughout the video."`;
 }
 
-export function buildSceneReferencePrompt(sceneStyle?: string) {
+export function buildSceneReferencePrompt(sceneStyle?: string, style?: VisualStyle) {
   return `Create a professional 16:9 environment continuity bible for: ${clean(sceneStyle)}.
-Show one coherent location through a hero establishing view plus complementary wide, reverse-angle, and key-detail views. Lock architecture, geography, entrances, landmarks, practical props, time of day, weather, light direction, color temperature, and material palette. Preserve the visual medium implied by the project reference—live action, CG, anime, or illustration—without converting it. Empty location, no characters. Clean editorial board, high production detail, no captions, labels, logos, watermark, or readable text.`;
+Show one coherent location through a hero establishing view plus complementary wide, reverse-angle, and key-detail views. Lock architecture, geography, entrances, landmarks, practical props, time of day, weather, light direction, color temperature, and material palette. Empty location, no characters. Clean editorial board, high production detail, no captions, labels, logos, watermark, or readable text.
+
+${buildMediumLock(style)}`;
 }
 
 export function buildVideoContinuityRules(hasAudioReference: boolean) {

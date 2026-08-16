@@ -188,6 +188,26 @@ export default function SettingsModal({
             </select>
           </div>
 
+          {/* Visual Style */}
+          <div>
+            <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">
+              视觉风格 (锁定全片媒介)
+            </label>
+            <select
+              value={localSettings.visualStyle || 'follow-reference'}
+              onChange={(e) => setLocalSettings({ ...localSettings, visualStyle: e.target.value as AppSettings['visualStyle'] })}
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+            >
+              <option value="follow-reference">跟随角色参考图（推荐）</option>
+              <option value="live-action">真人实拍</option>
+              <option value="3d-cg">3D CG</option>
+              <option value="anime">动漫</option>
+              <option value="illustration">插画</option>
+              <option value="stop-motion">定格动画</option>
+            </select>
+            <p className="mt-1 text-xs font-mono text-[var(--text-secondary)]">把同一媒介钉死到角色、场景、光影，避免「角色一种风格、背景另一种风格」。</p>
+          </div>
+
           {/* Video Provider */}
           <div>
             <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">

@@ -1,5 +1,6 @@
 import { createImageTask, getTaskStatus } from './apimart';
-import { Storyboard, Character, ObjectItem } from '@/types';
+import { Storyboard, Character, ObjectItem, VisualStyle } from '@/types';
+import { buildMediumLock } from './promptArchitecture';
 
 // 为单个分镜生成图片
 export async function generateStoryboardImage(
@@ -12,7 +13,8 @@ export async function generateStoryboardImage(
   globalCostumeImages: Record<string, string> = {},
   globalSceneImage?: string,
   preUploadedReferences?: string[],
-  preUploadedReferenceLabels: string[] = []
+  preUploadedReferenceLabels: string[] = [],
+  visualStyle?: VisualStyle
 ): Promise<string> {
   // 找到该分镜中出现的角色
   const sceneCharacters = characters.filter(c =>
@@ -67,7 +69,9 @@ export async function generateStoryboardImage(
 
 ${referenceDescriptions.join('\n')}
 
-Strict rules: maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. Do not add subtitles, background music, or extra characters not shown in the references. Maintain exact lighting and atmosphere from the scene reference.`;
+Strict rules: maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. Do not add subtitles, background music, or extra characters not shown in the references. Maintain exact lighting and atmosphere from the scene reference.
+
+${buildMediumLock(visualStyle)}`;
 
     // 清理 prompt 中可能导致 API 错误的特殊字符
     const cleanEnhancedPrompt = enhancedPrompt
@@ -190,7 +194,9 @@ Strict rules: maintain exact face, hairstyle, clothing and visual style for ever
 
 ${referenceDescriptions.join('\n')}
 
-Strict rules: maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. Do not add subtitles, background music, or extra characters not shown in the references. Maintain exact lighting and atmosphere from the scene reference.`;
+Strict rules: maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. Do not add subtitles, background music, or extra characters not shown in the references. Maintain exact lighting and atmosphere from the scene reference.
+
+${buildMediumLock(visualStyle)}`;
 
   // 清理 prompt 中可能导致 API 错误的特殊字符
   const cleanEnhancedPrompt = enhancedPrompt

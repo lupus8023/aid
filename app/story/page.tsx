@@ -260,7 +260,8 @@ export default function StoryPage() {
             sceneImage: sceneImages[0] || '',
             // 传递所有参考图（角色 + 场景 + 物体）
             referenceImages: refImages,
-            referenceImageLabels: refLabels
+            referenceImageLabels: refLabels,
+            visualStyle: settings.visualStyle
           })
         });
         if (!res.ok) {
@@ -346,7 +347,7 @@ export default function StoryPage() {
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '' })
+        body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle: settings.visualStyle })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate image');
       const data = await response.json();
@@ -400,10 +401,14 @@ export default function StoryPage() {
           description: character?.description || '',
           costumeDesc: characterName ? storyboardsRef.current[0]?.characterCostume?.[characterName] : undefined,
           sceneStyle,
-          referenceImageUrl: character?.imageUrl,
+          // 场景参考用第一个角色的定妆/参考图当风格锚点，保证场景媒介和角色一致
+          referenceImageUrl: type === 'scene'
+            ? (costumeImagesRef.current[charactersRef.current[0]?.name || ''] || charactersRef.current[0]?.imageUrl)
+            : character?.imageUrl,
           aspectRatio: settings.aspectRatio,
           imageModel: settings.imageModel,
-          apiKey: settings.apiKey
+          apiKey: settings.apiKey,
+          visualStyle: settings.visualStyle
         })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed');
