@@ -13,6 +13,8 @@ const execFileAsync = promisify(execFile);
 
 const SSH_CONNECT_TIMEOUT_SECONDS = 120;
 const SSH_TUNNEL_READY_TIMEOUT_MS = 180_000;
+const H3_REFERENCE_AUDIO_TOTAL_BUDGET_SECONDS = 14.7;
+const H3_REFERENCE_AUDIO_MIN_SECONDS = 2;
 const VIDEO_SUFFIXES = new Set(['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v']);
 
 const ASPECT_ALIASES: Record<string, string> = {
@@ -956,7 +958,7 @@ interface NormalizedAudio {
   duration: number;
 }
 
-async function normalizeReferenceAudio(sourcePath: string, directory: string, index: number): Promise<NormalizedAudio> {
+async function probeReferenceAudio(sourcePath: string, index: number): Promise<number> {
   let duration = 0;
   try {
     const { stdout } = await execFileAsync(process.env.FFPROBE_PATH || 'ffprobe', [
@@ -974,8 +976,59 @@ async function normalizeReferenceAudio(sourcePath: string, directory: string, in
     throw new ComfyUIError(`参考音频 ${index} 无法解析：${error instanceof Error ? error.message : String(error)}`);
   }
 
-  if (duration < 2) throw new ComfyUIError(`参考音频 ${index} 只有 ${duration.toFixed(1)} 秒；MiniMax H3 要求至少 2 秒`);
-  if (duration > 15.05) throw new ComfyUIError(`参考音频 ${index} 有 ${duration.toFixed(1)} 秒；MiniMax H3 单段不能超过 15 秒`);
+  if (duration < H3_REFERENCE_AUDIO_MIN_SECONDS) {
+    throw new ComfyUIError(`参考音频 ${index} 只有 ${duration.toFixed(1)} 秒；MiniMax H3 要求至少 2 秒`);
+  }
+  return duration;
+}
+
+export function fitH3ReferenceAudioDurations(
+  durations: number[],
+  totalBudget = H3_REFERENCE_AUDIO_TOTAL_BUDGET_SECONDS,
+  minimum = H3_REFERENCE_AUDIO_MIN_SECONDS,
+): number[] {
+  if (!durations.length) return [];
+  if (durations.some(duration => !Number.isFinite(duration) || duration < minimum)) {
+    throw new ComfyUIError(`MiniMax H3 每条参考音频必须至少 ${minimum} 秒`);
+  }
+  if (durations.length * minimum > totalBudget) {
+    throw new ComfyUIError(`参考音频数量过多，无法同时满足每条至少 ${minimum} 秒和总计不超过 ${totalBudget} 秒`);
+  }
+
+  const targets = durations.map(duration => Math.min(duration, minimum));
+  let remaining = totalBudget - targets.reduce((total, duration) => total + duration, 0);
+  const epsilon = 0.0001;
+
+  while (remaining > epsilon) {
+    const expandable = targets
+      .map((target, index) => ({ index, capacity: durations[index] - target }))
+      .filter(item => item.capacity > epsilon);
+    if (!expandable.length) break;
+
+    const fairShare = remaining / expandable.length;
+    let used = 0;
+    for (const item of expandable) {
+      const increment = Math.min(item.capacity, fairShare);
+      targets[item.index] += increment;
+      used += increment;
+    }
+    if (used <= epsilon) break;
+    remaining -= used;
+  }
+
+  return targets;
+}
+
+async function normalizeReferenceAudio(
+  sourcePath: string,
+  directory: string,
+  index: number,
+  sourceDuration: number,
+  targetDuration: number,
+): Promise<NormalizedAudio> {
+  if (targetDuration < sourceDuration - 0.01) {
+    console.log(`[comfyui] trim reference audio ${index}: ${sourceDuration.toFixed(1)}s -> ${targetDuration.toFixed(1)}s`);
+  }
 
   const outputPath = path.join(directory, `audio_reference_${index}_32k_stereo.wav`);
   try {
@@ -984,13 +1037,14 @@ async function normalizeReferenceAudio(sourcePath: string, directory: string, in
       '-i', sourcePath,
       '-map', '0:a:0', '-vn',
       '-ar', '32000', '-ac', '2', '-c:a', 'pcm_s16le',
+      '-t', targetDuration.toFixed(3),
       outputPath,
     ], { timeout: 180_000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' });
   } catch (error: any) {
     const details = String(error?.stderr || error?.message || error).trim();
     throw new ComfyUIError(`参考音频 ${index} 转换为 32kHz WAV 失败：${details}`);
   }
-  return { path: outputPath, duration };
+  return { path: outputPath, duration: targetDuration };
 }
 
 async function uploadAsset(config: ComfyUIConfig, localPath: string, subfolder: string): Promise<string> {
@@ -1348,10 +1402,19 @@ export async function createComfyUIVideoTask(input: {
       const imageSources = [input.firstFrame, ...(input.endFrame ? [input.endFrame] : auxiliaryImages)];
       const localImages = await Promise.all(imageSources.map((source, index) => materializeSource(source, directory, `reference_${index + 1}`)));
       const sourceAudios = await Promise.all(referenceAudios.map((source, index) => materializeSource(source, directory, `audio_reference_${index + 1}`)));
-      const normalizedAudios = await Promise.all(sourceAudios.map((source, index) => normalizeReferenceAudio(source, directory, index + 1)));
-      const totalAudioDuration = normalizedAudios.reduce((total, audio) => total + audio.duration, 0);
-      if (totalAudioDuration > 15.05) {
-        throw new ComfyUIError(`参考音频总长为 ${totalAudioDuration.toFixed(1)} 秒；MiniMax H3 总计不能超过 15 秒`);
+      const sourceAudioDurations = await Promise.all(sourceAudios.map((source, index) => probeReferenceAudio(source, index + 1)));
+      const targetAudioDurations = fitH3ReferenceAudioDurations(sourceAudioDurations);
+      const normalizedAudios = await Promise.all(sourceAudios.map((source, index) => normalizeReferenceAudio(
+        source,
+        directory,
+        index + 1,
+        sourceAudioDurations[index],
+        targetAudioDurations[index],
+      )));
+      const totalSourceAudioDuration = sourceAudioDurations.reduce((total, duration) => total + duration, 0);
+      const totalTargetAudioDuration = targetAudioDurations.reduce((total, duration) => total + duration, 0);
+      if (totalTargetAudioDuration < totalSourceAudioDuration - 0.01) {
+        console.log(`[comfyui] fit ${sourceAudios.length} reference audios: ${totalSourceAudioDuration.toFixed(1)}s -> ${totalTargetAudioDuration.toFixed(1)}s total (H3 safe budget)`);
       }
       const localAudios = normalizedAudios.map(audio => audio.path);
 

@@ -6,6 +6,21 @@ import { createComfyUIVideoTask } from '@/lib/comfyui';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
+function speakingCharacterNames(storyboard: any): string[] {
+  const lines = Array.isArray(storyboard?.dialogueLines) && storyboard.dialogueLines.length
+    ? storyboard.dialogueLines
+    : Object.entries(storyboard?.dialogue || {}).map(([character, text]) => ({ character, text }));
+  const seen = new Set<string>();
+  return lines
+    .filter((line: any) => String(line?.text || '').trim())
+    .map((line: any) => String(line?.character || '').trim())
+    .filter((name: string) => {
+      if (!name || seen.has(name)) return false;
+      seen.add(name);
+      return true;
+    });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const {
@@ -22,10 +37,11 @@ export async function POST(request: NextRequest) {
       if (storyboard.imageUrl.startsWith('blob:')) {
         return NextResponse.json({ error: 'Storyboard image is a browser-only blob URL and cannot be read by Companion' }, { status: 400 });
       }
-      // 保持「过滤后有音色参考的角色」与参考音频同序，用于在 prompt 里显式绑定 <Audio N> = 角色名。
-      const storyboardCharacters: string[] = Array.isArray(storyboard.characters) ? storyboard.characters : [];
+      // H3 的所有参考音频总计不能超过 15 秒。只传本镜头真正开口的角色，
+      // 避免把画面中未说话角色的声音也计入额度。后续还会在 Companion 端统一裁剪总长。
+      const speakingCharacters = speakingCharacterNames(storyboard);
       const referenceAudioNames: string[] = [];
-      const referenceAudios = storyboardCharacters
+      const referenceAudios = speakingCharacters
         .map((name) => ({ name, url: voiceReferences[name] }))
         .filter((x): x is { name: string; url: string } => Boolean(x.url))
         .slice(0, 3)
@@ -68,10 +84,12 @@ export async function POST(request: NextRequest) {
     const isWanAudio   = m.includes('wan2.6') || m.includes('wan2.7') || m.includes('wan 2.6') || m.includes('wan 2.7');
     const isMiniMaxH3  = m.includes('minimax-h3');
 
-    // 声音参考模式（Seedance 2.0 / MiniMax-H3）：从当前分镜出现的角色中取声音参考 URL
+    // 声音参考模式（Seedance 2.0 / MiniMax-H3）：只取当前分镜实际说话角色的声音参考 URL。
+    // 这样也避免 MiniMax H3 因未说话角色的参考音频累计超过 15 秒。
     const storyboardChars: string[] = storyboard.characters || [];
+    const speakingChars = speakingCharacterNames(storyboard);
     const voiceRefUrls: string[] = (isSeedance20 || isMiniMaxH3)
-      ? storyboardChars
+      ? speakingChars
           .map((name: string) => voiceReferences[name])
           .filter(Boolean)
           .slice(0, 3)  // 最多 3 个

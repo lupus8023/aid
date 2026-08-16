@@ -1,6 +1,6 @@
 {
   "name": "aid",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,6 +8,7 @@
     "build:companion": "cross-env AID_LOCAL_COMPANION=1 next build && node scripts/prepare-companion.mjs",
     "package:companion": "node scripts/package-companion.mjs",
     "dist:companion": "npm run build:companion && npm run package:companion",
+    "test:h3-audio": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/h3-reference-audio.test.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
