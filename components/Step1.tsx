@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Wand2, Loader2 } from 'lucide-react';
+import { readApiJson } from '@/lib/apiResponse';
 
 interface Step1Props {
   storyContent: string;
@@ -39,7 +40,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
   };
 
   const handleExpand = async () => {
-    if (!textInput.trim() || !apiKey) return;
+    if (!textInput.trim() || (!apiKey && !dmxApiKey)) return;
     setIsExpanding(true);
     try {
       const res = await fetch('/api/expand-story', {
@@ -47,7 +48,10 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ brief: textInput, language, apiKey, scriptModel, dmxApiKey })
       });
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed');
+      if (!res.ok || !String(res.headers.get('content-type') || '').includes('text/event-stream')) {
+        const unexpected = await readApiJson<{ error?: string }>(res, 'AI 扩写失败');
+        throw new Error(unexpected.error || 'AI 扩写服务返回了非流式响应');
+      }
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -121,10 +125,10 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
           <textarea
             value={textInput}
             onChange={(e) => handleTextChange(e.target.value)}
-            placeholder="输入故事梗概、人物关系、情绪和关键情节…"
+            placeholder="输入故事梗概、人物关系和关键情节；可直接写明“必须”“不要”“结尾是”“镜头数/时长”等硬性要求…"
             className="w-full h-64 p-4 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded text-sm font-mono text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-blue)] resize-none"
           />
-          {apiKey && (
+          {(apiKey || dmxApiKey) && (
             <button
               onClick={handleExpand}
               disabled={!textInput.trim() || isExpanding}

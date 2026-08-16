@@ -36,8 +36,19 @@ export interface Sequence {
   beats: Beat[];
 }
 
+export interface StoryRequirement {
+  id: string;
+  text: string;
+  category: 'plot' | 'character' | 'setting' | 'tone' | 'format' | 'pacing' | 'dialogue' | 'visual' | 'avoid' | 'other';
+  priority: 'must' | 'preference';
+  coveredBy: number[]; // global beat indexes that satisfy this requirement
+}
+
 export interface StoryPlan {
   id: string;
+  sourceBrief?: string; // original user input, retained as the source of truth across stages
+  intentSummary?: string; // concise understanding of what the user is asking for
+  requirements?: StoryRequirement[]; // auditable mapping from explicit asks to beats
   theme: string; // 主题（一句话说清「谁 + 想得到什么 + 阻碍是什么」）
   logline: string; // 一句话梗概
   visualMotif: string; // 视觉母题：一个反复出现的意象/道具承载主题

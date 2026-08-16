@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildStoryboardVideoPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
 import { snapDurationToModel } from '@/lib/apimart';
 import { createComfyUIVideoTask } from '@/lib/comfyui';
-import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -19,6 +18,10 @@ export async function POST(request: NextRequest) {
     if (!storyboard) return NextResponse.json({ error: 'Storyboard is required' }, { status: 400 });
     if (videoProvider === 'comfyui') {
       if (!storyboard.imageUrl) return NextResponse.json({ error: 'Storyboard image is required' }, { status: 400 });
+      if (typeof storyboard.imageUrl !== 'string') return NextResponse.json({ error: 'Storyboard image must be a URL or data URL' }, { status: 400 });
+      if (storyboard.imageUrl.startsWith('blob:')) {
+        return NextResponse.json({ error: 'Storyboard image is a browser-only blob URL and cannot be read by Companion' }, { status: 400 });
+      }
       // 保持「过滤后有音色参考的角色」与参考音频同序，用于在 prompt 里显式绑定 <Audio N> = 角色名。
       const storyboardCharacters: string[] = Array.isArray(storyboard.characters) ? storyboard.characters : [];
       const referenceAudioNames: string[] = [];
@@ -27,12 +30,15 @@ export async function POST(request: NextRequest) {
         .filter((x): x is { name: string; url: string } => Boolean(x.url))
         .slice(0, 3)
         .map((x) => { referenceAudioNames.push(x.name); return x.url; });
-      // 兜底：若分镜图仍是 base64 数据 URL，先上传到 Cloudinary 变成公网 URL，保证 ComfyUI LoadImage 能拿到文件
-      let firstFrame = firstFrameUrl || storyboard.imageUrl;
-      if (typeof firstFrame === 'string' && firstFrame.startsWith('data:')) {
-        const uploaded = await uploadToCloudinary(firstFrame, { folder: 'aid-shot-images' });
-        firstFrame = uploaded.secure_url;
+      // createComfyUIVideoTask materializes URL/data URL locally and then
+      // uploads that exact file into ComfyUI/input over SSH. Do not insert a
+      // Cloudinary hop here: it is unnecessary and can drop a valid data URL
+      // when Cloudinary is unavailable.
+      const firstFrame = firstFrameUrl || storyboard.imageUrl;
+      if (typeof firstFrame !== 'string' || firstFrame.startsWith('blob:')) {
+        return NextResponse.json({ error: 'ComfyUI first frame is not accessible to Companion' }, { status: 400 });
       }
+      console.log(`[comfyui] scene ${storyboard.sceneNumber || '?'} frame input: ${firstFrame.startsWith('data:') ? 'data-url' : 'url'}; continuity=${Boolean(firstFrameUrl)}`);
       const result = await createComfyUIVideoTask({
         firstFrame,
         endFrame: firstFrameUrl ? storyboard.imageUrl : undefined,

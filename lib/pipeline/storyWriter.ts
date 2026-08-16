@@ -1,9 +1,10 @@
-import { StoryPlan, Beat, PlannedCharacter, WriterCharacter, WriterObject } from './types';
+import { StoryPlan, Beat, PlannedCharacter, StoryRequirement, WriterCharacter, WriterObject } from './types';
 import { buildStoryPlanPrompt } from './storyWriterPrompt';
 import { chatOnce } from './llm';
 import { extractJson } from './json';
 
 const TRANSITIONS: Beat['transition'][] = ['cut', 'dissolve', 'fade', 'wipe'];
+const REQUIREMENT_CATEGORIES: StoryRequirement['category'][] = ['plot', 'character', 'setting', 'tone', 'format', 'pacing', 'dialogue', 'visual', 'avoid', 'other'];
 
 function validTransition(value: unknown): Beat['transition'] {
   const s = String(value || '');
@@ -26,7 +27,7 @@ function asString(value: unknown, fallback = ''): string {
 }
 
 // 清洗/规约 LLM 返回的原始 JSON，保证字段完整、时长合法、名称在允许列表内。
-export function sanitizeStoryPlan(raw: any, allowedCharacters: string[], allowedObjects: string[]): StoryPlan {
+export function sanitizeStoryPlan(raw: any, allowedCharacters: string[], allowedObjects: string[], sourceBrief = ''): StoryPlan {
   const characters: PlannedCharacter[] = (Array.isArray(raw?.characters) ? raw.characters : []).map((c: any) => ({
     name: asString(c?.name),
     want: asString(c?.want),
@@ -35,13 +36,14 @@ export function sanitizeStoryPlan(raw: any, allowedCharacters: string[], allowed
     subtext: asString(c?.subtext),
   })).filter((c: PlannedCharacter) => c.name && allowedCharacters.includes(c.name));
 
-  const sequences = (Array.isArray(raw?.sequences) ? raw.sequences : []).map((seq: any, si: number) => {
+  let globalBeatIndex = 0;
+  const sequences: StoryPlan['sequences'] = (Array.isArray(raw?.sequences) ? raw.sequences : []).map((seq: any, si: number) => {
     const seqId = asString(seq?.id, `seq-${si + 1}`);
     const locationId = asString(seq?.locationId, `loc-${si + 1}`).replace(/[^a-zA-Z0-9_-]/g, '_');
     const sceneStyle = asString(seq?.sceneStyle);
 
-    const beats: Beat[] = (Array.isArray(seq?.beats) ? seq.beats : []).map((b: any, bi: number) => ({
-      index: Number(b?.index) || bi + 1,
+    const beats: Beat[] = (Array.isArray(seq?.beats) ? seq.beats : []).map((b: any) => ({
+      index: ++globalBeatIndex,
       sequenceId: asString(b?.sequenceId, seqId),
       locationId: asString(b?.locationId, locationId).replace(/[^a-zA-Z0-9_-]/g, '_'),
       shotSize: asString(b?.shotSize, '中景'),
@@ -64,8 +66,29 @@ export function sanitizeStoryPlan(raw: any, allowedCharacters: string[], allowed
     return { id: seqId, locationId, sceneStyle, beats };
   });
 
+  const validBeatIndexes = new Set(sequences.flatMap(sequence => sequence.beats.map(beat => beat.index)));
+  const requirements: StoryRequirement[] = (Array.isArray(raw?.requirements) ? raw.requirements : [])
+    .map((requirement: any, index: number) => {
+      const category = String(requirement?.category || 'other') as StoryRequirement['category'];
+      const priority = requirement?.priority === 'preference' ? 'preference' : 'must';
+      const coveredBy = Array.isArray(requirement?.coveredBy)
+        ? [...new Set<number>(requirement.coveredBy.map(Number).filter((beatIndex: number) => validBeatIndexes.has(beatIndex)))]
+        : [];
+      return {
+        id: asString(requirement?.id, `req-${index + 1}`),
+        text: asString(requirement?.text),
+        category: REQUIREMENT_CATEGORIES.includes(category) ? category : 'other',
+        priority,
+        coveredBy,
+      };
+    })
+    .filter((requirement: StoryRequirement) => requirement.text);
+
   return {
     id: asString(raw?.id, `plan-${Date.now()}`),
+    sourceBrief,
+    intentSummary: asString(raw?.intentSummary),
+    requirements,
     theme: asString(raw?.theme),
     logline: asString(raw?.logline),
     visualMotif: asString(raw?.visualMotif),
@@ -95,5 +118,6 @@ export async function generateStoryPlan(input: {
     raw,
     characters.map(c => c.name),
     objects.map(o => o.name),
+    synopsis,
   );
 }

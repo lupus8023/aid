@@ -1,6 +1,6 @@
 import { WriterCharacter, WriterObject } from './types';
 
-// 编剧阶段 prompt：把「一句话梗概」戏剧化成「有欲望/冲突/转折/潜台词/母题」的结构化故事。
+// 编剧阶段 prompt：先准确理解用户约束，再把允许创作的空白发展成结构化故事。
 // 与 storyAnalyzer 的分镜 prompt 相反：这里【鼓励创作】，分镜阶段才【忠实拆解】。
 export function buildStoryPlanPrompt(input: {
   synopsis: string;
@@ -18,11 +18,24 @@ export function buildStoryPlanPrompt(input: {
     ? 'MANDATORY: ALL output text (theme, logline, want, obstacle, arc, subtext, action, dialogue text, sceneStyle) MUST be in ENGLISH. Only character/object names keep their original form.'
     : '强制：所有输出文本（主题、logline、欲望、阻碍、弧线、潜台词、动作、台词、sceneStyle）必须使用中文。角色/物体名称保持原样。';
 
-  return `你是一位资深编剧，擅长把一句话概念发展成有冲突、有转折、有潜台词、可视觉化的故事。
-你的任务不是「扩写」，而是「戏剧化」：把梗概变成一个真正有故事性的结构。
+  return `你是一位资深编剧兼需求分析师。用户输入可能是一句话概念，也可能是详细剧本、镜头要求、风格说明或禁止事项。
+你的首要任务是准确执行用户意图；只有用户没有规定的部分，才由你进行专业的戏剧化创作。
+
+🧭 指令优先级（从高到低，强制）
+1. 用户明确写出的剧情事实、人物关系、场景、事件顺序、结局、指定台词、时长/镜头数、风格与禁止事项。
+2. 已上传角色与物体的名称和描述。
+3. 下方通用编剧原则。
+
+需求理解规则：
+- 不要把详细剧本误当成一句话灵感重写；输入越具体，改动越少。
+- 不得删掉、替换、反转或弱化用户明确要求的事件和结局；不得擅自改变人物关系、时代、地点或类型。
+- “不要/避免/必须/只要/保持/结尾是”等约束视为 must，绝不能被“更有戏剧性”覆盖。
+- 如果用户指定镜头数量、总时长或结构，严格遵守；未指定时才按内容推导。
+- 只在原文留白处补充因果、动作、过渡和潜台词。补充内容不得与原文冲突。
+- 在输出前逐条自检：每个 must 要求必须能指向至少一个 beat；禁止事项的 coveredBy 可指向落实该约束的相关 beats。
 
 🎯 最高原则：戏剧化，而不是罗列画面
-- 没有转折就没有故事。你必须为这个梗概找到一个「转折点」——一件改变局面的小事。
+- 在不违背用户要求时，为故事寻找自然的局面变化；若用户明确要求平静、纪实、无反转，则不要强加转折。
 - 每个角色必须有「想要的东西（want）」和「挡着他的东西（obstacle）」，这是戏剧性的根。
 - 情绪弧线：起点情绪必须不同于终点情绪（如从压抑→释然，从疏离→靠近）。
 - 台词必须有潜台词（subtext）：嘴上说的 ≠ 心里想的，不直说。
@@ -37,7 +50,7 @@ ${langInstruction}
 2. beats[].characters 和 beats[].objects 数组中，只能出现上传列表里的精确名称。
 3. 绝对禁止创造新角色名/物体名放进 characters/objects 数组。
 4. 故事中需要但未上传的角色/物体（动物、路人、自然元素等）只在 action / promptDraft 中描述。
-5. 每个已上传角色都应尽可能在故事中发挥作用；至少给每个主要角色一个 want/obstacle/arc。
+5. 用户明确要求出现的角色必须发挥作用；不要为了“用完素材”把无关角色强塞进故事。
 
 📋 已上传角色（唯一允许的角色名称）
 ${characterDetails}
@@ -48,7 +61,7 @@ ${characterDetails}
 ${objectDetails}
 ${objects.length ? `✅ 允许的物体名称: ${objectNames}` : '⚠️ 未上传物体'}
 
-📖 用户的故事梗概
+📖 用户原始输入（最高优先级，不得遗漏明确要求）
 ${synopsis}
 
 ⏱ 时长推导（durationHint，强制按内容推导）
@@ -66,6 +79,16 @@ ${synopsis}
 
 📝 输出格式（只输出 JSON，不要其他任何内容）
 {
+  "intentSummary": "用1-3句话准确复述用户要做什么，不添加用户没说的核心设定",
+  "requirements": [
+    {
+      "id": "req-1",
+      "text": "一条可核验的用户要求（简洁改写，不曲解）",
+      "category": "plot|character|setting|tone|format|pacing|dialogue|visual|avoid|other",
+      "priority": "must|preference",
+      "coveredBy": [1, 2]
+    }
+  ],
   "theme": "一句话主题（谁 + 想得到什么 + 阻碍是什么）",
   "logline": "一句话梗概",
   "visualMotif": "视觉母题（一个反复出现的意象/道具，承载主题）",
@@ -102,6 +125,8 @@ ${synopsis}
 }
 
 ⚠️ 关键规则：
+- requirements 必须覆盖用户输入中的所有显式要求；must 的 coveredBy 不得为空（纯全局格式要求可列出全部相关 beat）。
+- beat.index 在全片范围内从 1 连续递增，不能在新 sequence 里重新从 1 开始。
 - locationId：同一地点的所有镜头用相同 locationId（英文小写下划线，如 cafe、street、room）。
 - sequenceId：同一场（连续时间/地点）的镜头用相同 sequenceId。
 - continuityFrom：需要与前一个镜头动作连贯时，写前一个 beat 的 index；否则写 0。

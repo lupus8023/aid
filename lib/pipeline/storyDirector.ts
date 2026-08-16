@@ -1,5 +1,5 @@
-import { Storyboard, Character, ObjectItem } from '@/types';
-import { StoryPlan, Beat } from './types';
+import { Storyboard } from '@/types';
+import { StoryPlan, Beat, WriterCharacter, WriterObject } from './types';
 import { chatOnce } from './llm';
 import { extractJson } from './json';
 
@@ -7,8 +7,8 @@ import { extractJson } from './json';
 // 关键点：镜头数量/顺序/台词/时长/转场/连续关系【忠实于 StoryPlan】，只补画面/视频提示词与定妆。
 function buildDirectorPrompt(input: {
   storyPlan: StoryPlan;
-  characters: Character[];
-  objects: ObjectItem[];
+  characters: WriterCharacter[];
+  objects: WriterObject[];
   language: 'zh' | 'en';
 }): string {
   const { storyPlan, characters, objects, language } = input;
@@ -22,10 +22,17 @@ function buildDirectorPrompt(input: {
 
   return `你是一位电影导演兼分镜师。下面是编剧已经完成的【故事结构 StoryPlan】与角色/物体设定。你的任务是把每个 beat 可视化成一个可拍摄的分镜。
 
+📌 用户原始输入仍是最高优先级：
+${storyPlan.sourceBrief || '（旧项目未保存原始输入，请以 StoryPlan 为准）'}
+
+编剧对用户意图的理解：${storyPlan.intentSummary || '未提供'}
+需求核对表：${JSON.stringify(storyPlan.requirements || [], null, 2)}
+
 🎯 最高原则：忠实于 StoryPlan，不重新创作
 - 分镜数量必须等于 ${beatCount}，顺序与 beats 完全一致，不得增删或重排。
 - 台词、景别、运镜、机位、时长、转场、连续关系都来自 beat，你只负责【画面化】。
 - 不得添加 beat 中没有的情节、台词或角色行为。
+- 如果用户原始输入含有 beat 未重复写出的明确视觉、服装、场景或语气要求，必须落实到 description/prompt/videoPrompt，但不得改变剧情与镜头数量。
 
 🌐 ${langInstruction}
 
@@ -103,8 +110,8 @@ function mergeBeats(
 
 export async function directStoryboard(input: {
   storyPlan: StoryPlan;
-  characters: Character[];
-  objects: ObjectItem[];
+  characters: WriterCharacter[];
+  objects: WriterObject[];
   apiKey: string;
   aspectRatio: '16:9' | '9:16' | '1:1';
   language?: 'zh' | 'en';

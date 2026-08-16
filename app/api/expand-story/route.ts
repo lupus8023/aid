@@ -1,20 +1,7 @@
 import { NextRequest } from 'next/server';
-import { chatCompletion } from '@/lib/apimart';
+import { chatOnce } from '@/lib/pipeline/llm';
 
 export const maxDuration = 300;
-
-async function dmxChatCompletion(prompt: string, apiKey: string, model: string): Promise<string> {
-  const response = await fetch('https://www.dmxapi.cn/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, stream: false, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] })
-  });
-  if (!response.ok) throw new Error(`DMXAPI error: ${response.status}`);
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) throw new Error(`Unexpected DMXAPI response`);
-  return content;
-}
 
 export async function POST(request: NextRequest) {
   const { brief, language, apiKey, scriptModel, dmxApiKey } = await request.json();
@@ -50,9 +37,11 @@ ${brief}
 
   (async () => {
     try {
-      const script = dmxApiKey
-        ? await dmxChatCompletion(prompt, dmxApiKey, scriptModel || 'gpt-4o-mini')
-        : await chatCompletion(prompt, apiKey, scriptModel || 'gpt-4o-mini');
+      const script = await chatOnce(prompt, {
+        apiKey,
+        dmxApiKey,
+        model: scriptModel || 'gpt-4o-mini',
+      });
       await writer.write(encoder.encode(`data: ${JSON.stringify({ script })}\n\n`));
     } catch (error) {
       await writer.write(encoder.encode(`data: ${JSON.stringify({ error: error instanceof Error ? error.message : 'Failed' })}\n\n`));

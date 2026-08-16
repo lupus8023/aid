@@ -19,6 +19,22 @@ import { useProject } from '@/hooks/useProject';
 import { useSettings } from '@/hooks/useSettings';
 import { comfyUIApiUrl, downloadComfyUIVideo, isComfyUIClientTask, localComfyUISettings, videoStatusResponseError } from '@/lib/comfyuiClient';
 import { Grid3x3 } from 'lucide-react';
+import { readApiJson } from '@/lib/apiResponse';
+
+async function makePortableMediaSource(source: string, label: string): Promise<string> {
+  if (!source.startsWith('blob:')) return source;
+  const response = await fetch(source);
+  if (!response.ok) throw new Error(`${label}读取失败（HTTP ${response.status}）`);
+  const blob = await response.blob();
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === 'string'
+      ? resolve(reader.result)
+      : reject(new Error(`${label}转换失败`));
+    reader.onerror = () => reject(new Error(`${label}转换失败`));
+    reader.readAsDataURL(blob);
+  });
+}
 
 export default function StoryPage() {
   const { projectName, setProjectName, saveProject, loadProject, exportProject, newProject } = useProject();
@@ -131,23 +147,27 @@ export default function StoryPage() {
   // Step2 → Step3: generate shot script from story + characters
   // ① 编剧 + ② 导演：梗概 → StoryPlan → 分镜。返回生成的分镜数组供编排器使用。
   const runScript = async (): Promise<Storyboard[]> => {
+    // Never send uploaded image/base64/File fields to the text-only screenplay
+    // endpoints. Besides wasting bandwidth, large character images can make a
+    // hosting gateway reject the request with an HTML 413/5xx page.
+    const writerCharacters = characters.map(({ name, description, voiceId }) => ({ name, description, voiceId }));
+    const writerObjects = objects.map(({ name, description }) => ({ name, description }));
     const planRes = await fetch('/api/generate-story-plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ synopsis: storyContent, characters, objects, apiKey: settings.apiKey, language: settings.language || 'zh', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
+      body: JSON.stringify({ synopsis: storyContent, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, language: settings.language || 'zh', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
     });
-    if (!planRes.ok) throw new Error((await planRes.json()).error || 'Failed to generate story plan');
-    const { storyPlan } = await planRes.json();
+    const { storyPlan } = await readApiJson<{ storyPlan: StoryPlan }>(planRes, '剧本规划失败');
     setStoryPlan(storyPlan);
 
     const dirRes = await fetch('/api/direct-storyboard', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storyPlan, characters, objects, apiKey: settings.apiKey, aspectRatio: settings.aspectRatio, language: settings.language || 'zh', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
+      body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, aspectRatio: settings.aspectRatio, language: settings.language || 'zh', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
     });
-    if (!dirRes.ok) throw new Error((await dirRes.json()).error || 'Failed to direct storyboard');
-    const { storyboards } = await dirRes.json();
+    const { storyboards } = await readApiJson<{ storyboards: Storyboard[] }>(dirRes, '分镜导演失败');
     setStoryboards(storyboards);
+    storyboardsRef.current = storyboards;
     return storyboards;
   };
 
@@ -158,7 +178,7 @@ export default function StoryPage() {
       await runScript();
       setCurrentStep(3);
     } catch (error) {
-      alert(`Script generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`剧本生成失败：${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setIsLoading(false);
     }
@@ -385,6 +405,7 @@ export default function StoryPage() {
             } catch (e) { console.error('Upload image to Cloudinary failed:', e); }
           }
           setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, status: 'completed', imageUrl, taskId } : sb));
+          storyboardsRef.current = storyboardsRef.current.map(sb => sb.id === storyboardId ? { ...sb, status: 'completed', imageUrl, taskId } : sb);
           return;
         }
         if (data.status === 'failed') {
@@ -554,15 +575,29 @@ export default function StoryPage() {
     if (videoProvider === 'apimart' && !settings.apiKey) { alert('Please configure API Key in settings'); return; }
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoStatus: 'generating' } : sb));
     try {
+      // Buttons and the auto pipeline may hold a storyboard object created
+      // before image polling finished. Always resolve the authoritative copy.
+      const latestStoryboard = storyboardsRef.current.find(sb => sb.id === storyboard.id) || storyboard;
+      if (!latestStoryboard.imageUrl) throw new Error(`场景 ${latestStoryboard.sceneNumber} 尚未生成分镜图`);
+      const portableImageUrl = videoProvider === 'comfyui'
+        ? await makePortableMediaSource(latestStoryboard.imageUrl, `场景 ${latestStoryboard.sceneNumber} 分镜图`)
+        : latestStoryboard.imageUrl;
+      const storyboardForRequest = { ...latestStoryboard, imageUrl: portableImageUrl };
+
       // Get last frame of previous shot's video for continuity (first_frame of current shot)
       const currentShots = storyboardsRef.current;
-      const idx = currentShots.findIndex(sb => sb.id === storyboard.id);
-      const prevShot = storyboard.continuousFromPrev && idx > 0 ? currentShots[idx - 1] : undefined;
+      const idx = currentShots.findIndex(sb => sb.id === latestStoryboard.id);
+      const prevShot = latestStoryboard.continuousFromPrev && idx > 0 ? currentShots[idx - 1] : undefined;
       let firstFrameUrl: string | undefined;
-      if (prevShot?.videoUrl && typeof prevShot.videoUrl === 'string') {
+      if (prevShot?.videoUrl?.includes('res.cloudinary.com')) {
         // Extract last frame from Cloudinary video URL
         // Format: so_100p = start offset 100% (last frame)
         firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_100p/').replace(/\.\w+$/, '.jpg');
+      } else if (videoProvider === 'comfyui' && prevShot?.imageUrl) {
+        // Companion videos are downloaded as browser-only blob: URLs, which a
+        // Node route cannot read. The previous shot image is a stable fallback
+        // first frame for FL2VA, with this shot's image used as the end frame.
+        firstFrameUrl = await makePortableMediaSource(prevShot.imageUrl, `场景 ${prevShot.sceneNumber} 分镜图`);
       }
 
       const generationUrl = videoProvider === 'comfyui'
@@ -571,15 +606,15 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, characterAudios: storyboard.characterAudios || [], firstFrameUrl, voiceReferences: voiceReferencesRef.current || {}, videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
+        body: JSON.stringify({ storyboard: storyboardForRequest, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: latestStoryboard.aspectRatio || settings.aspectRatio, characterAudios: latestStoryboard.characterAudios || [], firstFrameUrl, voiceReferences: voiceReferencesRef.current || {}, videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
       });
-      if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate video');
-      const data = await response.json();
+      const data = await readApiJson<{ taskId: string }>(response, '视频任务创建失败');
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoTaskId: data.taskId } : sb));
       await pollVideoStatus(storyboard.id, data.taskId);
     } catch (error) {
       console.error('Video generation failed:', error);
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoStatus: 'failed' } : sb));
+      alert(`视频生成失败：${error instanceof Error ? error.message : '未知错误'}`);
     }
   };
 
