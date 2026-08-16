@@ -4,7 +4,8 @@ async function dmxChatCompletion(prompt: string, apiKey: string, model: string):
   const response = await fetch('https://www.dmxapi.cn/v1/chat/completions', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, stream: false, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] })
+    body: JSON.stringify({ model, stream: false, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] }),
+    signal: AbortSignal.timeout(120000)
   });
   if (!response.ok) throw new Error(`DMXAPI error: ${response.status}`);
   const data = await response.json();

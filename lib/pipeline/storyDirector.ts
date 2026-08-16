@@ -1,6 +1,7 @@
 import { Storyboard, Character, ObjectItem } from '@/types';
 import { StoryPlan, Beat } from './types';
 import { chatOnce } from './llm';
+import { extractJson } from './json';
 
 // 导演阶段：把编剧产出的 StoryPlan 可视化成分镜（Storyboard[]）。
 // 关键点：镜头数量/顺序/台词/时长/转场/连续关系【忠实于 StoryPlan】，只补画面/视频提示词与定妆。
@@ -115,9 +116,8 @@ export async function directStoryboard(input: {
 
   const response = await chatOnce(prompt, { apiKey, dmxApiKey, model: scriptModel });
 
-  const jsonMatch = response.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error('Failed to parse storyboard JSON from director response');
-  const rawShots: any[] = JSON.parse(jsonMatch[0]);
+  const parsed = extractJson(response);
+  const rawShots: any[] = Array.isArray(parsed) ? parsed : [];
 
   return mergeBeats(storyPlan, rawShots, aspectRatio);
 }

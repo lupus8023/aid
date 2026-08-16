@@ -1,6 +1,7 @@
 import { StoryPlan, Beat, PlannedCharacter, WriterCharacter, WriterObject } from './types';
 import { buildStoryPlanPrompt } from './storyWriterPrompt';
 import { chatOnce } from './llm';
+import { extractJson } from './json';
 
 const TRANSITIONS: Beat['transition'][] = ['cut', 'dissolve', 'fade', 'wipe'];
 
@@ -88,12 +89,7 @@ export async function generateStoryPlan(input: {
 
   const response = await chatOnce(prompt, { apiKey, dmxApiKey, model: scriptModel });
 
-  const start = response.indexOf('{');
-  const end = response.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error('Failed to parse story plan JSON from AI response');
-  }
-  const raw = JSON.parse(response.slice(start, end + 1));
+  const raw = extractJson(response);
 
   return sanitizeStoryPlan(
     raw,

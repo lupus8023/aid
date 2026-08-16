@@ -23,7 +23,8 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 120000
       }
     );
 
