@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { Wand2, Loader2 } from 'lucide-react';
 import { readApiJson } from '@/lib/apiResponse';
+import { fetchStoryApi } from '@/lib/comfyuiClient';
+import type { AppSettings } from '@/types';
 
 interface Step1Props {
   storyContent: string;
@@ -15,9 +17,10 @@ interface Step1Props {
   apiKey?: string;
   scriptModel?: string;
   dmxApiKey?: string;
+  companionSettings?: AppSettings['comfyui'];
 }
 
-export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, apiKey, scriptModel, dmxApiKey }: Step1Props) {
+export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, apiKey, scriptModel, dmxApiKey, companionSettings }: Step1Props) {
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text');
   const [textInput, setTextInput] = useState(storyContent);
   const [isExpanding, setIsExpanding] = useState(false);
@@ -43,11 +46,11 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
     if (!textInput.trim() || (!apiKey && !dmxApiKey)) return;
     setIsExpanding(true);
     try {
-      const res = await fetch('/api/expand-story', {
+      const res = await fetchStoryApi('/api/expand-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ brief: textInput, language, apiKey, scriptModel, dmxApiKey })
-      });
+      }, companionSettings);
       if (!res.ok || !String(res.headers.get('content-type') || '').includes('text/event-stream')) {
         const unexpected = await readApiJson<{ error?: string }>(res, 'AI 扩写失败');
         throw new Error(unexpected.error || 'AI 扩写服务返回了非流式响应');

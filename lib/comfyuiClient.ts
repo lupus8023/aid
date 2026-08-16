@@ -1,6 +1,7 @@
 import type { AppSettings } from '@/types';
 
 export const DEFAULT_COMFYUI_COMPANION_URL = 'http://127.0.0.1:3018';
+const STORY_COMPANION_MIN_VERSION = [0, 1, 9];
 
 type ComfyUISettings = NonNullable<AppSettings['comfyui']>;
 
@@ -8,6 +9,49 @@ export function comfyUIApiUrl(pathname: string, settings?: Partial<ComfyUISettin
   if (settings?.useLocalCompanion === false) return pathname;
   const baseUrl = String(settings?.localCompanionUrl || DEFAULT_COMFYUI_COMPANION_URL).replace(/\/+$/, '');
   return `${baseUrl}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
+}
+
+function supportsStoryGeneration(version: string): boolean {
+  if (version === 'development') return true;
+  const parts = version.split('.').map(value => Number(value) || 0);
+  for (let index = 0; index < STORY_COMPANION_MIN_VERSION.length; index += 1) {
+    const required = STORY_COMPANION_MIN_VERSION[index];
+    const actual = parts[index] || 0;
+    if (actual > required) return true;
+    if (actual < required) return false;
+  }
+  return true;
+}
+
+/**
+ * Long screenplay calls exceed Netlify's non-configurable 60-second function
+ * limit. Prefer the local Companion when it supports Story routes, while
+ * retaining the hosted endpoint for users without Companion.
+ */
+export async function fetchStoryApi(
+  pathname: string,
+  init: RequestInit,
+  settings?: Partial<ComfyUISettings>,
+): Promise<Response> {
+  if (settings?.useLocalCompanion !== false) {
+    try {
+      const statusResponse = await fetch(comfyUIApiUrl('/api/companion/status', settings), {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(1800),
+      });
+      const status = statusResponse.ok ? await statusResponse.json() : undefined;
+      if (status?.ok && supportsStoryGeneration(String(status.version || ''))) {
+        try {
+          return await fetch(comfyUIApiUrl(pathname, settings), init);
+        } catch (error) {
+          console.warn(`Local Companion Story request failed; falling back to hosted API: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    } catch {
+      // Companion is optional; hosted API remains available for short jobs.
+    }
+  }
+  return await fetch(pathname, init);
 }
 
 export function localComfyUISettings(settings?: Partial<ComfyUISettings>): Partial<ComfyUISettings> {

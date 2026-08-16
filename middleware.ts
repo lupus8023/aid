@@ -40,5 +40,8 @@ export const config = {
     '/api/generate-video',
     '/api/image-to-video',
     '/api/check-video-status',
+    '/api/generate-story-plan',
+    '/api/direct-storyboard',
+    '/api/expand-story',
   ],
 };

@@ -19,7 +19,7 @@ async function parseProviderResponse(response: Response, provider: string): Prom
   return data;
 }
 
-async function dmxChatCompletion(prompt: string, apiKey: string, model: string): Promise<string> {
+async function dmxChatCompletion(prompt: string, apiKey: string, model: string, timeoutMs: number): Promise<string> {
   let lastError: Error | undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -27,7 +27,7 @@ async function dmxChatCompletion(prompt: string, apiKey: string, model: string):
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, stream: false, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] }),
-        signal: AbortSignal.timeout(120000)
+        signal: AbortSignal.timeout(timeoutMs)
       });
       const data = await parseProviderResponse(response, 'DMXAPI');
       const content = data?.choices?.[0]?.message?.content;
@@ -55,10 +55,19 @@ export async function chatOnce(
 ): Promise<string> {
   const { apiKey, dmxApiKey, model = 'gpt-4o' } = opts;
   const errors: Error[] = [];
+  const isLocalCompanion = process.env.AID_LOCAL_COMPANION === '1';
+  // Netlify ends synchronous and streamed functions at 60 seconds. Keep hosted
+  // failures inside that window so the route can still return JSON; Companion
+  // has no such platform limit and can wait for long-form model output.
+  const providerTimeout = isLocalCompanion
+    ? 240000
+    : apiKey && dmxApiKey
+      ? 24000
+      : 50000;
 
   if (dmxApiKey) {
     try {
-      return await dmxChatCompletion(prompt, dmxApiKey, model);
+      return await dmxChatCompletion(prompt, dmxApiKey, model, providerTimeout);
     } catch (error) {
       errors.push(error instanceof Error ? error : new Error(String(error)));
     }
@@ -66,7 +75,7 @@ export async function chatOnce(
 
   if (apiKey) {
     try {
-      return await chatCompletion(prompt, apiKey, model);
+      return await chatCompletion(prompt, apiKey, model, providerTimeout);
     } catch (error) {
       errors.push(error instanceof Error ? error : new Error(String(error)));
     }

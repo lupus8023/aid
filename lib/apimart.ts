@@ -4,7 +4,7 @@ import { ApiMartChatResponse, ApiMartImageTaskResponse, ApiMartImageStatusRespon
 const APIMART_BASE_URL = 'https://api.apimart.ai/v1';
 
 // 聊天 API - 用于分析故事
-export async function chatCompletion(prompt: string, apiKey: string, model: string = 'gpt-4o'): Promise<string> {
+export async function chatCompletion(prompt: string, apiKey: string, model: string = 'gpt-4o', timeoutMs = 120000): Promise<string> {
   try {
     const response = await axios.post<ApiMartChatResponse>(
       `${APIMART_BASE_URL}/chat/completions`,
@@ -24,11 +24,9 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
-        timeout: 120000
+        timeout: timeoutMs
       }
     );
-
-    console.log('API Response:', JSON.stringify(response.data, null, 2));
 
     // Handle SSE format response (": PING\n\n{...json...}")
     let rawData = response.data as any;
@@ -41,6 +39,7 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
     if (!content) {
       throw new Error(`Unexpected API response format: ${JSON.stringify(rawData)}`);
     }
+    console.log(`Chat API response received: model=${model}, contentLength=${content.length}`);
     return content;
   } catch (error: any) {
     console.error('Chat API error:', error);

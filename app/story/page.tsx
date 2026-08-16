@@ -17,7 +17,7 @@ import { Character, ObjectItem, Storyboard } from '@/types';
 import { StoryPlan } from '@/lib/pipeline/types';
 import { useProject } from '@/hooks/useProject';
 import { useSettings } from '@/hooks/useSettings';
-import { comfyUIApiUrl, downloadComfyUIVideo, isComfyUIClientTask, localComfyUISettings, videoStatusResponseError } from '@/lib/comfyuiClient';
+import { comfyUIApiUrl, downloadComfyUIVideo, fetchStoryApi, isComfyUIClientTask, localComfyUISettings, videoStatusResponseError } from '@/lib/comfyuiClient';
 import { Grid3x3 } from 'lucide-react';
 import { readApiJson } from '@/lib/apiResponse';
 
@@ -152,19 +152,19 @@ export default function StoryPage() {
     // hosting gateway reject the request with an HTML 413/5xx page.
     const writerCharacters = characters.map(({ name, description, voiceId }) => ({ name, description, voiceId }));
     const writerObjects = objects.map(({ name, description }) => ({ name, description }));
-    const planRes = await fetch('/api/generate-story-plan', {
+    const planRes = await fetchStoryApi('/api/generate-story-plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ synopsis: storyContent, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, language: settings.language || 'zh', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
-    });
+    }, settings.comfyui);
     const { storyPlan } = await readApiJson<{ storyPlan: StoryPlan }>(planRes, '剧本规划失败');
     setStoryPlan(storyPlan);
 
-    const dirRes = await fetch('/api/direct-storyboard', {
+    const dirRes = await fetchStoryApi('/api/direct-storyboard', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, aspectRatio: settings.aspectRatio, language: settings.language || 'zh', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
-    });
+    }, settings.comfyui);
     const { storyboards } = await readApiJson<{ storyboards: Storyboard[] }>(dirRes, '分镜导演失败');
     setStoryboards(storyboards);
     storyboardsRef.current = storyboards;
@@ -837,6 +837,7 @@ export default function StoryPage() {
                 apiKey={settings.apiKey}
                 scriptModel={settings.scriptModel}
                 dmxApiKey={settings.dmxApiKey}
+                companionSettings={settings.comfyui}
               />
             )}
             {currentStep === 3 && (
