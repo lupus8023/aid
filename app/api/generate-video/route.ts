@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildStoryboardVideoPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
 import { snapDurationToModel } from '@/lib/apimart';
 import { createComfyUIVideoTask } from '@/lib/comfyui';
+import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -26,8 +27,14 @@ export async function POST(request: NextRequest) {
         .filter((x): x is { name: string; url: string } => Boolean(x.url))
         .slice(0, 3)
         .map((x) => { referenceAudioNames.push(x.name); return x.url; });
+      // 兜底：若分镜图仍是 base64 数据 URL，先上传到 Cloudinary 变成公网 URL，保证 ComfyUI LoadImage 能拿到文件
+      let firstFrame = firstFrameUrl || storyboard.imageUrl;
+      if (typeof firstFrame === 'string' && firstFrame.startsWith('data:')) {
+        const uploaded = await uploadToCloudinary(firstFrame, { folder: 'aid-shot-images' });
+        firstFrame = uploaded.secure_url;
+      }
       const result = await createComfyUIVideoTask({
-        firstFrame: firstFrameUrl || storyboard.imageUrl,
+        firstFrame,
         endFrame: firstFrameUrl ? storyboard.imageUrl : undefined,
         referenceAudios,
         referenceAudioNames,

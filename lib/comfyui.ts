@@ -919,6 +919,10 @@ type MaterialSource = string | {
 
 async function materializeSource(source: MaterialSource, directory: string, label: string): Promise<string> {
   if (!source) throw new ComfyUIError(`${label} 未提供`);
+  const sourcePreview = typeof source === 'string'
+    ? `${source.slice(0, 32)}... (len=${source.length})`
+    : 'non-string source';
+  console.log(`[comfyui] materializeSource ${label}: ${sourcePreview}`);
   let buffer: Buffer;
   let extension = '';
   if (typeof source !== 'string') {
@@ -994,6 +998,7 @@ async function uploadAsset(config: ComfyUIConfig, localPath: string, subfolder: 
   const remoteDirectory = `${config.workflowRoot.replace(/\/$/, '')}/input/${subfolder}`;
   await runSsh(config, `mkdir -p -- ${shellQuote(remoteDirectory)}`);
   const remotePath = `${remoteDirectory}/${safeName}`;
+  console.log(`[comfyui] uploadAsset: ${localPath} -> ${remotePath}`);
   if (config.sshPrivateKey) {
     const client = await getJsSshClient(config);
     const sftp = await new Promise<SFTPWrapper>((resolve, reject) => {

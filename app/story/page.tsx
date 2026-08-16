@@ -369,7 +369,22 @@ export default function StoryPage() {
         if (!response.ok) continue;
         const data = await response.json();
         if (data.status === 'completed' && data.imageUrl) {
-          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, status: 'completed', imageUrl: data.imageUrl, taskId } : sb));
+          let imageUrl = data.imageUrl;
+          // 确保 imageUrl 是公网 URL：base64 数据 URL 会上传到 Cloudinary，否则 ComfyUI LoadImage 拿不到文件
+          if (typeof imageUrl === 'string' && imageUrl.startsWith('data:')) {
+            try {
+              const uploadRes = await fetch('/api/upload-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ imageData: imageUrl })
+              });
+              if (uploadRes.ok) {
+                const { url } = await uploadRes.json();
+                imageUrl = url;
+              }
+            } catch (e) { console.error('Upload image to Cloudinary failed:', e); }
+          }
+          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, status: 'completed', imageUrl, taskId } : sb));
           return;
         }
         if (data.status === 'failed') {
@@ -655,9 +670,9 @@ export default function StoryPage() {
         if (sb.status !== 'completed') await handleGenerateImage(sb);
       }
 
-      // ④ 视频（顺序生成，连续镜头自动接上一镜尾帧）
+      // ④ 视频（顺序生成，连续镜头自动接上一镜尾帧；读最新状态，图片阶段刚生成完）
       setAutoStage('生成视频');
-      for (const sb of shots) {
+      for (const sb of storyboardsRef.current) {
         if (autoAbortRef.current) return;
         if (sb.videoStatus !== 'completed' && sb.imageUrl) await handleGenerateVideo(sb);
       }
