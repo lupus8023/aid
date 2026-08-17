@@ -266,7 +266,17 @@ export default function StoryPage() {
       for (let index = 0; index < savedStoryboards.length; index += 9) {
         const group = savedStoryboards.slice(index, index + 9);
         const taskIds = [...new Set(group.map(item => item.taskId).filter(Boolean))];
-        if (group.length > 0 && group.every(item => item.status === 'generating') && taskIds.length === 1) {
+        const isInterrupted = group.length > 0 && group.every(item => item.status === 'generating');
+        const usesDurableGridCrops = group.length > 0 && group.every(item =>
+          item.imageUrl?.includes('/aid-grid-sources/') && item.imageUrl.includes('/c_crop,'),
+        );
+        // Migrate completed legacy browser-canvas crops too. Their saved task
+        // ids still point to the correct APIMart mother grids, so re-splitting
+        // fixes wrongly repeated batches without purchasing another generation.
+        const needsDurableResplit = group.length > 0
+          && group.every(item => Boolean(item.imageUrl))
+          && !usesDurableGridCrops;
+        if ((isInterrupted || needsDurableResplit) && taskIds.length === 1) {
           const taskId = taskIds[0]!;
           const recoveryKey = `${savedProject.id}:${taskId}`;
           if (!gridRecoveryRef.current.has(recoveryKey)) {
