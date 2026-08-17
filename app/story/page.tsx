@@ -273,10 +273,18 @@ export default function StoryPage() {
             gridRecoveryRef.current.add(recoveryKey);
             window.setTimeout(async () => {
               try {
+                // Project data and settings are restored by separate hooks.
+                // Wait for the latest settings ref instead of capturing the
+                // initial empty API key and showing a false configuration alert.
+                for (let attempt = 0; attempt < 40 && !settingsRef.current.apiKey; attempt++) {
+                  await new Promise(resolve => window.setTimeout(resolve, 250));
+                }
+                const recoveryApiKey = settingsRef.current.apiKey;
+                if (!recoveryApiKey) throw new Error('APIMart API Key 尚未加载');
                 const response = await fetch('/api/check-image-status', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ taskId, apiKey: settingsRef.current.apiKey })
+                  body: JSON.stringify({ taskId, apiKey: recoveryApiKey })
                 });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
@@ -447,15 +455,17 @@ export default function StoryPage() {
 
   // Step4: batch generate via 3x3 grid
   const handleGenerateGrid = async (batch: Storyboard[], options: { throwOnError?: boolean; resumeTaskId?: string } = {}) => {
-    if (!settings.apiKey) {
+    const activeSettings = settingsRef.current;
+    if (!activeSettings.apiKey) {
       const error = new Error('Please configure API Key in settings');
       if (options.throwOnError) throw error;
+      if (options.resumeTaskId) return;
       alert(error.message);
       return;
     }
     if (batch.length === 0) return;
     const { buildGridPrompt, chunkGridBatch, splitGridImage } = await import('@/lib/gridSplitter');
-    const aspectRatio = settings.aspectRatio;
+    const aspectRatio = activeSettings.aspectRatio;
     const generationProjectId = projectIdRef.current;
     const updateGridStoryboards = (updater: (items: Storyboard[]) => Storyboard[]) => {
       if (generationProjectId !== projectIdRef.current) return;
@@ -559,8 +569,8 @@ export default function StoryPage() {
               characters: groupCharacters,
               objects: groupObjects,
               aspectRatio,
-              imageModel: settings.imageModel,
-              apiKey: settings.apiKey,
+              imageModel: activeSettings.imageModel,
+              apiKey: activeSettings.apiKey,
               costumeImages: costumeImagesRef.current,
               sceneImage: sceneImagesRef.current[0] || '',
               // 传递所有参考图（角色 + 场景 + 物体）
@@ -583,7 +593,7 @@ export default function StoryPage() {
           const statusRes = await fetch('/api/check-image-status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId, apiKey: settings.apiKey })
+            body: JSON.stringify({ taskId, apiKey: activeSettings.apiKey })
           });
           if (!statusRes.ok) continue;
           const statusData = await statusRes.json();
