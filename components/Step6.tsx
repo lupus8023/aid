@@ -8,15 +8,26 @@ interface Step6Props {
 }
 
 export default function Step6({ storyboards, onBack }: Step6Props) {
+  const seenSegments = new Set<string>();
   const completedShots = storyboards
     .map((storyboard, originalIndex) => ({ storyboard, originalIndex }))
-    .filter(({ storyboard }) => storyboard.videoStatus === 'completed' && storyboard.videoUrl);
+    .filter(({ storyboard }) => {
+      if (storyboard.videoStatus !== 'completed' || !storyboard.videoUrl) return false;
+      const key = storyboard.videoSegmentId || storyboard.id;
+      if (seenSegments.has(key)) return false;
+      seenSegments.add(key);
+      return true;
+    });
   const videoUrls = completedShots.map(({ storyboard }) => storyboard.videoUrl as string);
-  const continuousFromPrevious = completedShots.map(({ storyboard, originalIndex }, index) => (
-    index > 0
-    && storyboard.continuousFromPrev === true
-    && completedShots[index - 1].originalIndex === originalIndex - 1
-  ));
+  const continuousFromPrevious = completedShots.map(({ storyboard }, index) => {
+    if (index === 0 || storyboard.continuousFromPrev !== true) return false;
+    const previous = completedShots[index - 1].storyboard;
+    const previousMembers = previous.videoSegmentStoryboardIds?.length
+      ? previous.videoSegmentStoryboardIds
+      : [previous.id];
+    const previousLast = storyboards.find(item => item.id === previousMembers.at(-1));
+    return previousLast?.sceneNumber === storyboard.sceneNumber - 1;
+  });
 
   return (
     <div className="h-full flex flex-col">

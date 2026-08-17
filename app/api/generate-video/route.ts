@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildStoryboardVideoPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
+import { buildStoryboardVideoPrompt, buildVideoSegmentPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
 import { snapDurationToModel } from '@/lib/apimart';
 import { createComfyUIVideoTask } from '@/lib/comfyui';
 
@@ -24,22 +24,30 @@ function speakingCharacterNames(storyboard: any): string[] {
 export async function POST(request: NextRequest) {
   try {
     const {
-      storyboard, apiKey, videoModel, aspectRatio,
+      storyboard, segmentStoryboards = [], apiKey, videoModel, aspectRatio,
       characterAudios = [], firstFrameUrl,
       voiceReferences = {},  // { 角色名: CloudinaryURL }
       videoProvider = 'apimart', comfyui = {},
     } = await request.json();
 
     if (!storyboard) return NextResponse.json({ error: 'Storyboard is required' }, { status: 400 });
+    const videoStoryboards = Array.isArray(segmentStoryboards) && segmentStoryboards.length
+      ? segmentStoryboards.slice(0, 4)
+      : [storyboard];
+    const combinedStoryboard = {
+      ...storyboard,
+      characters: [...new Set(videoStoryboards.flatMap((shot: any) => shot.characters || []))],
+      objects: [...new Set(videoStoryboards.flatMap((shot: any) => shot.objects || []))],
+      dialogueLines: videoStoryboards.flatMap((shot: any) => shot.dialogueLines || []),
+    };
     if (videoProvider === 'comfyui') {
-      if (!storyboard.imageUrl) return NextResponse.json({ error: 'Storyboard image is required' }, { status: 400 });
-      if (typeof storyboard.imageUrl !== 'string') return NextResponse.json({ error: 'Storyboard image must be a URL or data URL' }, { status: 400 });
-      if (storyboard.imageUrl.startsWith('blob:')) {
+      if (videoStoryboards.some((shot: any) => !shot.imageUrl || typeof shot.imageUrl !== 'string')) return NextResponse.json({ error: 'Every selected storyboard needs an image' }, { status: 400 });
+      if (videoStoryboards.some((shot: any) => shot.imageUrl.startsWith('blob:'))) {
         return NextResponse.json({ error: 'Storyboard image is a browser-only blob URL and cannot be read by Companion' }, { status: 400 });
       }
       // H3 的所有参考音频总计不能超过 15 秒。只传本镜头真正开口的角色，
       // 避免把画面中未说话角色的声音也计入额度。后续还会在 Companion 端统一裁剪总长。
-      const speakingCharacters = speakingCharacterNames(storyboard);
+      const speakingCharacters = speakingCharacterNames(combinedStoryboard);
       const referenceAudioNames: string[] = [];
       const referenceAudios = speakingCharacters
         .map((name) => ({ name, url: voiceReferences[name] }))
@@ -50,19 +58,29 @@ export async function POST(request: NextRequest) {
       // uploads that exact file into ComfyUI/input over SSH. Do not insert a
       // Cloudinary hop here: it is unnecessary and can drop a valid data URL
       // when Cloudinary is unavailable.
-      const firstFrame = firstFrameUrl || storyboard.imageUrl;
+      const isMultiBeatSegment = videoStoryboards.length > 1;
+      const firstFrame = firstFrameUrl || videoStoryboards[0].imageUrl;
       if (typeof firstFrame !== 'string' || firstFrame.startsWith('blob:')) {
         return NextResponse.json({ error: 'ComfyUI first frame is not accessible to Companion' }, { status: 400 });
       }
-      console.log(`[comfyui] scene ${storyboard.sceneNumber || '?'} frame input: ${firstFrame.startsWith('data:') ? 'data-url' : 'url'}; continuity=${Boolean(firstFrameUrl)}`);
+      const auxiliaryImages = isMultiBeatSegment
+        ? (firstFrameUrl ? videoStoryboards : videoStoryboards.slice(1)).map((shot: any) => shot.imageUrl)
+        : [];
+      console.log(`[comfyui] scene ${storyboard.sceneNumber || '?'} frame input: ${firstFrame.startsWith('data:') ? 'data-url' : 'url'}; continuity=${Boolean(firstFrameUrl)}; beats=${videoStoryboards.length}`);
       const result = await createComfyUIVideoTask({
         firstFrame,
-        endFrame: firstFrameUrl ? storyboard.imageUrl : undefined,
+        auxiliaryImages,
+        // Single-shot continuity can use FL2VA. Multi-beat segments instead use
+        // the multi-reference workflow so every checked storyboard remains a
+        // visible editorial reference inside the same 15-second clip.
+        endFrame: firstFrameUrl && !isMultiBeatSegment ? storyboard.imageUrl : undefined,
         referenceAudios,
         referenceAudioNames,
         // H3 generates the synchronized soundtrack natively. Voice samples are
         // optional references, so APIMart's URL-tag syntax must not enter the prompt.
-        prompt: buildStoryboardVideoPrompt(storyboard, [], firstFrameUrl),
+        prompt: isMultiBeatSegment
+          ? buildVideoSegmentPrompt(videoStoryboards, [], { firstFrameUrl, duration: Number(storyboard.videoDuration) || 15 })
+          : buildStoryboardVideoPrompt(storyboard, [], firstFrameUrl),
         duration: Number(storyboard.videoDuration) || 5,
         aspectRatio: aspectRatio || '16:9',
         settings: comfyui,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Character, Storyboard, ObjectItem } from '@/types';
+import { Character, Storyboard, ObjectItem, VisualStyle } from '@/types';
 import { StoryPlan, PipelineState } from '@/lib/pipeline/types';
 
 export interface ProjectData {
@@ -10,6 +10,7 @@ export interface ProjectData {
   objects?: ObjectItem[];
   storyContent: string;
   targetShotCount?: number;
+  visualStyle?: VisualStyle;
   storyOutline: string;
   storyboards: Storyboard[];
   // 全量持久化：音色参考 / 定妆 bible / 场景参考 / 编剧计划 / 编排状态
@@ -71,6 +72,7 @@ export function useProject() {
       objects: (data.objects || []).map(cleanObject),
       storyContent: data.storyContent || '',
       targetShotCount: data.targetShotCount,
+      visualStyle: data.visualStyle,
       storyOutline: data.storyOutline || '',
       storyboards: (data.storyboards || []).map(cleanStoryboard),
       voiceReferences: data.voiceReferences,
@@ -94,6 +96,7 @@ export function useProject() {
           characters: projectData.characters,
           storyContent: '',
           targetShotCount: projectData.targetShotCount,
+          visualStyle: projectData.visualStyle,
           storyOutline: '',
           storyboards: [],
           createdAt: projectData.createdAt,

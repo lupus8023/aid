@@ -65,13 +65,15 @@ export async function generateStoryboardImage(
       );
     });
 
-    const enhancedPrompt = `${cleanPrompt}
+    const enhancedPrompt = `${buildMediumLock(visualStyle)}
+
+${cleanPrompt}
 
 ${referenceDescriptions.join('\n')}
 
 Strict rules: maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. Do not add subtitles, background music, or extra characters not shown in the references. Maintain exact lighting and atmosphere from the scene reference.
 
-${buildMediumLock(visualStyle)}`;
+`;
 
     // 清理 prompt 中可能导致 API 错误的特殊字符
     const cleanEnhancedPrompt = enhancedPrompt
@@ -137,7 +139,7 @@ ${buildMediumLock(visualStyle)}`;
     console.log(`Scene ${storyboard.sceneNumber} has no characters or objects, using text-to-image generation`);
 
     // 纯文生图也要清理 brackets
-    const cleanPrompt = storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1');
+    const cleanPrompt = `${buildMediumLock(visualStyle)}\n\n${storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1')}`;
 
     const taskId = await createImageTask(
       cleanPrompt,
@@ -190,13 +192,15 @@ ${buildMediumLock(visualStyle)}`;
     );
   });
 
-  const enhancedPrompt = `${cleanedScenePrompt}
+  const enhancedPrompt = `${buildMediumLock(visualStyle)}
+
+${cleanedScenePrompt}
 
 ${referenceDescriptions.join('\n')}
 
 Strict rules: maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. Do not add subtitles, background music, or extra characters not shown in the references. Maintain exact lighting and atmosphere from the scene reference.
 
-${buildMediumLock(visualStyle)}`;
+`;
 
   // 清理 prompt 中可能导致 API 错误的特殊字符
   const cleanEnhancedPrompt = enhancedPrompt

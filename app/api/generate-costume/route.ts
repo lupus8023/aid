@@ -13,6 +13,7 @@ export async function POST(request: NextRequest) {
         description,
         costumeDesc,
         hasIdentityReference: Boolean(referenceImageUrl),
+        visualStyle,
       });
     } else if (type === 'scene') {
       prompt = buildSceneReferencePrompt(sceneStyle, visualStyle);

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Storyboard, Character } from '@/types';
-import { CheckCircle2, HardDrive, Loader2, Video, Wand2, Mic } from 'lucide-react';
+import { CheckCircle2, Clapperboard, HardDrive, Layers3, Loader2, Video, Wand2, Mic } from 'lucide-react';
+import { estimateVideoSegmentSeconds, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
 
 interface Step5Props {
   storyboards: Storyboard[];
@@ -11,7 +12,7 @@ interface Step5Props {
   videoProvider?: 'apimart' | 'comfyui';
   onBack: () => void;
   onNext: () => void;
-  onGenerateVideo: (storyboard: Storyboard) => void;
+  onGenerateVideo: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void;
   onGenerateVideoPrompt?: (storyboard: Storyboard) => void;
   onGenerateAudio?: (storyboard: Storyboard) => void;
   onUpdate?: (storyboard: Storyboard) => void;
@@ -24,11 +25,27 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
   const withImages = storyboards.filter(sb => sb.imageUrl);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedPrompt, setEditedPrompt] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const isComfyUI = videoProvider === 'comfyui';
   // Wan2.6/Wan2.7 使用实际音轨；仙宫云 MiniMax H3 会原生生成同步音频。
   const m = (videoModel || '').toLowerCase();
   const showAudioButton = !isComfyUI && (m.includes('wan2.6') || m.includes('wan2.7') || m.includes('wan 2.6') || m.includes('wan 2.7'));
+  const suggestedSegments = useMemo(() => suggestVideoSegments(withImages), [withImages]);
+  const selectedStoryboards = withImages.filter(storyboard => selectedIds.includes(storyboard.id)).sort((a, b) => a.sceneNumber - b.sceneNumber);
+  const selectionError = selectedIds.length ? validateVideoSegment(selectedStoryboards) : undefined;
+
+  const toggleStoryboard = (storyboardId: string) => {
+    setSelectedIds(current => current.includes(storyboardId)
+      ? current.filter(id => id !== storyboardId)
+      : [...current, storyboardId]);
+  };
+
+  const generateSelectedSegment = () => {
+    if (selectionError || !selectedStoryboards.length) return;
+    onGenerateVideo(selectedStoryboards[0], selectedStoryboards);
+    setSelectedIds([]);
+  };
 
   const startEdit = (sb: Storyboard) => {
     setEditingId(sb.id);
@@ -36,7 +53,7 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
   };
 
   const saveEdit = (sb: Storyboard) => {
-    onUpdate?.({ ...sb, videoPrompt: editedPrompt });
+    onUpdate?.({ ...sb, videoPrompt: editedPrompt, videoPromptOverride: true });
     setEditingId(null);
   };
 
@@ -65,6 +82,41 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
         </div>
       )}
 
+      {isComfyUI && withImages.length > 0 && (
+        <section className="rounded-xl border border-[var(--accent-purple)]/45 bg-[var(--bg-secondary)] p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-semibold text-white"><Clapperboard size={15} className="text-[var(--accent-purple)]" /> H3 片段编组</p>
+              <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">一个视频片段可以包含 1–4 个连续分镜。每张勾选的分镜图会作为片段内对应节拍的多图参考，总时长严格不超过 15 秒。</p>
+            </div>
+            <button
+              type="button"
+              onClick={generateSelectedSegment}
+              disabled={!selectedStoryboards.length || Boolean(selectionError)}
+              className="flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[var(--accent-purple)] px-4 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Layers3 size={14} />
+              {selectedStoryboards.length ? `生成所选 ${selectedStoryboards.length} 镜 · ${estimateVideoSegmentSeconds(selectedStoryboards)}s` : '勾选下方分镜'}
+            </button>
+          </div>
+          {selectionError && <p className="mt-2 text-xs text-[var(--accent-yellow)]">{selectionError}</p>}
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            {suggestedSegments.map((group, index) => (
+              <button
+                key={`${group[0]?.id}-${index}`}
+                type="button"
+                onClick={() => setSelectedIds(group.map(item => item.id))}
+                className="shrink-0 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 py-2 text-left hover:border-[var(--accent-purple)]"
+              >
+                <span className="block font-mono text-[10px] text-[var(--accent-purple)]">推荐片段 {String(index + 1).padStart(2, '0')}</span>
+                <span className="mt-0.5 block text-xs text-[var(--text-primary)]">镜头 {group.map(item => item.sceneNumber).join(' · ')}</span>
+                <span className="mt-0.5 block font-mono text-[10px] text-[var(--text-secondary)]">{group.length} 个节拍 · {estimateVideoSegmentSeconds(group)}s</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {withImages.map((sb) => {
           const hasDialogue = (sb.dialogueLines?.length ?? 0) > 0 || Object.keys(sb.dialogue || {}).length > 0;
@@ -79,9 +131,19 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
               )}
               <div className="p-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono text-[var(--accent-yellow)]">Scene {sb.sceneNumber}</span>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    {isComfyUI && <input type="checkbox" checked={selectedIds.includes(sb.id)} onChange={() => toggleStoryboard(sb.id)} className="h-3.5 w-3.5 accent-[var(--accent-purple)]" />}
+                    <span className="text-xs font-mono text-[var(--accent-yellow)]">Scene {sb.sceneNumber}</span>
+                  </label>
                   {sb.videoStatus === 'completed' && <CheckCircle2 size={14} className="text-[var(--success)]" />}
                 </div>
+                {sb.videoSegmentId && (
+                  <p className="rounded bg-[var(--accent-purple)]/10 px-2 py-1 text-[10px] font-mono text-[var(--accent-purple)]">
+                    {sb.videoSegmentStoryboardIds?.length
+                      ? `片段主镜头 · 包含 ${sb.videoSegmentStoryboardIds.length} 个分镜`
+                      : '已编入同一 H3 片段'}
+                  </p>
+                )}
                 {sb.videoCacheStatus === 'caching' && (
                   <p className="flex items-center gap-1 text-[10px] font-mono text-[var(--accent-yellow)]"><Loader2 size={10} className="animate-spin" /> 正在下载到本地…</p>
                 )}

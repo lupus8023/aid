@@ -13,15 +13,17 @@ import Step5 from '@/components/Step5';
 import Step6 from '@/components/Step6';
 import SettingsModal from '@/components/SettingsModal';
 import CanvasMode from '@/components/CanvasMode';
-import { Character, ObjectItem, Storyboard } from '@/types';
+import { Character, ObjectItem, Storyboard, VisualStyle } from '@/types';
 import { StoryPlan } from '@/lib/pipeline/types';
 import { useProject } from '@/hooks/useProject';
 import { useSettings } from '@/hooks/useSettings';
-import { comfyUIApiUrl, downloadComfyUIVideo, fetchStoryApi, isComfyUIClientTask, localComfyUISettings, videoStatusResponseError } from '@/lib/comfyuiClient';
+import { comfyUIApiUrl, companionVersionAtLeast, downloadComfyUIVideo, fetchStoryApi, isComfyUIClientTask, localComfyUISettings, SEGMENT_VIDEO_COMPANION_MIN_VERSION, videoStatusResponseError } from '@/lib/comfyuiClient';
 import { Grid3x3 } from 'lucide-react';
 import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
+import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
+import { estimateVideoSegmentSeconds, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
 
 async function makePortableMediaSource(source: string, label: string): Promise<string> {
   if (!source.startsWith('blob:')) return source;
@@ -98,6 +100,7 @@ export default function StoryPage() {
   const [objects, setObjects] = useState<ObjectItem[]>([]);
   const [storyContent, setStoryContent] = useState('');
   const [targetShotCount, setTargetShotCount] = useState(DEFAULT_TARGET_SHOT_COUNT);
+  const [visualStyle, setVisualStyle] = useState<VisualStyle>(DEFAULT_VISUAL_STYLE);
   const [storyboards, setStoryboards] = useState<Storyboard[]>([]);
   const [storyPlan, setStoryPlan] = useState<StoryPlan | undefined>();
   const [isLoading, setIsLoading] = useState(false);
@@ -113,29 +116,33 @@ export default function StoryPage() {
   const autoAbortRef = useRef(false);
   const videoRecoveryRef = useRef(new Set<string>());
 
-  const cacheCompletedVideo = async (storyboardId: string, sourceUrl: string): Promise<string> => {
+  const cacheCompletedVideo = async (storyboardId: string, sourceUrl: string, segmentStoryboardIds: string[] = [storyboardId]): Promise<string> => {
     const cacheKey = videoCacheKeyForStoryboard(storyboardId);
-    setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? {
+    setStoryboards(prev => prev.map(sb => segmentStoryboardIds.includes(sb.id) ? {
       ...sb,
       videoStatus: 'completed',
-      videoUrl: sourceUrl,
-      videoSourceUrl: sourceUrl.startsWith('http') ? sourceUrl : sb.videoSourceUrl,
-      videoCacheKey: cacheKey,
-      videoCacheStatus: 'caching',
+      ...(sb.id === storyboardId ? {
+        videoUrl: sourceUrl,
+        videoSourceUrl: sourceUrl.startsWith('http') ? sourceUrl : sb.videoSourceUrl,
+        videoCacheKey: cacheKey,
+        videoCacheStatus: 'caching' as const,
+      } : {}),
     } : sb));
 
     try {
       void requestPersistentVideoStorage();
       const cached = await cacheVideoSource(cacheKey, sourceUrl);
       const cachedAt = new Date().toISOString();
-      setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? {
+      setStoryboards(prev => prev.map(sb => segmentStoryboardIds.includes(sb.id) ? {
         ...sb,
         videoStatus: 'completed',
-        videoUrl: cached.objectUrl,
-        videoSourceUrl: sourceUrl.startsWith('http') ? sourceUrl : sb.videoSourceUrl,
-        videoCacheKey: cacheKey,
-        videoCacheStatus: 'completed',
-        videoCachedAt: cachedAt,
+        ...(sb.id === storyboardId ? {
+          videoUrl: cached.objectUrl,
+          videoSourceUrl: sourceUrl.startsWith('http') ? sourceUrl : sb.videoSourceUrl,
+          videoCacheKey: cacheKey,
+          videoCacheStatus: 'completed' as const,
+          videoCachedAt: cachedAt,
+        } : {}),
       } : sb));
       return cached.objectUrl;
     } catch (error) {
@@ -158,17 +165,21 @@ export default function StoryPage() {
       // clip completed less than 30 seconds before refresh, before autosave had
       // time to persist its final videoStatus/cache metadata.
       if (videoRecoveryRef.current.has(storyboard.id)) continue;
+      if (storyboard.videoSegmentId && !storyboard.videoSegmentStoryboardIds?.length) continue;
       videoRecoveryRef.current.add(storyboard.id);
+      const segmentIds = storyboard.videoSegmentStoryboardIds?.length ? storyboard.videoSegmentStoryboardIds : [storyboard.id];
       const cacheKey = storyboard.videoCacheKey || videoCacheKeyForStoryboard(storyboard.id);
       try {
         const cachedUrl = await cachedVideoObjectUrl(cacheKey);
         if (cachedUrl) {
-          setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? {
+          setStoryboards(prev => prev.map(sb => segmentIds.includes(sb.id) ? {
             ...sb,
             videoStatus: 'completed',
-            videoUrl: cachedUrl,
-            videoCacheKey: cacheKey,
-            videoCacheStatus: 'completed',
+            ...(sb.id === storyboard.id ? {
+              videoUrl: cachedUrl,
+              videoCacheKey: cacheKey,
+              videoCacheStatus: 'completed' as const,
+            } : {}),
           } : sb));
           continue;
         }
@@ -176,7 +187,7 @@ export default function StoryPage() {
         const remoteUrl = storyboard.videoSourceUrl
           || (storyboard.videoUrl?.startsWith('http') ? storyboard.videoUrl : undefined);
         if (remoteUrl) {
-          await cacheCompletedVideo(storyboard.id, remoteUrl);
+          await cacheCompletedVideo(storyboard.id, remoteUrl, segmentIds);
           continue;
         }
 
@@ -184,7 +195,7 @@ export default function StoryPage() {
         // a saved ComfyUI task id can still be downloaded again from 仙宫云.
         if (storyboard.videoTaskId && isComfyUIClientTask(storyboard.videoTaskId)) {
           const recoveredUrl = await downloadComfyUIVideo(storyboard.videoTaskId, settingsRef.current.comfyui);
-          await cacheCompletedVideo(storyboard.id, recoveredUrl);
+          await cacheCompletedVideo(storyboard.id, recoveredUrl, segmentIds);
         }
       } catch (error) {
         console.warn(`场景 ${storyboard.sceneNumber} 视频恢复失败:`, error);
@@ -223,6 +234,7 @@ export default function StoryPage() {
       setObjects(savedProject.objects || []);
       setStoryContent(savedProject.storyContent || '');
       setTargetShotCount(normalizeTargetShotCount(savedProject.targetShotCount));
+      setVisualStyle(normalizeVisualStyle(savedProject.visualStyle || settings.visualStyle));
       const savedStoryboards = savedProject.storyboards || [];
       setStoryboards(savedStoryboards);
       void recoverProjectVideos(savedStoryboards);
@@ -238,14 +250,14 @@ export default function StoryPage() {
   useEffect(() => {
     const timer = setInterval(() => {
       if (characters.length > 0 || storyContent || storyboards.length > 0) {
-        saveProject({ characters, objects, storyContent, targetShotCount, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
+        saveProject({ characters, objects, storyContent, targetShotCount, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
       }
     }, 30000);
     return () => clearInterval(timer);
-  }, [characters, objects, storyContent, targetShotCount, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, saveProject]);
+  }, [characters, objects, storyContent, targetShotCount, visualStyle, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, saveProject]);
 
   const handleSave = () => {
-    saveProject({ characters, objects, storyContent, targetShotCount, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
+    saveProject({ characters, objects, storyContent, targetShotCount, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
     alert('Project saved!');
   };
 
@@ -263,6 +275,7 @@ export default function StoryPage() {
         setObjects(data.objects || []);
         setStoryContent(data.storyContent || '');
         setTargetShotCount(normalizeTargetShotCount(data.targetShotCount));
+        setVisualStyle(normalizeVisualStyle(data.visualStyle || settings.visualStyle));
         const importedStoryboards = data.storyboards || [];
         setStoryboards(importedStoryboards);
         void recoverProjectVideos(importedStoryboards);
@@ -282,11 +295,17 @@ export default function StoryPage() {
   };
 
   const handleExport = () => {
-    exportProject({ name: projectName, characters, objects, storyContent, targetShotCount, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    exportProject({ name: projectName, characters, objects, storyContent, targetShotCount, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   };
 
   const handleUpdateStoryboard = (updated: Storyboard) => {
     setStoryboards(prev => prev.map(sb => sb.id === updated.id ? updated : sb));
+  };
+
+  const handleVisualStyleChange = (style: VisualStyle) => {
+    const normalized = normalizeVisualStyle(style);
+    setVisualStyle(normalized);
+    setStoryboards(prev => prev.map(storyboard => ({ ...storyboard, visualStyle: normalized })));
   };
 
   // Step2 → Step3: generate shot script from story + characters
@@ -327,9 +346,10 @@ export default function StoryPage() {
       body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, aspectRatio: settings.aspectRatio, language, scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
     }, settings.comfyui);
     const { storyboards } = await readApiJson<{ storyboards: Storyboard[] }>(dirRes, '分镜导演失败');
-    setStoryboards(storyboards);
-    storyboardsRef.current = storyboards;
-    return storyboards;
+    const styledStoryboards = storyboards.map(storyboard => ({ ...storyboard, visualStyle }));
+    setStoryboards(styledStoryboards);
+    storyboardsRef.current = styledStoryboards;
+    return styledStoryboards;
   };
 
   const handleGenerateScript = async () => {
@@ -442,7 +462,7 @@ export default function StoryPage() {
             // 传递所有参考图（角色 + 场景 + 物体）
             referenceImages: refImages,
             referenceImageLabels: refLabels,
-            visualStyle: settings.visualStyle
+            visualStyle
           })
         });
         if (!res.ok) {
@@ -528,7 +548,7 @@ export default function StoryPage() {
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle: settings.visualStyle })
+        body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate image');
       const data = await response.json();
@@ -605,7 +625,7 @@ export default function StoryPage() {
           aspectRatio: settings.aspectRatio,
           imageModel: settings.imageModel,
           apiKey: settings.apiKey,
-          visualStyle: settings.visualStyle
+          visualStyle
         })
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed');
@@ -672,17 +692,16 @@ export default function StoryPage() {
   };
 
   const handleGenerateVideoPrompt = async (storyboard: Storyboard) => {
-    if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: 'generating...' } : sb));
     try {
       const response = await fetch('/api/generate-video-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, apiKey: settings.apiKey })
+        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle }, apiKey: settings.apiKey })
       });
       if (!response.ok) throw new Error('Failed to generate video prompt');
       const data = await response.json();
-      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: data.videoPrompt } : sb));
+      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: data.videoPrompt, videoPromptOverride: true } : sb));
     } catch (error) {
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: '' } : sb));
       alert(`Failed to generate video prompt`);
@@ -731,24 +750,97 @@ export default function StoryPage() {
     }
   };
 
-  const handleGenerateVideo = async (storyboard: Storyboard) => {
+  const handleGenerateVideo = async (storyboard: Storyboard, requestedSegment?: Storyboard[]) => {
     const videoProvider = settings.videoProvider || 'apimart';
     if (videoProvider === 'apimart' && !settings.apiKey) { alert('Please configure API Key in settings'); return; }
-    setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoStatus: 'generating' } : sb));
-    try {
-      // Buttons and the auto pipeline may hold a storyboard object created
-      // before image polling finished. Always resolve the authoritative copy.
-      const latestStoryboard = storyboardsRef.current.find(sb => sb.id === storyboard.id) || storyboard;
-      if (!latestStoryboard.imageUrl) throw new Error(`场景 ${latestStoryboard.sceneNumber} 尚未生成分镜图`);
-      const portableImageUrl = videoProvider === 'comfyui'
-        ? await makePortableMediaSource(latestStoryboard.imageUrl, `场景 ${latestStoryboard.sceneNumber} 分镜图`)
-        : latestStoryboard.imageUrl;
-      const storyboardForRequest = { ...latestStoryboard, imageUrl: portableImageUrl };
+    const currentShots = storyboardsRef.current;
+    const requestedIds = (requestedSegment?.length ? requestedSegment : [storyboard]).map(item => item.id);
+    const segment = currentShots.filter(item => requestedIds.includes(item.id)).sort((a, b) => a.sceneNumber - b.sceneNumber);
+    const validationError = validateVideoSegment(segment);
+    if (validationError) { alert(validationError); return; }
+    if (segment.length > 1 && videoProvider !== 'comfyui') {
+      alert('多分镜单片段目前使用 MiniMax H3 多图工作流，请先在设置中选择仙宫云 ComfyUI');
+      return;
+    }
 
-      // Get last frame of previous shot's video for continuity (first_frame of current shot)
-      const currentShots = storyboardsRef.current;
-      const idx = currentShots.findIndex(sb => sb.id === latestStoryboard.id);
-      const prevShot = latestStoryboard.continuousFromPrev && idx > 0 ? currentShots[idx - 1] : undefined;
+    if (videoProvider === 'comfyui') {
+      try {
+        const statusResponse = await fetch(comfyUIApiUrl('/api/companion/status', settings.comfyui), { cache: 'no-store', signal: AbortSignal.timeout(2500) });
+        const status = statusResponse.ok ? await statusResponse.json() : undefined;
+        if (!status?.ok || !companionVersionAtLeast(String(status.version || ''), SEGMENT_VIDEO_COMPANION_MIN_VERSION)) {
+          throw new Error(`新版 H3 电影提示词与多分镜片段需要 Companion v${SEGMENT_VIDEO_COMPANION_MIN_VERSION.join('.')} 或更高版本；当前版本为 ${status?.version || '未知'}`);
+        }
+      } catch (error) {
+        alert(error instanceof Error ? error.message : '无法确认 Companion 版本');
+        return;
+      }
+    }
+
+    const segmentIds = segment.map(item => item.id);
+    const leader = segment[0];
+    const segmentId = `segment-${Date.now()}-${leader.sceneNumber}`;
+    const duration = estimateVideoSegmentSeconds(segment);
+    const leaderIndex = currentShots.findIndex(item => item.id === leader.id);
+    const immediatePrevious = leaderIndex > 0 ? currentShots[leaderIndex - 1] : undefined;
+    const shouldContinuePreviousSegment = Boolean(leader.continuousFromPrev || (immediatePrevious
+      && immediatePrevious.sequenceId === leader.sequenceId
+      && immediatePrevious.locationId === leader.locationId
+      && immediatePrevious.transition !== 'fade'));
+    setStoryboards(prev => {
+      const oldSegmentIds = new Set(prev.filter(item => segmentIds.includes(item.id)).map(item => item.videoSegmentId).filter(Boolean));
+      return prev.map(item => {
+        const belongsToReplacedSegment = item.videoSegmentId && oldSegmentIds.has(item.videoSegmentId);
+        if (!segmentIds.includes(item.id)) {
+          return belongsToReplacedSegment ? {
+            ...item,
+            videoSegmentId: undefined,
+            videoSegmentStoryboardIds: undefined,
+            videoStatus: 'pending' as const,
+            videoUrl: undefined,
+            videoSourceUrl: undefined,
+            videoCacheKey: undefined,
+            videoCacheStatus: undefined,
+            videoCachedAt: undefined,
+            videoTaskId: undefined,
+          } : item;
+        }
+        return {
+          ...item,
+          visualStyle,
+          videoStatus: 'generating' as const,
+          videoUrl: undefined,
+          videoSourceUrl: undefined,
+          videoCacheKey: undefined,
+          videoCacheStatus: undefined,
+          videoCachedAt: undefined,
+          videoTaskId: undefined,
+          videoSegmentId: segmentId,
+          videoSegmentStoryboardIds: item.id === leader.id ? segmentIds : undefined,
+          videoDuration: duration,
+          continuousFromPrev: item.id === leader.id ? shouldContinuePreviousSegment : item.continuousFromPrev,
+        };
+      });
+    });
+    try {
+      const portableSegment = await Promise.all(segment.map(async item => ({
+        ...item,
+        visualStyle,
+        imageUrl: videoProvider === 'comfyui'
+          ? await makePortableMediaSource(item.imageUrl!, `场景 ${item.sceneNumber} 分镜图`)
+          : item.imageUrl,
+      })));
+      const storyboardForRequest = {
+        ...portableSegment[0],
+        videoDuration: duration,
+        videoSegmentId: segmentId,
+        videoSegmentStoryboardIds: segmentIds,
+      };
+
+      // A previous generated segment may cover several storyboards, so use the
+      // nearest preceding segment leader that actually owns a video URL.
+      const prevShot = shouldContinuePreviousSegment && leaderIndex > 0
+        ? currentShots.slice(0, leaderIndex).reverse().find(item => item.videoUrl)
+        : undefined;
       let firstFrameUrl: string | undefined;
       if (prevShot?.videoUrl?.includes('res.cloudinary.com')) {
         // Extract last frame from Cloudinary video URL
@@ -770,19 +862,19 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: storyboardForRequest, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: latestStoryboard.aspectRatio || settings.aspectRatio, characterAudios: latestStoryboard.characterAudios || [], firstFrameUrl, voiceReferences: voiceReferencesRef.current || {}, videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
+        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: leader.aspectRatio || settings.aspectRatio, characterAudios: leader.characterAudios || [], firstFrameUrl, voiceReferences: voiceReferencesRef.current || {}, videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string }>(response, '视频任务创建失败');
-      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoTaskId: data.taskId } : sb));
-      await pollVideoStatus(storyboard.id, data.taskId);
+      setStoryboards(prev => prev.map(sb => segmentIds.includes(sb.id) ? { ...sb, videoTaskId: sb.id === leader.id ? data.taskId : undefined } : sb));
+      await pollVideoStatus(leader.id, data.taskId, segmentIds);
     } catch (error) {
       console.error('Video generation failed:', error);
-      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoStatus: 'failed' } : sb));
+      setStoryboards(prev => prev.map(sb => segmentIds.includes(sb.id) ? { ...sb, videoStatus: 'failed' } : sb));
       alert(`视频生成失败：${error instanceof Error ? error.message : '未知错误'}`);
     }
   };
 
-  const pollVideoStatus = async (storyboardId: string, taskId: string) => {
+  const pollVideoStatus = async (storyboardId: string, taskId: string, segmentStoryboardIds: string[] = [storyboardId]) => {
     const isComfyTask = isComfyUIClientTask(taskId);
     let consecutiveErrors = 0;
     for (let i = 0; i < 180; i++) {
@@ -807,15 +899,15 @@ export default function StoryPage() {
 
         if (isComfyTask && data.status === 'completed' && data.readyForDownload) {
           const localVideoUrl = await downloadComfyUIVideo(taskId, settings.comfyui);
-          await cacheCompletedVideo(storyboardId, localVideoUrl);
+          await cacheCompletedVideo(storyboardId, localVideoUrl, segmentStoryboardIds);
           return;
         }
         if (data.status === 'completed' && data.videoUrl) {
-          await cacheCompletedVideo(storyboardId, data.videoUrl);
+          await cacheCompletedVideo(storyboardId, data.videoUrl, segmentStoryboardIds);
           return;
         }
         if (data.status === 'failed') {
-          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, videoStatus: 'failed' } : sb));
+          setStoryboards(prev => prev.map(sb => segmentStoryboardIds.includes(sb.id) ? { ...sb, videoStatus: 'failed' } : sb));
           return;
         }
         consecutiveErrors = 0;
@@ -824,12 +916,12 @@ export default function StoryPage() {
         consecutiveErrors += 1;
         if (consecutiveErrors >= 3) {
           alert(`视频回传失败：${error instanceof Error ? error.message : '无法连接本地 Companion'}`);
-          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, videoStatus: 'failed' } : sb));
+          setStoryboards(prev => prev.map(sb => segmentStoryboardIds.includes(sb.id) ? { ...sb, videoStatus: 'failed' } : sb));
           return;
         }
       }
     }
-    setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, videoStatus: 'failed' } : sb));
+    setStoryboards(prev => prev.map(sb => segmentStoryboardIds.includes(sb.id) ? { ...sb, videoStatus: 'failed' } : sb));
   };
 
   // 一键成片：编剧 → 定妆/音色 → 图片 → 视频 → 成片，全自动顺序执行。
@@ -871,9 +963,12 @@ export default function StoryPage() {
 
       // ④ 视频（顺序生成，连续镜头自动接上一镜尾帧；读最新状态，图片阶段刚生成完）
       setAutoStage('生成视频');
-      for (const sb of storyboardsRef.current) {
+      const videoGroups = (settings.videoProvider || 'apimart') === 'comfyui'
+        ? suggestVideoSegments(storyboardsRef.current.filter(item => item.imageUrl))
+        : storyboardsRef.current.filter(item => item.imageUrl).map(item => [item]);
+      for (const group of videoGroups) {
         if (autoAbortRef.current) return;
-        if (sb.videoStatus !== 'completed' && sb.imageUrl) await handleGenerateVideo(sb);
+        if (!group.every(item => item.videoStatus === 'completed')) await handleGenerateVideo(group[0], group);
       }
 
       // ⑤ 成片
@@ -987,6 +1082,8 @@ export default function StoryPage() {
                 onBack={() => {}}
                 onNext={() => setCurrentStep(2)}
                 isLoading={false}
+                visualStyle={visualStyle}
+                onVisualStyleChange={handleVisualStyleChange}
               />
             )}
             {currentStep === 2 && (

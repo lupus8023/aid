@@ -17,8 +17,8 @@ function buildDirectorPrompt(input: {
   const beatCount = storyPlan.sequences.reduce((n, s) => n + s.beats.length, 0);
 
   const langInstruction = language === 'en'
-    ? 'MANDATORY: output description, prompt, videoPrompt, characterCostume in ENGLISH.'
-    : '强制：description、prompt、videoPrompt、characterCostume 使用中文/英文按 prompt 规则（prompt 与 videoPrompt 用英文更利于生成模型）。';
+    ? 'MANDATORY: output description, prompt and characterCostume in ENGLISH.'
+    : '强制：description 使用中文，prompt 使用英文，characterCostume 使用具体可视描述。';
 
   return `你是一位电影导演兼分镜师。下面是编剧已经完成的【故事结构 StoryPlan】与角色/物体设定。你的任务是把每个 beat 可视化成一个可拍摄的分镜。
 
@@ -32,7 +32,7 @@ ${storyPlan.sourceBrief || '（旧项目未保存原始输入，请以 StoryPlan
 - 分镜数量必须等于 ${beatCount}，顺序与 beats 完全一致，不得增删或重排。
 - 台词、景别、运镜、机位、时长、转场、连续关系都来自 beat，你只负责【画面化】。
 - 不得添加 beat 中没有的情节、台词或角色行为。
-- 如果用户原始输入含有 beat 未重复写出的明确视觉、服装、场景或语气要求，必须落实到 description/prompt/videoPrompt，但不得改变剧情与镜头数量。
+- 如果用户原始输入含有 beat 未重复写出的明确视觉、服装、场景或语气要求，必须落实到 description/prompt，但不得改变剧情与镜头数量。
 
 🌐 ${langInstruction}
 
@@ -52,11 +52,9 @@ ${JSON.stringify(storyPlan, null, 2)}
    - 已上传角色/物体用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。
    - 包含景别、角度、构图、动作、表情、光影、景深。
    - 禁止艺术风格词（anime/cartoon/Ghibli/realistic 等），视觉风格由参考图决定。
-3. videoPrompt（时间轴式视频提示词，英文）：
-   - 按 [00–Xs] Shot N: (景别/角度/镜头规格) 分段，含动作分解、微表情、环境互动、光影、SFX。
-   - 结尾给 MOOD / STYLE / LIGHTING / QUALITY 四行。
-   - 保持媒介质感：真人实拍要 natural skin texture、no plastic skin；CG/动漫保持原有轮廓与着色。
-4. characterCostume：为每个在本镜头出现的角色给一套服装/发型/配饰/颜色描述，跨镜头保持一致。
+3. characterCostume：为每个在本镜头出现的角色给一套服装/发型/配饰/颜色描述，跨镜头保持一致。
+
+不要输出视频生成提示词。下游会把 1–4 个分镜重新编组成一个不超过 15 秒的 H3 片段，并按统一制作风格生成时间轴式导演说明。
 
 📝 输出（只输出 JSON 数组，按 beat 顺序，第 i 个元素对应第 i 个 beat）：
 [
@@ -64,7 +62,6 @@ ${JSON.stringify(storyPlan, null, 2)}
     "index": 1,
     "description": "中文镜头描述",
     "prompt": "English image prompt",
-    "videoPrompt": "TIMELINE video prompt",
     "characterCostume": { "角色名": "服装造型描述" }
   }
 ]`;
@@ -91,7 +88,7 @@ function mergeBeats(
       locationId: beat.locationId,
       description: typeof raw?.description === 'string' ? raw.description : beat.action,
       prompt: typeof raw?.prompt === 'string' ? raw.prompt : beat.promptDraft || beat.action,
-      videoPrompt: typeof raw?.videoPrompt === 'string' ? raw.videoPrompt : undefined,
+      videoPrompt: undefined,
       characters: beat.characters,
       objects: beat.objects,
       dialogueLines: beat.dialogueLines,

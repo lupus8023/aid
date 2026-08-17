@@ -35,6 +35,8 @@ export interface Storyboard {
   videoCacheKey?: string; // IndexedDB 中的持久化视频键
   videoCacheStatus?: 'caching' | 'completed' | 'failed';
   videoCachedAt?: string;
+  videoSegmentId?: string; // 多个连续分镜共用一个生成片段
+  videoSegmentStoryboardIds?: string[]; // 仅片段首分镜保存完整成员列表
   videoStatus?: 'pending' | 'generating' | 'completed' | 'failed'; // 视频生成状态
   videoTaskId?: string; // 视频任务 ID
   aspectRatio?: '16:9' | '9:16' | '1:1'; // 宽高比
@@ -44,6 +46,7 @@ export interface Storyboard {
   dialogue?: Record<string, string>; // { 角色名: 台词 } - legacy
   dialogueLines?: { character: string; text: string }[]; // ordered dialogue lines
   videoPrompt?: string; // 视频生成提示词
+  videoPromptOverride?: boolean; // 用户或模块化引擎明确生成/编辑的最终提示词
   videoDuration?: number; // 视频时长（秒）；ComfyUI H3 为 2-15，其他模型按各自限制
   continuousFromPrev?: boolean; // 是否与上一个镜头连贯（使用上一镜头尾帧=本镜头首帧）
   sequenceId?: string; // 所属场/段落（导演阶段产出，用于共享场景参考与连续性）
@@ -55,6 +58,7 @@ export interface Storyboard {
   sceneStyle?: string;                       // 场景风格描述
   locationId?: string;                       // 地点标识，同一地点的镜头共享场景参考图
   sceneImageOverride?: string;               // per-shot scene reference (dragged from global)
+  visualStyle?: VisualStyle;                 // 项目级制作风格快照
   costumeStatus?: 'pending' | 'generating' | 'completed'; // 定妆图生成状态
   // costumeImages and sceneImage are now global, stored in page state
 }
@@ -116,7 +120,18 @@ export interface ApiMartVideoStatusResponse {
 }
 
 // 全局视觉风格锁：把「角色参考图的媒介」钉死到所有生成环节
-export type VisualStyle = 'follow-reference' | 'live-action' | '3d-cg' | 'anime' | 'illustration' | 'stop-motion';
+export type VisualStyle =
+  | 'follow-reference'
+  | 'cinematic-natural'
+  | 'warm-film'
+  | 'neo-noir'
+  | 'documentary'
+  | 'commercial'
+  | 'live-action' // legacy value, migrated to cinematic-natural at project load
+  | '3d-cg'
+  | 'anime'
+  | 'illustration'
+  | 'stop-motion';
 
 // 应用设置类型
 export interface AppSettings {

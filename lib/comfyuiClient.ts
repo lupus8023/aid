@@ -2,6 +2,7 @@ import type { AppSettings } from '@/types';
 
 export const DEFAULT_COMFYUI_COMPANION_URL = 'http://127.0.0.1:3018';
 const STORY_COMPANION_MIN_VERSION = [0, 1, 9];
+export const SEGMENT_VIDEO_COMPANION_MIN_VERSION = [0, 1, 11] as const;
 
 type ComfyUISettings = NonNullable<AppSettings['comfyui']>;
 
@@ -11,16 +12,20 @@ export function comfyUIApiUrl(pathname: string, settings?: Partial<ComfyUISettin
   return `${baseUrl}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
 }
 
-function supportsStoryGeneration(version: string): boolean {
+export function companionVersionAtLeast(version: string, minimum: readonly number[]): boolean {
   if (version === 'development') return true;
   const parts = version.split('.').map(value => Number(value) || 0);
-  for (let index = 0; index < STORY_COMPANION_MIN_VERSION.length; index += 1) {
-    const required = STORY_COMPANION_MIN_VERSION[index];
+  for (let index = 0; index < minimum.length; index += 1) {
+    const required = minimum[index];
     const actual = parts[index] || 0;
     if (actual > required) return true;
     if (actual < required) return false;
   }
   return true;
+}
+
+function supportsStoryGeneration(version: string): boolean {
+  return companionVersionAtLeast(version, STORY_COMPANION_MIN_VERSION);
 }
 
 /**

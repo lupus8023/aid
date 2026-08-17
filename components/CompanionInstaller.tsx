@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Check, CheckCircle2, ChevronDown, CircleAlert, Clipboard, Download, Laptop, LoaderCircle, ShieldCheck } from 'lucide-react';
+import { companionVersionAtLeast, SEGMENT_VIDEO_COMPANION_MIN_VERSION } from '@/lib/comfyuiClient';
 
 const RELEASE_BASE = 'https://github.com/unclewongwong/aid/releases/latest/download';
 const MAC_OPEN_COMMAND = "xattr -dr com.apple.quarantine '/Applications/AID Companion.app' && open '/Applications/AID Companion.app'";
@@ -37,7 +38,8 @@ function detectPlatform(): Platform {
 
 export default function CompanionInstaller() {
   const [platform, setPlatform] = useState<Platform>('mac-arm');
-  const [status, setStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [status, setStatus] = useState<'checking' | 'online' | 'outdated' | 'offline'>('checking');
+  const [companionVersion, setCompanionVersion] = useState('');
   const [expanded, setExpanded] = useState(false);
   const [commandCopied, setCommandCopied] = useState(false);
 
@@ -56,7 +58,9 @@ export default function CompanionInstaller() {
         const result = await response.json();
         if (!result?.ok) throw new Error('offline');
         if (active) {
-          setStatus('online');
+          const version = String(result.version || '');
+          setCompanionVersion(version);
+          setStatus(companionVersionAtLeast(version, SEGMENT_VIDEO_COMPANION_MIN_VERSION) ? 'online' : 'outdated');
           nextProbeDelay = 12000;
         }
       } catch {
@@ -72,9 +76,10 @@ export default function CompanionInstaller() {
   const selected = downloads[platform];
   const statusView = useMemo(() => {
     if (status === 'online') return { icon: CheckCircle2, label: 'Companion 已连接', className: 'text-[#55d6c2]' };
+    if (status === 'outdated') return { icon: CircleAlert, label: `请更新 Companion ${companionVersion}`, className: 'text-[#ffc078]' };
     if (status === 'offline') return { icon: CircleAlert, label: '这台电脑尚未连接', className: 'text-[#ffc078]' };
     return { icon: LoaderCircle, label: '正在检测本地服务', className: 'text-[var(--text-secondary)]' };
-  }, [status]);
+  }, [status, companionVersion]);
   const StatusIcon = statusView.icon;
   const copyMacOpenCommand = async () => {
     await navigator.clipboard.writeText(MAC_OPEN_COMMAND);

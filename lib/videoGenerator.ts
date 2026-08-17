@@ -1,28 +1,74 @@
 import { createVideoTask, getVideoTaskStatus } from './apimart';
 import { Storyboard } from '@/types';
-import { buildVideoContinuityRules } from './promptArchitecture';
+import { buildVideoContinuityRules, buildVideoStyleContract } from './promptArchitecture';
+import { allocateSegmentTimeline, estimateVideoSegmentSeconds } from './videoSegments';
+
+function clock(seconds: number): string {
+  const formatted = seconds.toFixed(Number.isInteger(seconds) ? 0 : 1);
+  return seconds < 10 ? `0${formatted}` : formatted;
+}
+
+export function buildVideoSegmentPrompt(
+  storyboards: Storyboard[],
+  characterAudios: { character: string; audioUrl: string }[] = [],
+  options: { firstFrameUrl?: string; duration?: number } = {},
+): string {
+  const first = storyboards[0];
+  if (!first) throw new Error('视频片段至少需要一个分镜');
+  const duration = Math.min(15, Math.max(2, options.duration || estimateVideoSegmentSeconds(storyboards)));
+  const timeline = allocateSegmentTimeline(storyboards, duration);
+  const referenceOffset = options.firstFrameUrl ? 2 : 1;
+  const characters = [...new Set(storyboards.flatMap(storyboard => storyboard.characters || []))];
+  const objects = [...new Set(storyboards.flatMap(storyboard => storyboard.objects || []))];
+  const dialogueLines = storyboards.flatMap(storyboard => storyboard.dialogueLines || []);
+  const audioMapping = characterAudios.length
+    ? `\nVOICE REFERENCES:\n${characterAudios.map(audio => `@[${audio.character}] 使用@[${audio.audioUrl}]`).join('\n')}`
+    : '';
+
+  const storyboardSection = storyboards.map((storyboard, index) => {
+    const range = timeline[index];
+    const referenceNumber = index + referenceOffset;
+    const dialogue = (storyboard.dialogueLines || []).map(line => `${line.character}: "${line.text}"`).join(' / ');
+    return `[00:${clock(range.start)}–00:${clock(range.end)}] BEAT ${index + 1} | Picture ${referenceNumber} | Scene ${storyboard.sceneNumber}\nVISUAL ACTION: ${storyboard.description}\nPERFORMANCE: Execute one readable action and its immediate reaction; use concrete body mechanics, eye direction, weight shift and contact points from the scene.\nEDIT: ${index === 0 ? 'Enter on active motion or a decisive visual fact.' : 'Cut on action, eyeline or cause-and-effect from the previous beat.'}${dialogue ? `\nDIALOGUE: ${dialogue}` : ''}`;
+  }).join('\n\n');
+
+  return `GOAL:
+Create one compact ${duration}-second feature-film sequence that advances the story through ${storyboards.length} distinct visual beat${storyboards.length > 1 ? 's' : ''}. It must feel photographed and edited by filmmakers: immediate, specific and performance-driven, never like a slow AI demonstration.
+
+REFERENCE IMAGE CONTRACT:
+${options.firstFrameUrl ? 'Picture 1 is the exact continuity state inherited from the preceding generated clip. Begin from its screen direction, body state, lighting and spatial geography.' : `Picture ${referenceOffset} is the literal opening visual authority.`}
+${storyboards.map((_, index) => `Picture ${index + referenceOffset} defines the exact identity, wardrobe, composition, location facts, color response, lighting, lens rendering and texture for Beat ${index + 1}.`).join('\n')}
+Do not morph between reference images. Treat them as editorial shot references captured by the same production, camera family and color pipeline.
+
+IDENTITY & OBJECT CONTRACT:
+Maintain the same ${characters.length ? `characters (${characters.join(', ')})` : 'subjects'} across all beats: exact face geometry, age, hair, body proportions, wardrobe and accessories. ${objects.length ? `Keep these objects physically identical: ${objects.join(', ')}.` : ''}
+
+${buildVideoStyleContract(first.visualStyle)}
+
+AUDIO:
+Generate synchronized production sound: exact supplied dialogue, location ambience, action-specific Foley, breath and perspective-correct room tone. ${dialogueLines.length ? 'Speak only the dialogue written in the timed beats, with natural interruptions and lip sync.' : 'No dialogue or narration.'} A restrained score may bridge cuts only when it supports the scene; never cover dialogue or replace physical sound.${audioMapping}
+
+STORYBOARD — ${duration} seconds:
+${storyboardSection}
+
+EDITING RULES:
+Every beat must visibly occur inside its assigned time range. Use motivated hard cuts between distinct setups; no morphing, cross-generated in-between imagery or decorative dissolve unless explicitly requested. Vary shot scale and camera energy. Begin action immediately, remove dead air, and end on a decisive action, reaction or visual reveal.
+
+${buildVideoContinuityRules(characterAudios.length > 0)}`;
+}
 
 export function buildStoryboardVideoPrompt(
   storyboard: Storyboard,
   characterAudios: { character: string; audioUrl: string }[] = [],
   firstFrameUrl?: string,
 ): string {
-  const basePrompt = storyboard.videoPrompt
-    ? storyboard.videoPrompt
-    : storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1');
-  const dialogueSection = storyboard.dialogueLines && storyboard.dialogueLines.length > 0
-    ? '\n\nDIALOGUE — character must speak these exact lines with lip sync:\n' +
-      storyboard.dialogueLines.map(line => `${line.character}: "${line.text}"`).join('\n')
-    : '';
-  const audioMapping = characterAudios.length > 0
-    ? '\n' + characterAudios.map(audio => `@[${audio.character}] 使用@[${audio.audioUrl}]`).join('\n')
-    : '';
-  const continuityRules = firstFrameUrl
-    ? `\n\nCONTINUITY — this shot continues from the previous one:\n- The action must start exactly from the state shown in the first frame. Character position, pose, clothing, and environment must match seamlessly.\n- The motion must flow naturally from the first frame into the rest of the shot, with no abrupt jumps, freezes, or stutters.\n- Character orientation and spatial relationship must remain consistent throughout the transition.\n- Avoid any visual glitch, flicker, or sudden change in lighting, color, or background between the first frame and the generated motion.\n- The camera movement style should match the previous shot (e.g., if previous was handheld, continue handheld; if locked-off, stay locked-off).`
-    : '';
-  return `${basePrompt}${dialogueSection}${audioMapping}${continuityRules}
-
-${buildVideoContinuityRules(characterAudios.length > 0)}`;
+  if (storyboard.videoPromptOverride && storyboard.videoPrompt?.trim()) {
+    return `${storyboard.videoPrompt.trim()}\n\n${buildVideoStyleContract(storyboard.visualStyle)}\n\n${buildVideoContinuityRules(characterAudios.length > 0)}`;
+  }
+  return buildVideoSegmentPrompt([storyboard], characterAudios, {
+    firstFrameUrl,
+    duration: storyboard.videoDuration,
+  });
 }
 
 // 为单个分镜生成视频
