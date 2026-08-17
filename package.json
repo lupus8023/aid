@@ -22,9 +22,9 @@
     "@ffmpeg/util": "^0.12.2",
     "axios": "^1.7.9",
     "cloudinary": "^2.9.0",
-    "file-saver": "^2.0.5",
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
+    "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
     "lucide-react": "^0.563.0",
     "marked": "^15.0.6",
@@ -32,6 +32,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "reactflow": "^11.11.4",
+    "sharp": "^0.34.5",
     "ssh2": "^1.17.0",
     "tldraw": "^5.1.1"
   },

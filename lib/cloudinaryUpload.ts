@@ -85,23 +85,6 @@ export function hasCloudinaryUploadTarget(): boolean {
   return Boolean(primaryCredentials() || backupCredentials());
 }
 
-export function buildCloudinaryCompressedFetchUrl(source: string): string {
-  const credentials = primaryCredentials() || backupCredentials();
-  if (!credentials) throw new Error('Cloudinary credentials are not configured');
-  return cloudinary.url(source, {
-    cloud_name: credentials.cloud_name,
-    api_key: credentials.api_key,
-    api_secret: credentials.api_secret,
-    secure: true,
-    sign_url: true,
-    type: 'fetch',
-    transformation: [
-      { crop: 'limit', width: 2048 },
-      { quality: 'auto:good', fetch_format: 'jpg' },
-    ],
-  });
-}
-
 export async function uploadToCloudinary(
   source: string,
   options: UploadApiOptions,
