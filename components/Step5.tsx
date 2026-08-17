@@ -292,12 +292,15 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
 
                 {(() => {
                   const prevShot = sbIndex > 0 ? storyboards[sbIndex - 1] : undefined;
-                  const prevNotReady = sb.continuousFromPrev && prevShot && typeof prevShot.videoUrl !== 'string' || (sb.continuousFromPrev && prevShot && !prevShot.videoUrl?.includes('res.cloudinary.com'));
+                  // Completed Companion clips are intentionally browser-local
+                  // blob URLs. They are valid continuity sources because Story
+                  // extracts the visible tail frame before the next H3 request.
+                  const prevNotReady = Boolean(sb.continuousFromPrev && prevShot && !prevShot.videoUrl);
                   return (
                     <button
                       onClick={() => onGenerateVideo(sb)}
                       disabled={sb.videoStatus === 'generating' || !!prevNotReady}
-                      title={prevNotReady ? '请先生成上一镜头的视频（需上传至Cloudinary）' : undefined}
+                      title={prevNotReady ? '请先生成上一镜头的视频' : undefined}
                       className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-purple)] hover:bg-[#9b59b6] text-white disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] rounded transition-colors"
                     >
                       {sb.videoStatus === 'generating' ? (

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   allocateSegmentTimeline,
   estimateVideoSegmentSeconds,
+  isCompletedVideoSegment,
   suggestVideoSegments,
   validateVideoSegment,
 } from '../lib/videoSegments.ts';
@@ -47,4 +48,20 @@ test('timeline fills the entire H3 duration without gaps', () => {
   assert.equal(timeline[0].start, 0);
   assert.equal(timeline.at(-1).end, 12);
   timeline.slice(1).forEach((item, index) => assert.equal(item.start, timeline[index].end));
+});
+
+test('does not mistake legacy per-shot videos for a completed grouped segment', () => {
+  const legacy = [
+    shot(1, { videoStatus: 'completed', videoUrl: 'blob:legacy-1' }),
+    shot(2, { videoStatus: 'completed', videoUrl: 'blob:legacy-2' }),
+  ];
+  assert.equal(isCompletedVideoSegment(legacy), false);
+
+  const current = legacy.map((item, index) => ({
+    ...item,
+    videoUrl: index === 0 ? 'blob:segment' : undefined,
+    videoSegmentId: 'segment-1',
+    videoSegmentStoryboardIds: index === 0 ? ['scene-1', 'scene-2'] : undefined,
+  }));
+  assert.equal(isCompletedVideoSegment(current), true);
 });

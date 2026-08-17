@@ -61,6 +61,18 @@ export function suggestVideoSegments(storyboards: Storyboard[]): Storyboard[][] 
   return groups;
 }
 
+export function isCompletedVideoSegment(storyboards: Storyboard[]): boolean {
+  const leader = storyboards[0];
+  if (!leader || !leader.videoUrl || !leader.videoSegmentId) return false;
+  const expectedIds = storyboards.map(storyboard => storyboard.id);
+  const savedIds = leader.videoSegmentStoryboardIds || [];
+  if (savedIds.length !== expectedIds.length || savedIds.some((id, index) => id !== expectedIds[index])) return false;
+  return storyboards.every(storyboard => (
+    storyboard.videoStatus === 'completed'
+    && storyboard.videoSegmentId === leader.videoSegmentId
+  ));
+}
+
 export function allocateSegmentTimeline(storyboards: Storyboard[], totalSeconds: number): Array<{ start: number; end: number }> {
   const weights = storyboards.map(estimateStoryboardBeatSeconds);
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || storyboards.length || 1;
