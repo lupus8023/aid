@@ -5,6 +5,7 @@ import {
   allocateSegmentTimeline,
   estimateVideoSegmentSeconds,
   isCompletedVideoSegment,
+  persistedVideoClipCount,
   restoredStoryStep,
   suggestVideoSegments,
   validateVideoSegment,
@@ -76,6 +77,7 @@ test('restores a saved H3 project directly to export after refresh', () => {
     videoCacheKey: index === 0 ? 'storyboard-video:project-1:scene-1' : undefined,
   }));
   assert.equal(restoredStoryStep(saved), 6);
+  assert.equal(persistedVideoClipCount(saved), 1);
   assert.equal(restoredStoryStep(saved.map(item => ({ ...item, videoCacheKey: undefined }))), 5);
   assert.equal(restoredStoryStep(saved.map((item, index) => index ? item : { ...item, imageUrl: undefined })), 4);
 });

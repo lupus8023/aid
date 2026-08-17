@@ -73,30 +73,31 @@ export function isCompletedVideoSegment(storyboards: Storyboard[]): boolean {
   ));
 }
 
-function hasPersistedVideoSegment(storyboards: Storyboard[]): boolean {
-  const leader = storyboards[0];
-  if (!leader?.videoSegmentId) return false;
-  const expectedIds = storyboards.map(storyboard => storyboard.id);
-  const savedIds = leader.videoSegmentStoryboardIds || [];
-  const hasRecoverableArtifact = Boolean(
-    leader.videoUrl
-    || leader.videoCacheKey
-    || leader.videoSourceUrl
-    || leader.videoTaskId,
+function hasPersistedVideoArtifact(storyboard: Storyboard): boolean {
+  return storyboard.videoStatus === 'completed' && Boolean(
+    storyboard.videoUrl
+    || storyboard.videoCacheKey
+    || storyboard.videoSourceUrl
+    || storyboard.videoTaskId,
   );
-  return hasRecoverableArtifact
-    && savedIds.length === expectedIds.length
-    && savedIds.every((id, index) => id === expectedIds[index])
-    && storyboards.every(storyboard => (
-      storyboard.videoStatus === 'completed'
-      && storyboard.videoSegmentId === leader.videoSegmentId
-    ));
+}
+
+export function persistedVideoClipCount(storyboards: Storyboard[], cachedOnly = false): number {
+  const seen = new Set<string>();
+  return storyboards.filter(storyboard => {
+    if (!hasPersistedVideoArtifact(storyboard)) return false;
+    if (cachedOnly && storyboard.videoCacheStatus !== 'completed') return false;
+    const key = storyboard.videoSegmentId || storyboard.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).length;
 }
 
 export function restoredStoryStep(storyboards: Storyboard[]): 4 | 5 | 6 {
   if (!storyboards.length || storyboards.some(storyboard => !storyboard.imageUrl)) return 4;
   const groups = suggestVideoSegments(storyboards);
-  return groups.length > 0 && groups.every(hasPersistedVideoSegment) ? 6 : 5;
+  return groups.length > 0 && persistedVideoClipCount(storyboards) >= groups.length ? 6 : 5;
 }
 
 export function allocateSegmentTimeline(storyboards: Storyboard[], totalSeconds: number): Array<{ start: number; end: number }> {

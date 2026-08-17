@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Storyboard, Character } from '@/types';
 import { CheckCircle2, Clapperboard, HardDrive, Layers3, Loader2, Video, Wand2, Mic } from 'lucide-react';
-import { estimateVideoSegmentSeconds, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
+import { estimateVideoSegmentSeconds, persistedVideoClipCount, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
 
 interface Step5Props {
   storyboards: Storyboard[];
@@ -20,12 +20,13 @@ interface Step5Props {
 
 export default function Step5({ storyboards, characters, videoModel, videoProvider = 'apimart', onBack, onNext, onGenerateVideo, onGenerateVideoPrompt, onGenerateAudio, onUpdate }: Step5Props) {
   const isComfyUI = videoProvider === 'comfyui';
-  const countableVideos = isComfyUI
-    ? storyboards.filter(sb => Boolean(sb.videoSegmentStoryboardIds?.length))
-    : storyboards;
-  const completedCount = countableVideos.filter(sb => sb.videoStatus === 'completed').length;
-  const cachingCount = countableVideos.filter(sb => sb.videoCacheStatus === 'caching').length;
-  const cachedCount = countableVideos.filter(sb => sb.videoCacheStatus === 'completed').length;
+  const completedCount = isComfyUI
+    ? persistedVideoClipCount(storyboards)
+    : storyboards.filter(sb => sb.videoStatus === 'completed').length;
+  const cachingCount = storyboards.filter(sb => sb.videoCacheStatus === 'caching').length;
+  const cachedCount = isComfyUI
+    ? persistedVideoClipCount(storyboards, true)
+    : storyboards.filter(sb => sb.videoCacheStatus === 'completed').length;
   const withImages = storyboards.filter(sb => sb.imageUrl);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedPrompt, setEditedPrompt] = useState('');
