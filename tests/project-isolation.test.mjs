@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { chunkGridBatch } from '../lib/gridSplitter.ts';
+import { buildGridPrompt, chunkGridBatch } from '../lib/gridSplitter.ts';
 import { createProjectId, scopedVideoCacheKey } from '../lib/projectIdentity.ts';
 
 test('groups automatic storyboard images into batches of at most nine', () => {
@@ -10,6 +10,23 @@ test('groups automatic storyboard images into batches of at most nine', () => {
 
   assert.deepEqual(batches.map(batch => batch.length), [9, 9, 1]);
   assert.deepEqual(batches.flat().map(shot => shot.id), shots.map(shot => shot.id));
+});
+
+test('keeps every image batch distinct before the provider truncation boundary', () => {
+  const shots = Array.from(
+    { length: 18 },
+    (_, index) => `Unique action for story scene ${index + 1}. ${'visual detail '.repeat(12)}`,
+  );
+  const firstNumbers = Array.from({ length: 9 }, (_, index) => index + 1);
+  const secondNumbers = Array.from({ length: 9 }, (_, index) => index + 10);
+  const first = buildGridPrompt('forest', 'panda cast', shots.slice(0, 9), '16:9', ['cast'], firstNumbers);
+  const second = buildGridPrompt('forest', 'panda cast', shots.slice(9), '16:9', ['cast'], secondNumbers);
+
+  assert.notEqual(first, second);
+  assert.match(first.slice(0, 3900), /UNIQUE STORYBOARD BATCH: 1-2-3-4-5-6-7-8-9/);
+  assert.match(second.slice(0, 3900), /UNIQUE STORYBOARD BATCH: 10-11-12-13-14-15-16-17-18/);
+  assert.match(first.slice(0, 3900), /story scene 9/);
+  assert.match(second.slice(0, 3900), /story scene 18/);
 });
 
 test('isolates identical storyboard ids between projects', () => {

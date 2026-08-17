@@ -65,9 +65,12 @@ export async function generateStoryboardImage(
       );
     });
 
-    const enhancedPrompt = `${buildMediumLock(visualStyle)}
+    // Grid-specific scene content must lead the request. If APIMart's practical
+    // prompt limit is reached, the generic style/reference tail may be trimmed,
+    // but the nine distinct panels and batch identity must always survive.
+    const enhancedPrompt = `${cleanPrompt}
 
-${cleanPrompt}
+${buildMediumLock(visualStyle)}
 
 ${referenceDescriptions.join('\n')}
 

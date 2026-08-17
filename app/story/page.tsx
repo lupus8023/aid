@@ -488,7 +488,14 @@ export default function StoryPage() {
           : [];
         const references = [...characterReferences, ...sceneReference, ...objectReferences];
         const refLabels = references.map(reference => reference.label);
-        const gridPrompt = buildGridPrompt(sceneStyle, charDescs, shotDescs, aspectRatio, refLabels);
+        const gridPrompt = buildGridPrompt(
+          sceneStyle,
+          charDescs,
+          shotDescs,
+          aspectRatio,
+          refLabels,
+          group.map(storyboard => storyboard.sceneNumber)
+        );
 
         const refImages = references.map(reference => reference.image);
         const gridStoryboard = {

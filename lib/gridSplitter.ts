@@ -57,7 +57,8 @@ export function buildGridPrompt(
   characterDescriptions: string,
   shotDescriptions: string[],
   aspectRatio: '16:9' | '9:16' | '1:1',
-  referenceImageLabels?: string[] // e.g. ['TOTODA (ref image 1)', 'MOMODA (ref image 2)']
+  referenceImageLabels?: string[], // e.g. ['TOTODA (ref image 1)', 'MOMODA (ref image 2)']
+  sceneNumbers?: Array<number | string>
 ): string {
   const orientation = aspectRatio === '9:16' ? 'vertical portrait' : aspectRatio === '1:1' ? 'square' : 'horizontal landscape';
   const shots = shotDescriptions.slice(0, 9).map(shot => {
@@ -73,22 +74,26 @@ export function buildGridPrompt(
     ? `\nReference image mapping:\n${referenceImageLabels.map((label, i) => `- Reference image ${i + 1}: ${label}`).join('\n')}\n`
     : '';
 
-  return `Generate one 3x3 cinematic storyboard contact sheet. Each panel is ${orientation} (${aspectRatio}). Arrange panels left-to-right, top-to-bottom with no borders, gaps, separator lines, labels, captions, or text.
+  const normalizedSceneNumbers = shots.map((_, index) => sceneNumbers?.[index] ?? index + 1);
+  const batchId = normalizedSceneNumbers.map(String).join('-');
+  const panelSection = shots
+    .map((shot, index) => `Panel ${index + 1} (story scene ${normalizedSceneNumbers[index]}): ${shot}`)
+    .join('\n');
+
+  // Put the batch identity and all nine shot descriptions first. The APIMart
+  // image endpoint has a practical prompt limit, so any defensive truncation
+  // must remove secondary continuity prose rather than the content that makes
+  // this grid different from the previous/next batch.
+  return `UNIQUE STORYBOARD BATCH: ${batchId}
+Render exactly these nine distinct story moments, in this exact order:
+${panelSection}
+
+Generate one 3x3 cinematic storyboard contact sheet. Each panel is ${orientation} (${aspectRatio}). Arrange panels left-to-right, top-to-bottom with no borders, gaps, separator lines, labels, captions, or text.
 
 Scene environment: ${sceneStyle}
 ${refSection}
 Character identities (match mapped references exactly wherever they appear):
 ${characterDescriptions}
-
-Panel 1: ${shots[0]}
-Panel 2: ${shots[1]}
-Panel 3: ${shots[2]}
-Panel 4: ${shots[3]}
-Panel 5: ${shots[4]}
-Panel 6: ${shots[5]}
-Panel 7: ${shots[6]}
-Panel 8: ${shots[7]}
-Panel 9: ${shots[8]}
 
 CRITICAL CAST RULES:
 - Every REQUIRED CHARACTERS entry must be clearly visible in its panel. Never omit, replace, merge, or hide one as a background detail.
