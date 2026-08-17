@@ -115,6 +115,7 @@ export default function StoryPage() {
   const [autoStage, setAutoStage] = useState('');
   const autoAbortRef = useRef(false);
   const videoRecoveryRef = useRef(new Set<string>());
+  const gridRecoveryRef = useRef(new Set<string>());
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
 
@@ -260,6 +261,22 @@ export default function StoryPage() {
       storyboardsRef.current = savedStoryboards;
       setStoryboards(savedStoryboards);
       void recoverProjectVideos(savedStoryboards, savedProject.id!);
+      // A refresh used to strand a paid 3×3 task in "generating" forever.
+      // Resume polling a batch when all its shots share the same saved task id.
+      for (let index = 0; index < savedStoryboards.length; index += 9) {
+        const group = savedStoryboards.slice(index, index + 9);
+        const taskIds = [...new Set(group.map(item => item.taskId).filter(Boolean))];
+        if (group.length > 0 && group.every(item => item.status === 'generating') && taskIds.length === 1) {
+          const taskId = taskIds[0]!;
+          const recoveryKey = `${savedProject.id}:${taskId}`;
+          if (!gridRecoveryRef.current.has(recoveryKey)) {
+            gridRecoveryRef.current.add(recoveryKey);
+            window.setTimeout(() => {
+              void handleGenerateGrid(group, { resumeTaskId: taskId });
+            }, 250);
+          }
+        }
+      }
       setVoiceReferences(savedProject.voiceReferences);
       setCostumeImages(savedCostumeImages);
       setSceneImages(savedSceneImages);
@@ -405,7 +422,7 @@ export default function StoryPage() {
   };
 
   // Step4: batch generate via 3x3 grid
-  const handleGenerateGrid = async (batch: Storyboard[], options: { throwOnError?: boolean } = {}) => {
+  const handleGenerateGrid = async (batch: Storyboard[], options: { throwOnError?: boolean; resumeTaskId?: string } = {}) => {
     if (!settings.apiKey) {
       const error = new Error('Please configure API Key in settings');
       if (options.throwOnError) throw error;
@@ -506,29 +523,33 @@ export default function StoryPage() {
           objects: groupObjects.map(object => object.name)
         };
 
-        // Generate grid image
-        const res = await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            storyboard: gridStoryboard,
-            characters: groupCharacters,
-            objects: groupObjects,
-            aspectRatio,
-            imageModel: settings.imageModel,
-            apiKey: settings.apiKey,
-            costumeImages: costumeImagesRef.current,
-            sceneImage: sceneImagesRef.current[0] || '',
-            // 传递所有参考图（角色 + 场景 + 物体）
-            referenceImages: refImages,
-            referenceImageLabels: refLabels,
-            visualStyle
-          })
-        });
-        const { taskId } = await readApiJson<{ taskId: string }>(res, '九宫格任务创建失败');
-        updateGridStoryboards(items => items.map(sb =>
-          group.some(g => g.id === sb.id) ? { ...sb, taskId } : sb
-        ));
+        // Generate a new grid, or resume polling an already-paid task after a
+        // refresh. resumeTaskId is only valid for a single explicit batch.
+        let taskId = options.resumeTaskId && batch.length <= 9 ? options.resumeTaskId : '';
+        if (!taskId) {
+          const res = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              storyboard: gridStoryboard,
+              characters: groupCharacters,
+              objects: groupObjects,
+              aspectRatio,
+              imageModel: settings.imageModel,
+              apiKey: settings.apiKey,
+              costumeImages: costumeImagesRef.current,
+              sceneImage: sceneImagesRef.current[0] || '',
+              // 传递所有参考图（角色 + 场景 + 物体）
+              referenceImages: refImages,
+              referenceImageLabels: refLabels,
+              visualStyle
+            })
+          });
+          ({ taskId } = await readApiJson<{ taskId: string }>(res, '九宫格任务创建失败'));
+          updateGridStoryboards(items => items.map(sb =>
+            group.some(g => g.id === sb.id) ? { ...sb, taskId } : sb
+          ));
+        }
 
         // Poll for grid image
         let gridUrl = '';
