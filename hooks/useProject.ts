@@ -9,6 +9,7 @@ export interface ProjectData {
   characters: Character[];
   objects?: ObjectItem[];
   storyContent: string;
+  targetShotCount?: number;
   storyOutline: string;
   storyboards: Storyboard[];
   // 全量持久化：音色参考 / 定妆 bible / 场景参考 / 编剧计划 / 编排状态
@@ -60,6 +61,7 @@ export function useProject() {
       characters: (data.characters || []).map(cleanCharacter),
       objects: (data.objects || []).map(cleanObject),
       storyContent: data.storyContent || '',
+      targetShotCount: data.targetShotCount,
       storyOutline: data.storyOutline || '',
       storyboards: data.storyboards || [],
       voiceReferences: data.voiceReferences,
@@ -82,6 +84,7 @@ export function useProject() {
           name: projectName,
           characters: projectData.characters,
           storyContent: '',
+          targetShotCount: projectData.targetShotCount,
           storyOutline: '',
           storyboards: [],
           createdAt: projectData.createdAt,

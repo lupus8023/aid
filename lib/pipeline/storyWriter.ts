@@ -2,6 +2,7 @@ import { StoryPlan, Beat, PlannedCharacter, StoryRequirement, WriterCharacter, W
 import { buildStoryPlanPrompt } from './storyWriterPrompt';
 import { chatOnce } from './llm';
 import { extractJson } from './json';
+import { normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from './shotCount';
 
 const TRANSITIONS: Beat['transition'][] = ['cut', 'dissolve', 'fade', 'wipe'];
 const REQUIREMENT_CATEGORIES: StoryRequirement['category'][] = ['plot', 'character', 'setting', 'tone', 'format', 'pacing', 'dialogue', 'visual', 'avoid', 'other'];
@@ -27,7 +28,7 @@ function asString(value: unknown, fallback = ''): string {
 }
 
 // 清洗/规约 LLM 返回的原始 JSON，保证字段完整、时长合法、名称在允许列表内。
-export function sanitizeStoryPlan(raw: any, allowedCharacters: string[], allowedObjects: string[], sourceBrief = ''): StoryPlan {
+export function sanitizeStoryPlan(raw: any, allowedCharacters: string[], allowedObjects: string[], sourceBrief = '', targetShotCount?: number): StoryPlan {
   const characters: PlannedCharacter[] = (Array.isArray(raw?.characters) ? raw.characters : []).map((c: any) => ({
     name: asString(c?.name),
     want: asString(c?.want),
@@ -84,8 +85,16 @@ export function sanitizeStoryPlan(raw: any, allowedCharacters: string[], allowed
     })
     .filter((requirement: StoryRequirement) => requirement.text);
 
+  const normalizedTargetShotCount = normalizeTargetShotCount(targetShotCount);
+  const estimatedDurationSeconds = sequences.reduce((total, sequence) => (
+    total + sequence.beats.reduce((sequenceTotal, beat) => sequenceTotal + beat.durationHint, 0)
+  ), 0);
+
   return {
     id: asString(raw?.id, `plan-${Date.now()}`),
+    targetShotCount: normalizedTargetShotCount,
+    targetDurationSeconds: targetDurationSeconds(normalizedTargetShotCount),
+    estimatedDurationSeconds,
     sourceBrief,
     intentSummary: asString(raw?.intentSummary),
     requirements,
@@ -106,18 +115,26 @@ export async function generateStoryPlan(input: {
   language?: 'zh' | 'en';
   scriptModel?: string;
   dmxApiKey?: string;
+  targetShotCount?: number;
 }): Promise<StoryPlan> {
   const { synopsis, characters, objects, apiKey, language = 'zh', scriptModel = 'gpt-4o', dmxApiKey } = input;
-  const prompt = buildStoryPlanPrompt({ synopsis, characters, objects, language });
+  const targetShotCount = normalizeTargetShotCount(input.targetShotCount);
+  const prompt = buildStoryPlanPrompt({ synopsis, characters, objects, language, targetShotCount });
 
   const response = await chatOnce(prompt, { apiKey, dmxApiKey, model: scriptModel });
 
   const raw = extractJson(response);
 
-  return sanitizeStoryPlan(
+  const plan = sanitizeStoryPlan(
     raw,
     characters.map(c => c.name),
     objects.map(o => o.name),
     synopsis,
+    targetShotCount,
   );
+  const actualShotCount = storyPlanBeatCount(plan);
+  if (actualShotCount !== targetShotCount) {
+    throw new Error(`剧本模型返回了 ${actualShotCount} 个镜头，但制作规格要求 ${targetShotCount} 个；请重试生成`);
+  }
+  return plan;
 }

@@ -7,7 +7,7 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest) {
   try {
     const {
-      synopsis, characters, objects, apiKey, language, scriptModel, dmxApiKey,
+      synopsis, characters, objects, apiKey, language, scriptModel, dmxApiKey, targetShotCount,
     } = await request.json();
 
     if (!synopsis?.trim()) {
@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
       language: language || 'zh',
       scriptModel,
       dmxApiKey,
+      targetShotCount,
     });
 
     return NextResponse.json({ storyPlan });

@@ -9,6 +9,7 @@
     "package:companion": "node scripts/package-companion.mjs",
     "dist:companion": "npm run build:companion && npm run package:companion",
     "test:h3-audio": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/h3-reference-audio.test.mjs",
+    "test:shot-count": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/shot-count.test.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

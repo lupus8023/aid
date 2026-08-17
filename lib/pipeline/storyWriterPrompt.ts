@@ -1,4 +1,5 @@
 import { WriterCharacter, WriterObject } from './types';
+import { normalizeTargetShotCount, targetDurationSeconds } from './shotCount';
 
 // 编剧阶段 prompt：先准确理解用户约束，再把允许创作的空白发展成结构化故事。
 // 与 storyAnalyzer 的分镜 prompt 相反：这里【鼓励创作】，分镜阶段才【忠实拆解】。
@@ -7,8 +8,11 @@ export function buildStoryPlanPrompt(input: {
   characters: WriterCharacter[];
   objects: WriterObject[];
   language: 'zh' | 'en';
+  targetShotCount?: number;
 }): string {
   const { synopsis, characters, objects, language } = input;
+  const targetShots = normalizeTargetShotCount(input.targetShotCount);
+  const targetSeconds = targetDurationSeconds(targetShots);
   const characterNames = characters.map(c => c.name).join('、');
   const characterDetails = characters.map(c => `- ${c.name}: ${c.description}`).join('\n');
   const objectNames = objects.map(o => o.name).join('、');
@@ -72,10 +76,13 @@ ${synopsis}
 - 每个 beat 的 durationHint 是建议时长（秒），可以是一位小数；长镜头与短切交替才有节奏。
 
 🎬 镜头/节奏要求
+- 全片必须严格输出 ${targetShots} 个 beats，不多不少；这是制作规格，不是建议。
+- 写 beats 前先在内部给 sequences 分配镜头额度，各 sequence 的 beats 数相加必须等于 ${targetShots}。
+- 目标总片长约 ${targetSeconds} 秒。各镜头 durationHint 仍按内容推导，但全片 durationHint 总和应尽量接近该片长。
 - beats 是【因果链】，不是并列画面：前一个 beat 导致后一个 beat。
 - 每个 beat 只描述一个明确动作单元。
 - 景别要多样（远景建场 → 中景 → 近景/特写），相邻镜头景别要有变化。
-- 无镜头数量上限，按故事需要（3 到上百个都可以）；宁可按「动作链」拆细，也不要一个镜头堆多个动作。
+- 宁可按「动作链」合理分配，也不要一个镜头堆多个动作；同时不得超出或少于 ${targetShots} 镜。
 
 📝 输出格式（只输出 JSON，不要其他任何内容）
 {
@@ -133,6 +140,7 @@ ${synopsis}
 - transition：默认 "cut"；情绪切换或时间跳转可用 "dissolve"/"fade"。
 - characters/objects 数组为空时写 []。
 - promptDraft：已上传角色用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。
+- 最终自检 sequences[].beats 的总数必须严格等于 ${targetShots}，beat.index 必须为 1–${targetShots}。
 
 现在请开始，把这个梗概戏剧化成一个完整、有电影感的故事结构。`;
 }

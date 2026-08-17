@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Wand2, Loader2 } from 'lucide-react';
 import { readApiJson } from '@/lib/apiResponse';
 import { fetchStoryApi } from '@/lib/comfyuiClient';
+import { DEFAULT_TARGET_SHOT_COUNT, SHOT_COUNT_OPTIONS, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import type { AppSettings } from '@/types';
 
 interface Step1Props {
@@ -14,16 +15,22 @@ interface Step1Props {
   isLoading?: boolean;
   language?: 'zh' | 'en';
   onLanguageChange?: (lang: 'zh' | 'en') => void;
+  targetShotCount?: number;
+  onTargetShotCountChange?: (count: number) => void;
   apiKey?: string;
   scriptModel?: string;
   dmxApiKey?: string;
   companionSettings?: AppSettings['comfyui'];
 }
 
-export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, apiKey, scriptModel, dmxApiKey, companionSettings }: Step1Props) {
+export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, targetShotCount = DEFAULT_TARGET_SHOT_COUNT, onTargetShotCountChange, apiKey, scriptModel, dmxApiKey, companionSettings }: Step1Props) {
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text');
   const [textInput, setTextInput] = useState(storyContent);
   const [isExpanding, setIsExpanding] = useState(false);
+  const estimatedSeconds = targetDurationSeconds(targetShotCount);
+  const estimatedDuration = estimatedSeconds >= 60
+    ? `${Math.floor(estimatedSeconds / 60)}分${estimatedSeconds % 60 ? `${estimatedSeconds % 60}秒` : ''}`
+    : `${estimatedSeconds}秒`;
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -99,6 +106,37 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
           className={`px-3 py-1 rounded font-mono text-xs transition-colors ${language === 'en' ? 'bg-[var(--accent-blue)] text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
         >English</button>
       </div>
+
+      <section className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[var(--text-primary)]">目标镜头数</p>
+            <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">剧本会先按这个数量分配情节与场次，再逐镜撰写。</p>
+          </div>
+          <p className="font-mono text-xs text-[var(--accent-blue)]">预计片长 ≈ {estimatedDuration}</p>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-9">
+          {SHOT_COUNT_OPTIONS.map((count) => (
+            <button
+              key={count}
+              type="button"
+              aria-pressed={targetShotCount === count}
+              onClick={() => onTargetShotCountChange?.(count)}
+              className={`rounded border px-3 py-2 font-mono text-sm transition-colors ${
+                targetShotCount === count
+                  ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)] text-white'
+                  : 'border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--accent-blue)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              {count} 镜
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] leading-5 text-[var(--text-secondary)]">
+          按平均每镜约 5 秒估算，实际片长会根据台词、动作和情绪停顿微调。
+          {targetShotCount >= 45 ? ' 长篇剧本生成时间与模型消耗会明显增加。' : ''}
+        </p>
+      </section>
 
       <div className="flex gap-2 mb-4">
         <button

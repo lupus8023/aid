@@ -20,6 +20,7 @@ import { useSettings } from '@/hooks/useSettings';
 import { comfyUIApiUrl, downloadComfyUIVideo, fetchStoryApi, isComfyUIClientTask, localComfyUISettings, videoStatusResponseError } from '@/lib/comfyuiClient';
 import { Grid3x3 } from 'lucide-react';
 import { readApiJson } from '@/lib/apiResponse';
+import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 
 async function makePortableMediaSource(source: string, label: string): Promise<string> {
   if (!source.startsWith('blob:')) return source;
@@ -95,6 +96,7 @@ export default function StoryPage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [objects, setObjects] = useState<ObjectItem[]>([]);
   const [storyContent, setStoryContent] = useState('');
+  const [targetShotCount, setTargetShotCount] = useState(DEFAULT_TARGET_SHOT_COUNT);
   const [storyboards, setStoryboards] = useState<Storyboard[]>([]);
   const [storyPlan, setStoryPlan] = useState<StoryPlan | undefined>();
   const [isLoading, setIsLoading] = useState(false);
@@ -133,6 +135,7 @@ export default function StoryPage() {
       setCharacters(savedProject.characters || []);
       setObjects(savedProject.objects || []);
       setStoryContent(savedProject.storyContent || '');
+      setTargetShotCount(normalizeTargetShotCount(savedProject.targetShotCount));
       setStoryboards(savedProject.storyboards || []);
       setVoiceReferences(savedProject.voiceReferences);
       setCostumeImages(savedProject.costumeImages || {});
@@ -146,14 +149,14 @@ export default function StoryPage() {
   useEffect(() => {
     const timer = setInterval(() => {
       if (characters.length > 0 || storyContent || storyboards.length > 0) {
-        saveProject({ characters, objects, storyContent, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
+        saveProject({ characters, objects, storyContent, targetShotCount, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
       }
     }, 30000);
     return () => clearInterval(timer);
-  }, [characters, objects, storyContent, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, saveProject]);
+  }, [characters, objects, storyContent, targetShotCount, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, saveProject]);
 
   const handleSave = () => {
-    saveProject({ characters, objects, storyContent, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
+    saveProject({ characters, objects, storyContent, targetShotCount, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
     alert('Project saved!');
   };
 
@@ -170,6 +173,7 @@ export default function StoryPage() {
         setCharacters(data.characters || []);
         setObjects(data.objects || []);
         setStoryContent(data.storyContent || '');
+        setTargetShotCount(normalizeTargetShotCount(data.targetShotCount));
         setStoryboards(data.storyboards || []);
         setVoiceReferences(data.voiceReferences);
         setCostumeImages(data.costumeImages || {});
@@ -187,7 +191,7 @@ export default function StoryPage() {
   };
 
   const handleExport = () => {
-    exportProject({ name: projectName, characters, objects, storyContent, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    exportProject({ name: projectName, characters, objects, storyContent, targetShotCount, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   };
 
   const handleUpdateStoryboard = (updated: Storyboard) => {
@@ -202,18 +206,34 @@ export default function StoryPage() {
     // hosting gateway reject the request with an HTML 413/5xx page.
     const writerCharacters = characters.map(({ name, description, voiceId }) => ({ name, description, voiceId }));
     const writerObjects = objects.map(({ name, description }) => ({ name, description }));
+    const language = settings.language || 'zh';
+    // Older Companion builds ignore the structured field below, so append the
+    // same production spec to the brief as a backwards-compatible contract.
+    const planningSynopsis = `${storyContent.trim()}\n\n${buildShotCountContract(targetShotCount, language)}`;
     const planRes = await fetchStoryApi('/api/generate-story-plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ synopsis: storyContent, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, language: settings.language || 'zh', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
+      body: JSON.stringify({ synopsis: planningSynopsis, targetShotCount, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, language, scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
     }, settings.comfyui);
-    const { storyPlan } = await readApiJson<{ storyPlan: StoryPlan }>(planRes, '剧本规划失败');
+    const { storyPlan: generatedPlan } = await readApiJson<{ storyPlan: StoryPlan }>(planRes, '剧本规划失败');
+    const actualShotCount = storyPlanBeatCount(generatedPlan);
+    if (actualShotCount !== targetShotCount) {
+      throw new Error(`剧本规划返回了 ${actualShotCount} 个镜头，但你选择的是 ${targetShotCount} 个，请重试`);
+    }
+    const storyPlan: StoryPlan = {
+      ...generatedPlan,
+      targetShotCount,
+      targetDurationSeconds: targetDurationSeconds(targetShotCount),
+      estimatedDurationSeconds: generatedPlan.sequences.reduce((total, sequence) => (
+        total + sequence.beats.reduce((sum, beat) => sum + beat.durationHint, 0)
+      ), 0),
+    };
     setStoryPlan(storyPlan);
 
     const dirRes = await fetchStoryApi('/api/direct-storyboard', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, aspectRatio: settings.aspectRatio, language: settings.language || 'zh', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
+      body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, aspectRatio: settings.aspectRatio, language, scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
     }, settings.comfyui);
     const { storyboards } = await readApiJson<{ storyboards: Storyboard[] }>(dirRes, '分镜导演失败');
     setStoryboards(storyboards);
@@ -887,6 +907,8 @@ export default function StoryPage() {
                 isLoading={isLoading}
                 language={settings.language || 'zh'}
                 onLanguageChange={(lang) => saveSettings({ ...settings, language: lang })}
+                targetShotCount={targetShotCount}
+                onTargetShotCountChange={setTargetShotCount}
                 apiKey={settings.apiKey}
                 scriptModel={settings.scriptModel}
                 dmxApiKey={settings.dmxApiKey}

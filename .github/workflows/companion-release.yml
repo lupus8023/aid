@@ -52,6 +52,7 @@ jobs:
             npm ci
           fi
       - run: npm run test:h3-audio
+      - run: npm run test:shot-count
       - run: npm run build:companion
       - run: node scripts/package-companion.mjs --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
       - name: Archive macOS app
