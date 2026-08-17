@@ -19,15 +19,18 @@ interface Step5Props {
 }
 
 export default function Step5({ storyboards, characters, videoModel, videoProvider = 'apimart', onBack, onNext, onGenerateVideo, onGenerateVideoPrompt, onGenerateAudio, onUpdate }: Step5Props) {
-  const completedCount = storyboards.filter(sb => sb.videoStatus === 'completed').length;
-  const cachingCount = storyboards.filter(sb => sb.videoCacheStatus === 'caching').length;
-  const cachedCount = storyboards.filter(sb => sb.videoCacheStatus === 'completed').length;
+  const isComfyUI = videoProvider === 'comfyui';
+  const countableVideos = isComfyUI
+    ? storyboards.filter(sb => Boolean(sb.videoSegmentStoryboardIds?.length))
+    : storyboards;
+  const completedCount = countableVideos.filter(sb => sb.videoStatus === 'completed').length;
+  const cachingCount = countableVideos.filter(sb => sb.videoCacheStatus === 'caching').length;
+  const cachedCount = countableVideos.filter(sb => sb.videoCacheStatus === 'completed').length;
   const withImages = storyboards.filter(sb => sb.imageUrl);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedPrompt, setEditedPrompt] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  const isComfyUI = videoProvider === 'comfyui';
   // Wan2.6/Wan2.7 使用实际音轨；仙宫云 MiniMax H3 会原生生成同步音频。
   const m = (videoModel || '').toLowerCase();
   const showAudioButton = !isComfyUI && (m.includes('wan2.6') || m.includes('wan2.7') || m.includes('wan 2.6') || m.includes('wan 2.7'));
@@ -74,7 +77,7 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
         <div className="p-4 border border-[var(--accent-green)]/40 rounded bg-[var(--bg-secondary)]">
           <div className="text-sm font-mono text-[var(--accent-green)]">仙宫云 MiniMax H3 · Native Audio</div>
           <p className="mt-1 text-xs font-mono text-[var(--text-secondary)]">
-            普通分镜使用单图 Ref2VA；开启“连贯上一镜头”时使用首尾帧 FL2VA。无需先生成完整音轨，角色声音参考会在有配置时自动使用。
+            普通分镜使用单图 Ref2VA；开启“连贯上一镜头”时使用首尾帧 FL2VA，带角色音色参考时自动切换 Hybrid。无需先生成完整音轨。
           </p>
           <p className="mt-2 flex items-center gap-1.5 text-xs font-mono text-[var(--text-secondary)]">
             <HardDrive size={12} /> 视频完成后会自动下载到浏览器本地缓存；FFmpeg 导出优先使用本地副本。已缓存 {cachedCount}/{completedCount}

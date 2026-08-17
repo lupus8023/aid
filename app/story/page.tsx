@@ -23,7 +23,7 @@ import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
-import { estimateVideoSegmentSeconds, isCompletedVideoSegment, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
+import { estimateVideoSegmentSeconds, isCompletedVideoSegment, restoredStoryStep, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -353,7 +353,7 @@ export default function StoryPage() {
       setCostumeImages(savedCostumeImages);
       setSceneImages(savedSceneImages);
       setStoryPlan(savedProject.storyPlan);
-      if (savedProject.storyboards?.length > 0) setCurrentStep(4);
+      if (savedProject.storyboards?.length > 0) setCurrentStep(restoredStoryStep(savedStoryboards));
       else if (savedProject.storyContent && savedProject.characters?.length > 0) setCurrentStep(2);
     }
   }, [loadProject]);

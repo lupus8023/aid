@@ -5,6 +5,7 @@ import {
   allocateSegmentTimeline,
   estimateVideoSegmentSeconds,
   isCompletedVideoSegment,
+  restoredStoryStep,
   suggestVideoSegments,
   validateVideoSegment,
 } from '../lib/videoSegments.ts';
@@ -64,4 +65,17 @@ test('does not mistake legacy per-shot videos for a completed grouped segment', 
     videoSegmentStoryboardIds: index === 0 ? ['scene-1', 'scene-2'] : undefined,
   }));
   assert.equal(isCompletedVideoSegment(current), true);
+});
+
+test('restores a saved H3 project directly to export after refresh', () => {
+  const saved = [shot(1), shot(2)].map((item, index) => ({
+    ...item,
+    videoStatus: 'completed',
+    videoSegmentId: 'segment-1',
+    videoSegmentStoryboardIds: index === 0 ? ['scene-1', 'scene-2'] : undefined,
+    videoCacheKey: index === 0 ? 'storyboard-video:project-1:scene-1' : undefined,
+  }));
+  assert.equal(restoredStoryStep(saved), 6);
+  assert.equal(restoredStoryStep(saved.map(item => ({ ...item, videoCacheKey: undefined }))), 5);
+  assert.equal(restoredStoryStep(saved.map((item, index) => index ? item : { ...item, imageUrl: undefined })), 4);
 });
