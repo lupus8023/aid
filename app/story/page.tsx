@@ -91,7 +91,7 @@ async function extractVideoTailFrame(source: string, label: string): Promise<str
 }
 
 export default function StoryPage() {
-  const { projectName, setProjectName, saveProject, loadProject, exportProject, newProject } = useProject();
+  const { projectId, projectName, setProjectName, saveProject, loadProject, exportProject, adoptProjectId, newProject } = useProject();
   const { settings, saveSettings } = useSettings();
   const [showSettings, setShowSettings] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
@@ -115,9 +115,12 @@ export default function StoryPage() {
   const [autoStage, setAutoStage] = useState('');
   const autoAbortRef = useRef(false);
   const videoRecoveryRef = useRef(new Set<string>());
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
 
-  const cacheCompletedVideo = async (storyboardId: string, sourceUrl: string, segmentStoryboardIds: string[] = [storyboardId]): Promise<string> => {
-    const cacheKey = videoCacheKeyForStoryboard(storyboardId);
+  const cacheCompletedVideo = async (storyboardId: string, sourceUrl: string, segmentStoryboardIds: string[] = [storyboardId], cacheProjectId = projectId): Promise<string> => {
+    const cacheKey = videoCacheKeyForStoryboard(cacheProjectId, storyboardId);
+    if (cacheProjectId !== projectIdRef.current) return sourceUrl;
     setStoryboards(prev => prev.map(sb => segmentStoryboardIds.includes(sb.id) ? {
       ...sb,
       videoStatus: 'completed',
@@ -132,6 +135,7 @@ export default function StoryPage() {
     try {
       void requestPersistentVideoStorage();
       const cached = await cacheVideoSource(cacheKey, sourceUrl);
+      if (cacheProjectId !== projectIdRef.current) return cached.objectUrl;
       const cachedAt = new Date().toISOString();
       setStoryboards(prev => prev.map(sb => segmentStoryboardIds.includes(sb.id) ? {
         ...sb,
@@ -147,6 +151,7 @@ export default function StoryPage() {
       return cached.objectUrl;
     } catch (error) {
       console.error(`场景 ${storyboardId} 本地视频缓存失败:`, error);
+      if (cacheProjectId !== projectIdRef.current) return sourceUrl;
       setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? {
         ...sb,
         videoStatus: 'completed',
@@ -159,19 +164,24 @@ export default function StoryPage() {
     }
   };
 
-  const recoverProjectVideos = async (sourceStoryboards: Storyboard[]) => {
+  const recoverProjectVideos = async (sourceStoryboards: Storyboard[], cacheProjectId: string) => {
     for (const storyboard of sourceStoryboards) {
       // Probe the deterministic cache key for every shot. This also recovers a
       // clip completed less than 30 seconds before refresh, before autosave had
       // time to persist its final videoStatus/cache metadata.
-      if (videoRecoveryRef.current.has(storyboard.id)) continue;
+      const recoveryKey = `${cacheProjectId}:${storyboard.id}`;
+      if (videoRecoveryRef.current.has(recoveryKey)) continue;
       if (storyboard.videoSegmentId && !storyboard.videoSegmentStoryboardIds?.length) continue;
-      videoRecoveryRef.current.add(storyboard.id);
+      videoRecoveryRef.current.add(recoveryKey);
       const segmentIds = storyboard.videoSegmentStoryboardIds?.length ? storyboard.videoSegmentStoryboardIds : [storyboard.id];
-      const cacheKey = storyboard.videoCacheKey || videoCacheKeyForStoryboard(storyboard.id);
+      // Never probe the old `storyboard-video:scene-N` keys here. Those keys
+      // had no project namespace, so a fresh project could restore another
+      // project's clip simply because both contain `scene-1`.
+      const cacheKey = videoCacheKeyForStoryboard(cacheProjectId, storyboard.id);
       try {
         const cachedUrl = await cachedVideoObjectUrl(cacheKey);
         if (cachedUrl) {
+          if (cacheProjectId !== projectIdRef.current) continue;
           setStoryboards(prev => prev.map(sb => segmentIds.includes(sb.id) ? {
             ...sb,
             videoStatus: 'completed',
@@ -187,7 +197,7 @@ export default function StoryPage() {
         const remoteUrl = storyboard.videoSourceUrl
           || (storyboard.videoUrl?.startsWith('http') ? storyboard.videoUrl : undefined);
         if (remoteUrl) {
-          await cacheCompletedVideo(storyboard.id, remoteUrl, segmentIds);
+          await cacheCompletedVideo(storyboard.id, remoteUrl, segmentIds, cacheProjectId);
           continue;
         }
 
@@ -195,10 +205,11 @@ export default function StoryPage() {
         // a saved ComfyUI task id can still be downloaded again from 仙宫云.
         if (storyboard.videoTaskId && isComfyUIClientTask(storyboard.videoTaskId)) {
           const recoveredUrl = await downloadComfyUIVideo(storyboard.videoTaskId, settingsRef.current.comfyui);
-          await cacheCompletedVideo(storyboard.id, recoveredUrl, segmentIds);
+          await cacheCompletedVideo(storyboard.id, recoveredUrl, segmentIds, cacheProjectId);
         }
       } catch (error) {
         console.warn(`场景 ${storyboard.sceneNumber} 视频恢复失败:`, error);
+        if (cacheProjectId !== projectIdRef.current) continue;
         setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? {
           ...sb,
           videoUrl: sb.videoUrl?.startsWith('blob:') ? undefined : sb.videoUrl,
@@ -230,17 +241,28 @@ export default function StoryPage() {
   useEffect(() => {
     const savedProject = loadProject();
     if (savedProject) {
-      setCharacters(savedProject.characters || []);
-      setObjects(savedProject.objects || []);
+      projectIdRef.current = savedProject.id!;
+      const savedCharacters = savedProject.characters || [];
+      const savedObjects = savedProject.objects || [];
+      const savedCostumeImages = savedProject.costumeImages || {};
+      const savedSceneImages = savedProject.sceneImages || [];
+      charactersRef.current = savedCharacters;
+      objectsRef.current = savedObjects;
+      costumeImagesRef.current = savedCostumeImages;
+      voiceReferencesRef.current = savedProject.voiceReferences;
+      sceneImagesRef.current = savedSceneImages;
+      setCharacters(savedCharacters);
+      setObjects(savedObjects);
       setStoryContent(savedProject.storyContent || '');
       setTargetShotCount(normalizeTargetShotCount(savedProject.targetShotCount));
       setVisualStyle(normalizeVisualStyle(savedProject.visualStyle || settings.visualStyle));
       const savedStoryboards = savedProject.storyboards || [];
+      storyboardsRef.current = savedStoryboards;
       setStoryboards(savedStoryboards);
-      void recoverProjectVideos(savedStoryboards);
+      void recoverProjectVideos(savedStoryboards, savedProject.id!);
       setVoiceReferences(savedProject.voiceReferences);
-      setCostumeImages(savedProject.costumeImages || {});
-      setSceneImages(savedProject.sceneImages || []);
+      setCostumeImages(savedCostumeImages);
+      setSceneImages(savedSceneImages);
       setStoryPlan(savedProject.storyPlan);
       if (savedProject.storyboards?.length > 0) setCurrentStep(4);
       else if (savedProject.storyContent && savedProject.characters?.length > 0) setCurrentStep(2);
@@ -270,18 +292,35 @@ export default function StoryPage() {
       if (!file) return;
       try {
         const data = JSON.parse(await file.text());
+        const importedProjectId = adoptProjectId(data.id);
+        projectIdRef.current = importedProjectId;
+        autoAbortRef.current = true;
+        setAutoRunning(false);
+        setAutoStage('');
+        videoRecoveryRef.current.clear();
+        setIsCanvasMode(false);
         setProjectName(data.name || 'Untitled Project');
-        setCharacters(data.characters || []);
-        setObjects(data.objects || []);
+        const importedCharacters = data.characters || [];
+        const importedObjects = data.objects || [];
+        const importedCostumeImages = data.costumeImages || {};
+        const importedSceneImages = data.sceneImages || [];
+        charactersRef.current = importedCharacters;
+        objectsRef.current = importedObjects;
+        costumeImagesRef.current = importedCostumeImages;
+        voiceReferencesRef.current = data.voiceReferences;
+        sceneImagesRef.current = importedSceneImages;
+        setCharacters(importedCharacters);
+        setObjects(importedObjects);
         setStoryContent(data.storyContent || '');
         setTargetShotCount(normalizeTargetShotCount(data.targetShotCount));
         setVisualStyle(normalizeVisualStyle(data.visualStyle || settings.visualStyle));
         const importedStoryboards = data.storyboards || [];
+        storyboardsRef.current = importedStoryboards;
         setStoryboards(importedStoryboards);
-        void recoverProjectVideos(importedStoryboards);
+        void recoverProjectVideos(importedStoryboards, importedProjectId);
         setVoiceReferences(data.voiceReferences);
-        setCostumeImages(data.costumeImages || {});
-        setSceneImages(data.sceneImages || []);
+        setCostumeImages(importedCostumeImages);
+        setSceneImages(importedSceneImages);
         setStoryPlan(data.storyPlan);
         if (data.storyboards?.length > 0) setCurrentStep(4);
         else if (data.storyContent && data.characters?.length > 0) setCurrentStep(2);
@@ -366,18 +405,31 @@ export default function StoryPage() {
   };
 
   // Step4: batch generate via 3x3 grid
-  const handleGenerateGrid = async (batch: Storyboard[]) => {
-    if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
-    const { buildGridPrompt, splitGridImage } = await import('@/lib/gridSplitter');
+  const handleGenerateGrid = async (batch: Storyboard[], options: { throwOnError?: boolean } = {}) => {
+    if (!settings.apiKey) {
+      const error = new Error('Please configure API Key in settings');
+      if (options.throwOnError) throw error;
+      alert(error.message);
+      return;
+    }
+    if (batch.length === 0) return;
+    const { buildGridPrompt, chunkGridBatch, splitGridImage } = await import('@/lib/gridSplitter');
     const aspectRatio = settings.aspectRatio;
+    const generationProjectId = projectIdRef.current;
+    const updateGridStoryboards = (updater: (items: Storyboard[]) => Storyboard[]) => {
+      if (generationProjectId !== projectIdRef.current) return;
+      const next = updater(storyboardsRef.current);
+      storyboardsRef.current = next;
+      setStoryboards(next);
+    };
+    setIsGeneratingGrid(true);
     // Process in groups of 9
-    for (let i = 0; i < batch.length; i += 9) {
-      const group = batch.slice(i, i + 9);
-      setIsGeneratingGrid(true);
-      setStoryboards(prev => prev.map(sb =>
-        group.some(g => g.id === sb.id) ? { ...sb, status: 'generating' } : sb
-      ));
-      try {
+    try {
+      for (const group of chunkGridBatch(batch)) {
+        updateGridStoryboards(items => items.map(sb =>
+          group.some(g => g.id === sb.id) ? { ...sb, status: 'generating' } : sb
+        ));
+        try {
         // Grid generation must consider the cast from every panel, not only the
         // first storyboard in the group. Otherwise later character references
         // are uploaded without a matching prompt label and can be ignored.
@@ -386,10 +438,10 @@ export default function StoryPage() {
           sb.prompt.includes(`[${name}]`) ||
           sb.prompt.includes(name) ||
           sb.description.includes(name);
-        const groupCharacters = characters.filter(character =>
+        const groupCharacters = charactersRef.current.filter(character =>
           group.some(sb => mentionsEntity(sb, character.name, sb.characters))
         );
-        const groupObjects = objects.filter(object =>
+        const groupObjects = objectsRef.current.filter(object =>
           group.some(sb => mentionsEntity(sb, object.name, sb.objects))
         );
         const summarize = (value: string, maxLength = 160) =>
@@ -421,7 +473,7 @@ export default function StoryPage() {
         // stay in the prompt but must not consume a reference image number.
         const characterReferences = groupCharacters
           .map(character => ({
-            image: costumeImages[character.name] || character.imageUrl || character.imageBase64,
+            image: costumeImagesRef.current[character.name] || character.imageUrl || character.imageBase64,
             label: `${character.name} — ${summarize(character.description)}`
           }))
           .filter((reference): reference is { image: string; label: string } => Boolean(reference.image));
@@ -431,8 +483,8 @@ export default function StoryPage() {
             label: `${object.name} — ${summarize(object.description)}`
           }))
           .filter((reference): reference is { image: string; label: string } => Boolean(reference.image));
-        const sceneReference = sceneImages[0]
-          ? [{ image: sceneImages[0], label: 'Scene/environment reference' }]
+        const sceneReference = sceneImagesRef.current[0]
+          ? [{ image: sceneImagesRef.current[0], label: 'Scene/environment reference' }]
           : [];
         const references = [...characterReferences, ...sceneReference, ...objectReferences];
         const refLabels = references.map(reference => reference.label);
@@ -457,20 +509,16 @@ export default function StoryPage() {
             aspectRatio,
             imageModel: settings.imageModel,
             apiKey: settings.apiKey,
-            costumeImages,
-            sceneImage: sceneImages[0] || '',
+            costumeImages: costumeImagesRef.current,
+            sceneImage: sceneImagesRef.current[0] || '',
             // 传递所有参考图（角色 + 场景 + 物体）
             referenceImages: refImages,
             referenceImageLabels: refLabels,
             visualStyle
           })
         });
-        if (!res.ok) {
-          const errorText = await res.text();
-          throw new Error(errorText || 'Grid generation failed');
-        }
-        const { taskId } = await res.json();
-        setStoryboards(prev => prev.map(sb =>
+        const { taskId } = await readApiJson<{ taskId: string }>(res, '九宫格任务创建失败');
+        updateGridStoryboards(items => items.map(sb =>
           group.some(g => g.id === sb.id) ? { ...sb, taskId } : sb
         ));
 
@@ -478,6 +526,7 @@ export default function StoryPage() {
         let gridUrl = '';
         for (let j = 0; j < 90; j++) {
           await new Promise(r => setTimeout(r, 3000));
+          if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
           const statusRes = await fetch('/api/check-image-status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -485,6 +534,7 @@ export default function StoryPage() {
           });
           if (!statusRes.ok) continue;
           const statusData = await statusRes.json();
+          if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
           if (statusData.status === 'completed' && statusData.imageUrl) { gridUrl = statusData.imageUrl; break; }
           if (statusData.status === 'failed') {
             console.error('Grid generation failed:', statusData);
@@ -517,7 +567,7 @@ export default function StoryPage() {
           }
         }));
         console.log('Uploaded cells:', uploadedCells);
-        setStoryboards(prev => prev.map(sb => {
+        updateGridStoryboards(items => items.map(sb => {
           const idx = group.findIndex(g => g.id === sb.id);
           if (idx === -1) return sb;
           const newImageUrl = uploadedCells[idx];
@@ -528,21 +578,24 @@ export default function StoryPage() {
           console.log(`Setting imageUrl for ${sb.id}:`, newImageUrl);
           return { ...sb, imageUrl: newImageUrl, status: 'completed' as const };
         }));
-      } catch (error) {
-        console.error('Grid generation failed:', error);
-        setStoryboards(prev => prev.map(sb =>
-          group.some(g => g.id === sb.id) ? { ...sb, status: 'failed' } : sb
-        ));
-        alert(`Grid generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      } finally {
-        setIsGeneratingGrid(false);
+        } catch (error) {
+          console.error('Grid generation failed:', error);
+          updateGridStoryboards(items => items.map(sb =>
+            group.some(g => g.id === sb.id) ? { ...sb, status: 'failed' } : sb
+          ));
+          if (options.throwOnError) throw error;
+          alert(`Grid generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
       }
+    } finally {
+      setIsGeneratingGrid(false);
     }
   };
 
   // Step4: individual image generation
   const handleGenerateImage = async (storyboard: Storyboard) => {
     if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
+    const generationProjectId = projectIdRef.current;
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, status: 'generating' } : sb));
     try {
       const response = await fetch('/api/generate', {
@@ -552,15 +605,17 @@ export default function StoryPage() {
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate image');
       const data = await response.json();
-      await pollImageStatus(storyboard.id, data.taskId);
+      await pollImageStatus(storyboard.id, data.taskId, generationProjectId);
     } catch (error) {
+      if (generationProjectId !== projectIdRef.current) return;
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, status: 'failed' } : sb));
     }
   };
 
-  const pollImageStatus = async (storyboardId: string, taskId: string) => {
+  const pollImageStatus = async (storyboardId: string, taskId: string, generationProjectId = projectIdRef.current) => {
     for (let i = 0; i < 90; i++) {
       await new Promise(resolve => setTimeout(resolve, 3000));
+      if (generationProjectId !== projectIdRef.current) return;
       try {
         const response = await fetch('/api/check-image-status', {
           method: 'POST',
@@ -569,6 +624,7 @@ export default function StoryPage() {
         });
         if (!response.ok) continue;
         const data = await response.json();
+        if (generationProjectId !== projectIdRef.current) return;
         if (data.status === 'completed' && data.imageUrl) {
           let imageUrl = data.imageUrl;
           // 确保 imageUrl 是公网 URL：base64 数据 URL 会上传到 Cloudinary，否则 ComfyUI LoadImage 拿不到文件
@@ -595,11 +651,13 @@ export default function StoryPage() {
         }
       } catch { /* continue polling */ }
     }
+    if (generationProjectId !== projectIdRef.current) return;
     setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, status: 'failed' } : sb));
   };
 
   const handleGenerateCostume = async (type: 'costume' | 'scene', characterName?: string) => {
     if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
+    const generationProjectId = projectIdRef.current;
     const character = characterName ? charactersRef.current.find(c => c.name === characterName) : undefined;
     const sceneStyle = storyboardsRef.current[0]?.sceneStyle;
 
@@ -634,6 +692,7 @@ export default function StoryPage() {
       // Poll for completion
       for (let i = 0; i < 90; i++) {
         await new Promise(r => setTimeout(r, 3000));
+        if (generationProjectId !== projectIdRef.current) return;
         const statusRes = await fetch('/api/check-image-status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -641,11 +700,16 @@ export default function StoryPage() {
         });
         if (!statusRes.ok) continue;
         const statusData = await statusRes.json();
+        if (generationProjectId !== projectIdRef.current) return;
         if (statusData.status === 'completed' && statusData.imageUrl) {
           if (type === 'costume' && characterName) {
-            setCostumeImages(prev => ({ ...prev, [characterName]: statusData.imageUrl }));
+            const nextCostumeImages = { ...costumeImagesRef.current, [characterName]: statusData.imageUrl };
+            costumeImagesRef.current = nextCostumeImages;
+            setCostumeImages(nextCostumeImages);
           } else {
-            setSceneImages(prev => [...prev, statusData.imageUrl]);
+            const nextSceneImages = [...sceneImagesRef.current, statusData.imageUrl];
+            sceneImagesRef.current = nextSceneImages;
+            setSceneImages(nextSceneImages);
           }
           return;
         }
@@ -653,6 +717,7 @@ export default function StoryPage() {
       }
       throw new Error('Timeout');
     } catch (error) {
+      if (generationProjectId !== projectIdRef.current) return;
       alert(`Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       if (type === 'costume' && characterName) {
@@ -665,6 +730,7 @@ export default function StoryPage() {
 
   const handleGenerateVoiceReference = async (characterName: string) => {
     if (!settings.fishAudioKey) { alert('Please configure Fish Audio API Key in settings'); return; }
+    const generationProjectId = projectIdRef.current;
     const character = characters.find(c => c.name === characterName);
     if (!character) return;
     setVoiceGenerating(prev => ({ ...prev, [characterName]: true }));
@@ -683,8 +749,12 @@ export default function StoryPage() {
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed');
       const { url } = await res.json();
-      setVoiceReferences(prev => ({ ...(prev || {}), [characterName]: url }));
+      if (generationProjectId !== projectIdRef.current) return;
+      const nextVoiceReferences = { ...(voiceReferencesRef.current || {}), [characterName]: url };
+      voiceReferencesRef.current = nextVoiceReferences;
+      setVoiceReferences(nextVoiceReferences);
     } catch (err) {
+      if (generationProjectId !== projectIdRef.current) return;
       alert(`Voice reference failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setVoiceGenerating(prev => ({ ...prev, [characterName]: false }));
@@ -692,6 +762,7 @@ export default function StoryPage() {
   };
 
   const handleGenerateVideoPrompt = async (storyboard: Storyboard) => {
+    const generationProjectId = projectIdRef.current;
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: 'generating...' } : sb));
     try {
       const response = await fetch('/api/generate-video-prompt', {
@@ -701,8 +772,10 @@ export default function StoryPage() {
       });
       if (!response.ok) throw new Error('Failed to generate video prompt');
       const data = await response.json();
+      if (generationProjectId !== projectIdRef.current) return;
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: data.videoPrompt, videoPromptOverride: true } : sb));
     } catch (error) {
+      if (generationProjectId !== projectIdRef.current) return;
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: '' } : sb));
       alert(`Failed to generate video prompt`);
     }
@@ -710,6 +783,7 @@ export default function StoryPage() {
 
   const handleGenerateAudio = async (storyboard: Storyboard) => {
     if (!settings.fishAudioKey) { alert('Please configure Fish Audio API Key in settings'); return; }
+    const generationProjectId = projectIdRef.current;
     const hasLines = (storyboard.dialogueLines?.length ?? 0) > 0 || Object.keys(storyboard.dialogue || {}).length > 0;
     if (!hasLines) return;
 
@@ -739,18 +813,21 @@ export default function StoryPage() {
       });
       if (!response.ok) throw new Error((await response.json()).error || 'Failed');
       const { characterAudios, audioUrl } = await response.json();
+      if (generationProjectId !== projectIdRef.current) return;
 
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id
         ? { ...sb, audioStatus: 'completed', characterAudios, audioUrl }
         : sb
       ));
     } catch (error) {
+      if (generationProjectId !== projectIdRef.current) return;
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, audioStatus: 'failed' } : sb));
       alert(`Audio generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
   const handleGenerateVideo = async (storyboard: Storyboard, requestedSegment?: Storyboard[]) => {
+    const generationProjectId = projectIdRef.current;
     const videoProvider = settings.videoProvider || 'apimart';
     if (videoProvider === 'apimart' && !settings.apiKey) { alert('Please configure API Key in settings'); return; }
     const currentShots = storyboardsRef.current;
@@ -865,20 +942,23 @@ export default function StoryPage() {
         body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: leader.aspectRatio || settings.aspectRatio, characterAudios: leader.characterAudios || [], firstFrameUrl, voiceReferences: voiceReferencesRef.current || {}, videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string }>(response, '视频任务创建失败');
+      if (generationProjectId !== projectIdRef.current) return;
       setStoryboards(prev => prev.map(sb => segmentIds.includes(sb.id) ? { ...sb, videoTaskId: sb.id === leader.id ? data.taskId : undefined } : sb));
-      await pollVideoStatus(leader.id, data.taskId, segmentIds);
+      await pollVideoStatus(leader.id, data.taskId, segmentIds, generationProjectId);
     } catch (error) {
       console.error('Video generation failed:', error);
+      if (generationProjectId !== projectIdRef.current) return;
       setStoryboards(prev => prev.map(sb => segmentIds.includes(sb.id) ? { ...sb, videoStatus: 'failed' } : sb));
       alert(`视频生成失败：${error instanceof Error ? error.message : '未知错误'}`);
     }
   };
 
-  const pollVideoStatus = async (storyboardId: string, taskId: string, segmentStoryboardIds: string[] = [storyboardId]) => {
+  const pollVideoStatus = async (storyboardId: string, taskId: string, segmentStoryboardIds: string[] = [storyboardId], generationProjectId = projectIdRef.current) => {
     const isComfyTask = isComfyUIClientTask(taskId);
     let consecutiveErrors = 0;
     for (let i = 0; i < 180; i++) {
       await new Promise(resolve => setTimeout(resolve, 10000));
+      if (generationProjectId !== projectIdRef.current) return;
       try {
         const statusUrl = isComfyTask
           ? comfyUIApiUrl('/api/check-video-status', settings.comfyui)
@@ -896,14 +976,15 @@ export default function StoryPage() {
         if (!response.ok) throw new Error(await videoStatusResponseError(response));
 
         const data = await response.json();
+        if (generationProjectId !== projectIdRef.current) return;
 
         if (isComfyTask && data.status === 'completed' && data.readyForDownload) {
           const localVideoUrl = await downloadComfyUIVideo(taskId, settings.comfyui);
-          await cacheCompletedVideo(storyboardId, localVideoUrl, segmentStoryboardIds);
+          await cacheCompletedVideo(storyboardId, localVideoUrl, segmentStoryboardIds, generationProjectId);
           return;
         }
         if (data.status === 'completed' && data.videoUrl) {
-          await cacheCompletedVideo(storyboardId, data.videoUrl, segmentStoryboardIds);
+          await cacheCompletedVideo(storyboardId, data.videoUrl, segmentStoryboardIds, generationProjectId);
           return;
         }
         if (data.status === 'failed') {
@@ -921,6 +1002,7 @@ export default function StoryPage() {
         }
       }
     }
+    if (generationProjectId !== projectIdRef.current) return;
     setStoryboards(prev => prev.map(sb => segmentStoryboardIds.includes(sb.id) ? { ...sb, videoStatus: 'failed' } : sb));
   };
 
@@ -954,12 +1036,15 @@ export default function StoryPage() {
         if (settings.fishAudioKey && !voiceReferencesRef.current?.[c.name]) await handleGenerateVoiceReference(c.name);
       }
 
-      // ③ 图片（顺序生成，尊重每镜 prompt/时长/场景）
-      setAutoStage('生成分镜图');
-      for (const sb of shots) {
+      // ③ 图片：APIMart 每 9 个分镜生成一张 3×3 contact sheet，
+      // 完成后在浏览器拆分并上传。单张生成只保留给用户手动重试。
+      setAutoStage('九宫格生成分镜图');
+      const pendingShots = shots.filter(sb => sb.status !== 'completed' || !sb.imageUrl);
+      if (pendingShots.length > 0) {
         if (autoAbortRef.current) return;
-        if (sb.status !== 'completed') await handleGenerateImage(sb);
+        await handleGenerateGrid(pendingShots, { throwOnError: true });
       }
+      shots = storyboardsRef.current;
 
       // ④ 视频（顺序生成，连续镜头自动接上一镜尾帧；读最新状态，图片阶段刚生成完）
       setAutoStage('生成视频');
@@ -975,6 +1060,7 @@ export default function StoryPage() {
       setAutoStage('成片');
       setCurrentStep(6);
     } catch (error) {
+      if (autoAbortRef.current) return;
       alert(`自动生成中断：${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setAutoRunning(false);
@@ -1018,6 +1104,7 @@ export default function StoryPage() {
       {isCanvasMode && storyboards.length > 0 ? (
         <div className="relative h-full bg-[var(--bg-primary)]">
           <CanvasMode
+            key={projectId}
             storyContent={storyContent}
             storyboards={storyboards}
             onExit={() => setIsCanvasMode(false)}

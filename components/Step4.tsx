@@ -37,7 +37,7 @@ export default function Step4({ storyboards, onBack, onNext, onGenerateImage, on
           <span className="text-[var(--text-secondary)]">04.</span> Generate Images
         </h2>
         <p className="text-[var(--text-secondary)] font-mono text-sm mb-3">
-          Generate an image for each shot individually
+          Generate one 3×3 contact sheet per 9 shots, then split it into individual storyboards
         </p>
         {onGenerateGrid && (
           <button

@@ -1,5 +1,7 @@
 'use client';
 
+import { scopedVideoCacheKey } from './projectIdentity';
+
 const DATABASE_NAME = 'aid-media-cache';
 const DATABASE_VERSION = 1;
 const VIDEO_STORE = 'videos';
@@ -29,8 +31,8 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export function videoCacheKeyForStoryboard(storyboardId: string): string {
-  return `storyboard-video:${storyboardId}`;
+export function videoCacheKeyForStoryboard(projectId: string, storyboardId: string): string {
+  return scopedVideoCacheKey(projectId, storyboardId);
 }
 
 export async function requestPersistentVideoStorage(): Promise<boolean> {

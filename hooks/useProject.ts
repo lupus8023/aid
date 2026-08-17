@@ -3,8 +3,10 @@
 import { useState, useCallback } from 'react';
 import { Character, Storyboard, ObjectItem, VisualStyle } from '@/types';
 import { StoryPlan, PipelineState } from '@/lib/pipeline/types';
+import { createProjectId } from '@/lib/projectIdentity';
 
 export interface ProjectData {
+  id?: string;
   name: string;
   characters: Character[];
   objects?: ObjectItem[];
@@ -62,11 +64,13 @@ function cleanStoryboard(storyboard: Storyboard): Storyboard {
 }
 
 export function useProject() {
+  const [projectId, setProjectId] = useState(createProjectId);
   const [projectName, setProjectName] = useState('未命名项目');
 
   // 保存项目到本地存储
   const saveProject = useCallback((data: Partial<ProjectData>) => {
     const projectData: ProjectData = {
+      id: data.id || projectId,
       name: projectName,
       characters: (data.characters || []).map(cleanCharacter),
       objects: (data.objects || []).map(cleanObject),
@@ -108,7 +112,7 @@ export function useProject() {
         console.error('无法保存项目，存储空间不足');
       }
     }
-  }, [projectName]);
+  }, [projectId, projectName]);
 
   // 从本地存储加载项目
   const loadProject = useCallback(() => {
@@ -116,6 +120,12 @@ export function useProject() {
     if (saved) {
       try {
         const data = JSON.parse(saved) as ProjectData;
+        const id = data.id || createProjectId();
+        if (!data.id) {
+          data.id = id;
+          localStorage.setItem('currentProject', JSON.stringify(data));
+        }
+        setProjectId(id);
         setProjectName(data.name);
         return data;
       } catch (error) {
@@ -127,7 +137,7 @@ export function useProject() {
 
   // 导出项目为 JSON
   const exportProject = useCallback((data: ProjectData) => {
-    const json = JSON.stringify({ ...data, storyboards: data.storyboards.map(cleanStoryboard) }, null, 2);
+    const json = JSON.stringify({ ...data, id: data.id || projectId, storyboards: data.storyboards.map(cleanStoryboard) }, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -135,6 +145,12 @@ export function useProject() {
     a.download = `${data.name}_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  }, [projectId]);
+
+  const adoptProjectId = useCallback((id?: string): string => {
+    const nextId = id || createProjectId();
+    setProjectId(nextId);
+    return nextId;
   }, []);
 
   // 创建新项目
@@ -147,11 +163,13 @@ export function useProject() {
   }, []);
 
   return {
+    projectId,
     projectName,
     setProjectName,
     saveProject,
     loadProject,
     exportProject,
+    adoptProjectId,
     newProject
   };
 }

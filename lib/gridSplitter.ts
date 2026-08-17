@@ -1,5 +1,14 @@
 // Split a 3x3 grid image into 9 individual images using Canvas
 // Each cell has the same aspect ratio as the whole grid
+export function chunkGridBatch<T>(items: T[], size = 9): T[][] {
+  if (!Number.isInteger(size) || size < 1) throw new Error('Grid batch size must be a positive integer');
+  const batches: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    batches.push(items.slice(index, index + size));
+  }
+  return batches;
+}
+
 export async function splitGridImage(
   imageUrl: string,
   aspectRatio: '16:9' | '9:16' | '1:1' = '16:9'
