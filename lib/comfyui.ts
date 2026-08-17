@@ -805,8 +805,9 @@ function nextNodeId(prompt: JsonRecord): string {
 }
 
 function injectReferenceImages(prompt: JsonRecord, variant: ComfyUIWorkflow, remoteImages: string[]): void {
-  if (variant === 'aid_first_last') return;
   const inputs = conditioningNode(prompt).inputs;
+  inputs.task_type = h3VisualTaskType(variant);
+  if (variant === 'aid_first_last') return;
   for (const key of Object.keys(inputs)) {
     if (key.startsWith('ref_images.ref_image_')) delete inputs[key];
   }
@@ -819,6 +820,24 @@ function injectReferenceImages(prompt: JsonRecord, variant: ComfyUIWorkflow, rem
     };
     inputs[`ref_images.ref_image_${index}`] = [nodeId, 0];
   });
+}
+
+export function h3VisualTaskType(variant: ComfyUIWorkflow): 'FL2VA' | 'Ref2VA' {
+  // The downloaded single-image workflow can retain FL2VA in its saved widget
+  // state. Once AID injects the image through ref_images, H3 rejects FL2VA
+  // ("cannot include reference media"). Both one and many reference images
+  // therefore use Ref2VA; only the dedicated first/last-frame graph uses FL2VA.
+  return variant === 'aid_first_last' ? 'FL2VA' : 'Ref2VA';
+}
+
+export function h3ConditioningTaskType(
+  visualTaskType: 'FL2VA' | 'Ref2VA',
+  referenceAudioCount: number,
+): 'FL2VA' | 'Ref2VA' | 'Hybrid' {
+  // H3 treats voice samples as reference media too. Pure FL2VA rejects any
+  // reference media, so first/last-frame continuity plus a character voice
+  // reference must run through Hybrid.
+  return visualTaskType === 'FL2VA' && referenceAudioCount > 0 ? 'Hybrid' : visualTaskType;
 }
 
 export function h3ReferenceAudioPolicy(referenceAudioCount: number): {
@@ -855,6 +874,10 @@ function injectReferenceAudios(prompt: JsonRecord, remoteAudios: string[]): void
     };
     inputs[`ref_audios.ref_audio_${index}`] = [nodeId, 0];
   });
+  inputs.task_type = h3ConditioningTaskType(
+    inputs.task_type === 'FL2VA' ? 'FL2VA' : 'Ref2VA',
+    remoteAudios.length,
+  );
   Object.assign(inputs, h3ReferenceAudioPolicy(remoteAudios.length));
   inputs.strict_prompt_tags = true;
 }

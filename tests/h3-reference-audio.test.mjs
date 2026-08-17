@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { fitH3ReferenceAudioDurations, h3ReferenceAudioPolicy } from '../lib/comfyui.ts';
+import {
+  fitH3ReferenceAudioDurations,
+  h3ConditioningTaskType,
+  h3ReferenceAudioPolicy,
+  h3VisualTaskType,
+} from '../lib/comfyui.ts';
 
 const TOTAL_BUDGET = 14.7;
 const MINIMUM_DURATION = 2;
@@ -50,4 +55,16 @@ test('keeps voice references in native mode without requiring drive audio', () =
     prompt_primary_audio_ordinal: 1,
   });
   assert.equal(h3ReferenceAudioPolicy(0).prompt_primary_audio_ordinal, 0);
+});
+
+test('uses reference-video mode whenever AID injects reference images', () => {
+  assert.equal(h3VisualTaskType('aid_single_reference'), 'Ref2VA');
+  assert.equal(h3VisualTaskType('aid_multi_reference'), 'Ref2VA');
+  assert.equal(h3VisualTaskType('aid_first_last'), 'FL2VA');
+});
+
+test('uses hybrid mode for first/last-frame continuity with voice references', () => {
+  assert.equal(h3ConditioningTaskType('FL2VA', 1), 'Hybrid');
+  assert.equal(h3ConditioningTaskType('FL2VA', 0), 'FL2VA');
+  assert.equal(h3ConditioningTaskType('Ref2VA', 2), 'Ref2VA');
 });
