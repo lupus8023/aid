@@ -31,6 +31,10 @@ export interface Storyboard {
   status: 'pending' | 'generating' | 'completed' | 'failed';
   taskId?: string; // APIMart 任务 ID
   videoUrl?: string; // 视频 URL
+  videoSourceUrl?: string; // 云端原始 URL；本地缓存丢失时用于恢复
+  videoCacheKey?: string; // IndexedDB 中的持久化视频键
+  videoCacheStatus?: 'caching' | 'completed' | 'failed';
+  videoCachedAt?: string;
   videoStatus?: 'pending' | 'generating' | 'completed' | 'failed'; // 视频生成状态
   videoTaskId?: string; // 视频任务 ID
   aspectRatio?: '16:9' | '9:16' | '1:1'; // 宽高比

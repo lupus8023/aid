@@ -75,9 +75,14 @@ export async function exportVideo(
         '-t', duration.toString(),
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
+        '-pix_fmt', 'yuv420p',
         '-c:a', 'aac',
         trimmedName
       ]);
+
+      // Long films used to keep every original alongside every trimmed clip,
+      // doubling FFmpeg WASM memory. The trimmed copy is now the only file kept.
+      await ffmpegInstance.deleteFile(inputName);
     }
 
     const concatName = trackFile(`${tempPrefix}_concat.txt`);
@@ -87,17 +92,13 @@ export async function exportVideo(
     console.log('Concat content:', concatContent);
     await ffmpegInstance.writeFile(concatName, concatContent);
 
-    onProgress(82, '合并视频');
+    onProgress(82, '快速合并视频');
     console.log('Starting concat...');
     await ffmpegInstance.exec([
       '-f', 'concat',
       '-safe', '0',
       '-i', concatName,
-      '-c:v', 'libx264',
-      '-preset', 'ultrafast',
-      '-crf', '23',
-      '-c:a', 'aac',
-      '-b:a', '128k',
+      '-c', 'copy',
       '-movflags', '+faststart',
       outputName
     ]);

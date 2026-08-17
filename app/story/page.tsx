@@ -21,6 +21,7 @@ import { comfyUIApiUrl, downloadComfyUIVideo, fetchStoryApi, isComfyUIClientTask
 import { Grid3x3 } from 'lucide-react';
 import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
+import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 
 async function makePortableMediaSource(source: string, label: string): Promise<string> {
   if (!source.startsWith('blob:')) return source;
@@ -110,6 +111,92 @@ export default function StoryPage() {
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoStage, setAutoStage] = useState('');
   const autoAbortRef = useRef(false);
+  const videoRecoveryRef = useRef(new Set<string>());
+
+  const cacheCompletedVideo = async (storyboardId: string, sourceUrl: string): Promise<string> => {
+    const cacheKey = videoCacheKeyForStoryboard(storyboardId);
+    setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? {
+      ...sb,
+      videoStatus: 'completed',
+      videoUrl: sourceUrl,
+      videoSourceUrl: sourceUrl.startsWith('http') ? sourceUrl : sb.videoSourceUrl,
+      videoCacheKey: cacheKey,
+      videoCacheStatus: 'caching',
+    } : sb));
+
+    try {
+      void requestPersistentVideoStorage();
+      const cached = await cacheVideoSource(cacheKey, sourceUrl);
+      const cachedAt = new Date().toISOString();
+      setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? {
+        ...sb,
+        videoStatus: 'completed',
+        videoUrl: cached.objectUrl,
+        videoSourceUrl: sourceUrl.startsWith('http') ? sourceUrl : sb.videoSourceUrl,
+        videoCacheKey: cacheKey,
+        videoCacheStatus: 'completed',
+        videoCachedAt: cachedAt,
+      } : sb));
+      return cached.objectUrl;
+    } catch (error) {
+      console.error(`场景 ${storyboardId} 本地视频缓存失败:`, error);
+      setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? {
+        ...sb,
+        videoStatus: 'completed',
+        videoUrl: sourceUrl,
+        videoSourceUrl: sourceUrl.startsWith('http') ? sourceUrl : sb.videoSourceUrl,
+        videoCacheKey: cacheKey,
+        videoCacheStatus: 'failed',
+      } : sb));
+      return sourceUrl;
+    }
+  };
+
+  const recoverProjectVideos = async (sourceStoryboards: Storyboard[]) => {
+    for (const storyboard of sourceStoryboards) {
+      // Probe the deterministic cache key for every shot. This also recovers a
+      // clip completed less than 30 seconds before refresh, before autosave had
+      // time to persist its final videoStatus/cache metadata.
+      if (videoRecoveryRef.current.has(storyboard.id)) continue;
+      videoRecoveryRef.current.add(storyboard.id);
+      const cacheKey = storyboard.videoCacheKey || videoCacheKeyForStoryboard(storyboard.id);
+      try {
+        const cachedUrl = await cachedVideoObjectUrl(cacheKey);
+        if (cachedUrl) {
+          setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? {
+            ...sb,
+            videoStatus: 'completed',
+            videoUrl: cachedUrl,
+            videoCacheKey: cacheKey,
+            videoCacheStatus: 'completed',
+          } : sb));
+          continue;
+        }
+
+        const remoteUrl = storyboard.videoSourceUrl
+          || (storyboard.videoUrl?.startsWith('http') ? storyboard.videoUrl : undefined);
+        if (remoteUrl) {
+          await cacheCompletedVideo(storyboard.id, remoteUrl);
+          continue;
+        }
+
+        // Compatibility recovery for projects created before local caching:
+        // a saved ComfyUI task id can still be downloaded again from 仙宫云.
+        if (storyboard.videoTaskId && isComfyUIClientTask(storyboard.videoTaskId)) {
+          const recoveredUrl = await downloadComfyUIVideo(storyboard.videoTaskId, settingsRef.current.comfyui);
+          await cacheCompletedVideo(storyboard.id, recoveredUrl);
+        }
+      } catch (error) {
+        console.warn(`场景 ${storyboard.sceneNumber} 视频恢复失败:`, error);
+        setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? {
+          ...sb,
+          videoUrl: sb.videoUrl?.startsWith('blob:') ? undefined : sb.videoUrl,
+          videoCacheKey: cacheKey,
+          videoCacheStatus: 'failed',
+        } : sb));
+      }
+    }
+  };
 
   // 全自动编排需要读取「最新」状态（避免长异步闭包里的旧值）
   const storyboardsRef = useRef(storyboards);
@@ -136,7 +223,9 @@ export default function StoryPage() {
       setObjects(savedProject.objects || []);
       setStoryContent(savedProject.storyContent || '');
       setTargetShotCount(normalizeTargetShotCount(savedProject.targetShotCount));
-      setStoryboards(savedProject.storyboards || []);
+      const savedStoryboards = savedProject.storyboards || [];
+      setStoryboards(savedStoryboards);
+      void recoverProjectVideos(savedStoryboards);
       setVoiceReferences(savedProject.voiceReferences);
       setCostumeImages(savedProject.costumeImages || {});
       setSceneImages(savedProject.sceneImages || []);
@@ -174,7 +263,9 @@ export default function StoryPage() {
         setObjects(data.objects || []);
         setStoryContent(data.storyContent || '');
         setTargetShotCount(normalizeTargetShotCount(data.targetShotCount));
-        setStoryboards(data.storyboards || []);
+        const importedStoryboards = data.storyboards || [];
+        setStoryboards(importedStoryboards);
+        void recoverProjectVideos(importedStoryboards);
         setVoiceReferences(data.voiceReferences);
         setCostumeImages(data.costumeImages || {});
         setSceneImages(data.sceneImages || []);
@@ -716,11 +807,11 @@ export default function StoryPage() {
 
         if (isComfyTask && data.status === 'completed' && data.readyForDownload) {
           const localVideoUrl = await downloadComfyUIVideo(taskId, settings.comfyui);
-          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, videoStatus: 'completed', videoUrl: localVideoUrl } : sb));
+          await cacheCompletedVideo(storyboardId, localVideoUrl);
           return;
         }
         if (data.status === 'completed' && data.videoUrl) {
-          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, videoStatus: 'completed', videoUrl: data.videoUrl } : sb));
+          await cacheCompletedVideo(storyboardId, data.videoUrl);
           return;
         }
         if (data.status === 'failed') {

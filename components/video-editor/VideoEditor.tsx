@@ -130,7 +130,9 @@ export default function VideoEditor({ initialVideos, continuousFromPrevious }: V
       a.href = url;
       a.download = `edited-video-${Date.now()}.mp4`;
       a.click();
-      URL.revokeObjectURL(url);
+      // Revoking synchronously can cancel a large download before the browser
+      // has opened the blob stream.
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (error) {
       console.error('Export failed:', error);
       alert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`);

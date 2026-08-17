@@ -51,6 +51,15 @@ function cleanObject(obj: ObjectItem): ObjectItem {
   };
 }
 
+// blob URL 只在当前页面生命周期有效。项目文件只保存云端兜底地址和
+// IndexedDB cache key，刷新后再从持久化视频缓存创建新的 blob URL。
+function cleanStoryboard(storyboard: Storyboard): Storyboard {
+  const videoUrl = storyboard.videoUrl?.startsWith('blob:')
+    ? storyboard.videoSourceUrl
+    : storyboard.videoUrl;
+  return { ...storyboard, videoUrl };
+}
+
 export function useProject() {
   const [projectName, setProjectName] = useState('未命名项目');
 
@@ -63,7 +72,7 @@ export function useProject() {
       storyContent: data.storyContent || '',
       targetShotCount: data.targetShotCount,
       storyOutline: data.storyOutline || '',
-      storyboards: data.storyboards || [],
+      storyboards: (data.storyboards || []).map(cleanStoryboard),
       voiceReferences: data.voiceReferences,
       costumeImages: data.costumeImages,
       sceneImages: data.sceneImages,
@@ -115,7 +124,7 @@ export function useProject() {
 
   // 导出项目为 JSON
   const exportProject = useCallback((data: ProjectData) => {
-    const json = JSON.stringify(data, null, 2);
+    const json = JSON.stringify({ ...data, storyboards: data.storyboards.map(cleanStoryboard) }, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

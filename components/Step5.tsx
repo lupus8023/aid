@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Storyboard, Character } from '@/types';
-import { CheckCircle2, Loader2, Video, Wand2, Mic } from 'lucide-react';
+import { CheckCircle2, HardDrive, Loader2, Video, Wand2, Mic } from 'lucide-react';
 
 interface Step5Props {
   storyboards: Storyboard[];
@@ -19,6 +19,8 @@ interface Step5Props {
 
 export default function Step5({ storyboards, characters, videoModel, videoProvider = 'apimart', onBack, onNext, onGenerateVideo, onGenerateVideoPrompt, onGenerateAudio, onUpdate }: Step5Props) {
   const completedCount = storyboards.filter(sb => sb.videoStatus === 'completed').length;
+  const cachingCount = storyboards.filter(sb => sb.videoCacheStatus === 'caching').length;
+  const cachedCount = storyboards.filter(sb => sb.videoCacheStatus === 'completed').length;
   const withImages = storyboards.filter(sb => sb.imageUrl);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedPrompt, setEditedPrompt] = useState('');
@@ -57,6 +59,9 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
           <p className="mt-1 text-xs font-mono text-[var(--text-secondary)]">
             普通分镜使用单图 Ref2VA；开启“连贯上一镜头”时使用首尾帧 FL2VA。无需先生成完整音轨，角色声音参考会在有配置时自动使用。
           </p>
+          <p className="mt-2 flex items-center gap-1.5 text-xs font-mono text-[var(--text-secondary)]">
+            <HardDrive size={12} /> 视频完成后会自动下载到浏览器本地缓存；FFmpeg 导出优先使用本地副本。已缓存 {cachedCount}/{completedCount}
+          </p>
         </div>
       )}
 
@@ -77,6 +82,15 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
                   <span className="text-xs font-mono text-[var(--accent-yellow)]">Scene {sb.sceneNumber}</span>
                   {sb.videoStatus === 'completed' && <CheckCircle2 size={14} className="text-[var(--success)]" />}
                 </div>
+                {sb.videoCacheStatus === 'caching' && (
+                  <p className="flex items-center gap-1 text-[10px] font-mono text-[var(--accent-yellow)]"><Loader2 size={10} className="animate-spin" /> 正在下载到本地…</p>
+                )}
+                {sb.videoCacheStatus === 'completed' && (
+                  <p className="flex items-center gap-1 text-[10px] font-mono text-[var(--accent-green)]"><HardDrive size={10} /> 已保存到本地，刷新后可恢复</p>
+                )}
+                {sb.videoCacheStatus === 'failed' && (
+                  <p className="text-[10px] font-mono text-[var(--accent-yellow)]">本地缓存失败，当前仍使用云端地址</p>
+                )}
 
                 {/* Video Prompt */}
                 {editingId === sb.id ? (
@@ -246,10 +260,10 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
         </button>
         <button
           onClick={onNext}
-          disabled={completedCount === 0}
+          disabled={completedCount === 0 || cachingCount > 0}
           className="bg-[var(--accent-green)] text-[var(--bg-primary)] px-6 py-2.5 rounded font-mono text-sm hover:bg-[#5dd18d] disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >
-          Next: Edit & Export →
+          {cachingCount > 0 ? `正在保存 ${cachingCount} 个片段…` : 'Next: Edit & Export →'}
         </button>
       </div>
     </div>
