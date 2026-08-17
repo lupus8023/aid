@@ -821,6 +821,22 @@ function injectReferenceImages(prompt: JsonRecord, variant: ComfyUIWorkflow, rem
   });
 }
 
+export function h3ReferenceAudioPolicy(referenceAudioCount: number): {
+  audio_mode: 'native';
+  add_source_as_reference: false;
+  prompt_primary_audio_ordinal: number;
+} {
+  return {
+    // `ref_audios` are voice/style references, not a drive track. The H3 T8
+    // node requires `drive_audio` for every non-native mode, including the
+    // misleadingly named `reference_only` mode. Native mode still consumes
+    // ref_audios and generates a fresh synchronized soundtrack.
+    audio_mode: 'native',
+    add_source_as_reference: false,
+    prompt_primary_audio_ordinal: referenceAudioCount > 0 ? 1 : 0,
+  };
+}
+
 function injectReferenceAudios(prompt: JsonRecord, remoteAudios: string[]): void {
   const inputs = conditioningNode(prompt).inputs;
   for (const key of Object.keys(inputs)) {
@@ -839,14 +855,7 @@ function injectReferenceAudios(prompt: JsonRecord, remoteAudios: string[]): void
     };
     inputs[`ref_audios.ref_audio_${index}`] = [nodeId, 0];
   });
-  if (remoteAudios.length) {
-    inputs.audio_mode = 'reference_only';
-    inputs.add_source_as_reference = false;
-    inputs.prompt_primary_audio_ordinal = 1;
-  } else {
-    inputs.audio_mode = 'native';
-    inputs.prompt_primary_audio_ordinal = 0;
-  }
+  Object.assign(inputs, h3ReferenceAudioPolicy(remoteAudios.length));
   inputs.strict_prompt_tags = true;
 }
 

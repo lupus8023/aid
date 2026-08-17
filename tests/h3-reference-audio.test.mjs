@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { fitH3ReferenceAudioDurations } from '../lib/comfyui.ts';
+import { fitH3ReferenceAudioDurations, h3ReferenceAudioPolicy } from '../lib/comfyui.ts';
 
 const TOTAL_BUDGET = 14.7;
 const MINIMUM_DURATION = 2;
@@ -41,4 +41,13 @@ test('preserves a short valid reference while distributing the remaining budget'
 
 test('rejects a reference shorter than the H3 minimum', () => {
   assert.throws(() => fitH3ReferenceAudioDurations([1.9]), /至少 2 秒/);
+});
+
+test('keeps voice references in native mode without requiring drive audio', () => {
+  assert.deepEqual(h3ReferenceAudioPolicy(2), {
+    audio_mode: 'native',
+    add_source_as_reference: false,
+    prompt_primary_audio_ordinal: 1,
+  });
+  assert.equal(h3ReferenceAudioPolicy(0).prompt_primary_audio_ordinal, 0);
 });
