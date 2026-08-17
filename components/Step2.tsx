@@ -16,6 +16,8 @@ interface Step2Props {
 }
 
 export default function Step2({ characters, objects, onCharactersChange, onObjectsChange, onBack, onNext, isLoading, visualStyle, onVisualStyleChange }: Step2Props) {
+  const currentStyle = PRODUCTION_STYLE_PRESETS.find((preset) => preset.value === visualStyle) ?? PRODUCTION_STYLE_PRESETS[0];
+
   return (
     <div className="space-y-6">
       <div className="aid-page-lead">
@@ -23,28 +25,43 @@ export default function Step2({ characters, objects, onCharactersChange, onObjec
         <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-1.5 font-mono text-[10px] text-[var(--text-secondary)]">{characters.length} 角色 · {objects.length} 物件</span>
       </div>
 
-      <section className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4 md:p-5">
-        <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="aid-eyebrow">Production style bible</p>
-            <h3 className="mt-1 text-lg font-semibold text-white">选择全片制作风格</h3>
-            <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">这里选择的是整套画面、摄影机和剪辑语言，会同时约束角色、场景、分镜图与 H3 视频。</p>
+      <section className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] px-4 py-3.5 md:px-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-6">
+          <div className="shrink-0 lg:w-64">
+            <div className="flex items-center justify-between gap-3 lg:block">
+              <h3 className="text-sm font-semibold text-white">全片制作风格</h3>
+              <span className="whitespace-nowrap font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--accent-blue)]">Style bible</span>
+            </div>
+            <p className="mt-1 truncate text-xs text-[var(--text-secondary)]" title={currentStyle.description}>
+              <span className="text-[var(--text-primary)]">{currentStyle.label}</span>
+              <span className="mx-1.5 text-[var(--border-color)]">/</span>
+              {currentStyle.description}
+            </p>
           </div>
-          <span className="font-mono text-[10px] text-[var(--accent-blue)]">全项目唯一风格源</span>
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-          {PRODUCTION_STYLE_PRESETS.map((preset) => (
-            <button
-              key={preset.value}
-              type="button"
-              onClick={() => onVisualStyleChange(preset.value)}
-              aria-pressed={visualStyle === preset.value}
-              className={`min-h-24 rounded-lg border p-3 text-left transition-colors ${visualStyle === preset.value ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/12' : 'border-[var(--border-color)] bg-[var(--bg-tertiary)] hover:border-[var(--accent-blue)]/60'}`}
-            >
-              <span className={`block text-sm font-semibold ${visualStyle === preset.value ? 'text-white' : 'text-[var(--text-primary)]'}`}>{preset.label}</span>
-              <span className="mt-1 block text-[10px] leading-4 text-[var(--text-secondary)]">{preset.description}</span>
-            </button>
-          ))}
+
+          <div
+            role="radiogroup"
+            aria-label="选择全片制作风格"
+            className="-mx-1 flex min-w-0 gap-1.5 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-1 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0"
+          >
+            {PRODUCTION_STYLE_PRESETS.map((preset) => {
+              const isSelected = visualStyle === preset.value;
+              return (
+                <button
+                  key={preset.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  onClick={() => onVisualStyleChange(preset.value)}
+                  title={preset.description}
+                  style={isSelected ? { backgroundColor: 'rgba(var(--workspace-accent-rgb), 0.12)' } : undefined}
+                  className={`shrink-0 whitespace-nowrap rounded-md border px-3 py-2 text-xs font-medium transition-colors active:translate-y-px ${isSelected ? 'border-[var(--accent-blue)] text-[var(--accent-blue)]' : 'border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--accent-blue)]/60 hover:text-[var(--text-primary)]'}`}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
