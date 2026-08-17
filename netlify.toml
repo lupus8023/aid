@@ -2,6 +2,13 @@
   command = "npm run build"
   publish = ".next"
 
+[functions]
+  external_node_modules = ["sharp"]
+  included_files = [
+    "node_modules/@img/sharp-linux-x64/**",
+    "node_modules/@img/sharp-libvips-linux-x64/**"
+  ]
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
