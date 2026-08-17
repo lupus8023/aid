@@ -8,9 +8,15 @@ interface Step6Props {
 }
 
 export default function Step6({ storyboards, onBack }: Step6Props) {
-  const videoUrls = storyboards
-    .filter(sb => sb.videoStatus === 'completed' && sb.videoUrl)
-    .map(sb => sb.videoUrl as string);
+  const completedShots = storyboards
+    .map((storyboard, originalIndex) => ({ storyboard, originalIndex }))
+    .filter(({ storyboard }) => storyboard.videoStatus === 'completed' && storyboard.videoUrl);
+  const videoUrls = completedShots.map(({ storyboard }) => storyboard.videoUrl as string);
+  const continuousFromPrevious = completedShots.map(({ storyboard, originalIndex }, index) => (
+    index > 0
+    && storyboard.continuousFromPrev === true
+    && completedShots[index - 1].originalIndex === originalIndex - 1
+  ));
 
   return (
     <div className="h-full flex flex-col">
@@ -19,13 +25,13 @@ export default function Step6({ storyboards, onBack }: Step6Props) {
           <span className="text-[var(--text-secondary)]">06.</span> Edit & Export
         </h2>
         <p className="text-[var(--text-secondary)] font-mono text-sm">
-          Edit, trim, and export your final video
+          Edit, trim, and export your final video. 连贯镜头会自动去除接缝处的重复首帧。
         </p>
       </div>
 
       {videoUrls.length > 0 ? (
         <div className="flex-1 border border-[var(--border-color)] rounded overflow-hidden">
-          <VideoEditor initialVideos={videoUrls} />
+          <VideoEditor initialVideos={videoUrls} continuousFromPrevious={continuousFromPrevious} />
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">

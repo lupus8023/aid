@@ -36,6 +36,56 @@ async function makePortableMediaSource(source: string, label: string): Promise<s
   });
 }
 
+async function extractVideoTailFrame(source: string, label: string): Promise<string> {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+  video.src = source;
+
+  const waitFor = (event: 'loadedmetadata' | 'loadeddata' | 'seeked') => new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      video.removeEventListener(event, handleReady);
+      video.removeEventListener('error', handleError);
+    };
+    const handleReady = () => { cleanup(); resolve(); };
+    const handleError = () => { cleanup(); reject(new Error(`${label}读取失败`)); };
+    video.addEventListener(event, handleReady, { once: true });
+    video.addEventListener('error', handleError, { once: true });
+  });
+
+  try {
+    const metadataReady = waitFor('loadedmetadata');
+    video.load();
+    await metadataReady;
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) await waitFor('loadeddata');
+    if (!Number.isFinite(video.duration) || video.duration <= 0 || !video.videoWidth || !video.videoHeight) {
+      throw new Error(`${label}缺少有效的视频尺寸或时长`);
+    }
+
+    // Seek just before the media endpoint. The exact endpoint can be an empty
+    // decoder frame on some MP4s, while one frame earlier is the true visible tail.
+    const tailTime = Math.max(0, video.duration - Math.min(1 / 30, video.duration / 2));
+    if (tailTime > 0.001) {
+      const seeked = waitFor('seeked');
+      video.currentTime = tailTime;
+      await seeked;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error(`${label}尾帧画布创建失败`);
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.95);
+  } finally {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
+}
+
 export default function StoryPage() {
   const { projectName, setProjectName, saveProject, loadProject, exportProject, newProject } = useProject();
   const { settings, saveSettings } = useSettings();
@@ -593,10 +643,13 @@ export default function StoryPage() {
         // Extract last frame from Cloudinary video URL
         // Format: so_100p = start offset 100% (last frame)
         firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_100p/').replace(/\.\w+$/, '.jpg');
+      } else if (videoProvider === 'comfyui' && prevShot?.videoUrl) {
+        // Companion returns a browser-local blob URL. Extract the actual visible
+        // tail in the browser and send that still to Companion as the next shot's
+        // first frame; this needs no Companion update and avoids falling back to
+        // the older storyboard still.
+        firstFrameUrl = await extractVideoTailFrame(prevShot.videoUrl, `场景 ${prevShot.sceneNumber} 视频`);
       } else if (videoProvider === 'comfyui' && prevShot?.imageUrl) {
-        // Companion videos are downloaded as browser-only blob: URLs, which a
-        // Node route cannot read. The previous shot image is a stable fallback
-        // first frame for FL2VA, with this shot's image used as the end frame.
         firstFrameUrl = await makePortableMediaSource(prevShot.imageUrl, `场景 ${prevShot.sceneNumber} 分镜图`);
       }
 

@@ -10,9 +10,11 @@ import { exportVideo } from '@/lib/video-exporter';
 
 interface VideoEditorProps {
   initialVideos: string[];
+  continuousFromPrevious?: boolean[];
 }
 
 type ExportStatus = { progress: number; stage: string };
+const EMPTY_CONTINUITY_FLAGS: boolean[] = [];
 
 function recalculateStartTimes(clipList: VideoClip[]): VideoClip[] {
   let startTime = 0;
@@ -23,7 +25,10 @@ function recalculateStartTimes(clipList: VideoClip[]): VideoClip[] {
   });
 }
 
-export default function VideoEditor({ initialVideos }: VideoEditorProps) {
+const CONTINUITY_HEAD_TRIM_SECONDS = 0.12;
+
+export default function VideoEditor({ initialVideos, continuousFromPrevious }: VideoEditorProps) {
+  const continuityFlags = continuousFromPrevious ?? EMPTY_CONTINUITY_FLAGS;
   const [clips, setClips] = useState<VideoClip[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -52,6 +57,9 @@ export default function VideoEditor({ initialVideos }: VideoEditorProps) {
             video.onloadedmetadata = () => resolve(video.duration);
             video.onerror = () => reject(new Error(`Scene ${i + 1} metadata 加载失败`));
           });
+          const trimStart = continuityFlags[i]
+            ? Math.min(CONTINUITY_HEAD_TRIM_SECONDS, Math.max(0, duration - 0.1))
+            : 0;
 
           loadedClips.push({
             id: `clip-${i}`,
@@ -59,10 +67,13 @@ export default function VideoEditor({ initialVideos }: VideoEditorProps) {
             name: `Scene ${i + 1}`,
             duration,
             startTime,
-            trimStart: 0,
+            // A continuity-generated clip intentionally starts on the previous
+            // clip's final still. Remove a few duplicated opening frames so the
+            // hard join carries motion forward instead of visibly pausing.
+            trimStart,
             trimEnd: 0,
           });
-          startTime += duration;
+          startTime += duration - trimStart;
         }
 
         if (!cancelled) {
@@ -79,7 +90,7 @@ export default function VideoEditor({ initialVideos }: VideoEditorProps) {
     if (initialVideos.length > 0) loadVideos();
 
     return () => { cancelled = true; };
-  }, [initialVideos]);
+  }, [initialVideos, continuityFlags]);
 
   const totalDuration = clips.reduce((sum, clip) =>
     sum + Math.max(0, clip.duration - clip.trimStart - clip.trimEnd), 0
