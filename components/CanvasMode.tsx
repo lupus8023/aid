@@ -190,7 +190,11 @@ function CanvasModeContent({ storyContent, storyboards, onExit, onUpdate, onGene
       const completedCount = batch.filter(item => Boolean(item.imageUrl)).length;
       const generating = batch.some(item => item.status === 'generating');
       const failed = batch.some(item => item.status === 'failed');
-      const batchStatus = completedCount === batch.length ? 'completed' : generating ? 'generating' : failed ? 'failed' : 'pending';
+      // During regeneration the previous imageUrl remains available. Status
+      // must therefore win over the stale completed-image count, otherwise a
+      // failed batch is incorrectly shown as completed and looks like it was
+      // never attempted.
+      const batchStatus = generating ? 'generating' : failed ? 'failed' : completedCount === batch.length ? 'completed' : 'pending';
       const batchCenterY = batchY + Math.max(90, batch.length * 122 - 80);
 
       nextNodes.push({ id: gridId, type: 'gridNode', position: positionFor(gridId, { x: 470, y: batchCenterY }), data: { kind: 'grid', title: `第 ${batchNumber} 批 · 九宫格`, batchNumber, sceneCount: batch.length, completedCount, imageUrls: batch.map(item => item.imageUrl || ''), status: batchStatus, onGenerateGrid: () => generateGridBatch(batch, batchNumber) } });

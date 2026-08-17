@@ -423,6 +423,7 @@ export default function StoryPage() {
       setStoryboards(next);
     };
     setIsGeneratingGrid(true);
+    const failedBatches: string[] = [];
     // Process in groups of 9
     try {
       for (const group of chunkGridBatch(batch)) {
@@ -590,9 +591,16 @@ export default function StoryPage() {
           updateGridStoryboards(items => items.map(sb =>
             group.some(g => g.id === sb.id) ? { ...sb, status: 'failed' } : sb
           ));
-          if (options.throwOnError) throw error;
-          alert(`Grid generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          const range = `${group[0]?.sceneNumber ?? '?'}–${group[group.length - 1]?.sceneNumber ?? '?'}`;
+          failedBatches.push(`${range}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
+      }
+      // A single failed APIMart batch must never prevent later batches from
+      // being submitted. Report once after the whole queue has been attempted.
+      if (failedBatches.length > 0) {
+        const summary = `以下九宫格批次生成失败：\n${failedBatches.join('\n')}`;
+        if (options.throwOnError) throw new Error(summary);
+        alert(summary);
       }
     } finally {
       setIsGeneratingGrid(false);
