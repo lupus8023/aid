@@ -90,7 +90,10 @@ export function buildCloudinaryCompressedFetchUrl(source: string): string {
   if (!credentials) throw new Error('Cloudinary credentials are not configured');
   return cloudinary.url(source, {
     cloud_name: credentials.cloud_name,
+    api_key: credentials.api_key,
+    api_secret: credentials.api_secret,
     secure: true,
+    sign_url: true,
     type: 'fetch',
     transformation: [
       { crop: 'limit', width: 2048 },
