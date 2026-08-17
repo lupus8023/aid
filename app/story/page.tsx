@@ -271,8 +271,32 @@ export default function StoryPage() {
           const recoveryKey = `${savedProject.id}:${taskId}`;
           if (!gridRecoveryRef.current.has(recoveryKey)) {
             gridRecoveryRef.current.add(recoveryKey);
-            window.setTimeout(() => {
-              void handleGenerateGrid(group, { resumeTaskId: taskId });
+            window.setTimeout(async () => {
+              try {
+                const response = await fetch('/api/check-image-status', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ taskId, apiKey: settingsRef.current.apiKey })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                const recoverable = data.status === 'completed'
+                  || data.status === 'processing'
+                  || data.status === 'pending'
+                  || data.status === 'running'
+                  || data.status === 'queued';
+                if (!recoverable) throw new Error(data.error || `任务状态 ${data.status || 'unknown'}`);
+                void handleGenerateGrid(group, { resumeTaskId: taskId });
+              } catch (error) {
+                console.warn(`九宫格任务 ${taskId} 已失效，允许重新生成:`, error);
+                if (savedProject.id !== projectIdRef.current) return;
+                const groupIds = new Set(group.map(item => item.id));
+                setStoryboards(current => {
+                  const next = current.map(item => groupIds.has(item.id) ? { ...item, status: 'failed' as const } : item);
+                  storyboardsRef.current = next;
+                  return next;
+                });
+              }
             }, 250);
           }
         }
