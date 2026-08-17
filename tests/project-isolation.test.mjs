@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildGridPrompt, chunkGridBatch } from '../lib/gridSplitter.ts';
+import { buildCloudinaryGridCellUrls } from '../lib/gridCloudinary.ts';
 import { createProjectId, scopedVideoCacheKey } from '../lib/projectIdentity.ts';
 
 test('groups automatic storyboard images into batches of at most nine', () => {
@@ -27,6 +28,19 @@ test('keeps every image batch distinct before the provider truncation boundary',
   assert.match(second.slice(0, 3900), /UNIQUE STORYBOARD BATCH: 10-11-12-13-14-15-16-17-18/);
   assert.match(first.slice(0, 3900), /story scene 9/);
   assert.match(second.slice(0, 3900), /story scene 18/);
+});
+
+test('builds nine distinct Cloudinary crop URLs for a persisted grid', () => {
+  const cells = buildCloudinaryGridCellUrls(
+    'https://res.cloudinary.com/demo/image/upload/v1/aid-grid-sources/grid.png',
+    3000,
+    1686,
+  );
+
+  assert.equal(cells.length, 9);
+  assert.equal(new Set(cells).size, 9);
+  assert.match(cells[0], /c_crop,x_25,y_25,w_950,h_512/);
+  assert.match(cells[8], /x_2025,y_1149/);
 });
 
 test('isolates identical storyboard ids between projects', () => {

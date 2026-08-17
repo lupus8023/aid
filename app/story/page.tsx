@@ -464,7 +464,7 @@ export default function StoryPage() {
       return;
     }
     if (batch.length === 0) return;
-    const { buildGridPrompt, chunkGridBatch, splitGridImage } = await import('@/lib/gridSplitter');
+    const { buildGridPrompt, chunkGridBatch } = await import('@/lib/gridSplitter');
     const aspectRatio = activeSettings.aspectRatio;
     const generationProjectId = projectIdRef.current;
     const updateGridStoryboards = (updater: (items: Storyboard[]) => Storyboard[]) => {
@@ -606,30 +606,18 @@ export default function StoryPage() {
         }
         if (!gridUrl) throw new Error('Grid image timeout');
 
-        // Split grid into 9 cells and upload to Cloudinary
-        const cells = await splitGridImage(gridUrl, aspectRatio);
-        console.log('Split cells:', cells.length);
-        const uploadedCells = await Promise.all(cells.slice(0, group.length).map(async (cell, idx) => {
-          if (!cell.startsWith('data:')) return cell;
-          try {
-            const uploadRes = await fetch('/api/upload-image', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ imageData: cell })
-            });
-            if (!uploadRes.ok) {
-              console.error(`Upload failed for cell ${idx}:`, await uploadRes.text());
-              return cell;
-            }
-            const { url } = await uploadRes.json();
-            console.log(`Cell ${idx} uploaded:`, url);
-            return url;
-          } catch (error) {
-            console.error(`Upload error for cell ${idx}:`, error);
-            return cell;
-          }
-        }));
-        console.log('Uploaded cells:', uploadedCells);
+        // Persist the short-lived APIMart result and split it with Cloudinary
+        // delivery transformations. Netlify's image proxy can hang while
+        // downloading getapib.org, leaving every shot stuck in "generating".
+        const splitResponse = await fetch('/api/split-grid', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageUrl: gridUrl })
+        });
+        const { cells: uploadedCells } = await readApiJson<{ cells: string[] }>(splitResponse, '九宫格拆分失败');
+        if (!Array.isArray(uploadedCells) || uploadedCells.length < group.length) {
+          throw new Error(`九宫格拆分数量不足：需要 ${group.length}，实际 ${uploadedCells?.length || 0}`);
+        }
         updateGridStoryboards(items => items.map(sb => {
           const idx = group.findIndex(g => g.id === sb.id);
           if (idx === -1) return sb;
