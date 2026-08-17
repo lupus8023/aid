@@ -55,7 +55,8 @@ export async function createImageTask(
   referenceImageUrls: string | string[],
   apiKey: string,
   model: string = 'doubao-seedream-5-0-lite',
-  aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' = '16:9'
+  aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' = '16:9',
+  resolutionOverride?: '2K' | '4K',
 ): Promise<string> {
   try {
     const rawUrls = Array.isArray(referenceImageUrls)
@@ -93,9 +94,9 @@ export async function createImageTask(
     if (model.includes('gpt-image')) {
       // 4k 仅支持 16:9, 9:16, 2:1, 1:2, 21:9, 9:21；1:1 等比例用 2k
       const supports4k = ['16:9', '9:16', '2:1', '1:2', '21:9', '9:21'].includes(aspectRatio);
-      requestBody.resolution = supports4k ? '4k' : '2k';
+      requestBody.resolution = (resolutionOverride || (supports4k ? '4K' : '2K')).toLowerCase();
     } else {
-      requestBody.resolution = '2K';
+      requestBody.resolution = resolutionOverride || '2K';
     }
 
     if (imageUrls.length > 0 && imageUrls[0]) {

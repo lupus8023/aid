@@ -100,7 +100,8 @@ Strict rules: maintain exact face, hairstyle, clothing and visual style for ever
       preUploadedReferences,
       apiKey,
       imageModel || 'doubao-seedream-5-0-lite',
-      aspectRatio
+      aspectRatio,
+      '2K',
     );
 
     console.log(`Image task created successfully, task ID: ${taskId}`);
