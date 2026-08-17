@@ -312,10 +312,14 @@ app.whenReady().then(async () => {
   }
   await stopStaleCompanionServer();
   const key = ensureKeyPair();
-  const directSshHost = await resolveDirectHost('me21gb3rds8p0h44.ssh.x-gpu.com');
+  const gatewayHost = 'me21gb3rds8p0h44.ssh.x-gpu.com';
+  // Keep the hostname in the server config so AID and J18IP derive the same
+  // OpenSSH ControlPath and reuse the already healthy master connection.
+  // A public DNS answer can rotate between launches and strand a request in a
+  // fresh banner handshake even though the hostname master is live.
   privateKeyPath = key.privatePath;
-  resolvedSshHost = directSshHost;
-  startServer(key.privatePath, key.privatePem, directSshHost);
+  resolvedSshHost = gatewayHost;
+  startServer(key.privatePath, key.privatePem, '');
   createWindow();
   createTray();
 
