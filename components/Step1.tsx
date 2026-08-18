@@ -18,12 +18,13 @@ interface Step1Props {
   targetShotCount?: number;
   onTargetShotCountChange?: (count: number) => void;
   apiKey?: string;
+  scriptProvider?: AppSettings['scriptProvider'];
   scriptModel?: string;
   dmxApiKey?: string;
   companionSettings?: AppSettings['comfyui'];
 }
 
-export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, targetShotCount = DEFAULT_TARGET_SHOT_COUNT, onTargetShotCountChange, apiKey, scriptModel, dmxApiKey, companionSettings }: Step1Props) {
+export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, targetShotCount = DEFAULT_TARGET_SHOT_COUNT, onTargetShotCountChange, apiKey, scriptProvider, scriptModel, dmxApiKey, companionSettings }: Step1Props) {
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text');
   const [textInput, setTextInput] = useState(storyContent);
   const [isExpanding, setIsExpanding] = useState(false);
@@ -56,7 +57,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
       const res = await fetchStoryApi('/api/expand-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brief: textInput, language, apiKey, scriptModel, dmxApiKey })
+        body: JSON.stringify({ brief: textInput, language, apiKey, scriptProvider, scriptModel, dmxApiKey })
       }, companionSettings);
       if (!res.ok || !String(res.headers.get('content-type') || '').includes('text/event-stream')) {
         const unexpected = await readApiJson<{ error?: string }>(res, 'AI 扩写失败');

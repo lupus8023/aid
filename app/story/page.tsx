@@ -454,7 +454,7 @@ export default function StoryPage() {
     const planRes = await fetchStoryApi('/api/generate-story-plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ synopsis: planningSynopsis, targetShotCount, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, language, scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
+      body: JSON.stringify({ synopsis: planningSynopsis, targetShotCount, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, language, scriptProvider: settings.scriptProvider || 'auto', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
     }, settings.comfyui);
     const { storyPlan: generatedPlan } = await readApiJson<{ storyPlan: StoryPlan }>(planRes, '剧本规划失败');
     const actualShotCount = storyPlanBeatCount(generatedPlan);
@@ -474,7 +474,7 @@ export default function StoryPage() {
     const dirRes = await fetchStoryApi('/api/direct-storyboard', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, aspectRatio: settings.aspectRatio, language, scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
+      body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, aspectRatio: settings.aspectRatio, language, scriptProvider: settings.scriptProvider || 'auto', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
     }, settings.comfyui);
     const { storyboards } = await readApiJson<{ storyboards: Storyboard[] }>(dirRes, '分镜导演失败');
     const styledStoryboards = storyboards.map(storyboard => ({ ...storyboard, visualStyle }));
@@ -1326,6 +1326,7 @@ export default function StoryPage() {
                 targetShotCount={targetShotCount}
                 onTargetShotCountChange={setTargetShotCount}
                 apiKey={settings.apiKey}
+                scriptProvider={settings.scriptProvider || 'auto'}
                 scriptModel={settings.scriptModel}
                 dmxApiKey={settings.dmxApiKey}
                 companionSettings={settings.comfyui}

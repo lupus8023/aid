@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.15 - 2026-08-18
+
+### Fixes
+
+- Script generation now has explicit Auto, DMX-only, and APIMart-only routing; single-provider modes never switch providers silently.
+- Companion uses independent public DNS for DMX and APIMart, bypassing proxy/VPN `172.19.x.x` fake-IP answers.
+- Interrupted local screenplay requests now report a Companion error instead of falling back to a hosted function that can end as an HTML gateway page after 60 seconds.
+- Auto mode preserves both DMX and APIMart failure reasons for actionable key, model, and network diagnostics.
+
 ## 0.1.14 - 2026-08-18
 
 ### Fixes

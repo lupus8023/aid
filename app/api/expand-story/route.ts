@@ -4,7 +4,7 @@ import { chatOnce } from '@/lib/pipeline/llm';
 export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
-  const { brief, language, apiKey, scriptModel, dmxApiKey } = await request.json();
+  const { brief, language, apiKey, scriptProvider, scriptModel, dmxApiKey } = await request.json();
   if (!brief || (!apiKey && !dmxApiKey)) {
     return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400 });
   }
@@ -41,6 +41,7 @@ ${brief}
       const script = await chatOnce(prompt, {
         apiKey,
         dmxApiKey,
+        provider: scriptProvider,
         model: scriptModel || 'gpt-4o-mini',
       });
       await writer.write(encoder.encode(`data: ${JSON.stringify({ script })}\n\n`));

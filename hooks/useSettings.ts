@@ -6,6 +6,7 @@ import { AppSettings } from '@/types';
 const DEFAULT_SETTINGS: AppSettings = {
   apiProvider: 'apimart',
   apiKey: process.env.NEXT_PUBLIC_APIMART_API_KEY || '',
+  scriptProvider: 'auto',
   scriptModel: 'gpt-4o',
   imageModel: 'doubao-seedream-5-0-lite',
   videoModel: 'doubao-seedance-1-5-pro',
@@ -52,6 +53,7 @@ function migrateSettings(settings: AppSettings): AppSettings {
   return {
     ...DEFAULT_SETTINGS,
     ...settings,
+    scriptProvider: settings.scriptProvider || 'auto',
     videoModel: migratedVideoModel,
     videoProvider: settings.videoProvider || 'apimart',
     comfyui,

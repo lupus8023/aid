@@ -1,6 +1,6 @@
 import { StoryPlan, Beat, PlannedCharacter, StoryRequirement, WriterCharacter, WriterObject } from './types';
 import { buildStoryPlanPrompt } from './storyWriterPrompt';
-import { chatOnce } from './llm';
+import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
 import { normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from './shotCount';
 
@@ -113,15 +113,16 @@ export async function generateStoryPlan(input: {
   objects: WriterObject[];
   apiKey: string;
   language?: 'zh' | 'en';
+  scriptProvider?: ScriptProvider;
   scriptModel?: string;
   dmxApiKey?: string;
   targetShotCount?: number;
 }): Promise<StoryPlan> {
-  const { synopsis, characters, objects, apiKey, language = 'zh', scriptModel = 'gpt-4o', dmxApiKey } = input;
+  const { synopsis, characters, objects, apiKey, language = 'zh', scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
   const targetShotCount = normalizeTargetShotCount(input.targetShotCount);
   const prompt = buildStoryPlanPrompt({ synopsis, characters, objects, language, targetShotCount });
 
-  const response = await chatOnce(prompt, { apiKey, dmxApiKey, model: scriptModel });
+  const response = await chatOnce(prompt, { apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel });
 
   const raw = extractJson(response);
 

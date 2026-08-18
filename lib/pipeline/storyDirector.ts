@@ -1,6 +1,6 @@
 import { Storyboard } from '@/types';
 import { StoryPlan, Beat, WriterCharacter, WriterObject } from './types';
-import { chatOnce } from './llm';
+import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
 
 // 导演阶段：把编剧产出的 StoryPlan 可视化成分镜（Storyboard[]）。
@@ -114,13 +114,14 @@ export async function directStoryboard(input: {
   apiKey: string;
   aspectRatio: '16:9' | '9:16' | '1:1';
   language?: 'zh' | 'en';
+  scriptProvider?: ScriptProvider;
   scriptModel?: string;
   dmxApiKey?: string;
 }): Promise<Storyboard[]> {
-  const { storyPlan, characters, objects, apiKey, aspectRatio, language = 'zh', scriptModel = 'gpt-4o', dmxApiKey } = input;
+  const { storyPlan, characters, objects, apiKey, aspectRatio, language = 'zh', scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
   const prompt = buildDirectorPrompt({ storyPlan, characters, objects, language });
 
-  const response = await chatOnce(prompt, { apiKey, dmxApiKey, model: scriptModel });
+  const response = await chatOnce(prompt, { apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel });
 
   const parsed = extractJson(response);
   const rawShots: any[] = Array.isArray(parsed) ? parsed : [];

@@ -137,6 +137,7 @@ export type VisualStyle =
 export interface AppSettings {
   apiProvider: 'apimart' | 'openai' | 'anthropic'; // API 提供商
   apiKey: string; // API Key
+  scriptProvider?: 'auto' | 'dmx' | 'apimart'; // 剧本生成通道
   scriptModel: string; // 脚本生成模型
   imageModel: string; // 图片生成模型
   videoModel: string; // 视频生成模型

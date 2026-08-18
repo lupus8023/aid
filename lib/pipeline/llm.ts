@@ -1,86 +1,88 @@
+import axios from 'axios';
 import { chatCompletion } from '@/lib/apimart';
+import { providerHttpsAgent } from '@/lib/publicDns';
+import { scriptProviderOrder, type ScriptProvider } from './scriptProvider';
 
-async function parseProviderResponse(response: Response, provider: string): Promise<any> {
-  const body = await response.text();
-  let data: any;
-  try {
-    data = body.trim() ? JSON.parse(body) : undefined;
-  } catch {
-    const isHtml = String(response.headers.get('content-type') || '').includes('text/html')
-      || /^\s*(?:<!doctype\s+html|<html\b)/i.test(body);
-    throw new Error(isHtml
-      ? `${provider} returned an HTML gateway page (HTTP ${response.status}); the upstream request may have timed out`
-      : `${provider} returned invalid JSON (HTTP ${response.status})`);
+export { scriptProviderOrder } from './scriptProvider';
+export type { ScriptProvider } from './scriptProvider';
+
+function parseProviderPayload(payload: any, status: number, contentType: string, provider: string): any {
+  let data = payload;
+  if (typeof payload === 'string') {
+    try {
+      data = payload.trim() ? JSON.parse(payload) : undefined;
+    } catch {
+      const isHtml = contentType.includes('text/html') || /^\s*(?:<!doctype\s+html|<html\b)/i.test(payload);
+      throw new Error(isHtml
+        ? `${provider} 返回了 HTML 网关页（HTTP ${status}），上游请求可能已超时`
+        : `${provider} 返回了无效 JSON（HTTP ${status}）`);
+    }
   }
-  if (!response.ok) {
-    const message = data?.error?.message || data?.error || data?.message || `HTTP ${response.status}`;
-    throw new Error(`${provider} error: ${message}`);
+  if (status < 200 || status >= 300) {
+    const message = data?.error?.message || data?.error || data?.message || `HTTP ${status}`;
+    throw new Error(`${provider} 错误：${message}`);
   }
   return data;
 }
 
 async function dmxChatCompletion(prompt: string, apiKey: string, model: string, timeoutMs: number): Promise<string> {
-  let lastError: Error | undefined;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const response = await fetch('https://www.dmxapi.cn/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, stream: false, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] }),
-        signal: AbortSignal.timeout(timeoutMs)
-      });
-      const data = await parseProviderResponse(response, 'DMXAPI');
-      const content = data?.choices?.[0]?.message?.content;
-      if (!content) throw new Error('DMXAPI response did not contain message content');
-      return content;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      // A full 120-second timeout is unlikely to benefit from an immediate
-      // retry, while short network/gateway failures often do.
-      if (attempt === 0 && !/timeout|timed out/i.test(lastError.message)) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        continue;
-      }
-      break;
-    }
+  try {
+    const response = await axios.post('https://www.dmxapi.cn/v1/chat/completions', {
+      model,
+      stream: false,
+      max_tokens: 16000,
+      messages: [{ role: 'user', content: prompt }],
+    }, {
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      httpsAgent: providerHttpsAgent(),
+      timeout: timeoutMs,
+      validateStatus: () => true,
+      transformResponse: value => value,
+    });
+    const data = parseProviderPayload(
+      response.data,
+      response.status,
+      String(response.headers['content-type'] || '').toLowerCase(),
+      'DMXAPI',
+    );
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) throw new Error('DMXAPI 响应中没有 message content');
+    return content;
+  } catch (error) {
+    const normalized = error instanceof Error ? error : new Error(String(error));
+    console.error('[story-llm] DMXAPI failed:', normalized.message);
+    throw normalized;
   }
-  throw lastError || new Error('DMXAPI request failed');
 }
 
-// 统一的 LLM 调用入口：优先 dmxApiKey，失败自动回退 apimart（反之亦然）。
-// 单一 provider 网络故障时不至于让脚本生成整体失败。
 export async function chatOnce(
   prompt: string,
-  opts: { apiKey: string; dmxApiKey?: string; model?: string },
+  opts: { apiKey?: string; dmxApiKey?: string; provider?: ScriptProvider; model?: string },
 ): Promise<string> {
-  const { apiKey, dmxApiKey, model = 'gpt-4o' } = opts;
-  const errors: Error[] = [];
+  const { apiKey = '', dmxApiKey = '', provider = 'auto', model = 'gpt-4o' } = opts;
+  if (provider === 'dmx' && !dmxApiKey) throw new Error('剧本 API 选择了 DMX，但尚未配置 DMXAPI Key');
+  if (provider === 'apimart' && !apiKey) throw new Error('剧本 API 选择了 APIMart，但尚未配置 APIMart API Key');
+
+  const order = scriptProviderOrder(provider, Boolean(dmxApiKey), Boolean(apiKey));
+  if (!order.length) throw new Error('没有可用的剧本 API Key');
+
   const isLocalCompanion = process.env.AID_LOCAL_COMPANION === '1';
-  // Netlify ends synchronous and streamed functions at 60 seconds. Keep hosted
-  // failures inside that window so the route can still return JSON; Companion
-  // has no such platform limit and can wait for long-form model output.
-  const providerTimeout = isLocalCompanion
-    ? 240000
-    : apiKey && dmxApiKey
-      ? 24000
-      : 50000;
+  // Hosted functions have a hard 60-second ceiling. The Companion can allow
+  // long-form planning requests to finish without a gateway replacing JSON.
+  const providerTimeout = isLocalCompanion ? 240_000 : order.length > 1 ? 24_000 : 50_000;
+  const errors: string[] = [];
 
-  if (dmxApiKey) {
+  for (const candidate of order) {
     try {
-      return await dmxChatCompletion(prompt, dmxApiKey, model, providerTimeout);
-    } catch (error) {
-      errors.push(error instanceof Error ? error : new Error(String(error)));
-    }
-  }
-
-  if (apiKey) {
-    try {
+      if (candidate === 'dmx') return await dmxChatCompletion(prompt, dmxApiKey, model, providerTimeout);
       return await chatCompletion(prompt, apiKey, model, providerTimeout);
     } catch (error) {
-      errors.push(error instanceof Error ? error : new Error(String(error)));
+      const message = error instanceof Error ? error.message : String(error);
+      const label = candidate === 'dmx' ? 'DMXAPI' : 'APIMart';
+      console.error(`[story-llm] ${label} failed:`, message);
+      errors.push(`${label}：${message}`);
     }
   }
 
-  const last = errors[errors.length - 1];
-  throw last || new Error('No LLM API key configured');
+  throw new Error(errors.join('；') || '剧本 API 请求失败');
 }

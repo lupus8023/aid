@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ApiMartChatResponse, ApiMartImageTaskResponse, ApiMartImageStatusResponse, ApiMartVideoStatusResponse } from '@/types';
+import { providerHttpsAgent } from './publicDns';
 
 const APIMART_BASE_URL = 'https://api.apimart.ai/v1';
 
@@ -24,6 +25,7 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
+        httpsAgent: providerHttpsAgent(),
         timeout: timeoutMs
       }
     );

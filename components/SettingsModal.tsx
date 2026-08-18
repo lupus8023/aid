@@ -166,6 +166,28 @@ export default function SettingsModal({
             />
           </div>
 
+          {/* Script Provider */}
+          <div>
+            <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">
+              Script API Provider
+            </label>
+            <select
+              value={localSettings.scriptProvider || 'auto'}
+              onChange={(e) => setLocalSettings({
+                ...localSettings,
+                scriptProvider: e.target.value as NonNullable<AppSettings['scriptProvider']>
+              })}
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+            >
+              <option value="auto">Auto · DMX first, APIMart fallback</option>
+              <option value="dmx">DMX only</option>
+              <option value="apimart">APIMart only</option>
+            </select>
+            <p className="mt-1.5 text-xs leading-5 text-[var(--text-secondary)]">
+              “仅使用”模式不会静默切换供应商，错误信息会直接标明失败来源。
+            </p>
+          </div>
+
           {/* Script Model */}
           <div>
             <label className="block text-sm font-mono text-[var(--text-secondary)] mb-2">

@@ -7,7 +7,7 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest) {
   try {
     const {
-      synopsis, characters, objects, apiKey, language, scriptModel, dmxApiKey, targetShotCount,
+      synopsis, characters, objects, apiKey, language, scriptProvider, scriptModel, dmxApiKey, targetShotCount,
     } = await request.json();
 
     if (!synopsis?.trim()) {
@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       objects: objects || [],
       apiKey,
       language: language || 'zh',
+      scriptProvider,
       scriptModel,
       dmxApiKey,
       targetShotCount,

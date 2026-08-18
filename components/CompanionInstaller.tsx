@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Check, CheckCircle2, ChevronDown, CircleAlert, Clipboard, Download, Laptop, LoaderCircle, ShieldCheck } from 'lucide-react';
-import { companionVersionAtLeast, SEGMENT_VIDEO_COMPANION_MIN_VERSION } from '@/lib/comfyuiClient';
+import { companionVersionAtLeast, STORY_COMPANION_MIN_VERSION } from '@/lib/comfyuiClient';
 
 const RELEASE_BASE = 'https://github.com/unclewongwong/aid/releases/latest/download';
 const MAC_OPEN_COMMAND = "xattr -dr com.apple.quarantine '/Applications/AID Companion.app' && open '/Applications/AID Companion.app'";
@@ -60,7 +60,7 @@ export default function CompanionInstaller() {
         if (active) {
           const version = String(result.version || '');
           setCompanionVersion(version);
-          setStatus(companionVersionAtLeast(version, SEGMENT_VIDEO_COMPANION_MIN_VERSION) ? 'online' : 'outdated');
+          setStatus(companionVersionAtLeast(version, STORY_COMPANION_MIN_VERSION) ? 'online' : 'outdated');
           nextProbeDelay = 12000;
         }
       } catch {
