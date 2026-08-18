@@ -2,6 +2,7 @@ import axios from 'axios';
 import { chatCompletion } from '@/lib/apimart';
 import { providerHttpsAgent } from '@/lib/publicDns';
 import { scriptProviderOrder, type ScriptProvider } from './scriptProvider';
+import { extractProviderText, isResponsesPreferredModel, providerPayloadSummary } from './providerPayload';
 
 export { scriptProviderOrder } from './scriptProvider';
 export type { ScriptProvider } from './scriptProvider';
@@ -25,14 +26,13 @@ function parseProviderPayload(payload: any, status: number, contentType: string,
   return data;
 }
 
-async function dmxChatCompletion(prompt: string, apiKey: string, model: string, timeoutMs: number): Promise<string> {
-  try {
-    const response = await axios.post('https://www.dmxapi.cn/v1/chat/completions', {
-      model,
-      stream: false,
-      max_tokens: 16000,
-      messages: [{ role: 'user', content: prompt }],
-    }, {
+async function requestDmxText(
+  endpoint: 'chat/completions' | 'responses',
+  body: Record<string, unknown>,
+  apiKey: string,
+  timeoutMs: number,
+): Promise<string> {
+  const response = await axios.post(`https://www.dmxapi.cn/v1/${endpoint}`, body, {
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       httpsAgent: providerHttpsAgent(),
       timeout: timeoutMs,
@@ -45,9 +45,54 @@ async function dmxChatCompletion(prompt: string, apiKey: string, model: string, 
       String(response.headers['content-type'] || '').toLowerCase(),
       'DMXAPI',
     );
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) throw new Error('DMXAPI 响应中没有 message content');
+    if (data?.error) {
+      throw new Error(`DMXAPI 错误：${data.error?.message || data.error?.code || '未知上游错误'}`);
+    }
+    const content = extractProviderText(data);
+    if (!content) {
+      const finishReason = data?.choices?.[0]?.finish_reason;
+      const detail = finishReason === 'length'
+        ? '模型在输出最终 JSON 前已达到 token 上限'
+        : data?.choices?.[0]?.message?.refusal
+          ? `模型拒绝了请求：${data.choices[0].message.refusal}`
+          : '响应中没有可用的最终文本';
+      throw new Error(`${detail}（${endpoint}；结构 ${providerPayloadSummary(data)}）`);
+    }
     return content;
+}
+
+async function dmxChatCompletion(prompt: string, apiKey: string, model: string, timeoutMs: number): Promise<string> {
+  try {
+    const preferResponses = isResponsesPreferredModel(model);
+    const transports: Array<'chat/completions' | 'responses'> = preferResponses
+      ? ['responses', 'chat/completions']
+      : ['chat/completions'];
+    const failures: string[] = [];
+
+    for (const endpoint of transports) {
+      try {
+        const body = endpoint === 'responses'
+          ? {
+              model,
+              input: prompt,
+              stream: false,
+              max_output_tokens: 24000,
+              reasoning: { effort: 'low' },
+            }
+          : {
+              model,
+              stream: false,
+              ...(preferResponses
+                ? { max_completion_tokens: 24000, reasoning_effort: 'low' }
+                : { max_tokens: 16000 }),
+              messages: [{ role: 'user', content: prompt }],
+            };
+        return await requestDmxText(endpoint, body, apiKey, timeoutMs);
+      } catch (error) {
+        failures.push(`${endpoint}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    throw new Error(failures.join('；'));
   } catch (error) {
     const normalized = error instanceof Error ? error : new Error(String(error));
     console.error('[story-llm] DMXAPI failed:', normalized.message);

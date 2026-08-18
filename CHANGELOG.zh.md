@@ -1,5 +1,14 @@
 # 更新日志
 
+## 0.1.18 - 2026-08-19
+
+### 修复
+
+- DMX 的 GPT-5 系列剧本模型现在优先使用官方 Responses API，仅在需要时回退到 Chat Completions。
+- 剧本接口兼容标准 Chat Completions、内容数组、结构化 parsed 输出、Responses API 与常见网关包装，不再只识别 `choices[0].message.content`。
+- DMX 空响应会区分 token 截断、模型拒绝、传输失败与返回结构，并且不会把提示词、生成内容或密钥写入日志。
+- 检测到旧版 Companion 时会明确要求更新 v0.1.18，不再把长剧本请求静默转到容易超时的托管接口。
+
 ## 0.1.17 - 2026-08-19
 
 ### 优化

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.18 - 2026-08-19
+
+### Fixed
+
+- DMX GPT-5-family screenplay models now use the provider's Responses API first and fall back to Chat Completions only when needed.
+- Story generation accepts standard Chat Completions, content arrays, structured parsed output, Responses API output, and common gateway wrappers instead of requiring only `choices[0].message.content`.
+- Empty DMX responses now report a safe structural summary, truncation, refusal, or transport failure without logging prompts, generated content, or credentials.
+- The web app explicitly asks for Companion v0.1.18 instead of silently sending long screenplay requests to a hosted timeout path when an older Companion is running.
+
 ## 0.1.17 - 2026-08-19
 
 ### Improved

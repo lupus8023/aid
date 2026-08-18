@@ -1,7 +1,7 @@
 import type { AppSettings } from '@/types';
 
 export const DEFAULT_COMFYUI_COMPANION_URL = 'http://127.0.0.1:3018';
-export const STORY_COMPANION_MIN_VERSION = [0, 1, 15] as const;
+export const STORY_COMPANION_MIN_VERSION = [0, 1, 18] as const;
 export const SEGMENT_VIDEO_COMPANION_MIN_VERSION = [0, 1, 17] as const;
 
 type ComfyUISettings = NonNullable<AppSettings['comfyui']>;
@@ -45,14 +45,22 @@ export async function fetchStoryApi(
         signal: AbortSignal.timeout(1800),
       });
       const status = statusResponse.ok ? await statusResponse.json() : undefined;
-      if (status?.ok && supportsStoryGeneration(String(status.version || ''))) {
+      if (status?.ok && !supportsStoryGeneration(String(status.version || ''))) {
+        return new Response(JSON.stringify({
+          error: `当前 Companion v${status.version || '未知'} 不支持新版 DMX GPT-5 剧本响应；请更新到 v${STORY_COMPANION_MIN_VERSION.join('.')} 或更高版本。`,
+        }), {
+          status: 426,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (status?.ok) {
         try {
           return await fetch(comfyUIApiUrl(pathname, settings), init);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           console.warn(`Local Companion Story request failed: ${message}`);
           return new Response(JSON.stringify({
-            error: `本地 Companion 剧本接口连接中断：${message}。请确认 Companion v0.1.15 正在运行后重试。`,
+            error: `本地 Companion 剧本接口连接中断：${message}。请确认 Companion v${STORY_COMPANION_MIN_VERSION.join('.')} 正在运行后重试。`,
           }), {
             status: 502,
             headers: { 'Content-Type': 'application/json' },
