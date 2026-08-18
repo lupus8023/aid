@@ -26,6 +26,7 @@ import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitec
 import { estimateVideoSegmentSeconds, isCompletedVideoSegment, restoredStoryStep, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
+import { analyzeImagePromptSafety, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -548,8 +549,30 @@ export default function StoryPage() {
         const charDescs = groupCharacters
           .map(c => `${c.name}: ${summarize(c.description)}`)
           .join('\n');
-        const shotDescs = group.map(sb => {
-          const cleanPrompt = sb.prompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1');
+        const safetyFindings = group.map(sb => ({
+          storyboard: sb,
+          risks: analyzeImagePromptSafety(`${sb.prompt}\n${sb.description}`),
+        })).filter(finding => finding.risks.length > 0);
+        if (safetyFindings.length > 0) {
+          updateGridStoryboards(items => items.map(sb => {
+            const finding = safetyFindings.find(entry => entry.storyboard.id === sb.id);
+            if (!finding) return sb;
+            return {
+              ...sb,
+              imagePromptOverride: rewriteImagePromptForSafety(sb.prompt, 1),
+              imageFailureReason: `生成前检测到：${imageSafetyReasonLabel(finding.risks)}；已自动改为非血腥画面`,
+              imageRetryCount: sb.imageRetryCount || 0,
+            };
+          }));
+        }
+        const buildShotDescriptions = (safetyAttempt: number) => group.map(sb => {
+          const finding = safetyFindings.find(entry => entry.storyboard.id === sb.id);
+          const shouldRewrite = Boolean(finding) || safetyAttempt > 0 || Boolean(sb.imagePromptOverride);
+          const safetyLevel: 1 | 2 = (finding && safetyAttempt === 0) || safetyAttempt === 1 ? 1 : 2;
+          const sourcePrompt = shouldRewrite
+            ? rewriteImagePromptForSafety(sb.prompt, safetyLevel).replace(/^[\s\S]*?\n\n/, '')
+            : sb.prompt;
+          const cleanPrompt = sourcePrompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1');
           const requiredCharacters = groupCharacters
             .filter(character => mentionsEntity(sb, character.name, sb.characters))
             .map(character => character.name);
@@ -584,71 +607,93 @@ export default function StoryPage() {
           : [];
         const references = [...characterReferences, ...sceneReference, ...objectReferences];
         const refLabels = references.map(reference => reference.label);
-        const gridPrompt = buildGridPrompt(
-          sceneStyle,
-          charDescs,
-          shotDescs,
-          aspectRatio,
-          refLabels,
-          group.map(storyboard => storyboard.sceneNumber)
-        );
-
         const refImages = references.map(reference => reference.image);
-        const gridStoryboard = {
-          ...group[0],
-          prompt: gridPrompt,
-          characters: groupCharacters.map(character => character.name),
-          objects: groupObjects.map(object => object.name)
-        };
-
-        // Generate a new grid, or resume polling an already-paid task after a
-        // refresh. resumeTaskId is only valid for a single explicit batch.
-        let taskId = options.resumeTaskId && batch.length <= 9 ? options.resumeTaskId : '';
-        if (!taskId) {
-          const res = await fetch('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              storyboard: gridStoryboard,
-              characters: groupCharacters,
-              objects: groupObjects,
-              aspectRatio,
-              imageModel: activeSettings.imageModel,
-              apiKey: activeSettings.apiKey,
-              costumeImages: costumeImagesRef.current,
-              sceneImage: sceneImagesRef.current[0] || '',
-              // 传递所有参考图（角色 + 场景 + 物体）
-              referenceImages: refImages,
-              referenceImageLabels: refLabels,
-              visualStyle
-            })
-          });
-          ({ taskId } = await readApiJson<{ taskId: string }>(res, '九宫格任务创建失败'));
-          updateGridStoryboards(items => items.map(sb =>
-            group.some(g => g.id === sb.id) ? { ...sb, taskId } : sb
-          ));
-        }
-
-        // Poll for grid image
         let gridUrl = '';
-        for (let j = 0; j < 90; j++) {
-          await new Promise(r => setTimeout(r, 3000));
-          if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
-          const statusRes = await fetch('/api/check-image-status', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId, apiKey: activeSettings.apiKey })
-          });
-          if (!statusRes.ok) continue;
-          const statusData = await statusRes.json();
-          if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
-          if (statusData.status === 'completed' && statusData.imageUrl) { gridUrl = statusData.imageUrl; break; }
-          if (statusData.status === 'failed') {
-            console.error('Grid generation failed:', statusData);
-            throw new Error(statusData.error || statusData.details?.message || 'Grid image failed');
+        let lastGridError: unknown;
+        const maxSafetyAttempts = safetyFindings.length > 0 ? 2 : 3;
+        for (let safetyAttempt = 0; safetyAttempt < maxSafetyAttempts && !gridUrl; safetyAttempt += 1) {
+          const shotDescs = buildShotDescriptions(safetyAttempt);
+          const rawGridPrompt = buildGridPrompt(
+            sceneStyle,
+            charDescs,
+            shotDescs,
+            aspectRatio,
+            refLabels,
+            group.map(storyboard => storyboard.sceneNumber)
+          );
+          const usesSafetyRewrite = safetyFindings.length > 0 || safetyAttempt > 0;
+          const gridPrompt = usesSafetyRewrite
+            ? `${rewriteImagePromptForSafety('', safetyFindings.length > 0 && safetyAttempt === 0 || safetyAttempt === 1 ? 1 : 2)}\n\n${rawGridPrompt}`
+            : rawGridPrompt;
+          const gridStoryboard = {
+            ...group[0],
+            prompt: gridPrompt,
+            characters: groupCharacters.map(character => character.name),
+            objects: groupObjects.map(object => object.name)
+          };
+
+          try {
+            // Resume an already-paid task only on the first attempt. A safety
+            // rejection creates a fresh task with the corrected panel prompts.
+            let taskId = safetyAttempt === 0 && options.resumeTaskId && batch.length <= 9 ? options.resumeTaskId : '';
+            if (!taskId) {
+              const res = await fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  storyboard: gridStoryboard,
+                  characters: groupCharacters,
+                  objects: groupObjects,
+                  aspectRatio,
+                  imageModel: activeSettings.imageModel,
+                  apiKey: activeSettings.apiKey,
+                  costumeImages: costumeImagesRef.current,
+                  sceneImage: sceneImagesRef.current[0] || '',
+                  referenceImages: refImages,
+                  referenceImageLabels: refLabels,
+                  visualStyle
+                })
+              });
+              ({ taskId } = await readApiJson<{ taskId: string }>(res, '九宫格任务创建失败'));
+              updateGridStoryboards(items => items.map(sb =>
+                group.some(g => g.id === sb.id) ? { ...sb, taskId } : sb
+              ));
+            }
+
+            for (let j = 0; j < 90; j++) {
+              await new Promise(r => setTimeout(r, 3000));
+              if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
+              const statusRes = await fetch('/api/check-image-status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ taskId, apiKey: activeSettings.apiKey })
+              });
+              if (!statusRes.ok) continue;
+              const statusData = await statusRes.json();
+              if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
+              if (statusData.status === 'completed' && statusData.imageUrl) { gridUrl = statusData.imageUrl; break; }
+              if (statusData.status === 'failed') throw new Error(statusData.error || 'Grid image failed');
+            }
+            if (!gridUrl) throw new Error('Grid image timeout');
+          } catch (error) {
+            lastGridError = error;
+            if (!isImageSafetyRejection(error) || safetyAttempt >= maxSafetyAttempts - 1) throw error;
+            const candidateScenes = safetyFindings.length
+              ? safetyFindings.map(finding => finding.storyboard.sceneNumber)
+              : group.map(storyboard => storyboard.sceneNumber);
+            const diagnosis = safetyFindings.length
+              ? imageSafetyReasonLabel([...new Set(safetyFindings.flatMap(finding => finding.risks))])
+              : '供应商内容安全策略（未命中本地词表）';
+            updateGridStoryboards(items => items.map(sb => group.some(g => g.id === sb.id) ? {
+              ...sb,
+              status: 'generating' as const,
+              imageFailureReason: `内容安全拒绝；候选镜头 ${candidateScenes.join('、')}：${diagnosis}；正在自动修正并重试`,
+              imageRetryCount: (sb.imageRetryCount || 0) + 1,
+              imagePromptOverride: rewriteImagePromptForSafety(sb.prompt, safetyAttempt === 0 ? 1 : 2),
+            } : sb));
           }
         }
-        if (!gridUrl) throw new Error('Grid image timeout');
+        if (!gridUrl) throw (lastGridError instanceof Error ? lastGridError : new Error('Grid image failed'));
 
         // Persist the short-lived APIMart result and split it with Cloudinary
         // delivery transformations. Netlify's image proxy can hang while
@@ -676,13 +721,16 @@ export default function StoryPage() {
             imageUrl: newImageUrl,
             gridSourceUrl: persistedGridUrl || sb.gridSourceUrl,
             status: 'completed' as const,
+            imageFailureReason: undefined,
           };
         }));
         } catch (error) {
           console.error('Grid generation failed:', error);
-          updateGridStoryboards(items => items.map(sb =>
-            group.some(g => g.id === sb.id) ? { ...sb, status: 'failed' } : sb
-          ));
+          updateGridStoryboards(items => items.map(sb => group.some(g => g.id === sb.id) ? {
+            ...sb,
+            status: 'failed',
+            imageFailureReason: error instanceof Error ? error.message : 'Unknown error',
+          } : sb));
           const range = `${group[0]?.sceneNumber ?? '?'}–${group[group.length - 1]?.sceneNumber ?? '?'}`;
           failedBatches.push(`${range}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
@@ -703,19 +751,43 @@ export default function StoryPage() {
   const handleGenerateImage = async (storyboard: Storyboard) => {
     if (!settings.apiKey) { alert('Please configure API Key in settings'); return; }
     const generationProjectId = projectIdRef.current;
-    setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, status: 'generating' } : sb));
     try {
-      const response = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle })
-      });
-      const data = await readApiJson<{ taskId: string }>(response, '启动单张分镜生成失败');
-      if (!data.taskId) throw new Error('生图接口没有返回任务 ID');
-      await pollImageStatus(storyboard.id, data.taskId, generationProjectId);
+      const initialRisks = analyzeImagePromptSafety(`${storyboard.prompt}\n${storyboard.description}`);
+      const maxSafetyAttempts = initialRisks.length > 0 ? 2 : 3;
+      for (let safetyAttempt = 0; safetyAttempt < maxSafetyAttempts; safetyAttempt += 1) {
+        const shouldRewrite = initialRisks.length > 0 || safetyAttempt > 0 || Boolean(storyboard.imagePromptOverride);
+        const safetyLevel: 1 | 2 = initialRisks.length > 0 && safetyAttempt === 0 || safetyAttempt === 1 ? 1 : 2;
+        const prompt = shouldRewrite ? rewriteImagePromptForSafety(storyboard.prompt, safetyLevel) : storyboard.prompt;
+        setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? {
+          ...sb,
+          status: 'generating',
+          imagePromptOverride: shouldRewrite ? prompt : sb.imagePromptOverride,
+          imageFailureReason: shouldRewrite
+            ? `${initialRisks.length ? `检测到${imageSafetyReasonLabel(initialRisks)}` : '供应商内容安全拒绝'}；已自动修正并进行第 ${safetyAttempt + 1} 次生成`
+            : undefined,
+          imageRetryCount: safetyAttempt,
+        } : sb));
+        try {
+          const response = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ storyboard: { ...storyboard, prompt }, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle })
+          });
+          const data = await readApiJson<{ taskId: string }>(response, '启动单张分镜生成失败');
+          if (!data.taskId) throw new Error('生图接口没有返回任务 ID');
+          await pollImageStatus(storyboard.id, data.taskId, generationProjectId);
+          return;
+        } catch (error) {
+          if (!isImageSafetyRejection(error) || safetyAttempt >= maxSafetyAttempts - 1) throw error;
+        }
+      }
     } catch (error) {
       if (generationProjectId !== projectIdRef.current) return;
-      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, status: 'failed' } : sb));
+      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? {
+        ...sb,
+        status: 'failed',
+        imageFailureReason: error instanceof Error ? error.message : 'Unknown image generation error',
+      } : sb));
     }
   };
 
@@ -723,16 +795,21 @@ export default function StoryPage() {
     for (let i = 0; i < 90; i++) {
       await new Promise(resolve => setTimeout(resolve, 3000));
       if (generationProjectId !== projectIdRef.current) return;
+      let response: Response;
       try {
-        const response = await fetch('/api/check-image-status', {
+        response = await fetch('/api/check-image-status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ taskId, apiKey: settings.apiKey })
         });
-        if (!response.ok) continue;
-        const data = await response.json();
-        if (generationProjectId !== projectIdRef.current) return;
-        if (data.status === 'completed' && data.imageUrl) {
+      } catch {
+        continue;
+      }
+      if (!response.ok) continue;
+      const data = await response.json().catch(() => undefined);
+      if (!data) continue;
+      if (generationProjectId !== projectIdRef.current) return;
+      if (data.status === 'completed' && data.imageUrl) {
           let imageUrl = data.imageUrl;
           // 确保 imageUrl 是公网 URL：base64 数据 URL 会上传到 Cloudinary，否则 ComfyUI LoadImage 拿不到文件
           if (typeof imageUrl === 'string' && imageUrl.startsWith('data:')) {
@@ -748,18 +825,14 @@ export default function StoryPage() {
               }
             } catch (e) { console.error('Upload image to Cloudinary failed:', e); }
           }
-          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, status: 'completed', imageUrl, taskId } : sb));
-          storyboardsRef.current = storyboardsRef.current.map(sb => sb.id === storyboardId ? { ...sb, status: 'completed', imageUrl, taskId } : sb);
+          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, status: 'completed', imageUrl, taskId, imageFailureReason: undefined } : sb));
+          storyboardsRef.current = storyboardsRef.current.map(sb => sb.id === storyboardId ? { ...sb, status: 'completed', imageUrl, taskId, imageFailureReason: undefined } : sb);
           return;
-        }
-        if (data.status === 'failed') {
-          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, status: 'failed' } : sb));
-          return;
-        }
-      } catch { /* continue polling */ }
+      }
+      if (data.status === 'failed') throw new Error(data.error || 'Image generation failed');
     }
     if (generationProjectId !== projectIdRef.current) return;
-    setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, status: 'failed' } : sb));
+    throw new Error('Image generation timeout');
   };
 
   const handleGenerateCostume = async (type: 'costume' | 'scene', characterName?: string) => {

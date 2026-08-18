@@ -31,6 +31,9 @@ export interface Storyboard {
   gridSourceUrl?: string; // 高分辨率九宫格母图；用于恢复或重新拆分
   status: 'pending' | 'generating' | 'completed' | 'failed';
   taskId?: string; // APIMart 任务 ID
+  imagePromptOverride?: string; // 内容安全自动修订后的生图专用提示词，不改写原始分镜
+  imageFailureReason?: string; // 最近一次生图失败或自动修订原因
+  imageRetryCount?: number; // 内容安全自动重试次数
   videoUrl?: string; // 视频 URL
   videoSourceUrl?: string; // 云端原始 URL；本地缓存丢失时用于恢复
   videoCacheKey?: string; // IndexedDB 中的持久化视频键

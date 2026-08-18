@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTaskStatus } from '@/lib/apimart';
+import { extractImageTaskError } from '@/lib/imagePromptSafety';
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
       console.error('Image generation failed:', JSON.stringify(status, null, 2));
       return NextResponse.json({
         status: 'failed',
-        error: status.error || status.message || 'Unknown error',
+        error: extractImageTaskError(status),
         details: status
       });
     }

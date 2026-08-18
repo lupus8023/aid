@@ -8,6 +8,8 @@
 - Story generation accepts standard Chat Completions, content arrays, structured parsed output, Responses API output, and common gateway wrappers instead of requiring only `choices[0].message.content`.
 - Empty DMX responses now report a safe structural summary, truncation, refusal, or transport failure without logging prompts, generated content, or credentials.
 - The web app explicitly asks for Companion v0.1.18 instead of silently sending long screenplay requests to a hosted timeout path when an older Companion is running.
+- Storyboard image generation now identifies safety-sensitive scenes before submission, creates a separate non-graphic image prompt, and automatically retries progressively safer staging when APIMart rejects a task.
+- Grid and single-image cards retain the original storyboard prompt while showing the diagnosed reason, candidate scene numbers, and automatic retry count.
 
 ## 0.1.17 - 2026-08-19
 

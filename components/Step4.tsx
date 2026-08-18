@@ -73,6 +73,16 @@ export default function Step4({ storyboards, onBack, onNext, onGenerateImage, on
                 {sb.status === 'failed' && <AlertCircle size={14} className="text-[var(--error)]" />}
               </div>
               <p className="text-xs text-[var(--text-secondary)] line-clamp-2 mb-3">{sb.description}</p>
+              {sb.imageFailureReason && (
+                <p className={`mb-3 rounded border px-2 py-1.5 text-[11px] leading-4 ${sb.status === 'failed' ? 'border-[var(--error)]/40 bg-[var(--error)]/10 text-[var(--error)]' : 'border-[var(--accent-yellow)]/40 bg-[var(--accent-yellow)]/10 text-[var(--accent-yellow)]'}`}>
+                  自动诊断：{sb.imageFailureReason}
+                </p>
+              )}
+              {!sb.imageFailureReason && sb.imagePromptOverride && (
+                <p className="mb-3 rounded border border-[var(--success)]/30 bg-[var(--success)]/10 px-2 py-1.5 text-[11px] leading-4 text-[var(--success)]">
+                  已使用内容安全修订{sb.imageRetryCount ? ` · 自动重试 ${sb.imageRetryCount} 次` : ''}
+                </p>
+              )}
               {sb.status === 'completed' ? (
                 <button
                   onClick={() => onRetry(sb)}
