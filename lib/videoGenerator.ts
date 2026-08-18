@@ -2,6 +2,7 @@ import { createVideoTask, getVideoTaskStatus } from './apimart';
 import { Storyboard } from '@/types';
 import { buildVideoContinuityRules, buildVideoStyleContract } from './promptArchitecture';
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds } from './videoSegments';
+import { enforceNoSubtitles } from './videoTextPolicy';
 
 function clock(seconds: number): string {
   const formatted = seconds.toFixed(Number.isInteger(seconds) ? 0 : 1);
@@ -43,7 +44,7 @@ export function buildVideoSegmentPrompt(
     return `[00:${clock(range.start)}–00:${clock(range.end)}] BEAT ${index + 1} | Picture ${referenceNumber} | Scene ${storyboard.sceneNumber}\nEXACT CAST: ${cast}. No other person, creature, reflection-double or background extra.\nVISUAL ACTION: ${storyboard.description}\nPERFORMANCE: Execute one readable action and its immediate reaction; use concrete body mechanics, eye direction, weight shift and contact points from the scene.\nEDIT: ${index === 0 ? (options.firstFrameUrl ? 'The inherited first frame is already mid-motion. Continue that velocity immediately; no freeze, pose reset, settling pause or slow acceleration.' : 'Enter on active motion or a decisive visual fact.') : 'Cut on action, eyeline or cause-and-effect from the previous beat.'}\nAPPROVED DIALOGUE: ${dialogue || 'none — no speech, narration, vocalization or moving lips as if speaking.'}`;
   }).join('\n\n');
 
-  return `GOAL:
+  return enforceNoSubtitles(`GOAL:
 Create one compact ${duration}-second feature-film sequence that advances the story through ${storyboards.length} distinct visual beat${storyboards.length > 1 ? 's' : ''}. It must feel photographed and edited by filmmakers: immediate, specific and performance-driven, never like a slow AI demonstration.
 
 REFERENCE IMAGE CONTRACT:
@@ -69,7 +70,7 @@ EDITING RULES:
 Every beat must visibly occur inside its assigned time range. Use motivated hard cuts between distinct setups; no morphing, cross-generated in-between imagery or decorative dissolve unless explicitly requested. Vary shot scale and camera energy. Begin action immediately, remove dead air, and end on a decisive action, reaction or visual reveal.
 For inherited continuity, frame 1 is a motion handoff rather than a pose to hold: preserve velocity, camera inertia, eyeline and secondary motion through the first half-second.
 
-${buildVideoContinuityRules(hasVoiceReferences)}`;
+${buildVideoContinuityRules(hasVoiceReferences)}`);
 }
 
 export function buildStoryboardVideoPrompt(
@@ -78,7 +79,7 @@ export function buildStoryboardVideoPrompt(
   firstFrameUrl?: string,
 ): string {
   if (storyboard.videoPromptOverride && storyboard.videoPrompt?.trim()) {
-    return `${storyboard.videoPrompt.trim()}\n\n${buildVideoStyleContract(storyboard.visualStyle)}\n\n${buildVideoContinuityRules(characterAudios.length > 0)}`;
+    return enforceNoSubtitles(`${storyboard.videoPrompt.trim()}\n\n${buildVideoStyleContract(storyboard.visualStyle)}\n\n${buildVideoContinuityRules(characterAudios.length > 0)}`);
   }
   return buildVideoSegmentPrompt([storyboard], characterAudios, {
     firstFrameUrl,

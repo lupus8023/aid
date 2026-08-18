@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createVideoTask } from '@/lib/apimart';
 import { createComfyUIVideoTask, MAX_COMFYUI_REFERENCE_IMAGES } from '@/lib/comfyui';
 import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
+import { enforceNoSubtitles } from '@/lib/videoTextPolicy';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -44,6 +45,7 @@ export async function POST(request: NextRequest) {
     if (!mainImage || !prompt) {
       return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
     }
+    const safePrompt = enforceNoSubtitles(prompt);
 
     if (videoProvider === 'comfyui') {
       const audioInputs = [...audioFiles, ...audioUrls].filter(Boolean);
@@ -77,7 +79,7 @@ export async function POST(request: NextRequest) {
         endFrame: mode === 'first_last' ? referenceImages[0] : undefined,
         auxiliaryImages: mode === 'multi_reference' ? referenceImages : [],
         referenceAudios: audioInputs,
-        prompt,
+        prompt: safePrompt,
         aspectRatio,
         duration: Number(duration) || 5,
         settings: comfyui,
@@ -142,11 +144,11 @@ export async function POST(request: NextRequest) {
     console.log('==================');
 
     // Build enhanced prompt with audio instructions if audio is provided
-    let enhancedPrompt = prompt;
+    let enhancedPrompt = safePrompt;
     if (uploadedAudioUrls.length > 0) {
-      enhancedPrompt = `${prompt}
+      enhancedPrompt = enforceNoSubtitles(`${prompt}
 
-AUDIO: Use the provided reference audio. Natural sound effects only (footsteps, wind, water, fabric, impacts, ambient). No background music. No dialogue subtitles. Maintain the voice timbre and tone of the reference audio exactly as provided.`;
+AUDIO: Use the provided reference audio. Natural sound effects only (footsteps, wind, water, fabric, impacts, ambient). No background music. Spoken words remain audio-only and must never be displayed. Maintain the voice timbre and tone of the reference audio exactly as provided.`);
     }
 
     const taskId = await createVideoTask(

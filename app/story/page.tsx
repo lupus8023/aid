@@ -25,6 +25,7 @@ import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, 
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
 import { estimateVideoSegmentSeconds, isCompletedVideoSegment, restoredStoryStep, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
+import { withNoSubtitleBeat } from '@/lib/videoTextPolicy';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -1010,6 +1011,10 @@ export default function StoryPage() {
       const portableSegment = await Promise.all(segment.map(async item => ({
         ...item,
         visualStyle,
+        // Inject into every beat before localhost. Companion v0.1.15 rebuilds
+        // its own H3 prompt from these descriptions, so the website can enforce
+        // zero subtitles without requiring a Companion update.
+        description: withNoSubtitleBeat(item.description),
         imageUrl: videoProvider === 'comfyui'
           // Inline every reference before handing the request to localhost.
           // This removes Companion's dependency on a sometimes-reset TLS

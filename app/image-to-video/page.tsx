@@ -9,6 +9,7 @@ import CameraSelector from '@/components/CameraSelector';
 import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
 import { comfyUIApiUrl, downloadComfyUIVideo, isComfyUIClientTask, localComfyUISettings, videoStatusResponseError } from '@/lib/comfyuiClient';
+import { enforceNoSubtitles } from '@/lib/videoTextPolicy';
 
 const MAX_COMFYUI_REFERENCE_IMAGES = 5;
 
@@ -268,7 +269,7 @@ export default function ImageToVideoPage() {
 
     setIsGenerating(true);
     try {
-      const fullPrompt = cameraParams ? `${prompt}. ${cameraParams}` : prompt;
+      const fullPrompt = enforceNoSubtitles(cameraParams ? `${prompt}. ${cameraParams}` : prompt);
 
       const generationUrl = videoProvider === 'comfyui'
         ? comfyUIApiUrl('/api/image-to-video', settings.comfyui)

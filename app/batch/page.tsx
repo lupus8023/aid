@@ -26,6 +26,7 @@ import {
   parseMiniMaxBatchWorkbook,
   workflowLabel,
 } from '@/lib/minimaxBatch';
+import { enforceNoSubtitles } from '@/lib/videoTextPolicy';
 
 const STATUS_LABELS: Record<BatchTaskStatus, string> = {
   pending: '等待中',
@@ -306,7 +307,7 @@ export default function MiniMaxBatchPage() {
         referenceImages,
         secondImageRole: task.workflow === 'first_last' ? 'last_frame' : task.workflow === 'multi_reference' ? 'reference' : undefined,
         comfyWorkflowMode: task.workflow,
-        prompt: task.prompt,
+        prompt: enforceNoSubtitles(task.prompt),
         aspectRatio: task.aspectRatio,
         duration: task.duration,
         audioFiles,

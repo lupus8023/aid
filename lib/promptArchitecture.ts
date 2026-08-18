@@ -1,4 +1,5 @@
 import { Storyboard, VisualStyle } from '@/types';
+import { NO_SUBTITLE_POLICY } from './videoTextPolicy';
 
 const clean = (value?: string) => value?.trim() || 'not specified; infer only from the supplied reference image';
 
@@ -188,7 +189,8 @@ CONSTRAINTS:
 
 Preserve exact identity, facial structure, age, body proportions, hair, wardrobe, accessories, and environment in every frame.
 No face change, beauty filter, skin smoothing, limb duplication, duplicate characters, costume swap, pose teleport, morphing, or scene replacement.
-No subtitles, captions, text overlays, speech bubbles, watermarks, logos, duplicate identities, background doubles, or unrequested speech. Follow the EXACT CAST and AUDIO sections exactly.`;
+${NO_SUBTITLE_POLICY}
+No duplicate identities, background doubles, or unrequested speech. Follow the EXACT CAST and AUDIO sections exactly.`;
 }
 
 export function getStoryboardDuration(storyboard: Pick<Storyboard, 'videoDuration'>) {
