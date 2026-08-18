@@ -28,6 +28,7 @@ export interface Storyboard {
   characters: string[]; // 角色名称列表
   objects?: string[]; // 物体名称列表
   imageUrl?: string;
+  gridSourceUrl?: string; // 高分辨率九宫格母图；用于恢复或重新拆分
   status: 'pending' | 'generating' | 'completed' | 'failed';
   taskId?: string; // APIMart 任务 ID
   videoUrl?: string; // 视频 URL

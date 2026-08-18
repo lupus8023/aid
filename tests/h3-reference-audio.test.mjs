@@ -72,10 +72,15 @@ test('uses hybrid mode for first/last-frame continuity with voice references', (
 
 test('never turns native audio into permission to invent speech or music', () => {
   const silent = taggedPrompt('AUDIO: no approved dialogue.', 'aid_single_reference', 0, 0);
-  assert.match(silent, /Never invent dialogue, narration, vocals, music/);
-  assert.match(silent, /If no approved dialogue is written, generate no voice/);
+  assert.match(silent, /With no scripted line/);
+  assert.match(silent, /non-speaking performance/);
 
   const voiced = taggedPrompt('APPROVED DIALOGUE: A: "你好"', 'aid_multi_reference', 1, 1, ['A']);
-  assert.match(voiced, /recorded words are not script/);
-  assert.match(voiced, /only the exact APPROVED DIALOGUE/);
+  assert.match(voiced, /Voice-to-character binding/);
+  assert.match(voiced, /sole spoken wording/);
+});
+
+test('keeps an official structured H3 prompt free of a second appended contract', () => {
+  const official = `subject_definitions:\n<Picture 1> is a shot reference.\n\nsummary:\n[reference generation] One shot.\n\nretention_analysis:\n<Picture 1>: fully_preserved - composition.\n\ndetailed_description:\n[Shot 1] A person walks.\n\noverall_soundscape:\nFootsteps.\n\nnon_diegetic_music:\nN/A`;
+  assert.equal(taggedPrompt(official, 'aid_single_reference', 0, 0), official);
 });

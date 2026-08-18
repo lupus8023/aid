@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { ApiMartChatResponse, ApiMartImageTaskResponse, ApiMartImageStatusResponse, ApiMartVideoStatusResponse } from '@/types';
+import type { ApiMartChatResponse, ApiMartImageTaskResponse, ApiMartImageStatusResponse, ApiMartVideoStatusResponse } from '@/types';
 import { providerHttpsAgent } from './publicDns';
 
 const APIMART_BASE_URL = 'https://api.apimart.ai/v1';

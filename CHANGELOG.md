@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.16 - 2026-08-19
+
+### Added
+
+- Story video generation now uses a segment editor: AI groups consecutive storyboards into 1–4 beat, ≤15-second H3 clips, with click-based split, merge, and two-way boundary adjustment.
+- Canvas now presents a structured story → 3×3 batch → storyboard → H3 segment → final timeline flow instead of a mechanical one-shot/one-video graph.
+- Storyboard grids now generate a 4K mother image. Splitting preserves that source and delivers quality-first cropped cells capped at 1600 px, followed by aspect and 1.6 MB preprocessing before H3 submission.
+
+### Improved
+
+- MiniMax H3 prompts now follow the official Base/Ref2VA structures for reference definitions, retention, chronological shots, stable speaker IDs, soundscape, and music.
+- Every H3 clip receives an explicit setup, escalation, turn, and landing, with transitions driven by visible causality, action handoffs, screen direction, and physical state.
+- Style, cast, props, and performance are expressed through concise positive construction instead of repeated negative-token lists.
+- Dialogue uses H3's `<d>[Language]…</d>` syntax; voice references bind timbre and delivery only, while dialogue-free shots keep non-speaking performance and motivated Foley.
+- The clean-frame rule is injected once instead of repeating subtitle vocabulary in every storyboard beat.
+
 ## 0.1.15 - 2026-08-18
 
 ### Fixes

@@ -1,29 +1,26 @@
 /**
- * Global visual-text policy for generated video.
- *
- * Keep this provider-agnostic and inject it at the final request boundary. H3
- * can otherwise interpret spoken dialogue as a request to burn a translation
- * or caption into only some shots.
+ * H3 has one positive conditioning stream. Repeating a long list of words such
+ * as "subtitle", "caption" and "title card" can make those concepts more
+ * salient. Keep the visual-text rule short, positive and present only once at
+ * the provider boundary.
  */
-export const NO_SUBTITLE_POLICY_MARKER = 'ZERO-SUBTITLE OUTPUT CONTRACT';
+export const NO_SUBTITLE_POLICY_MARKER = 'CLEAN-FRAME PRESENTATION';
 
-export const NO_SUBTITLE_POLICY = `${NO_SUBTITLE_POLICY_MARKER} (absolute, applies to every frame): The picture must remain image-only. Render zero subtitles, closed captions, burned-in dialogue, translated dialogue, karaoke text, title cards, lower thirds, speech bubbles, credits, UI text, timecodes, logos or watermarks. Spoken dialogue exists in the audio track only: never transcribe, translate, quote or visualize any spoken word. Keep the bottom, top and margins of the frame completely free of generated glyphs. Do not add letters, numbers or symbols anywhere; any unavoidable writing already physically present in a supplied reference must remain unchanged and must never become an overlay. 画面中禁止出现任何字幕，台词只能存在于音轨。`;
+export const NO_SUBTITLE_POLICY = `${NO_SUBTITLE_POLICY_MARKER}: The video remains a clean photographic or animated frame. Spoken words exist only in the synchronized audio track; the generated picture contains no graphic text overlay.`;
 
-/** Add the hard rule around a complete provider prompt, without multiplying it. */
+/** Add the clean-frame rule once, without wrapping or multiplying it. */
 export function enforceNoSubtitles(prompt: string): string {
   const body = String(prompt || '').trim();
   if (!body) return NO_SUBTITLE_POLICY;
-  if (body.startsWith(NO_SUBTITLE_POLICY) && body.endsWith(NO_SUBTITLE_POLICY)) return body;
-  return `${NO_SUBTITLE_POLICY}\n\n${body}\n\nFINAL VISUAL CHECK — ${NO_SUBTITLE_POLICY}`;
+  if (body.includes(NO_SUBTITLE_POLICY_MARKER)) return body;
+  return `${body}\n\n${NO_SUBTITLE_POLICY}`;
 }
 
 /**
- * Inject the rule into each Story beat before the request reaches localhost.
- * This deliberately supports already-installed Companion versions, which
- * rebuild the final H3 prompt from each storyboard description.
+ * Compatibility export for saved web projects. New Companion builds construct
+ * the complete H3 prompt centrally, so a storyboard beat no longer receives a
+ * repeated visual-text block.
  */
 export function withNoSubtitleBeat(description?: string): string {
-  const body = String(description || '').trim();
-  if (body.includes(NO_SUBTITLE_POLICY_MARKER)) return body;
-  return `${NO_SUBTITLE_POLICY}\nVISUAL ACTION: ${body || 'Continue the scripted visual action without adding text.'}`;
+  return String(description || '').trim();
 }

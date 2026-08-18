@@ -19,7 +19,10 @@ export function buildCloudinaryGridCellUrls(
     for (let column = 0; column < 3; column++) {
       const x = column * cellWidth + inset;
       const y = row * cellHeight + inset;
-      const transform = `c_crop,x_${x},y_${y},w_${cropWidth},h_${cropHeight}/q_auto,f_auto`;
+      // Crop from the persisted high-resolution mother, then cap only the
+      // delivered derivative. A native 4K grid yields ~1.3K-wide 16:9 cells,
+      // while q_auto:good keeps each reference compact for browser/Companion.
+      const transform = `c_crop,x_${x},y_${y},w_${cropWidth},h_${cropHeight}/c_limit,w_1600,h_1600/q_auto:good,f_auto`;
       urls.push(secureUrl.replace('/upload/', `/upload/${transform}/`));
     }
   }

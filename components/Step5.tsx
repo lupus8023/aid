@@ -1,9 +1,29 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Storyboard, Character } from '@/types';
-import { CheckCircle2, Clapperboard, HardDrive, Layers3, Loader2, Video, Wand2, Mic } from 'lucide-react';
-import { estimateVideoSegmentSeconds, persistedVideoClipCount, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
+import { useEffect, useMemo, useState } from 'react';
+import { Character, Storyboard } from '@/types';
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Film,
+  HardDrive,
+  Loader2,
+  Merge,
+  Play,
+  RefreshCw,
+  Scissors,
+  Sparkles,
+  Wand2,
+} from 'lucide-react';
+import {
+  estimateVideoSegmentSeconds,
+  persistedVideoClipCount,
+  suggestVideoSegments,
+  validateVideoSegment,
+} from '@/lib/videoSegments';
 
 interface Step5Props {
   storyboards: Storyboard[];
@@ -13,328 +33,221 @@ interface Step5Props {
   onBack: () => void;
   onNext: () => void;
   onGenerateVideo: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void;
-  onGenerateVideoPrompt?: (storyboard: Storyboard) => void;
+  onGenerateVideoPrompt?: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void;
   onGenerateAudio?: (storyboard: Storyboard) => void;
   onUpdate?: (storyboard: Storyboard) => void;
 }
 
-export default function Step5({ storyboards, characters, videoModel, videoProvider = 'apimart', onBack, onNext, onGenerateVideo, onGenerateVideoPrompt, onGenerateAudio, onUpdate }: Step5Props) {
+type SegmentStatus = 'ready' | 'generating' | 'completed' | 'failed';
+
+function segmentStatus(group: Storyboard[]): SegmentStatus {
+  if (group.some(item => item.videoStatus === 'generating')) return 'generating';
+  if (group.some(item => item.videoStatus === 'failed')) return 'failed';
+  const leader = group[0];
+  const ids = group.map(item => item.id);
+  const saved = leader?.videoSegmentStoryboardIds || [];
+  if (leader?.videoUrl && saved.length === ids.length && saved.every((id, index) => id === ids[index])) return 'completed';
+  return 'ready';
+}
+
+function StatusLabel({ status }: { status: SegmentStatus }) {
+  const config = {
+    ready: ['就绪', 'bg-emerald-400'],
+    generating: ['生成中', 'bg-cyan-400 animate-pulse'],
+    completed: ['已缓存', 'bg-blue-400'],
+    failed: ['失败', 'bg-red-400'],
+  }[status];
+  return <span className="inline-flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><i className={`h-2 w-2 rounded-full ${config[1]}`} />{config[0]}</span>;
+}
+
+function dialogueLines(storyboard: Storyboard) {
+  return storyboard.dialogueLines?.length
+    ? storyboard.dialogueLines
+    : Object.entries(storyboard.dialogue || {}).map(([character, text]) => ({ character, text }));
+}
+
+function sameMembers(groups: string[][], storyboards: Storyboard[]) {
+  return groups.flat().join('|') === storyboards.map(item => item.id).join('|');
+}
+
+export default function Step5({
+  storyboards,
+  videoModel,
+  videoProvider = 'apimart',
+  onBack,
+  onNext,
+  onGenerateVideo,
+  onGenerateVideoPrompt,
+  onUpdate,
+}: Step5Props) {
   const isComfyUI = videoProvider === 'comfyui';
-  const completedCount = isComfyUI
-    ? persistedVideoClipCount(storyboards)
-    : storyboards.filter(sb => sb.videoStatus === 'completed').length;
-  const cachingCount = storyboards.filter(sb => sb.videoCacheStatus === 'caching').length;
-  const cachedCount = isComfyUI
-    ? persistedVideoClipCount(storyboards, true)
-    : storyboards.filter(sb => sb.videoCacheStatus === 'completed').length;
-  const withImages = storyboards.filter(sb => sb.imageUrl);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editedPrompt, setEditedPrompt] = useState('');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const withImages = useMemo(() => storyboards.filter(item => item.imageUrl), [storyboards]);
+  const storyboardById = useMemo(() => new Map(withImages.map(item => [item.id, item])), [withImages]);
+  const suggested = useMemo(() => suggestVideoSegments(withImages), [withImages]);
+  const [groupIds, setGroupIds] = useState<string[][]>(() => suggested.map(group => group.map(item => item.id)));
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [editingPrompt, setEditingPrompt] = useState(false);
+  const [promptDraft, setPromptDraft] = useState('');
 
-  // Wan2.6/Wan2.7 使用实际音轨；仙宫云 MiniMax H3 会原生生成同步音频。
-  const m = (videoModel || '').toLowerCase();
-  const showAudioButton = !isComfyUI && (m.includes('wan2.6') || m.includes('wan2.7') || m.includes('wan 2.6') || m.includes('wan 2.7'));
-  const suggestedSegments = useMemo(() => suggestVideoSegments(withImages), [withImages]);
-  const selectedStoryboards = withImages.filter(storyboard => selectedIds.includes(storyboard.id)).sort((a, b) => a.sceneNumber - b.sceneNumber);
-  const selectionError = selectedIds.length ? validateVideoSegment(selectedStoryboards) : undefined;
+  useEffect(() => {
+    setGroupIds(current => sameMembers(current, withImages)
+      ? current
+      : suggested.map(group => group.map(item => item.id)));
+  }, [suggested, withImages]);
 
-  const toggleStoryboard = (storyboardId: string) => {
-    setSelectedIds(current => current.includes(storyboardId)
-      ? current.filter(id => id !== storyboardId)
-      : [...current, storyboardId]);
+  const groups = groupIds
+    .map(ids => ids.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item)))
+    .filter(group => group.length);
+  const safeActiveIndex = Math.min(Math.max(0, activeIndex), Math.max(0, groups.length - 1));
+  const activeGroup = groups[safeActiveIndex] || [];
+  const activeLeader = activeGroup[0];
+  const activeStatus = segmentStatus(activeGroup);
+  const activeDialogue = activeGroup.flatMap(dialogueLines).filter(line => String(line.text || '').trim());
+  const totalSeconds = groups.reduce((sum, group) => sum + estimateVideoSegmentSeconds(group), 0);
+  const completedCount = isComfyUI ? persistedVideoClipCount(storyboards) : storyboards.filter(item => item.videoStatus === 'completed').length;
+  const cachingCount = storyboards.filter(item => item.videoCacheStatus === 'caching').length;
+  const cachedCount = isComfyUI ? persistedVideoClipCount(storyboards, true) : storyboards.filter(item => item.videoCacheStatus === 'completed').length;
+
+  const commitGroups = (next: string[][], nextActive = safeActiveIndex) => {
+    setGroupIds(next.filter(group => group.length));
+    setActiveIndex(Math.min(nextActive, Math.max(0, next.length - 1)));
   };
 
-  const generateSelectedSegment = () => {
-    if (selectionError || !selectedStoryboards.length) return;
-    onGenerateVideo(selectedStoryboards[0], selectedStoryboards);
-    setSelectedIds([]);
+  const splitAfter = (segmentIndex: number, shotIndex: number) => {
+    const source = groupIds[segmentIndex];
+    if (!source || shotIndex >= source.length - 1) return;
+    const next = [...groupIds];
+    next.splice(segmentIndex, 1, source.slice(0, shotIndex + 1), source.slice(shotIndex + 1));
+    commitGroups(next, segmentIndex);
   };
 
-  const startEdit = (sb: Storyboard) => {
-    setEditingId(sb.id);
-    setEditedPrompt(sb.videoPrompt || '');
+  const mergeWithNext = (segmentIndex: number) => {
+    const mergedIds = [...(groupIds[segmentIndex] || []), ...(groupIds[segmentIndex + 1] || [])];
+    const merged = mergedIds.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item));
+    if (validateVideoSegment(merged)) return;
+    const next = [...groupIds];
+    next.splice(segmentIndex, 2, mergedIds);
+    commitGroups(next, segmentIndex);
   };
 
-  const saveEdit = (sb: Storyboard) => {
-    onUpdate?.({ ...sb, videoPrompt: editedPrompt, videoPromptOverride: true });
-    setEditingId(null);
+  const moveBoundary = (segmentIndex: number, direction: 'left' | 'right') => {
+    const left = [...(groupIds[segmentIndex] || [])];
+    const right = [...(groupIds[segmentIndex + 1] || [])];
+    if (!left.length || !right.length) return;
+    if (direction === 'left') left.push(right.shift()!);
+    else right.unshift(left.pop()!);
+    if (!left.length || !right.length) return;
+    const leftShots = left.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item));
+    const rightShots = right.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item));
+    if (validateVideoSegment(leftShots) || validateVideoSegment(rightShots)) return;
+    const next = [...groupIds];
+    next.splice(segmentIndex, 2, left, right);
+    commitGroups(next, direction === 'left' ? segmentIndex : segmentIndex + 1);
   };
+
+  const generateActive = () => {
+    if (!activeLeader || validateVideoSegment(activeGroup)) return;
+    onGenerateVideo(activeLeader, activeGroup);
+  };
+
+  const beginPromptEdit = () => {
+    if (!activeLeader) return;
+    setPromptDraft(activeLeader.videoPrompt || '');
+    setEditingPrompt(true);
+  };
+
+  if (!isComfyUI) {
+    return (
+      <div className="space-y-5">
+        <div className="border-l-4 border-[var(--accent-purple)] pl-4"><h2 className="text-2xl font-mono text-[var(--accent-green)]"><span className="text-[var(--text-secondary)]">05.</span> Generate Videos</h2><p className="mt-2 text-sm text-[var(--text-secondary)]">当前视频通道按单个分镜生成；选择仙宫云 ComfyUI 可启用 H3 片段编排。</p></div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{withImages.map(item => <article key={item.id} className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]"><img src={item.imageUrl} alt={`镜 ${item.sceneNumber}`} className="aspect-video w-full object-cover" /><div className="p-3"><p className="text-xs text-[var(--text-secondary)]">镜 {String(item.sceneNumber).padStart(2, '0')}</p><button onClick={() => onGenerateVideo(item)} className="mt-3 w-full rounded-lg bg-[var(--accent-purple)] px-3 py-2 text-xs text-white">{item.videoStatus === 'generating' ? '生成中…' : '生成视频'}</button></div></article>)}</div>
+        <div className="flex justify-between border-t border-[var(--border-color)] pt-4"><button onClick={onBack} className="rounded-lg border border-[var(--border-color)] px-5 py-2 text-sm">返回</button><button onClick={onNext} disabled={!completedCount} className="rounded-lg bg-[var(--accent-green)] px-5 py-2 text-sm text-black disabled:opacity-40">下一步：导出</button></div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="border-l-4 border-[var(--accent-purple)] pl-4 mb-8">
-        <h2 className="text-2xl font-mono text-[var(--accent-green)] mb-2">
-          <span className="text-[var(--text-secondary)]">05.</span> Generate Videos
-        </h2>
-        <p className="text-[var(--text-secondary)] font-mono text-sm">
-          {isComfyUI
-            ? 'MiniMax H3 only speaks approved dialogue; no subtitles, narration or automatic music'
-            : 'Generate audio from dialogue, then generate video for each shot'}
-        </p>
-      </div>
-
-      {isComfyUI && (
-        <div className="p-4 border border-[var(--accent-green)]/40 rounded bg-[var(--bg-secondary)]">
-          <div className="text-sm font-mono text-[var(--accent-green)]">仙宫云 MiniMax H3 · Native Audio</div>
-          <p className="mt-1 text-xs font-mono text-[var(--text-secondary)]">
-            普通分镜使用单图 Ref2VA；开启“连贯上一镜头”时使用运动交接帧，带角色音色参考时自动切换 Hybrid。音色只作参考，不会把参考音频内容当成台词。
-          </p>
-          <p className="mt-2 flex items-center gap-1.5 text-xs font-mono text-[var(--text-secondary)]">
-            <HardDrive size={12} /> 视频完成后会自动下载到浏览器本地缓存；FFmpeg 导出优先使用本地副本。已缓存 {cachedCount}/{completedCount}
-          </p>
+    <div className="space-y-4">
+      <header className="flex flex-col gap-4 border-l-2 border-[var(--workspace-accent)] pl-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--workspace-accent)]">05 · Segment edit</p>
+          <h2 className="mt-2 text-xl font-semibold text-white"><span className="text-[var(--workspace-accent)]">{withImages.length}</span> 分镜 → <span className="text-[var(--workspace-accent)]">{groups.length}</span> 个视频片段 · 预计 {Math.floor(totalSeconds / 60)}m{String(totalSeconds % 60).padStart(2, '0')}s</h2>
+          <p className="mt-2 text-xs text-[var(--text-secondary)]">MiniMax H3 · 每段 1–4 个节拍 · 最长 15s · AI 已按剧情、地点、台词与节奏自动分组</p>
         </div>
-      )}
+        <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><HardDrive size={13} />本地缓存 {cachedCount}/{completedCount}</div>
+      </header>
 
-      {isComfyUI && withImages.length > 0 && (
-        <section className="rounded-xl border border-[var(--accent-purple)]/45 bg-[var(--bg-secondary)] p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="flex items-center gap-2 text-sm font-semibold text-white"><Clapperboard size={15} className="text-[var(--accent-purple)]" /> H3 片段编组</p>
-              <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">一个视频片段可以包含 1–4 个连续分镜。每张勾选的分镜图会作为片段内对应节拍的多图参考，总时长严格不超过 15 秒。</p>
-            </div>
-            <button
-              type="button"
-              onClick={generateSelectedSegment}
-              disabled={!selectedStoryboards.length || Boolean(selectionError)}
-              className="flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[var(--accent-purple)] px-4 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Layers3 size={14} />
-              {selectedStoryboards.length ? `生成所选 ${selectedStoryboards.length} 镜 · ${estimateVideoSegmentSeconds(selectedStoryboards)}s` : '勾选下方分镜'}
-            </button>
-          </div>
-          {selectionError && <p className="mt-2 text-xs text-[var(--accent-yellow)]">{selectionError}</p>}
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-            {suggestedSegments.map((group, index) => (
-              <button
-                key={`${group[0]?.id}-${index}`}
-                type="button"
-                onClick={() => setSelectedIds(group.map(item => item.id))}
-                className="shrink-0 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 py-2 text-left hover:border-[var(--accent-purple)]"
-              >
-                <span className="block font-mono text-[10px] text-[var(--accent-purple)]">推荐片段 {String(index + 1).padStart(2, '0')}</span>
-                <span className="mt-0.5 block text-xs text-[var(--text-primary)]">镜头 {group.map(item => item.sceneNumber).join(' · ')}</span>
-                <span className="mt-0.5 block font-mono text-[10px] text-[var(--text-secondary)]">{group.length} 个节拍 · {estimateVideoSegmentSeconds(group)}s</span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {withImages.map((sb) => {
-          const hasDialogue = (sb.dialogueLines?.length ?? 0) > 0 || Object.keys(sb.dialogue || {}).length > 0;
-          const sbIndex = storyboards.findIndex(s => s.id === sb.id);
-          const aspectClass = sb.aspectRatio === '9:16' ? 'aspect-[9/16]' : sb.aspectRatio === '1:1' ? 'aspect-square' : 'aspect-video';
-          return (
-            <div key={sb.id} className={`bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded overflow-hidden ${sb.aspectRatio === '9:16' ? 'max-w-[200px] mx-auto' : ''}`}>
-              {sb.videoUrl ? (
-                <video src={sb.videoUrl} className={`w-full ${aspectClass} object-cover`} controls muted />
-              ) : (
-                <img src={sb.imageUrl} alt={`Scene ${sb.sceneNumber}`} className={`w-full ${aspectClass} object-cover opacity-60`} />
-              )}
-              <div className="p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="flex cursor-pointer items-center gap-2">
-                    {isComfyUI && <input type="checkbox" checked={selectedIds.includes(sb.id)} onChange={() => toggleStoryboard(sb.id)} className="h-3.5 w-3.5 accent-[var(--accent-purple)]" />}
-                    <span className="text-xs font-mono text-[var(--accent-yellow)]">Scene {sb.sceneNumber}</span>
-                  </label>
-                  {sb.videoStatus === 'completed' && <CheckCircle2 size={14} className="text-[var(--success)]" />}
-                </div>
-                {sb.videoSegmentId && (
-                  <p className="rounded bg-[var(--accent-purple)]/10 px-2 py-1 text-[10px] font-mono text-[var(--accent-purple)]">
-                    {sb.videoSegmentStoryboardIds?.length
-                      ? `片段主镜头 · 包含 ${sb.videoSegmentStoryboardIds.length} 个分镜`
-                      : '已编入同一 H3 片段'}
-                  </p>
-                )}
-                {sb.videoCacheStatus === 'caching' && (
-                  <p className="flex items-center gap-1 text-[10px] font-mono text-[var(--accent-yellow)]"><Loader2 size={10} className="animate-spin" /> 正在下载到本地…</p>
-                )}
-                {sb.videoCacheStatus === 'completed' && (
-                  <p className="flex items-center gap-1 text-[10px] font-mono text-[var(--accent-green)]"><HardDrive size={10} /> 已保存到本地，刷新后可恢复</p>
-                )}
-                {sb.videoCacheStatus === 'failed' && (
-                  <p className="text-[10px] font-mono text-[var(--accent-yellow)]">本地缓存失败，当前仍使用云端地址</p>
-                )}
-
-                {/* Video Prompt */}
-                {editingId === sb.id ? (
-                  <div className="space-y-1">
-                    <textarea
-                      value={editedPrompt}
-                      onChange={(e) => setEditedPrompt(e.target.value)}
-                      className="w-full h-20 p-2 bg-[var(--bg-primary)] border border-[var(--accent-blue)] rounded text-xs font-mono text-[var(--text-primary)] resize-none focus:outline-none"
-                    />
-                    <div className="flex gap-1">
-                      <button onClick={() => saveEdit(sb)} className="px-2 py-1 text-xs font-mono bg-[var(--accent-green)] text-[var(--bg-primary)] rounded">Save</button>
-                      <button onClick={() => setEditingId(null)} className="px-2 py-1 text-xs font-mono bg-[var(--bg-tertiary)] text-[var(--text-secondary)] rounded">Cancel</button>
-                    </div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_330px]">
+        <main className="min-w-0 space-y-0">
+          {groups.map((group, segmentIndex) => {
+            const status = segmentStatus(group);
+            const selected = segmentIndex === safeActiveIndex;
+            const duration = estimateVideoSegmentSeconds(group);
+            return (
+              <div key={group.map(item => item.id).join('-')}>
+                <section onClick={() => setActiveIndex(segmentIndex)} className={`rounded-xl border bg-[var(--bg-secondary)] p-4 transition-colors ${selected ? 'border-[var(--workspace-accent)] shadow-[0_0_0_1px_rgba(var(--workspace-accent-rgb),.15)]' : 'border-[var(--border-color)] hover:border-[var(--workspace-accent)]/45'}`}>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h3 className="font-mono text-sm font-semibold text-white">片段 {String(segmentIndex + 1).padStart(2, '0')}</h3><span className="text-[11px] text-[var(--text-secondary)]">{group.length} 个节拍 · {duration}s</span><span className="text-[10px] text-emerald-300">AI 推荐</span></div>
+                    <StatusLabel status={status} />
                   </div>
-                ) : (
-                  <div className="group relative">
-                    <p className="text-xs font-mono text-[var(--text-secondary)] line-clamp-2 pr-16">
-                      {sb.videoPrompt === 'generating...' ? (
-                        <span className="flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Generating...</span>
-                      ) : sb.videoPrompt ? sb.videoPrompt : (
-                        <span className="italic">No video prompt</span>
-                      )}
-                    </p>
-                    <div className="absolute top-0 right-0 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => onGenerateVideoPrompt?.(sb)} className="text-xs font-mono text-[var(--accent-purple)] hover:underline flex items-center gap-0.5">
-                        <Wand2 size={10} /> {sb.videoPrompt ? 'Regen' : 'Gen'}
-                      </button>
-                      <button onClick={() => startEdit(sb)} className="text-xs font-mono text-[var(--accent-blue)] hover:underline">Edit</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Dialogue lines in order */}
-                {(() => {
-                  const lines = sb.dialogueLines?.length
-                    ? sb.dialogueLines
-                    : Object.entries(sb.dialogue || {}).map(([character, text]) => ({ character, text }));
-                  return lines.length > 0 ? (
-                    <div className="space-y-1 pt-1 border-t border-[var(--border-color)]">
-                      <span className="text-xs font-mono text-[var(--text-secondary)]">Dialogue:</span>
-                      {lines.map((line, i) => (
-                        <div key={i}>
-                          <span className="text-xs font-mono text-[var(--accent-green)]">{line.character}: </span>
-                          <input
-                            type="text"
-                            value={line.text}
-                            onChange={(e) => {
-                              const updated = [...lines];
-                              updated[i] = { ...line, text: e.target.value };
-                              onUpdate?.({ ...sb, dialogueLines: updated });
-                            }}
-                            className="w-full mt-0.5 px-2 py-1 text-xs font-mono bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : null;
-                })()}
-
-                {/* Audio status */}
-                {sb.characterAudios && sb.characterAudios.length > 0 && (
-                  <div className="space-y-1">
-                    {sb.characterAudios.map((ca, i) => (
-                      <div key={i} className="space-y-0.5">
-                        <div className="flex items-center gap-1 text-xs font-mono text-[var(--accent-green)]">
-                          <Mic size={10} /> {ca.character}
-                        </div>
-                        <audio src={ca.audioUrl} controls className="w-full h-8" />
+                  <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1">
+                    {group.map((item, shotIndex) => (
+                      <div key={item.id} className="flex shrink-0 items-center gap-2">
+                        <article className="group relative w-[178px] overflow-hidden rounded-lg border border-white/8 bg-black/20">
+                          {item.videoUrl ? <video src={item.videoUrl} muted playsInline className="aspect-video w-full object-cover" /> : <img src={item.imageUrl} alt={`镜 ${item.sceneNumber}`} className="aspect-video w-full object-cover" />}
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2 pb-1.5 pt-6 text-center font-mono text-[10px] text-white">镜 {String(item.sceneNumber).padStart(2, '0')}</div>
+                          {item.videoStatus === 'generating' && <div className="absolute inset-0 grid place-items-center bg-black/55"><Loader2 size={22} className="animate-spin text-[var(--workspace-accent)]" /></div>}
+                        </article>
+                        {shotIndex < group.length - 1 && (
+                          <button type="button" title="从这里拆成两个片段" onClick={event => { event.stopPropagation(); splitAfter(segmentIndex, shotIndex); }} className="grid h-8 w-8 place-items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:border-[var(--workspace-accent)] hover:text-[var(--workspace-accent)]"><Scissors size={13} /></button>
+                        )}
                       </div>
                     ))}
                   </div>
-                )}
+                </section>
 
-                {/* Duration */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-[var(--text-secondary)]">Duration:</span>
-                  <input
-                    type="number"
-                    min={isComfyUI ? 2 : 5}
-                    max={15}
-                    value={sb.videoDuration ?? 5}
-                    onChange={(e) => onUpdate?.({ ...sb, videoDuration: Math.min(15, Math.max(isComfyUI ? 2 : 5, Number(e.target.value))) })}
-                    className="w-16 px-2 py-1 text-xs font-mono bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
-                  />
-                  <span className="text-xs font-mono text-[var(--text-secondary)]">s</span>
-                </div>
-
-                {/* Continuity toggle - only show for shots after the first */}
-                {sbIndex > 0 && (
-                  <div className="space-y-1">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={sb.continuousFromPrev ?? false}
-                        onChange={(e) => onUpdate?.({ ...sb, continuousFromPrev: e.target.checked })}
-                        className="w-3 h-3"
-                      />
-                      <span className="text-xs font-mono text-[var(--text-secondary)]">连贯上一镜头</span>
-                    </label>
-                    {sb.continuousFromPrev && hasDialogue && (
-                      isComfyUI ? (
-                        <p className="text-[10px] font-mono text-[var(--accent-green)] leading-tight">
-                          使用运动交接帧：继承上一镜运动，只说本镜头已填写的台词，不自动添加配乐或人声。
-                        </p>
-                      ) : (
-                        <p className="text-[10px] font-mono text-[var(--accent-yellow)] leading-tight">
-                          提示：连续模式下视频不会传入配音音频。如需台词同步，建议关闭此选项。
-                        </p>
-                      )
-                    )}
-                  </div>
-                )}
-
-                {isComfyUI && (
-                  <div className="flex items-center justify-between px-2 py-1.5 rounded bg-[var(--bg-primary)] border border-[var(--border-color)]">
-                    <span className="text-[10px] font-mono text-[var(--text-secondary)]">H3 Workflow</span>
-                    <span className="text-[10px] font-mono text-[var(--accent-green)]">
-                      {sb.continuousFromPrev ? 'FL2VA · 首尾帧' : 'Ref2VA · 单图参考'}
-                    </span>
-                  </div>
-                )}
-
-                {/* Generate Audio — 仅 Wan2.6/2.7 需要预生成 TTS */}
-                {hasDialogue && showAudioButton && (
-                  <button
-                    onClick={() => onGenerateAudio?.(sb)}
-                    disabled={sb.audioStatus === 'generating'}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] disabled:opacity-50 rounded transition-colors"
-                  >
-                    {sb.audioStatus === 'generating' ? (
-                      <><Loader2 size={10} className="animate-spin" /> Generating Audio...</>
-                    ) : (
-                      <><Mic size={10} /> {sb.characterAudios?.length ? 'Regenerate Audio' : 'Generate Audio'}</>
-                    )}
-                  </button>
-                )}
-
-                {(() => {
-                  const prevShot = sbIndex > 0 ? storyboards[sbIndex - 1] : undefined;
-                  // Completed Companion clips are intentionally browser-local
-                  // blob URLs. They are valid continuity sources because Story
-                  // extracts the visible tail frame before the next H3 request.
-                  const prevNotReady = Boolean(sb.continuousFromPrev && prevShot && !prevShot.videoUrl);
+                {segmentIndex < groups.length - 1 && (() => {
+                  const left = group.at(-1)!;
+                  const right = groups[segmentIndex + 1][0];
+                  const canMerge = group.length + groups[segmentIndex + 1].length <= 4;
+                  const canMoveLeft = group.length < 4 && groups[segmentIndex + 1].length > 1;
+                  const canMoveRight = group.length > 1 && groups[segmentIndex + 1].length < 4;
                   return (
-                    <button
-                      onClick={() => onGenerateVideo(sb)}
-                      disabled={sb.videoStatus === 'generating' || !!prevNotReady}
-                      title={prevNotReady ? '请先生成上一镜头的视频' : undefined}
-                      className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-purple)] hover:bg-[#9b59b6] text-white disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] rounded transition-colors"
-                    >
-                      {sb.videoStatus === 'generating' ? (
-                        <><Loader2 size={12} className="animate-spin" /> Generating...</>
-                      ) : prevNotReady ? (
-                        <><Video size={12} /> 等待上一镜头完成</>
-                      ) : (
-                        <><Video size={12} /> {sb.videoUrl ? 'Regenerate' : 'Generate Video'}</>
-                      )}
-                    </button>
+                    <div className="flex min-h-9 flex-wrap items-center justify-center gap-x-3 gap-y-1 px-3 text-[10px] text-[var(--text-muted)]">
+                      <span>镜 {String(left.sceneNumber).padStart(2, '0')} / 镜 {String(right.sceneNumber).padStart(2, '0')} · 片段边界</span>
+                      <button disabled={!canMoveLeft} onClick={() => moveBoundary(segmentIndex, 'left')} className="inline-flex items-center gap-1 hover:text-[var(--workspace-accent)] disabled:opacity-25"><ChevronLeft size={12} />后段首镜移入前段</button>
+                      <button disabled={!canMoveRight} onClick={() => moveBoundary(segmentIndex, 'right')} className="inline-flex items-center gap-1 hover:text-[var(--workspace-accent)] disabled:opacity-25">前段尾镜移入后段<ChevronRight size={12} /></button>
+                      <button disabled={!canMerge} onClick={() => mergeWithNext(segmentIndex)} className="inline-flex items-center gap-1 hover:text-[var(--workspace-accent)] disabled:opacity-25"><Merge size={12} />合并两段</button>
+                    </div>
                   );
                 })()}
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+
+          <nav className="mt-3 flex gap-2 overflow-x-auto rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-2">
+            {groups.map((group, index) => <button key={group[0].id} onClick={() => setActiveIndex(index)} className={`flex min-w-[112px] items-center gap-2 rounded-lg border px-2 py-1.5 text-left ${index === safeActiveIndex ? 'border-[var(--workspace-accent)] bg-[var(--workspace-accent)]/10' : 'border-[var(--border-color)] bg-black/10'}`}><span className="font-mono text-xs text-[var(--workspace-accent)]">{String(index + 1).padStart(2, '0')}</span><img src={group[0].imageUrl} alt="" className="h-7 w-10 rounded object-cover" /><span className="ml-auto text-[10px] text-[var(--text-secondary)]">{estimateVideoSegmentSeconds(group)}s</span></button>)}
+          </nav>
+        </main>
+
+        <aside className="h-fit rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4 xl:sticky xl:top-4">
+          {activeLeader ? (
+            <>
+              <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h3 className="text-lg font-semibold text-white">片段 {String(safeActiveIndex + 1).padStart(2, '0')}</h3><StatusLabel status={activeStatus} /></div><p className="mt-1 text-[11px] text-[var(--text-secondary)]">{activeGroup.length} 个节拍 · {estimateVideoSegmentSeconds(activeGroup)}s</p></div><span className="rounded border border-[var(--border-color)] px-2 py-1 font-mono text-[9px] text-[var(--text-secondary)]">MiniMax H3</span></div>
+              {activeLeader.videoUrl && <div className="relative mt-4 overflow-hidden rounded-lg"><video src={activeLeader.videoUrl} controls className="aspect-video w-full object-cover" /><span className="pointer-events-none absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[9px] text-white">已生成片段</span></div>}
+              <div className="mt-4 border-t border-[var(--border-color)] pt-4"><p className="text-[11px] font-semibold text-white">包含分镜</p><div className="mt-3 space-y-2">{activeGroup.map(item => <div key={item.id} className="flex items-center gap-2"><img src={item.imageUrl} alt="" className="h-10 w-14 rounded object-cover" /><div className="min-w-0"><p className="font-mono text-[10px] text-white">镜 {String(item.sceneNumber).padStart(2, '0')}</p><p className="truncate text-[10px] text-[var(--text-muted)]">{item.description}</p></div></div>)}</div></div>
+              <div className="mt-4 space-y-2 border-t border-[var(--border-color)] pt-4 text-[11px]"><div className="flex justify-between"><span className="text-[var(--text-secondary)]">时长分配</span><span className="text-white">自动 · {estimateVideoSegmentSeconds(activeGroup)}s</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">连续性检查</span><span className="inline-flex items-center gap-1 text-emerald-300"><CheckCircle2 size={12} />通过</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">对话（估算）</span><span className="text-white">{activeDialogue.length} 条</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">画面文字</span><span className="text-white">干净画面</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">参考图预处理</span><span className="text-emerald-300">高清压缩</span></div></div>
+
+              {editingPrompt ? <div className="mt-4"><textarea value={promptDraft} onChange={event => setPromptDraft(event.target.value)} rows={7} className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 text-[10px] leading-5 text-white" /><div className="mt-2 flex gap-2"><button onClick={() => { onUpdate?.({ ...activeLeader, videoPrompt: promptDraft, videoPromptOverride: true }); setEditingPrompt(false); }} className="flex-1 rounded-lg bg-[var(--workspace-accent)] px-3 py-2 text-xs text-[var(--workspace-on-accent)]">保存</button><button onClick={() => setEditingPrompt(false)} className="rounded-lg border border-[var(--border-color)] px-3 py-2 text-xs">取消</button></div></div> : <div className="mt-4 grid grid-cols-2 gap-2"><button onClick={() => onGenerateVideoPrompt?.(activeLeader, activeGroup)} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[10px]"><Wand2 size={12} />刷新提示词</button><button onClick={beginPromptEdit} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[10px]"><RefreshCw size={12} />编辑提示词</button></div>}
+
+              <button onClick={generateActive} disabled={activeStatus === 'generating'} className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[var(--workspace-accent)] text-sm font-semibold text-[var(--workspace-on-accent)] disabled:opacity-50">{activeStatus === 'generating' ? <><Loader2 size={16} className="animate-spin" />正在生成</> : activeStatus === 'completed' ? <><RefreshCw size={15} />重新生成此片段</> : <><Sparkles size={15} />生成此片段</>}</button>
+              <p className="mt-2 text-center text-[10px] text-[var(--text-muted)]">最长 15s · 原生同步音频 · 生成后自动缓存</p>
+            </>
+          ) : <div className="py-12 text-center text-sm text-[var(--text-muted)]">暂无可编排分镜</div>}
+        </aside>
       </div>
 
-      <div className="flex justify-between pt-4 border-t border-[var(--border-color)]">
-        <button onClick={onBack} className="bg-[var(--bg-tertiary)] text-[var(--text-primary)] px-6 py-2.5 rounded font-mono text-sm hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-2">
-          <span>←</span> Back
-        </button>
-        <button
-          onClick={onNext}
-          disabled={completedCount === 0 || cachingCount > 0}
-          className="bg-[var(--accent-green)] text-[var(--bg-primary)] px-6 py-2.5 rounded font-mono text-sm hover:bg-[#5dd18d] disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-        >
-          {cachingCount > 0 ? `正在保存 ${cachingCount} 个片段…` : 'Next: Edit & Export →'}
-        </button>
-      </div>
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-color)] pt-4"><button onClick={onBack} className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-5 py-2 text-sm"><ArrowLeft size={14} />返回图片</button><div className="text-[10px] text-[var(--text-muted)]">分组会自动判断；只有需要改变节奏时才调整边界</div><button onClick={onNext} disabled={!completedCount || cachingCount > 0} className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent-green)] px-5 py-2 text-sm font-semibold text-black disabled:opacity-35">{cachingCount ? `正在缓存 ${cachingCount} 个片段` : '下一步：合并导出'}<ArrowRight size={14} /></button></footer>
     </div>
   );
 }

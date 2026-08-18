@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildStoryboardVideoPrompt, buildVideoSegmentPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
 import { snapDurationToModel } from '@/lib/apimart';
 import { createComfyUIVideoTask } from '@/lib/comfyui';
+import { enforceNoSubtitles } from '@/lib/videoTextPolicy';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -82,9 +83,11 @@ export async function POST(request: NextRequest) {
         referenceAudioNames,
         // H3 generates the synchronized soundtrack natively. Voice samples are
         // optional references, so APIMart's URL-tag syntax must not enter the prompt.
-        prompt: isMultiBeatSegment
-          ? buildVideoSegmentPrompt(videoStoryboards, [], { firstFrameUrl, duration: Number(storyboard.videoDuration) || 15, hasVoiceReferences: referenceAudios.length > 0 })
-          : buildVideoSegmentPrompt([storyboard], [], { firstFrameUrl, duration: Number(storyboard.videoDuration) || 5, hasVoiceReferences: referenceAudios.length > 0 }),
+        prompt: storyboard.videoPromptOverride && String(storyboard.videoPrompt || '').trim()
+          ? enforceNoSubtitles(String(storyboard.videoPrompt).trim())
+          : isMultiBeatSegment
+            ? buildVideoSegmentPrompt(videoStoryboards, [], { firstFrameUrl, duration: Number(storyboard.videoDuration) || 15, hasVoiceReferences: referenceAudios.length > 0, referenceAudioNames })
+            : buildVideoSegmentPrompt([storyboard], [], { firstFrameUrl, duration: Number(storyboard.videoDuration) || 5, hasVoiceReferences: referenceAudios.length > 0, referenceAudioNames }),
         duration: Number(storyboard.videoDuration) || 5,
         aspectRatio: aspectRatio || '16:9',
         settings: comfyui,

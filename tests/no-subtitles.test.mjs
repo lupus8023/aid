@@ -19,22 +19,24 @@ const storyboard = {
   visualStyle: 'cinematic-natural',
 };
 
-test('final and edited video prompts both use provider-boundary enforcement', async () => {
+test('H3 prompts use one compact clean-frame rule inside the official structure', async () => {
   const source = await readFile(new URL('../lib/videoGenerator.ts', import.meta.url), 'utf8');
-  assert.match(source, /return enforceNoSubtitles\(`GOAL:/);
+  assert.match(source, /subject_definitions:/);
+  assert.match(source, /integrated_multimodal_description:/);
+  assert.match(source, /NO_SUBTITLE_POLICY/);
   assert.match(source, /return enforceNoSubtitles\(`\$\{storyboard\.videoPrompt\.trim\(\)\}/);
 });
 
-test('legacy Companion beat bridge is idempotent', () => {
+test('legacy beat bridge no longer repeats visual-text vocabulary', () => {
   const once = withNoSubtitleBeat(storyboard.description);
   const twice = withNoSubtitleBeat(once);
   assert.equal(once, twice);
-  assert.match(once, /台词只能存在于音轨/);
+  assert.equal(once, storyboard.description);
 });
 
 test('provider boundary enforcement is idempotent', () => {
   const once = enforceNoSubtitles('Camera tracks left.');
   assert.equal(enforceNoSubtitles(once), once);
-  assert.match(once, /^ZERO-SUBTITLE OUTPUT CONTRACT/);
-  assert.match(once, /FINAL VISUAL CHECK — ZERO-SUBTITLE OUTPUT CONTRACT/);
+  assert.match(once, /CLEAN-FRAME PRESENTATION/);
+  assert.equal((once.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
 });

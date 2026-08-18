@@ -1,76 +1,159 @@
 import { createVideoTask, getVideoTaskStatus } from './apimart';
-import { Storyboard } from '@/types';
-import { buildVideoContinuityRules, buildVideoStyleContract } from './promptArchitecture';
+import type { Storyboard } from '@/types';
+import { buildVideoContinuityRules, buildVideoStyleContract, getProductionStylePreset } from './promptArchitecture';
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds } from './videoSegments';
-import { enforceNoSubtitles } from './videoTextPolicy';
+import { enforceNoSubtitles, NO_SUBTITLE_POLICY } from './videoTextPolicy';
 
-function clock(seconds: number): string {
-  const formatted = seconds.toFixed(Number.isInteger(seconds) ? 0 : 1);
-  return seconds < 10 ? `0${formatted}` : formatted;
+function h3Timestamp(seconds: number): string {
+  const safe = Math.max(0, seconds);
+  const minutes = Math.floor(safe / 60);
+  const remainder = safe - minutes * 60;
+  return `${String(minutes).padStart(2, '0')}:${remainder.toFixed(3).padStart(6, '0')}`;
+}
+
+function compactText(value: unknown, limit = 220): string {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= limit) return text;
+  const cut = text.lastIndexOf(' ', limit - 1);
+  return `${text.slice(0, cut > limit * 0.65 ? cut : limit).trim()}.`;
+}
+
+function dialogueLanguage(text: string): string {
+  if (/[\u3040-\u30ff]/.test(text)) return 'Japanese';
+  if (/[\uac00-\ud7af]/.test(text)) return 'Korean';
+  if (/[\u3400-\u9fff]/.test(text)) return 'Chinese';
+  return 'English';
+}
+
+function beatRole(index: number, total: number): string {
+  const roles = total === 1
+    ? ['setup, escalation and payoff inside one continuous action']
+    : total === 2
+      ? ['setup and trigger', 'consequence and payoff']
+      : total === 3
+        ? ['setup and dramatic question', 'escalation and turn', 'consequence and emotional landing']
+        : ['setup and dramatic question', 'pressure and complication', 'turn or reveal', 'consequence and emotional landing'];
+  return roles[index] || 'story advancement';
 }
 
 export function buildVideoSegmentPrompt(
   storyboards: Storyboard[],
   characterAudios: { character: string; audioUrl: string }[] = [],
-  options: { firstFrameUrl?: string; duration?: number; hasVoiceReferences?: boolean } = {},
+  options: {
+    firstFrameUrl?: string;
+    duration?: number;
+    hasVoiceReferences?: boolean;
+    referenceAudioNames?: string[];
+  } = {},
 ): string {
   const first = storyboards[0];
   if (!first) throw new Error('视频片段至少需要一个分镜');
-  const duration = Math.min(15, Math.max(2, options.duration || estimateVideoSegmentSeconds(storyboards)));
+  const duration = Math.min(15, Math.max(4, options.duration || estimateVideoSegmentSeconds(storyboards)));
   const timeline = allocateSegmentTimeline(storyboards, duration);
-  const referenceOffset = options.firstFrameUrl ? 2 : 1;
   const characters = [...new Set(storyboards.flatMap(storyboard => storyboard.characters || []))];
   const objects = [...new Set(storyboards.flatMap(storyboard => storyboard.objects || []))];
+  const isFirstLastMode = Boolean(options.firstFrameUrl && storyboards.length === 1);
+  const referenceOffset = options.firstFrameUrl ? 2 : 1;
+  const style = getProductionStylePreset(first.visualStyle);
   const dialogueFor = (storyboard: Storyboard) => storyboard.dialogueLines?.length
     ? storyboard.dialogueLines
     : Object.entries(storyboard.dialogue || {}).map(([character, text]) => ({ character, text }));
   const dialogueLines = storyboards.flatMap(dialogueFor).filter(line => String(line.text || '').trim());
-  const hasVoiceReferences = options.hasVoiceReferences || characterAudios.length > 0;
-  const audioMapping = characterAudios.length
-    ? `\nVOICE REFERENCES:\n${characterAudios.map(audio => `@[${audio.character}] 使用@[${audio.audioUrl}]`).join('\n')}`
-    : '';
+  const referenceAudioNames = (options.referenceAudioNames?.length
+    ? options.referenceAudioNames
+    : characterAudios.map(audio => audio.character)).filter(Boolean).slice(0, 3);
+  const hasVoiceReferences = options.hasVoiceReferences || referenceAudioNames.length > 0;
+  const speakerNames = [...new Set(dialogueLines.map(line => String(line.character || '').trim()).filter(Boolean))];
+  const speakerId = new Map(speakerNames.map((name, index) => [name, `S${index + 1}`]));
+  const subjectId = new Map(characters.map((name, index) => [name, index + 1]));
 
-  const storyboardSection = storyboards.map((storyboard, index) => {
+  const renderDialogue = (storyboard: Storyboard) => dialogueFor(storyboard)
+    .filter(line => String(line.text || '').trim())
+    .map(line => {
+      const name = String(line.character || '').trim();
+      const text = String(line.text || '').trim();
+      const id = speakerId.get(name) || 'S1';
+      const subject = subjectId.get(name);
+      const source = subject ? `<Subject ${subject}> (${id})` : `${name || 'The on-screen speaker'} (${id})`;
+      return `${source} delivers the scripted line once in a natural, scene-appropriate voice: <d>[${dialogueLanguage(text)}] ${text}</d>.`;
+    }).join(' ');
+
+  const shotDescriptions = storyboards.map((storyboard, index) => {
     const range = timeline[index];
     const referenceNumber = index + referenceOffset;
     const beatCharacters = [...new Set(storyboard.characters || [])];
-    const dialogue = dialogueFor(storyboard)
-      .filter(line => String(line.text || '').trim())
-      .map(line => `${line.character}: "${String(line.text).trim()}"`)
-      .join(' / ');
     const cast = beatCharacters.length
-      ? `${beatCharacters.length} total — ${beatCharacters.map(name => `${name} (one instance)`).join(', ')}`
-      : '0 — no character or person visible';
-    return `[00:${clock(range.start)}–00:${clock(range.end)}] BEAT ${index + 1} | Picture ${referenceNumber} | Scene ${storyboard.sceneNumber}\nEXACT CAST: ${cast}. No other person, creature, reflection-double or background extra.\nVISUAL ACTION: ${storyboard.description}\nPERFORMANCE: Execute one readable action and its immediate reaction; use concrete body mechanics, eye direction, weight shift and contact points from the scene.\nEDIT: ${index === 0 ? (options.firstFrameUrl ? 'The inherited first frame is already mid-motion. Continue that velocity immediately; no freeze, pose reset, settling pause or slow acceleration.' : 'Enter on active motion or a decisive visual fact.') : 'Cut on action, eyeline or cause-and-effect from the previous beat.'}\nAPPROVED DIALOGUE: ${dialogue || 'none — no speech, narration, vocalization or moving lips as if speaking.'}`;
-  }).join('\n\n');
+      ? `Visible cast: ${beatCharacters.map(name => `${name}, one stable instance`).join('; ')}.`
+      : 'The location remains visually unoccupied.';
+    const transition = index === 0
+      ? options.firstFrameUrl
+        ? 'The opening frame is already in motion; body momentum, camera inertia, eyeline and secondary motion continue immediately.'
+        : 'The shot enters on an active visual fact and establishes geography within the first second.'
+      : `At ${h3Timestamp(range.start)}, the camera ${storyboard.transition === 'fade' ? 'fades' : storyboard.transition === 'dissolve' ? 'cross-dissolves' : 'cuts on action'} to this setup. It begins as the direct visible consequence of [Shot ${index}] and preserves screen direction, spatial geography and emotional pressure.`;
+    const dialogue = renderDialogue(storyboard);
+    const pictureAnchor = isFirstLastMode
+      ? index === storyboards.length - 1
+        ? `The action progressively converges on <Picture 2> as the exact final frame at ${duration.toFixed(2)} seconds.`
+        : ''
+      : `<Picture ${referenceNumber}> supplies this shot's identity, wardrobe, location, lighting and composition reference.`;
+    return `${index === 0 ? `[Shot 1]` : `[Shot ${index + 1}]`} ${transition} ${pictureAnchor} This shot performs the ${beatRole(index, storyboards.length)}. ${cast}${objects.length ? ` Stable props: ${objects.join(', ')}.` : ''} ${compactText(storyboard.description || storyboard.prompt)} Concrete eye-line, weight, contact and reaction make one dominant action change the scene state. Motivated camera movement creates readable parallax and ends on a distinct action, reaction or reveal before ${h3Timestamp(range.end)}. ${dialogue || 'Faces remain in natural non-speaking performance; ambience and visible-action Foley carry the beat.'}`;
+  });
 
-  return enforceNoSubtitles(`GOAL:
-Create one compact ${duration}-second feature-film sequence that advances the story through ${storyboards.length} distinct visual beat${storyboards.length > 1 ? 's' : ''}. It must feel photographed and edited by filmmakers: immediate, specific and performance-driven, never like a slow AI demonstration.
+  const styleOpening = `The target video uses ${style.look} ${style.camera} ${style.rhythm} ${NO_SUBTITLE_POLICY}`;
+  const physics = buildVideoContinuityRules(hasVoiceReferences)
+    .replace(/\n+/g, ' ')
+    .replace(/PHYSICS:|CONSTRAINTS:/g, '')
+    .trim();
+  const soundscape = dialogueLines.length
+    ? 'Perspective-correct ambience remains continuous under the scene. Footsteps, fabric, impacts and object contact occur only when visibly caused, with dialogue synchronized to the speaking character.'
+    : 'Perspective-correct ambience remains continuous under the scene. Footsteps, fabric, impacts and object contact occur only when visibly caused; faces remain in natural non-speaking performance.';
 
-REFERENCE IMAGE CONTRACT:
-${options.firstFrameUrl ? 'Picture 1 is the exact continuity state inherited from the preceding generated clip. Begin from its screen direction, body state, lighting and spatial geography.' : `Picture ${referenceOffset} is the literal opening visual authority.`}
-${storyboards.map((_, index) => `Picture ${index + referenceOffset} defines the exact identity, wardrobe, composition, location facts, color response, lighting, lens rendering and texture for Beat ${index + 1}.`).join('\n')}
-Do not morph between reference images. Treat them as editorial shot references captured by the same production, camera family and color pipeline.
+  if (isFirstLastMode) {
+    return `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.
 
-IDENTITY & OBJECT CONTRACT:
-CAST REGISTRY: ${characters.length ? characters.map(name => `${name} = one unique identity`).join('; ') : 'no named cast'}.
-The EXACT CAST line in each beat is authoritative. Show each listed identity exactly once in that beat and keep every unlisted identity absent. A character reference sheet may contain multiple views of one identity; it is identity evidence, never permission to instantiate copies. Never clone, split, merge, recast or add a background double. Preserve exact face geometry, age, hair, body proportions, wardrobe and accessories. ${objects.length ? `Keep these objects physically identical: ${objects.join(', ')}.` : ''}
+integrated_multimodal_description: ${styleOpening} ${shotDescriptions.join(' ')} ${physics}
 
-${buildVideoStyleContract(first.visualStyle)}
+overall_soundscape: ${soundscape}
 
-AUDIO:
-DIALOGUE MODE: ${dialogueLines.length ? 'approved script only. Speak only the exact words under APPROVED DIALOGUE, once, by the named character, inside that beat. Preserve wording and order; do not paraphrase, repeat, overlap, improvise or add reactions.' : 'silent. No character speaks or makes a vocal sound.'}
-${hasVoiceReferences ? 'Reference audio is timbre/accent evidence only. Never copy, quote, continue or echo its spoken content.' : ''}
-Keep the soundtrack clean and sparse: quiet perspective-correct room tone plus only low-level Foley caused by a clearly visible action. No music, score, singing, humming, chanting, narration, whispering, laughter, crowd speech, off-screen voice, radio/TV voice, invented words or unexplained sound. No subtitles, captions, speech bubbles or on-screen text.${audioMapping}
+non_diegetic_music: N/A`;
+  }
 
-STORYBOARD — ${duration} seconds:
-${storyboardSection}
+  const pictureDefinitions = [
+    ...(options.firstFrameUrl ? ['<Picture 1> is the opening continuity frame inherited from the preceding generated clip and defines the exact state at 0.00 seconds.'] : []),
+    ...storyboards.map((storyboard, index) => `<Picture ${index + referenceOffset}> is the storyboard and production reference for [Shot ${index + 1}], defining composition, subject placement, identity, wardrobe, location and lighting.`),
+  ];
+  const subjectDefinitions = characters.map((name, index) => `<Subject ${index + 1}> is ${name}, one stable on-screen identity defined by the storyboard pictures.`);
+  const audioDefinitions = referenceAudioNames.map((name, index) => {
+    const subject = subjectId.get(name);
+    const speaker = speakerId.get(name);
+    return `<Audio ${index + 1}> is the voice-timbre and delivery reference for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (${speaker})` : ''}; its signal supplies vocal identity rather than spoken wording.`;
+  });
+  const retention = [
+    ...subjectDefinitions.map((_, index) => `<Subject ${index + 1}>: fully_preserved - identity and wardrobe stay stable wherever visible.`),
+    ...pictureDefinitions.map((_, index) => `<Picture ${index + 1}>: fully_preserved - the corresponding shot follows its production and composition anchor.`),
+    ...audioDefinitions.map((_, index) => `<Audio ${index + 1}>: reference - timbre guides the matching scripted speaker.`),
+  ];
+  const summaryPictures = storyboards.map((_, index) => `<Picture ${index + referenceOffset}>`).join(', ');
 
-EDITING RULES:
-Every beat must visibly occur inside its assigned time range. Use motivated hard cuts between distinct setups; no morphing, cross-generated in-between imagery or decorative dissolve unless explicitly requested. Vary shot scale and camera energy. Begin action immediately, remove dead air, and end on a decisive action, reaction or visual reveal.
-For inherited continuity, frame 1 is a motion handoff rather than a pose to hold: preserve velocity, camera inertia, eyeline and secondary motion through the first half-second.
+  return `subject_definitions:
+${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}
 
-${buildVideoContinuityRules(hasVoiceReferences)}`);
+summary:
+[reference generation${referenceAudioNames.length ? ' + audio reference' : ''}] A ${duration}-second feature-film passage uses ${summaryPictures} to stage ${storyboards.length} causally connected shot${storyboards.length > 1 ? 's' : ''}. The sequence establishes a dramatic question, advances it through visible action and reaction, and lands on a decisive final state while preserving one production world.
+
+retention_analysis:
+${retention.join('\n')}
+
+detailed_description:
+${styleOpening}
+${shotDescriptions.join('\n')}
+${physics}
+
+overall_soundscape:
+${soundscape}
+
+non_diegetic_music:
+N/A`;
 }
 
 export function buildStoryboardVideoPrompt(

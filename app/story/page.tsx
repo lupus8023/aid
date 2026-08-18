@@ -25,7 +25,7 @@ import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, 
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
 import { estimateVideoSegmentSeconds, isCompletedVideoSegment, restoredStoryStep, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
-import { withNoSubtitleBeat } from '@/lib/videoTextPolicy';
+import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -658,7 +658,7 @@ export default function StoryPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ imageUrl: gridUrl })
         });
-        const { cells: uploadedCells } = await readApiJson<{ cells: string[] }>(splitResponse, '九宫格拆分失败');
+        const { cells: uploadedCells, gridUrl: persistedGridUrl } = await readApiJson<{ cells: string[]; gridUrl: string }>(splitResponse, '九宫格拆分失败');
         if (!Array.isArray(uploadedCells) || uploadedCells.length < group.length) {
           throw new Error(`九宫格拆分数量不足：需要 ${group.length}，实际 ${uploadedCells?.length || 0}`);
         }
@@ -671,7 +671,12 @@ export default function StoryPage() {
             return sb;
           }
           console.log(`Setting imageUrl for ${sb.id}:`, newImageUrl);
-          return { ...sb, imageUrl: newImageUrl, status: 'completed' as const };
+          return {
+            ...sb,
+            imageUrl: newImageUrl,
+            gridSourceUrl: persistedGridUrl || sb.gridSourceUrl,
+            status: 'completed' as const,
+          };
         }));
         } catch (error) {
           console.error('Grid generation failed:', error);
@@ -866,19 +871,27 @@ export default function StoryPage() {
     }
   };
 
-  const handleGenerateVideoPrompt = async (storyboard: Storyboard) => {
+  const handleGenerateVideoPrompt = async (storyboard: Storyboard, requestedSegment?: Storyboard[]) => {
     const generationProjectId = projectIdRef.current;
+    const segmentIds = (requestedSegment?.length ? requestedSegment : [storyboard]).map(item => item.id);
+    const segmentStoryboards = storyboardsRef.current
+      .filter(item => segmentIds.includes(item.id))
+      .sort((a, b) => a.sceneNumber - b.sceneNumber)
+      .map(item => ({ ...item, visualStyle }));
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: 'generating...' } : sb));
     try {
       const response = await fetch('/api/generate-video-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle }, apiKey: settings.apiKey })
+        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle }, segmentStoryboards, apiKey: settings.apiKey })
       });
       if (!response.ok) throw new Error('Failed to generate video prompt');
       const data = await response.json();
       if (generationProjectId !== projectIdRef.current) return;
-      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: data.videoPrompt, videoPromptOverride: true } : sb));
+      // Generated previews are informative. The final H3 request is rebuilt
+      // with the current segment members and runtime voice references unless
+      // the user explicitly edits and saves an override.
+      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: data.videoPrompt, videoPromptOverride: false } : sb));
     } catch (error) {
       if (generationProjectId !== projectIdRef.current) return;
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: '' } : sb));
@@ -1011,15 +1024,11 @@ export default function StoryPage() {
       const portableSegment = await Promise.all(segment.map(async item => ({
         ...item,
         visualStyle,
-        // Inject into every beat before localhost. Companion v0.1.15 rebuilds
-        // its own H3 prompt from these descriptions, so the website can enforce
-        // zero subtitles without requiring a Companion update.
-        description: withNoSubtitleBeat(item.description),
         imageUrl: videoProvider === 'comfyui'
-          // Inline every reference before handing the request to localhost.
-          // This removes Companion's dependency on a sometimes-reset TLS
-          // connection to Cloudinary while a multi-image H3 task is created.
-          ? await makePortableMediaSource(item.imageUrl!, `场景 ${item.sceneNumber} 分镜图`, true)
+          // Crop once to the project ratio and use a quality/size ladder before
+          // inlining. H3 receives a sharp standalone frame instead of a huge
+          // 4K mother grid or a soft low-resolution crop.
+          ? await prepareStoryboardReference(item.imageUrl!, `场景 ${item.sceneNumber} 分镜图`, item.aspectRatio || settings.aspectRatio)
           : item.imageUrl,
       })));
       const speakingCharacters = [...new Set(segment.flatMap(item => {
@@ -1054,7 +1063,8 @@ export default function StoryPage() {
         // Extract a moving handoff frame from local or CORS-enabled remote video.
         // Cloudinary supports CORS, while its old so_100p still was too static.
         try {
-          firstFrameUrl = await extractVideoTailFrame(prevShot.videoUrl, `场景 ${prevShot.sceneNumber} 视频`);
+          const extractedFrame = await extractVideoTailFrame(prevShot.videoUrl, `场景 ${prevShot.sceneNumber} 视频`);
+          firstFrameUrl = await prepareStoryboardReference(extractedFrame, `场景 ${prevShot.sceneNumber} 运动交接帧`, leader.aspectRatio || settings.aspectRatio);
         } catch (error) {
           if (!prevShot.videoUrl.includes('res.cloudinary.com')) throw error;
           // Compatibility fallback for legacy Cloudinary assets that cannot be
@@ -1062,7 +1072,7 @@ export default function StoryPage() {
           firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_100p/').replace(/\.\w+$/, '.jpg');
         }
       } else if (videoProvider === 'comfyui' && prevShot?.imageUrl) {
-        firstFrameUrl = await makePortableMediaSource(prevShot.imageUrl, `场景 ${prevShot.sceneNumber} 分镜图`);
+        firstFrameUrl = await prepareStoryboardReference(prevShot.imageUrl, `场景 ${prevShot.sceneNumber} 分镜图`, leader.aspectRatio || settings.aspectRatio);
       }
 
       const generationUrl = videoProvider === 'comfyui'

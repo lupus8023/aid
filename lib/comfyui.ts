@@ -963,6 +963,15 @@ function sanitizeUnavailablePictureOrdinals(prompt: string, availableCount: numb
 
 export function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, auxiliaryCount: number, referenceAudioCount: number, referenceAudioNames?: string[]): string {
   const prompt = sanitizeUnavailablePictureOrdinals(visualPrompt, 1 + Math.max(0, auxiliaryCount));
+  // The Story prompt builder now emits MiniMax's official base or Ref2VA
+  // structure, including picture/audio labels and subject bindings. Appending
+  // a second free-form contract would break the documented field order and
+  // dilute the chronological shot description.
+  const isOfficialH3Prompt = /(?:^|\n)(?:subject_definitions:|integrated_multimodal_description:)/.test(prompt)
+    && /(?:^|\n)overall_soundscape:/.test(prompt)
+    && /(?:^|\n)non_diegetic_music:/.test(prompt);
+  if (isOfficialH3Prompt) return prompt.trim();
+
   const rules = variant === 'aid_first_last'
     ? ['Use the supplied first frame as the exact opening frame and the supplied last frame as the exact ending frame. Every person and object in the motion must already be present in one of these two frames — introduce no new character or subject.']
     : auxiliaryCount
@@ -972,12 +981,12 @@ export function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, aux
     const bindings = (referenceAudioNames || []).slice(0, referenceAudioCount);
     if (bindings.length === referenceAudioCount && bindings.every(Boolean)) {
       const bindingText = bindings.map((name, i) => `<Audio ${i + 1}> = ${name}`).join(', ');
-      rules.push(`Voice-to-character binding (authoritative): ${bindingText}. Each audio is timbre and accent evidence ONLY for its bound character. Its recorded words are not script: never repeat, quote, continue, echo, or leak them. A bound character may speak only the exact APPROVED DIALOGUE in the matching timed beat, once, with matching timbre and lip sync.`);
+      rules.push(`Voice-to-character binding: ${bindingText}. Each reference supplies timbre and delivery for its bound character; the written timed dialogue remains the sole spoken wording.`);
     } else {
-      rules.push(`Use ${Array.from({ length: referenceAudioCount }, (_, index) => `<Audio ${index + 1}>`).join(', ')} only as voice-timbre references. Their recorded words are not script and must never appear in the output.`);
+      rules.push(`Use ${Array.from({ length: referenceAudioCount }, (_, index) => `<Audio ${index + 1}>`).join(', ')} as voice-timbre references; the written timed dialogue is authoritative.`);
     }
   } else {
-    rules.push('Follow the AUDIO section exactly. Never invent dialogue, narration, vocals, music, crowd speech, or off-screen voices. If no approved dialogue is written, generate no voice. Keep only quiet room tone and explicitly motivated visible-action Foley.');
+    rules.push('Follow the written sound fields exactly. With no scripted line, keep natural ambience and visible-action Foley while on-screen faces remain in non-speaking performance.');
   }
   return `${prompt.trim()}\n\nAID INPUT CONTRACT:\n${rules.join('\n')}`;
 }

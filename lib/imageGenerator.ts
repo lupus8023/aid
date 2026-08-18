@@ -106,7 +106,10 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       apiKey,
       imageModel || 'doubao-seedream-5-0-lite',
       aspectRatio,
-      '2K',
+      // A 2K mother contact sheet leaves each of the nine cells at roughly
+      // 650×360. Generate the grid at 4K, then the split route stores a
+      // compressed mother and serves compact native-detail cells to H3.
+      '4K',
     );
 
     console.log(`Image task created successfully, task ID: ${taskId}`);

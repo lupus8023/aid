@@ -1,5 +1,4 @@
-import { Storyboard, VisualStyle } from '@/types';
-import { NO_SUBTITLE_POLICY } from './videoTextPolicy';
+import type { Storyboard, VisualStyle } from '@/types';
 
 const clean = (value?: string) => value?.trim() || 'not specified; infer only from the supplied reference image';
 
@@ -173,24 +172,20 @@ ${buildMediumLock(style)}`;
 
 export function buildVideoContinuityRules(hasAudioReference: boolean) {
   const audioSync = hasAudioReference
-    ? '\nFor approved dialogue only, mouth shapes and performance synchronize naturally to the matching character timbre reference. Reference-audio words are not script and must never leak into the soundtrack.'
+    ? '\nFor scripted dialogue, mouth shapes and performance synchronize naturally to the matching character timbre reference. The written dialogue in the timed shot is the sole spoken content.'
     : '';
 
   return `
 PHYSICS:
 
 Maintain continuous temporal causality from frame to frame.
-Hair placement, clothing folds, jewelry, hand contact points, object edges, cast shadows, reflections, and body orientation must evolve naturally from the preceding state — not reset between frames.
-Fabric, hair, and carried objects obey coherent physical inertia. No sudden pose teleportation, material freeze, or object regeneration.
+Hair, fabric, carried objects, contact points, shadows, reflections and body orientation evolve from the preceding state with believable weight and inertia.
 Screen direction, spatial relationships, lighting direction, and environment geography remain stable throughout.
-Preserve the source visual medium throughout — real people stay natural live action; CG stays CG; anime/illustration keeps its exact design language, line quality, and shading style. No medium drift between frames.${audioSync}
+The established visual medium and rendering language remain stable.${audioSync}
 
 CONSTRAINTS:
 
-Preserve exact identity, facial structure, age, body proportions, hair, wardrobe, accessories, and environment in every frame.
-No face change, beauty filter, skin smoothing, limb duplication, duplicate characters, costume swap, pose teleport, morphing, or scene replacement.
-${NO_SUBTITLE_POLICY}
-No duplicate identities, background doubles, or unrequested speech. Follow the EXACT CAST and AUDIO sections exactly.`;
+Each listed identity appears once with stable face, proportions, hair, wardrobe and accessories. Every shot preserves the established environment and causal state; the timed dialogue and sound fields are authoritative.`;
 }
 
 export function getStoryboardDuration(storyboard: Pick<Storyboard, 'videoDuration'>) {
