@@ -12,6 +12,9 @@ export interface ProductionStylePreset {
   look: string;
   camera: string;
   rhythm: string;
+  performance: string;
+  sound: string;
+  h3Direction: string;
 }
 
 export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
@@ -21,13 +24,19 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
     look: 'Preserve the reference images as the complete rendering authority: identical medium, color temperature, contrast response, highlight roll-off, shadow density, texture, grain, depth of field and skin or surface treatment.',
     camera: 'Use one coherent physical camera and lens family inferred from the references. Movement is motivated by action, carries believable inertia and never changes the established rendering pipeline.',
     rhythm: 'Feature-film cause-and-effect cutting. Vary shot scale, enter on action and remove dead air while preserving the reference production’s narrative tone.',
+    performance: 'Infer acting scale and motion cadence from the reference medium. Preserve its posture, silhouette, material behavior and degree of imperfection instead of imposing generic cinematic motion.',
+    sound: 'Build restrained, perspective-correct ambience and Foley from the visible location and materials; preserve the reference production’s acoustic character.',
+    h3Direction: 'Match the reference medium, lens behavior, performance scale and motion cadence exactly; motivated physical camera, causal cuts and no generic AI glide.',
   },
   {
     value: 'cinematic-natural', label: '自然电影', description: '克制、真实、演员驱动的院线叙事',
-    imageContract: 'natural live-action cinema, truthful skin texture, restrained production design, motivated practical lighting, soft highlight roll-off, rich neutral shadows, subtle 35mm grain, no beauty filter, no glossy AI rendering',
-    look: 'Natural live-action cinema. ARRI-like color response, restrained saturation, soft highlight roll-off, rich neutral shadows, truthful skin texture, subtle 35mm grain and mild optical bloom.',
-    camera: 'A coherent cinema lens family (24/35/50/85mm). Motivated dolly, handheld or locked movement chosen per beat; physical inertia, brief focus pulls and imperfect but intentional reframing.',
+    imageContract: 'direct-captured natural live action from a real camera or modern phone, truthful skin pores and fabric, available and practical light, plausible exposure latitude, natural white balance, optical depth and motion blur, restrained color, no beauty filter, synthetic HDR or glossy AI rendering',
+    look: 'Authentic direct-camera live action, as if photographed on location with a real mirrorless camera, cinema camera or recent phone appropriate to the scene. Truthful skin and fabric, available/practical light, plausible finite dynamic range, natural white balance, restrained color, real optical depth and motion blur; never airbrushed, hyper-sharp or synthetic HDR.',
+    camera: 'Use one plausible physical capture device and lens family for the scene. Preserve human-operated inertia, slight handheld micro-jitter when appropriate, realistic autofocus or focus-pull recovery, exposure adaptation and rolling-shutter behavior; no frictionless AI glide, impossible orbit or perpetual shallow focus.',
     rhythm: 'Decisive feature-film cutting. Enter each beat late and leave early. Alternate wide geography, medium action and meaningful close detail; no empty waiting, decorative drift or uniformly slow movement.',
+    performance: 'Subtext-first micro-performance: breath, eye-line and weight shift precede each gesture; anticipation leads to contact, then a visible reaction. People do not pose for the camera or move in slow motion by default.',
+    sound: 'Natural location room tone, perspective-correct voices and restrained tactile Foley. Keep ordinary acoustic imperfections; use no unexplained voices, trailer impacts or decorative music.',
+    h3Direction: 'Authentic direct-camera live action: real skin and fabric, finite exposure, natural white balance, optical motion blur, slight human-operated inertia and focus recovery. Subtext-first micro-performance; enter late, leave early.',
   },
   {
     value: 'warm-film', label: '温暖胶片', description: '金色、柔和、带记忆质感的叙事',
@@ -35,6 +44,9 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
     look: 'Warm photochemical film palette, amber practical light, creamy but textured skin, gentle halation, fine grain, soft contrast and organic lens falloff.',
     camera: 'Vintage spherical prime lens family. Human-operated dolly and restrained shoulder camera with gentle focus breathing and natural exposure response.',
     rhythm: 'Lyrical but active narrative cutting: short sensory inserts between held human moments. Preserve momentum; never turn every beat into slow motion.',
+    performance: 'Intimate, memory-led micro-acting with tactile gestures and brief breathing holds, followed by active release. Motion stays organic and purposeful rather than uniformly dreamy.',
+    sound: 'Warm close Foley, soft room tone and lightly softened high frequencies evoke an analog memory without adding vinyl noise or music unless scripted.',
+    h3Direction: 'Warm photochemical memory: textured skin, amber practicals, halation and fine grain; intimate tactile acting, organic camera breath and active lyrical cuts rather than blanket slow motion.',
   },
   {
     value: 'neo-noir', label: '冷峻黑色', description: '高反差、压迫感、方向明确的悬疑影像',
@@ -42,13 +54,19 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
     look: 'Neo-noir color separation: cool dense shadows, selective warm practicals, textured blacks, hard motivated edge light, wet reflections and restrained grain.',
     camera: 'Wider close-proximity lenses, low or obstructed angles, controlled lateral tracks and short snap reframes; stable screen direction and deliberate negative space.',
     rhythm: 'Tense compressed cutting with abrupt reveals, reaction inserts and short holds before impact. No floating camera and no evenly timed actions.',
+    performance: 'Guarded posture and withheld eye-lines build pressure; delayed reactions break into one sudden decisive move. Reveal danger through behavior and obstruction, not theatrical posing.',
+    sound: 'Sparse low ambience with close footsteps, cloth and metal detail. Let silence tighten immediately before a reveal; no unexplained whispers or voices.',
+    h3Direction: 'Cool neo-noir pressure: textured blacks, hard motivated edges, obstruction and negative space; guarded acting, delayed reaction then decisive action, short hold before abrupt reveal.',
   },
   {
     value: 'documentary', label: '观察纪录', description: '手持、现场感、不过度表演',
     imageContract: 'observational documentary photography, available light, ordinary contrast, authentic skin, mild sensor noise, imperfect framing, real contact shadows, no staged commercial polish',
     look: 'Available-light documentary rendering, ordinary contrast, authentic skin and surfaces, mild sensor noise, practical exposure adaptation and no cosmetic polish.',
-    camera: 'Present-tense shoulder or handheld observer. Small corrective reframes, realistic autofocus recovery and occasional foreground obstruction; never mechanically floating.',
+    camera: 'Present-tense footage from a phone, mirrorless camera or shoulder camera: small hand tremor, corrective reframing, believable autofocus hunting/recovery, auto-exposure adaptation, occasional rolling shutter and foreground obstruction; never mechanically floating.',
     rhythm: 'Event-driven documentary rhythm. Cut on action, discovery or reaction; keep incidental imperfections while removing dead time.',
+    performance: 'Unscripted-looking behavior with partial eye-lines, imperfect starts and stops, and reactions to the environment rather than the camera. Never stage a hero pose.',
+    sound: 'Location sound dominates: perspective-correct incidental noise, imperfect room tone and only Foley caused by visible action. No polished score, narration or invented dialogue.',
+    h3Direction: 'Phone, mirrorless or shoulder-camera observation: available light, ordinary contrast, hand tremor, autofocus/exposure recovery and imperfect reframing. Unscripted behavior; cut only on discovered action or reaction.',
   },
   {
     value: 'commercial', label: '高级商业', description: '精确光线、材质与视觉高潮',
@@ -56,6 +74,9 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
     look: 'Premium commercial color pipeline, controlled specular highlights, precise material texture, clean separation, polished contrast and a consistent hero palette.',
     camera: 'Precisely repeatable dolly, macro slider and stabilized arc moves with coherent parallax. Each move reveals a feature or advances the story.',
     rhythm: 'Confident advertising rhythm: rapid evidence inserts, clear product or character hero moments and a decisive final visual payoff.',
+    performance: 'Choreograph precise hand-to-object contact and readable material response. Reserve the composed hero pose for the payoff; every preceding gesture demonstrates value or changes state.',
+    sound: 'Crisp material-specific product Foley, controlled rhythmic accents and clean acoustic negative space; every sonic hit coincides with visible contact or reveal.',
+    h3Direction: 'Premium commercial precision: controlled highlights, exact material response and repeatable parallax; choreographed contact, rapid evidence inserts and one decisive hero payoff.',
   },
   {
     value: 'anime', label: '动漫电影', description: '统一线条、赛璐璐光影与动画节奏',
@@ -63,6 +84,9 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
     look: 'Cinematic anime with stable line weight, intentional cel shading, controlled color script, painterly backgrounds and consistent character-model rendering.',
     camera: 'Animation-aware virtual camera with readable key poses, controlled parallax and purposeful smears only during fast action.',
     rhythm: 'Anime feature rhythm: strong key poses, quick impact cuts, reaction close-ups and deliberate held frames only at emotional punctuation.',
+    performance: 'Animate clear anticipation → key pose → impact → recovery. Hold readable silhouettes, use limited secondary motion at punctuation and preserve the exact 2D character model across poses.',
+    sound: 'Precise cloth, wind and impact cues accent pose changes and cuts. Keep stylized sounds causally tied to visible action; no extra speech.',
+    h3Direction: 'Cinematic 2D anime with stable linework and character model: anticipation → key pose → impact → recovery, readable silhouettes, controlled parallax, impact cuts and purposeful held frames.',
   },
   {
     value: '3d-cg', label: '3D 电影', description: '统一材质、体积光与动画表演',
@@ -70,6 +94,9 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
     look: 'Cinematic 3D rendering with coherent physically based materials, stable topology, volumetric depth, filmic highlights and unified global illumination.',
     camera: 'Virtual cinema camera with physical lens behavior, believable mass and acceleration; no frictionless floating or impossible pivots.',
     rhythm: 'Feature-animation cutting driven by silhouette, action and reaction. Vary scale and timing; avoid uniform easing and generic orbit shots.',
+    performance: 'Use weighted arcs, acceleration and deceleration, contact compression and settling. Expressions may be clear but topology, body volume and material response remain stable and non-rubbery.',
+    sound: 'Material-specific impacts, cloth and environmental reflections have spatial depth and scale; no generic whoosh unless a visible fast movement causes it.',
+    h3Direction: 'Cinematic 3D with stable topology and physical materials: weighted arcs, acceleration, contact compression and settling; lens-real virtual camera, silhouette-driven cuts and no generic orbit.',
   },
   {
     value: 'stop-motion', label: '定格手作', description: '触感材质、逐帧节奏与真实布景',
@@ -77,6 +104,9 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
     look: 'Tactile stop-motion rendering with handmade materials, miniature practical light, slight frame texture and real contact shadows.',
     camera: 'Physical tabletop camera, restrained slider moves and locked macro setups; movement retains handcrafted stepped timing.',
     rhythm: 'Playful stop-motion cutting with clear pose changes and tactile action beats; no smooth synthetic interpolation.',
+    performance: 'Use deliberate pose-to-pose increments, tiny frame-to-frame texture variation, tangible contact and settling, and purposeful replacement animation rather than smooth CG interpolation.',
+    sound: 'Dry close-scale clicks, scrapes, paper, clay and fabric sounds sell miniature physical scale; every sound follows a visible handmade contact.',
+    h3Direction: 'Handmade stop-motion: tactile miniature materials, pose-to-pose steps, frame texture, physical contact and settling; locked or tabletop camera, clear tactile beats and no smooth CG interpolation.',
   },
 ];
 
@@ -103,7 +133,7 @@ export function buildMediumLock(style?: VisualStyle): string {
 
 export function buildVideoStyleContract(style?: VisualStyle): string {
   const preset = getProductionStylePreset(style);
-  return `LOOK:\n${preset.look}\n\nCAMERA SYSTEM:\n${preset.camera}\n\nEDITING & RHYTHM:\n${preset.rhythm}`;
+  return `LOOK:\n${preset.look}\n\nCAMERA SYSTEM:\n${preset.camera}\n\nPERFORMANCE & MOTION:\n${preset.performance}\n\nEDITING & RHYTHM:\n${preset.rhythm}\n\nSOUND TEXTURE:\n${preset.sound}`;
 }
 
 /**

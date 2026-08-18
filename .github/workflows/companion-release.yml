@@ -46,11 +46,18 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          if [ "${{ matrix.platform }}" = "win32" ]; then
-            npm_config_platform=win32 npm_config_arch=x64 npm ci
-          else
-            npm ci
-          fi
+          for attempt in 1 2 3; do
+            if [ "${{ matrix.platform }}" = "win32" ]; then
+              npm_config_platform=win32 npm_config_arch=x64 npm ci && exit 0
+            else
+              npm ci && exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            echo "npm registry request failed; retrying dependency install (attempt $((attempt + 1))/3)"
+            sleep $((attempt * 15))
+          done
       - run: npm run test:h3-audio
       - run: npm run test:h3-prompt
       - run: npm run test:no-subtitles

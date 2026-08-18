@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.17 - 2026-08-19
+
+### Improved
+
+- All nine Story production styles now supply independent performance, motion, edit and sound direction to the final MiniMax H3 prompt instead of acting mainly as color presets.
+- Natural Cinema now targets authentic direct-camera footage with truthful finite exposure, focus recovery, handheld inertia, rolling shutter, skin and fabric detail; Observational Documentary separately targets phone or field-camera immediacy.
+- Style-specific soundscapes reject unexplained dialogue and bind Foley, ambience and accents to visible action.
+
 ## 0.1.16 - 2026-08-19
 
 ### Added

@@ -99,14 +99,14 @@ export function buildVideoSegmentPrompt(
     return `${index === 0 ? `[Shot 1]` : `[Shot ${index + 1}]`} ${transition} ${pictureAnchor} This shot performs the ${beatRole(index, storyboards.length)}. ${cast}${objects.length ? ` Stable props: ${objects.join(', ')}.` : ''} ${compactText(storyboard.description || storyboard.prompt)} Concrete eye-line, weight, contact and reaction make one dominant action change the scene state. Motivated camera movement creates readable parallax and ends on a distinct action, reaction or reveal before ${h3Timestamp(range.end)}. ${dialogue || 'Faces remain in natural non-speaking performance; ambience and visible-action Foley carry the beat.'}`;
   });
 
-  const styleOpening = `The target video uses ${style.look} ${style.camera} ${style.rhythm} ${NO_SUBTITLE_POLICY}`;
+  const styleOpening = `DIRECTING STYLE: ${style.h3Direction} ${NO_SUBTITLE_POLICY}`;
   const physics = buildVideoContinuityRules(hasVoiceReferences)
     .replace(/\n+/g, ' ')
     .replace(/PHYSICS:|CONSTRAINTS:/g, '')
     .trim();
   const soundscape = dialogueLines.length
-    ? 'Perspective-correct ambience remains continuous under the scene. Footsteps, fabric, impacts and object contact occur only when visibly caused, with dialogue synchronized to the speaking character.'
-    : 'Perspective-correct ambience remains continuous under the scene. Footsteps, fabric, impacts and object contact occur only when visibly caused; faces remain in natural non-speaking performance.';
+    ? `${style.sound} Perspective-correct ambience remains continuous under the scene. Footsteps, fabric, impacts and object contact occur only when visibly caused, with dialogue synchronized to the speaking character.`
+    : `${style.sound} Perspective-correct ambience remains continuous under the scene. Footsteps, fabric, impacts and object contact occur only when visibly caused; faces remain in natural non-speaking performance.`;
 
   if (isFirstLastMode) {
     return `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.

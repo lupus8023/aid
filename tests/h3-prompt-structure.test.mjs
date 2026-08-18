@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildVideoSegmentPrompt } from '../lib/videoGenerator.ts';
+import { buildVideoStyleContract, PRODUCTION_STYLE_PRESETS } from '../lib/promptArchitecture.ts';
 
 const shot = (sceneNumber, extra = {}) => ({
   id: `shot-${sceneNumber}`,
@@ -47,4 +48,43 @@ test('writes first/last-frame H3 prompts in the official base-mode structure', (
   assert.match(prompt, /non_diegetic_music: N\/A$/);
   assert.doesNotMatch(prompt, /subject_definitions:/);
   assert.ok(prompt.length <= 7000);
+});
+
+test('applies distinct directing and sound rules for each production style', () => {
+  const natural = buildVideoSegmentPrompt([shot(1)], [], { duration: 8 });
+  const documentary = buildVideoSegmentPrompt([
+    shot(1, { visualStyle: 'documentary' }),
+  ], [], { duration: 8 });
+  const anime = buildVideoSegmentPrompt([
+    shot(1, { visualStyle: 'anime' }),
+  ], [], { duration: 8 });
+
+  assert.match(natural, /Authentic direct-camera live action/);
+  assert.match(natural, /Subtext-first micro-performance/i);
+  assert.match(documentary, /phone, mirrorless or shoulder-camera observation/i);
+  assert.match(documentary, /Location sound dominates/);
+  assert.match(anime, /anticipation → key pose → impact → recovery/);
+  assert.match(anime, /Precise cloth, wind and impact cues/);
+  assert.notEqual(natural, documentary);
+  assert.notEqual(documentary, anime);
+  assert.ok(natural.length <= 7000);
+  assert.ok(documentary.length <= 7000);
+  assert.ok(anime.length <= 7000);
+});
+
+test('keeps all nine production styles complete and independently directed', () => {
+  assert.equal(PRODUCTION_STYLE_PRESETS.length, 9);
+  assert.equal(new Set(PRODUCTION_STYLE_PRESETS.map(style => style.h3Direction)).size, 9);
+  assert.equal(new Set(PRODUCTION_STYLE_PRESETS.map(style => style.sound)).size, 9);
+
+  PRODUCTION_STYLE_PRESETS.forEach(style => {
+    const contract = buildVideoStyleContract(style.value);
+    assert.match(contract, /LOOK:/);
+    assert.match(contract, /CAMERA SYSTEM:/);
+    assert.match(contract, /PERFORMANCE & MOTION:/);
+    assert.match(contract, /EDITING & RHYTHM:/);
+    assert.match(contract, /SOUND TEXTURE:/);
+    assert.ok(contract.includes(style.performance));
+    assert.ok(contract.includes(style.sound));
+  });
 });
