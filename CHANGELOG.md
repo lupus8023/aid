@@ -10,6 +10,8 @@
 - The web app explicitly asks for Companion v0.1.18 instead of silently sending long screenplay requests to a hosted timeout path when an older Companion is running.
 - Storyboard image generation now identifies safety-sensitive scenes before submission, creates a separate non-graphic image prompt, and automatically retries progressively safer staging when APIMart rejects a task.
 - Grid and single-image cards retain the original storyboard prompt while showing the diagnosed reason, candidate scene numbers, and automatic retry count.
+- Reloading a project now resumes a grid only when one durable APIMart task can be identified; orphaned or conflicting `generating` locks are released with an actionable diagnosis instead of remaining stuck forever.
+- Nested provider errors and legacy `[object Object]` failures are normalized into readable image-generation reasons.
 
 ## 0.1.17 - 2026-08-19
 

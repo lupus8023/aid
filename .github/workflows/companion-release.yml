@@ -67,6 +67,7 @@ jobs:
       - run: npm run test:project-isolation
       - run: npm run test:provider-payload
       - run: npm run test:image-prompt-safety
+      - run: npm run test:grid-recovery
       - run: npm run build:companion
       - run: node scripts/package-companion.mjs --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
       - name: Archive macOS app

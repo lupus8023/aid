@@ -26,7 +26,8 @@ import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitec
 import { estimateVideoSegmentSeconds, isCompletedVideoSegment, restoredStoryStep, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
-import { analyzeImagePromptSafety, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
+import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
+import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@/lib/gridRecovery';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -292,7 +293,10 @@ export default function StoryPage() {
       setStoryContent(savedProject.storyContent || '');
       setTargetShotCount(normalizeTargetShotCount(savedProject.targetShotCount));
       setVisualStyle(normalizeVisualStyle(savedProject.visualStyle || settings.visualStyle));
-      const savedStoryboards = savedProject.storyboards || [];
+      const savedStoryboards = (savedProject.storyboards || []).map(item => ({
+        ...item,
+        imageFailureReason: normalizeSavedImageFailureReason(item.imageFailureReason),
+      }));
       storyboardsRef.current = savedStoryboards;
       setStoryboards(savedStoryboards);
       void recoverProjectVideos(savedStoryboards, savedProject.id!);
@@ -301,7 +305,7 @@ export default function StoryPage() {
       for (let index = 0; index < savedStoryboards.length; index += 9) {
         const group = savedStoryboards.slice(index, index + 9);
         const taskIds = [...new Set(group.map(item => item.taskId).filter(Boolean))];
-        const isInterrupted = group.length > 0 && group.every(item => item.status === 'generating');
+        const recoveryPlan = planInterruptedGridRecovery(group);
         const usesDurableGridCrops = group.length > 0 && group.every(item =>
           item.imageUrl?.includes('/aid-grid-sources/') && item.imageUrl.includes('/c_crop,'),
         );
@@ -311,8 +315,23 @@ export default function StoryPage() {
         const needsDurableResplit = group.length > 0
           && group.every(item => Boolean(item.imageUrl))
           && !usesDurableGridCrops;
-        if ((isInterrupted || needsDurableResplit) && taskIds.length === 1) {
-          const taskId = taskIds[0]!;
+        if (recoveryPlan.kind === 'release') {
+          const groupIds = new Set(group.filter(item => item.status === 'generating').map(item => item.id));
+          setStoryboards(current => {
+            const next = current.map(item => groupIds.has(item.id) ? {
+              ...item,
+              status: 'failed' as const,
+              imageFailureReason: recoveryPlan.reason,
+            } : item);
+            storyboardsRef.current = next;
+            return next;
+          });
+        }
+        const recoverableTaskId = recoveryPlan.kind === 'resume'
+          ? recoveryPlan.taskId
+          : needsDurableResplit && taskIds.length === 1 ? taskIds[0] : undefined;
+        if (recoverableTaskId) {
+          const taskId = recoverableTaskId;
           const recoveryKey = `${savedProject.id}:${taskId}`;
           if (!gridRecoveryRef.current.has(recoveryKey)) {
             gridRecoveryRef.current.add(recoveryKey);
@@ -338,7 +357,7 @@ export default function StoryPage() {
                   || data.status === 'pending'
                   || data.status === 'running'
                   || data.status === 'queued';
-                if (!recoverable) throw new Error(data.error || `任务状态 ${data.status || 'unknown'}`);
+                if (!recoverable) throw new Error(extractImageTaskError(data) || `任务状态 ${data.status || 'unknown'}`);
                 void handleGenerateGrid(group, { resumeTaskId: taskId });
               } catch (error) {
                 console.warn(`九宫格任务 ${taskId} 已失效，允许重新生成:`, error);
@@ -672,7 +691,7 @@ export default function StoryPage() {
               const statusData = await statusRes.json();
               if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
               if (statusData.status === 'completed' && statusData.imageUrl) { gridUrl = statusData.imageUrl; break; }
-              if (statusData.status === 'failed') throw new Error(statusData.error || 'Grid image failed');
+              if (statusData.status === 'failed') throw new Error(extractImageTaskError(statusData));
             }
             if (!gridUrl) throw new Error('Grid image timeout');
           } catch (error) {
@@ -729,10 +748,10 @@ export default function StoryPage() {
           updateGridStoryboards(items => items.map(sb => group.some(g => g.id === sb.id) ? {
             ...sb,
             status: 'failed',
-            imageFailureReason: error instanceof Error ? error.message : 'Unknown error',
+            imageFailureReason: extractImageTaskError(error),
           } : sb));
           const range = `${group[0]?.sceneNumber ?? '?'}–${group[group.length - 1]?.sceneNumber ?? '?'}`;
-          failedBatches.push(`${range}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          failedBatches.push(`${range}: ${extractImageTaskError(error)}`);
         }
       }
       // A single failed APIMart batch must never prevent later batches from
