@@ -25,6 +25,9 @@ export async function generateStoryboardImage(
   const sceneObjects = objects.filter(o =>
     storyboard.objects?.includes(o.name)
   );
+  const exactCastContract = sceneCharacters.length
+    ? `EXACT CAST (${sceneCharacters.length} total): ${sceneCharacters.map(character => `${character.name} — exactly one visible instance`).join('; ')}. Show no other person, creature, background extra, reflection-double, duplicate, twin, clone, or alternate pose. A character sheet may show several views of one identity; use it only to identify that one character and instantiate the character once.`
+    : 'EXACT CAST (0 total): no person or character visible. Do not add background extras, silhouettes, reflections, portraits, or crowds.';
 
   console.log(`Scene ${storyboard.sceneNumber} debug info:`);
   console.log('- Storyboard objects field:', storyboard.objects);
@@ -70,11 +73,13 @@ export async function generateStoryboardImage(
     // but the nine distinct panels and batch identity must always survive.
     const enhancedPrompt = `${cleanPrompt}
 
+GRID CAST AUTHORITY: obey the separate EXACT CAST declaration inside each panel description. Never apply the batch-wide reference list as the cast of every panel. Each character sheet is identity evidence for one identity, not permission to create multiple poses or copies.
+
 ${buildMediumLock(visualStyle)}
 
 ${referenceDescriptions.join('\n')}
 
-Strict rules: maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. Do not add subtitles, background music, or extra characters not shown in the references. Maintain exact lighting and atmosphere from the scene reference.
+Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. No captions, subtitles, dialogue text, speech bubbles, titles, logos, watermark, or UI. Maintain exact lighting and atmosphere from the scene reference.
 
 `;
 
@@ -196,13 +201,15 @@ Strict rules: maintain exact face, hairstyle, clothing and visual style for ever
     );
   });
 
-  const enhancedPrompt = `${buildMediumLock(visualStyle)}
+  const enhancedPrompt = `${exactCastContract}
+
+${buildMediumLock(visualStyle)}
 
 ${cleanedScenePrompt}
 
 ${referenceDescriptions.join('\n')}
 
-Strict rules: maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. Do not add subtitles, background music, or extra characters not shown in the references. Maintain exact lighting and atmosphere from the scene reference.
+Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. No captions, subtitles, dialogue text, speech bubbles, titles, logos, watermark, or UI. Maintain exact lighting and atmosphere from the scene reference.
 
 `;
 

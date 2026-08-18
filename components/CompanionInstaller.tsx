@@ -108,7 +108,7 @@ export default function CompanionInstaller() {
             {[
               ['01', '下载并解压', '选择对应系统版本'],
               ['02', '双击启动', '无需安装 Node.js'],
-              ['03', '一键授权', '输入一次仙宫云 SSH 密码'],
+              ['03', '逐设备授权', '每台电脑输入一次 SSH 密码'],
             ].map(([number, title, detail]) => (
               <div key={number} className="rounded-xl border border-[var(--border-color)] bg-black/15 p-3.5">
                 <span className="font-mono text-[10px] text-[#7dbbff]">{number}</span>

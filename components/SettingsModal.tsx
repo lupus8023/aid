@@ -245,7 +245,7 @@ export default function SettingsModal({
               <div>
                 <h3 className="text-sm font-mono text-[var(--accent-green)]">ComfyUI SSH Connection</h3>
                 <p className="mt-1 text-xs font-mono text-[var(--text-secondary)]">
-                  ComfyUI 请求由这台 Mac 上的 aid companion 执行，直接复用本机 ssh-agent；Netlify 不再接触私钥。
+                  ComfyUI 请求由这台电脑上的 AID Companion 执行。Companion 使用每台电脑独立生成的设备密钥；Netlify 不接触私钥。
                 </p>
               </div>
               <label className="flex items-center gap-2 text-xs font-mono text-[var(--text-secondary)]">
@@ -306,7 +306,7 @@ export default function SettingsModal({
                 <div>
                   <p className="text-xs font-mono text-[var(--accent-yellow)]">首次连接 / 仙宫云实例重启后</p>
                   <p className="mt-1 text-[10px] font-mono leading-relaxed text-[var(--text-secondary)]">
-                    如果提示 Permission denied，请在这台 Mac 的终端执行一次下面的命令，把本机公钥重新授权到当前仙宫云实例。执行时会要求输入仙宫云 SSH 密码。
+                    每台电脑都有不同的 Companion 公钥。请先打开这台电脑上的 AID Companion，输入一次当前仙宫云 SSH 密码并点击“一键授权这台电脑”。如果仍提示 Permission denied，下面的命令仅用于手动授权你在 SSH Key Path 中指定的系统公钥。
                   </p>
                 </div>
                 <div className="flex items-start gap-2">
@@ -324,7 +324,7 @@ export default function SettingsModal({
                   </button>
                 </div>
                 <p className="text-[10px] font-mono text-[var(--text-secondary)]">
-                  命令成功后回到这里点击 “Test ComfyUI Connection”。通常仅在实例发生重建或授权丢失时需要重新执行。
+                  新电脑首次使用必须单独授权；仙宫云实例重建或授权丢失后，各电脑也需要重新授权。完成后点击 “Test ComfyUI Connection”。
                 </p>
               </div>
               <div className="flex items-center gap-3">

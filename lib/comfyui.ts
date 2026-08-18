@@ -914,7 +914,7 @@ function sanitizeUnavailablePictureOrdinals(prompt: string, availableCount: numb
   ));
 }
 
-function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, auxiliaryCount: number, referenceAudioCount: number, referenceAudioNames?: string[]): string {
+export function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, auxiliaryCount: number, referenceAudioCount: number, referenceAudioNames?: string[]): string {
   const prompt = sanitizeUnavailablePictureOrdinals(visualPrompt, 1 + Math.max(0, auxiliaryCount));
   const rules = variant === 'aid_first_last'
     ? ['Use the supplied first frame as the exact opening frame and the supplied last frame as the exact ending frame. Every person and object in the motion must already be present in one of these two frames — introduce no new character or subject.']
@@ -925,12 +925,12 @@ function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, auxiliaryC
     const bindings = (referenceAudioNames || []).slice(0, referenceAudioCount);
     if (bindings.length === referenceAudioCount && bindings.every(Boolean)) {
       const bindingText = bindings.map((name, i) => `<Audio ${i + 1}> = ${name}`).join(', ');
-      rules.push(`Voice-to-character binding (authoritative): ${bindingText}. Use each audio ONLY as its bound character's voice, timbre, delivery, and sound-style reference. When a bound character has a dialogue line in this shot, that line must be spoken with the matching reference timbre and lip sync. Generate a new synchronized soundtrack for this shot.`);
+      rules.push(`Voice-to-character binding (authoritative): ${bindingText}. Each audio is timbre and accent evidence ONLY for its bound character. Its recorded words are not script: never repeat, quote, continue, echo, or leak them. A bound character may speak only the exact APPROVED DIALOGUE in the matching timed beat, once, with matching timbre and lip sync.`);
     } else {
-      rules.push(`Use ${Array.from({ length: referenceAudioCount }, (_, index) => `<Audio ${index + 1}>`).join(', ')} only as voice, timbre, delivery, or sound-style references; generate a new synchronized soundtrack for this shot.`);
+      rules.push(`Use ${Array.from({ length: referenceAudioCount }, (_, index) => `<Audio ${index + 1}>`).join(', ')} only as voice-timbre references. Their recorded words are not script and must never appear in the output.`);
     }
   } else {
-    rules.push('Generate synchronized dialogue, ambience, sound effects, and music natively from the prompt.');
+    rules.push('Follow the AUDIO section exactly. Never invent dialogue, narration, vocals, music, crowd speech, or off-screen voices. If no approved dialogue is written, generate no voice. Keep only quiet room tone and explicitly motivated visible-action Foley.');
   }
   return `${prompt.trim()}\n\nAID INPUT CONTRACT:\n${rules.join('\n')}`;
 }

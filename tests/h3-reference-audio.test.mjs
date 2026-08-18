@@ -6,6 +6,7 @@ import {
   h3ConditioningTaskType,
   h3ReferenceAudioPolicy,
   h3VisualTaskType,
+  taggedPrompt,
 } from '../lib/comfyui.ts';
 
 const TOTAL_BUDGET = 14.7;
@@ -67,4 +68,14 @@ test('uses hybrid mode for first/last-frame continuity with voice references', (
   assert.equal(h3ConditioningTaskType('FL2VA', 1), 'Hybrid');
   assert.equal(h3ConditioningTaskType('FL2VA', 0), 'FL2VA');
   assert.equal(h3ConditioningTaskType('Ref2VA', 2), 'Ref2VA');
+});
+
+test('never turns native audio into permission to invent speech or music', () => {
+  const silent = taggedPrompt('AUDIO: no approved dialogue.', 'aid_single_reference', 0, 0);
+  assert.match(silent, /Never invent dialogue, narration, vocals, music/);
+  assert.match(silent, /If no approved dialogue is written, generate no voice/);
+
+  const voiced = taggedPrompt('APPROVED DIALOGUE: A: "你好"', 'aid_multi_reference', 1, 1, ['A']);
+  assert.match(voiced, /recorded words are not script/);
+  assert.match(voiced, /only the exact APPROVED DIALOGUE/);
 });

@@ -24,6 +24,7 @@ import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotC
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
 import { estimateVideoSegmentSeconds, isCompletedVideoSegment, restoredStoryStep, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
+import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -65,6 +66,7 @@ async function extractVideoTailFrame(source: string, label: string): Promise<str
   video.muted = true;
   video.playsInline = true;
   video.preload = 'auto';
+  if (/^https?:\/\//i.test(source)) video.crossOrigin = 'anonymous';
   video.src = source;
 
   const waitFor = (event: 'loadedmetadata' | 'loadeddata' | 'seeked') => new Promise<void>((resolve, reject) => {
@@ -87,9 +89,10 @@ async function extractVideoTailFrame(source: string, label: string): Promise<str
       throw new Error(`${label}缺少有效的视频尺寸或时长`);
     }
 
-    // Seek just before the media endpoint. The exact endpoint can be an empty
-    // decoder frame on some MP4s, while one frame earlier is the true visible tail.
-    const tailTime = Math.max(0, video.duration - Math.min(1 / 30, video.duration / 2));
+    // Hand off while motion is still alive. The editor removes the matching
+    // tail interval from the preceding clip, so playback does not jump back.
+    const lead = Math.min(CONTINUITY_HANDOFF_LEAD_SECONDS, video.duration / 2);
+    const tailTime = Math.max(0, video.duration - lead);
     if (tailTime > 0.001) {
       const seeked = waitFor('seeked');
       video.currentTime = tailTime;
@@ -553,8 +556,8 @@ export default function StoryPage() {
             .filter(object => mentionsEntity(sb, object.name, sb.objects))
             .map(object => object.name);
           const panelChars = requiredCharacters.length
-            ? `REQUIRED CHARACTERS (all must be visible): ${requiredCharacters.join(', ')}.`
-            : 'REQUIRED CHARACTERS: none.';
+            ? `REQUIRED CHARACTERS — EXACT CAST ${requiredCharacters.length} total (all must be visible exactly once): ${requiredCharacters.join(', ')}.`
+            : 'REQUIRED CHARACTERS — EXACT CAST 0 total: none.';
           const panelObjs = requiredObjects.length
             ? `REQUIRED OBJECTS (all must be visible): ${requiredObjects.join(', ')}.`
             : '';
@@ -833,8 +836,11 @@ export default function StoryPage() {
     if (!character) return;
     setVoiceGenerating(prev => ({ ...prev, [characterName]: true }));
     try {
-      // 取描述前80字，不足时补一句兜底语保证TTS时长 >= 1.8s
-      const sampleText = `${character.description.slice(0, 80)}` || `你好，我是${characterName}，很高兴认识你们。`;
+      // Description text can leak wardrobe/appearance words into H3's native
+      // soundtrack. Keep the voice sample short, neutral, and unrelated to plot.
+      const sampleText = (settings.language || 'zh') === 'en'
+        ? 'Morning light moves softly across the quiet room. I speak clearly, calmly, and naturally.'
+        : '清晨的光线缓缓穿过安静房间，我用自然、清晰、平稳的语气说话。';
       const res = await fetch('/api/generate-voice-reference', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1039,16 +1045,17 @@ export default function StoryPage() {
         ? currentShots.slice(0, leaderIndex).reverse().find(item => item.videoUrl)
         : undefined;
       let firstFrameUrl: string | undefined;
-      if (prevShot?.videoUrl?.includes('res.cloudinary.com')) {
-        // Extract last frame from Cloudinary video URL
-        // Format: so_100p = start offset 100% (last frame)
-        firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_100p/').replace(/\.\w+$/, '.jpg');
-      } else if (videoProvider === 'comfyui' && prevShot?.videoUrl) {
-        // Companion returns a browser-local blob URL. Extract the actual visible
-        // tail in the browser and send that still to Companion as the next shot's
-        // first frame; this needs no Companion update and avoids falling back to
-        // the older storyboard still.
-        firstFrameUrl = await extractVideoTailFrame(prevShot.videoUrl, `场景 ${prevShot.sceneNumber} 视频`);
+      if (prevShot?.videoUrl) {
+        // Extract a moving handoff frame from local or CORS-enabled remote video.
+        // Cloudinary supports CORS, while its old so_100p still was too static.
+        try {
+          firstFrameUrl = await extractVideoTailFrame(prevShot.videoUrl, `场景 ${prevShot.sceneNumber} 视频`);
+        } catch (error) {
+          if (!prevShot.videoUrl.includes('res.cloudinary.com')) throw error;
+          // Compatibility fallback for legacy Cloudinary assets that cannot be
+          // decoded by this browser. New Companion clips use the motion frame.
+          firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_100p/').replace(/\.\w+$/, '.jpg');
+        }
       } else if (videoProvider === 'comfyui' && prevShot?.imageUrl) {
         firstFrameUrl = await makePortableMediaSource(prevShot.imageUrl, `场景 ${prevShot.sceneNumber} 分镜图`);
       }

@@ -7,6 +7,7 @@ import VideoPreview from './VideoPreview';
 import TrimPanel from './TrimPanel';
 import { Play, Pause, Download } from 'lucide-react';
 import { exportVideo } from '@/lib/video-exporter';
+import { CONTINUITY_HANDOFF_LEAD_SECONDS, CONTINUITY_HEAD_TRIM_SECONDS } from '@/lib/videoContinuity';
 
 interface VideoEditorProps {
   initialVideos: string[];
@@ -24,8 +25,6 @@ function recalculateStartTimes(clipList: VideoClip[]): VideoClip[] {
     return next;
   });
 }
-
-const CONTINUITY_HEAD_TRIM_SECONDS = 0.12;
 
 export default function VideoEditor({ initialVideos, continuousFromPrevious }: VideoEditorProps) {
   const continuityFlags = continuousFromPrevious ?? EMPTY_CONTINUITY_FLAGS;
@@ -76,9 +75,23 @@ export default function VideoEditor({ initialVideos, continuousFromPrevious }: V
           startTime += duration - trimStart;
         }
 
+        // Each continued clip starts from a frame sampled this far before the
+        // previous clip ended. Trim that already-consumed tail so the join is
+        // temporally monotonic, then let the head trim skip H3's motion ramp.
+        for (let i = 1; i < loadedClips.length; i += 1) {
+          if (!continuityFlags[i]) continue;
+          const previous = loadedClips[i - 1];
+          previous.trimEnd = Math.min(
+            CONTINUITY_HANDOFF_LEAD_SECONDS,
+            Math.max(0, previous.duration - previous.trimStart - 0.1),
+          );
+        }
+
+        const timedClips = recalculateStartTimes(loadedClips);
+
         if (!cancelled) {
-          setClips(loadedClips);
-          setSelectedClipId(loadedClips[0]?.id ?? null);
+          setClips(timedClips);
+          setSelectedClipId(timedClips[0]?.id ?? null);
         }
       } catch (error) {
         if (!cancelled) setLoadError(error instanceof Error ? error.message : '视频加载失败');

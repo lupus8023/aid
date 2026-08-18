@@ -10,6 +10,10 @@ import {
   suggestVideoSegments,
   validateVideoSegment,
 } from '../lib/videoSegments.ts';
+import {
+  CONTINUITY_HANDOFF_LEAD_SECONDS,
+  CONTINUITY_HEAD_TRIM_SECONDS,
+} from '../lib/videoContinuity.ts';
 
 const shot = (sceneNumber, extra = {}) => ({
   id: `scene-${sceneNumber}`,
@@ -80,4 +84,10 @@ test('restores a saved H3 project directly to export after refresh', () => {
   assert.equal(persistedVideoClipCount(saved), 1);
   assert.equal(restoredStoryStep(saved.map(item => ({ ...item, videoCacheKey: undefined }))), 5);
   assert.equal(restoredStoryStep(saved.map((item, index) => index ? item : { ...item, imageUrl: undefined })), 4);
+});
+
+test('uses a moving continuity handoff and trims the H3 restart', () => {
+  assert.ok(CONTINUITY_HANDOFF_LEAD_SECONDS > CONTINUITY_HEAD_TRIM_SECONDS);
+  assert.ok(CONTINUITY_HANDOFF_LEAD_SECONDS <= 0.3);
+  assert.ok(CONTINUITY_HEAD_TRIM_SECONDS >= 0.12);
 });

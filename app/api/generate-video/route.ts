@@ -6,10 +6,14 @@ import { createComfyUIVideoTask } from '@/lib/comfyui';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-function speakingCharacterNames(storyboard: any): string[] {
-  const lines = Array.isArray(storyboard?.dialogueLines) && storyboard.dialogueLines.length
+function dialogueLineList(storyboard: any): any[] {
+  return Array.isArray(storyboard?.dialogueLines) && storyboard.dialogueLines.length
     ? storyboard.dialogueLines
     : Object.entries(storyboard?.dialogue || {}).map(([character, text]) => ({ character, text }));
+}
+
+function speakingCharacterNames(storyboard: any): string[] {
+  const lines = dialogueLineList(storyboard);
   const seen = new Set<string>();
   return lines
     .filter((line: any) => String(line?.text || '').trim())
@@ -38,7 +42,7 @@ export async function POST(request: NextRequest) {
       ...storyboard,
       characters: [...new Set(videoStoryboards.flatMap((shot: any) => shot.characters || []))],
       objects: [...new Set(videoStoryboards.flatMap((shot: any) => shot.objects || []))],
-      dialogueLines: videoStoryboards.flatMap((shot: any) => shot.dialogueLines || []),
+      dialogueLines: videoStoryboards.flatMap(dialogueLineList),
     };
     if (videoProvider === 'comfyui') {
       if (videoStoryboards.some((shot: any) => !shot.imageUrl || typeof shot.imageUrl !== 'string')) return NextResponse.json({ error: 'Every selected storyboard needs an image' }, { status: 400 });
@@ -79,8 +83,8 @@ export async function POST(request: NextRequest) {
         // H3 generates the synchronized soundtrack natively. Voice samples are
         // optional references, so APIMart's URL-tag syntax must not enter the prompt.
         prompt: isMultiBeatSegment
-          ? buildVideoSegmentPrompt(videoStoryboards, [], { firstFrameUrl, duration: Number(storyboard.videoDuration) || 15 })
-          : buildStoryboardVideoPrompt(storyboard, [], firstFrameUrl),
+          ? buildVideoSegmentPrompt(videoStoryboards, [], { firstFrameUrl, duration: Number(storyboard.videoDuration) || 15, hasVoiceReferences: referenceAudios.length > 0 })
+          : buildVideoSegmentPrompt([storyboard], [], { firstFrameUrl, duration: Number(storyboard.videoDuration) || 5, hasVoiceReferences: referenceAudios.length > 0 }),
         duration: Number(storyboard.videoDuration) || 5,
         aspectRatio: aspectRatio || '16:9',
         settings: comfyui,

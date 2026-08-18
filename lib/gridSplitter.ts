@@ -96,9 +96,11 @@ Character identities (match mapped references exactly wherever they appear):
 ${characterDescriptions}
 
 CRITICAL CAST RULES:
-- Every REQUIRED CHARACTERS entry must be clearly visible in its panel. Never omit, replace, merge, or hide one as a background detail.
+- Every panel's EXACT CAST count and REQUIRED CHARACTERS list are authoritative. Every listed identity is clearly visible exactly once; never omit, replace, merge, clone, split, or hide one as a background detail.
+- A mapped character sheet may contain several views or poses of one identity. It is identity evidence only: never copy its sheet layout or instantiate those views as multiple characters.
 - Animals and non-human characters are full characters, not props. A required cat must visibly match its reference identity, fur, markings, size, and species.
-- Do not add characters to panels where they are not requested. Preserve each character's exact reference appearance across panels.
+- Do not add people, creatures, extras, silhouettes, reflection-doubles or crowds to panels where they are not requested. Preserve each character's exact reference appearance across panels.
+- No captions, subtitles, dialogue text, speech bubbles, panel labels, logos, watermark, or readable text.
 
 Keep lighting and environment continuous. Each cell must be a complete standalone composition, never a cropped fragment.`;
 }

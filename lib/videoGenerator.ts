@@ -11,7 +11,7 @@ function clock(seconds: number): string {
 export function buildVideoSegmentPrompt(
   storyboards: Storyboard[],
   characterAudios: { character: string; audioUrl: string }[] = [],
-  options: { firstFrameUrl?: string; duration?: number } = {},
+  options: { firstFrameUrl?: string; duration?: number; hasVoiceReferences?: boolean } = {},
 ): string {
   const first = storyboards[0];
   if (!first) throw new Error('视频片段至少需要一个分镜');
@@ -20,7 +20,11 @@ export function buildVideoSegmentPrompt(
   const referenceOffset = options.firstFrameUrl ? 2 : 1;
   const characters = [...new Set(storyboards.flatMap(storyboard => storyboard.characters || []))];
   const objects = [...new Set(storyboards.flatMap(storyboard => storyboard.objects || []))];
-  const dialogueLines = storyboards.flatMap(storyboard => storyboard.dialogueLines || []);
+  const dialogueFor = (storyboard: Storyboard) => storyboard.dialogueLines?.length
+    ? storyboard.dialogueLines
+    : Object.entries(storyboard.dialogue || {}).map(([character, text]) => ({ character, text }));
+  const dialogueLines = storyboards.flatMap(dialogueFor).filter(line => String(line.text || '').trim());
+  const hasVoiceReferences = options.hasVoiceReferences || characterAudios.length > 0;
   const audioMapping = characterAudios.length
     ? `\nVOICE REFERENCES:\n${characterAudios.map(audio => `@[${audio.character}] 使用@[${audio.audioUrl}]`).join('\n')}`
     : '';
@@ -28,8 +32,15 @@ export function buildVideoSegmentPrompt(
   const storyboardSection = storyboards.map((storyboard, index) => {
     const range = timeline[index];
     const referenceNumber = index + referenceOffset;
-    const dialogue = (storyboard.dialogueLines || []).map(line => `${line.character}: "${line.text}"`).join(' / ');
-    return `[00:${clock(range.start)}–00:${clock(range.end)}] BEAT ${index + 1} | Picture ${referenceNumber} | Scene ${storyboard.sceneNumber}\nVISUAL ACTION: ${storyboard.description}\nPERFORMANCE: Execute one readable action and its immediate reaction; use concrete body mechanics, eye direction, weight shift and contact points from the scene.\nEDIT: ${index === 0 ? 'Enter on active motion or a decisive visual fact.' : 'Cut on action, eyeline or cause-and-effect from the previous beat.'}${dialogue ? `\nDIALOGUE: ${dialogue}` : ''}`;
+    const beatCharacters = [...new Set(storyboard.characters || [])];
+    const dialogue = dialogueFor(storyboard)
+      .filter(line => String(line.text || '').trim())
+      .map(line => `${line.character}: "${String(line.text).trim()}"`)
+      .join(' / ');
+    const cast = beatCharacters.length
+      ? `${beatCharacters.length} total — ${beatCharacters.map(name => `${name} (one instance)`).join(', ')}`
+      : '0 — no character or person visible';
+    return `[00:${clock(range.start)}–00:${clock(range.end)}] BEAT ${index + 1} | Picture ${referenceNumber} | Scene ${storyboard.sceneNumber}\nEXACT CAST: ${cast}. No other person, creature, reflection-double or background extra.\nVISUAL ACTION: ${storyboard.description}\nPERFORMANCE: Execute one readable action and its immediate reaction; use concrete body mechanics, eye direction, weight shift and contact points from the scene.\nEDIT: ${index === 0 ? (options.firstFrameUrl ? 'The inherited first frame is already mid-motion. Continue that velocity immediately; no freeze, pose reset, settling pause or slow acceleration.' : 'Enter on active motion or a decisive visual fact.') : 'Cut on action, eyeline or cause-and-effect from the previous beat.'}\nAPPROVED DIALOGUE: ${dialogue || 'none — no speech, narration, vocalization or moving lips as if speaking.'}`;
   }).join('\n\n');
 
   return `GOAL:
@@ -41,20 +52,24 @@ ${storyboards.map((_, index) => `Picture ${index + referenceOffset} defines the 
 Do not morph between reference images. Treat them as editorial shot references captured by the same production, camera family and color pipeline.
 
 IDENTITY & OBJECT CONTRACT:
-Maintain the same ${characters.length ? `characters (${characters.join(', ')})` : 'subjects'} across all beats: exact face geometry, age, hair, body proportions, wardrobe and accessories. ${objects.length ? `Keep these objects physically identical: ${objects.join(', ')}.` : ''}
+CAST REGISTRY: ${characters.length ? characters.map(name => `${name} = one unique identity`).join('; ') : 'no named cast'}.
+The EXACT CAST line in each beat is authoritative. Show each listed identity exactly once in that beat and keep every unlisted identity absent. A character reference sheet may contain multiple views of one identity; it is identity evidence, never permission to instantiate copies. Never clone, split, merge, recast or add a background double. Preserve exact face geometry, age, hair, body proportions, wardrobe and accessories. ${objects.length ? `Keep these objects physically identical: ${objects.join(', ')}.` : ''}
 
 ${buildVideoStyleContract(first.visualStyle)}
 
 AUDIO:
-Generate synchronized production sound: exact supplied dialogue, location ambience, action-specific Foley, breath and perspective-correct room tone. ${dialogueLines.length ? 'Speak only the dialogue written in the timed beats, with natural interruptions and lip sync.' : 'No dialogue or narration.'} A restrained score may bridge cuts only when it supports the scene; never cover dialogue or replace physical sound.${audioMapping}
+DIALOGUE MODE: ${dialogueLines.length ? 'approved script only. Speak only the exact words under APPROVED DIALOGUE, once, by the named character, inside that beat. Preserve wording and order; do not paraphrase, repeat, overlap, improvise or add reactions.' : 'silent. No character speaks or makes a vocal sound.'}
+${hasVoiceReferences ? 'Reference audio is timbre/accent evidence only. Never copy, quote, continue or echo its spoken content.' : ''}
+Keep the soundtrack clean and sparse: quiet perspective-correct room tone plus only low-level Foley caused by a clearly visible action. No music, score, singing, humming, chanting, narration, whispering, laughter, crowd speech, off-screen voice, radio/TV voice, invented words or unexplained sound. No subtitles, captions, speech bubbles or on-screen text.${audioMapping}
 
 STORYBOARD — ${duration} seconds:
 ${storyboardSection}
 
 EDITING RULES:
 Every beat must visibly occur inside its assigned time range. Use motivated hard cuts between distinct setups; no morphing, cross-generated in-between imagery or decorative dissolve unless explicitly requested. Vary shot scale and camera energy. Begin action immediately, remove dead air, and end on a decisive action, reaction or visual reveal.
+For inherited continuity, frame 1 is a motion handoff rather than a pose to hold: preserve velocity, camera inertia, eyeline and secondary motion through the first half-second.
 
-${buildVideoContinuityRules(characterAudios.length > 0)}`;
+${buildVideoContinuityRules(hasVoiceReferences)}`;
 }
 
 export function buildStoryboardVideoPrompt(

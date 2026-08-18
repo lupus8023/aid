@@ -69,7 +69,7 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
         </h2>
         <p className="text-[var(--text-secondary)] font-mono text-sm">
           {isComfyUI
-            ? 'MiniMax H3 generates synchronized dialogue, ambience and music with each shot'
+            ? 'MiniMax H3 only speaks approved dialogue; no subtitles, narration or automatic music'
             : 'Generate audio from dialogue, then generate video for each shot'}
         </p>
       </div>
@@ -78,7 +78,7 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
         <div className="p-4 border border-[var(--accent-green)]/40 rounded bg-[var(--bg-secondary)]">
           <div className="text-sm font-mono text-[var(--accent-green)]">仙宫云 MiniMax H3 · Native Audio</div>
           <p className="mt-1 text-xs font-mono text-[var(--text-secondary)]">
-            普通分镜使用单图 Ref2VA；开启“连贯上一镜头”时使用首尾帧 FL2VA，带角色音色参考时自动切换 Hybrid。无需先生成完整音轨。
+            普通分镜使用单图 Ref2VA；开启“连贯上一镜头”时使用运动交接帧，带角色音色参考时自动切换 Hybrid。音色只作参考，不会把参考音频内容当成台词。
           </p>
           <p className="mt-2 flex items-center gap-1.5 text-xs font-mono text-[var(--text-secondary)]">
             <HardDrive size={12} /> 视频完成后会自动下载到浏览器本地缓存；FFmpeg 导出优先使用本地副本。已缓存 {cachedCount}/{completedCount}
@@ -259,7 +259,7 @@ export default function Step5({ storyboards, characters, videoModel, videoProvid
                     {sb.continuousFromPrev && hasDialogue && (
                       isComfyUI ? (
                         <p className="text-[10px] font-mono text-[var(--accent-green)] leading-tight">
-                          使用 FL2VA：上一镜头尾帧 → 本镜头画面，并原生生成本镜头对白和声音。
+                          使用运动交接帧：继承上一镜运动，只说本镜头已填写的台词，不自动添加配乐或人声。
                         </p>
                       ) : (
                         <p className="text-[10px] font-mono text-[var(--accent-yellow)] leading-tight">

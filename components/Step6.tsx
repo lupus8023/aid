@@ -36,7 +36,7 @@ export default function Step6({ storyboards, onBack }: Step6Props) {
           <span className="text-[var(--text-secondary)]">06.</span> Edit & Export
         </h2>
         <p className="text-[var(--text-secondary)] font-mono text-sm">
-          Edit, trim, and export your final video. 连贯镜头会自动去除接缝处的重复首帧。
+          Edit, trim, and export your final video. 连贯镜头会在运动中交接，并自动裁掉上一段静止尾部与下一段起步帧。
         </p>
       </div>
 

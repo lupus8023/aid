@@ -172,7 +172,7 @@ ${buildMediumLock(style)}`;
 
 export function buildVideoContinuityRules(hasAudioReference: boolean) {
   const audioSync = hasAudioReference
-    ? '\nSpeech, mouth shapes, breath timing, and body performance synchronize naturally to the supplied character audio.'
+    ? '\nFor approved dialogue only, mouth shapes and performance synchronize naturally to the matching character timbre reference. Reference-audio words are not script and must never leak into the soundtrack.'
     : '';
 
   return `
@@ -188,7 +188,7 @@ CONSTRAINTS:
 
 Preserve exact identity, facial structure, age, body proportions, hair, wardrobe, accessories, and environment in every frame.
 No face change, beauty filter, skin smoothing, limb duplication, duplicate characters, costume swap, pose teleport, morphing, or scene replacement.
-No subtitles, text overlays, watermarks, logos, or unrequested speech. Follow the AUDIO section exactly.`;
+No subtitles, captions, text overlays, speech bubbles, watermarks, logos, duplicate identities, background doubles, or unrequested speech. Follow the EXACT CAST and AUDIO sections exactly.`;
 }
 
 export function getStoryboardDuration(storyboard: Pick<Storyboard, 'videoDuration'>) {
