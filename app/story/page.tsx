@@ -704,8 +704,8 @@ export default function StoryPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ storyboard, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle })
       });
-      if (!response.ok) throw new Error((await response.json()).error || 'Failed to generate image');
-      const data = await response.json();
+      const data = await readApiJson<{ taskId: string }>(response, '启动单张分镜生成失败');
+      if (!data.taskId) throw new Error('生图接口没有返回任务 ID');
       await pollImageStatus(storyboard.id, data.taskId, generationProjectId);
     } catch (error) {
       if (generationProjectId !== projectIdRef.current) return;
@@ -787,8 +787,8 @@ export default function StoryPage() {
           visualStyle
         })
       });
-      if (!response.ok) throw new Error((await response.json()).error || 'Failed');
-      const { taskId } = await response.json();
+      const { taskId } = await readApiJson<{ taskId: string }>(response, type === 'costume' ? '生成角色定妆失败' : '生成场景参考失败');
+      if (!taskId) throw new Error('生图接口没有返回任务 ID');
 
       // Poll for completion
       for (let i = 0; i < 90; i++) {

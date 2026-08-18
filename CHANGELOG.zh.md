@@ -8,6 +8,8 @@
 - Companion 为 DMX 和 APIMart 使用独立公网 DNS，绕过代理/VPN 的 `172.19.x.x` Fake-IP 解析。
 - 本地剧本接口中断时直接显示 Companion 错误，不再回退到容易超过 60 秒限制的托管函数并最终返回 HTML 网关页。
 - 自动模式会同时保留 DMX 与 APIMart 的失败原因，便于判断 Key、模型或网络问题。
+- 图生图参考素材改为浏览器端压缩并逐张上传，生图接口只传 URL，避免多张 Base64 原图超过网关请求体限制。
+- 图生图、角色定妆和单张分镜生成统一安全解析空响应、HTML 网关页和 JSON 错误，不再显示 `Unexpected end of JSON input`。
 
 ## 0.1.14 - 2026-08-18
 

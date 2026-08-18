@@ -6,6 +6,55 @@ import { Download, Home, Image as ImageIcon, Loader2, RefreshCw, Settings, Spark
 import DevToolsLayout from '@/components/DevToolsLayout';
 import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
+import { readApiJson } from '@/lib/apiResponse';
+
+const MAX_REFERENCE_FILE_BYTES = 8 * 1024 * 1024;
+const TARGET_UPLOAD_BYTES = 1200 * 1024;
+const MAX_REFERENCE_EDGE = 2048;
+
+function readAsDataUrl(value: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('图片读取失败'));
+    reader.onerror = () => reject(new Error('图片读取失败'));
+    reader.readAsDataURL(value);
+  });
+}
+
+async function compressReferenceImage(file: File): Promise<string> {
+  if (file.size <= TARGET_UPLOAD_BYTES && /^image\/(?:jpeg|png|webp)$/i.test(file.type)) {
+    return await readAsDataUrl(file);
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = objectUrl;
+    await image.decode();
+    const baseScale = Math.min(1, MAX_REFERENCE_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
+    let lastBlob: Blob | null = null;
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const scale = baseScale * 0.86 ** Math.max(0, attempt - 2);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('浏览器无法处理这张图片');
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const quality = Math.max(0.58, 0.9 - attempt * 0.07);
+      lastBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+      if (lastBlob && lastBlob.size <= TARGET_UPLOAD_BYTES) return await readAsDataUrl(lastBlob);
+    }
+
+    if (!lastBlob) throw new Error('图片压缩失败');
+    return await readAsDataUrl(lastBlob);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
 
 export default function ImageToImagePage() {
   const { settings, saveSettings } = useSettings();
@@ -19,24 +68,26 @@ export default function ImageToImagePage() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [statusText, setStatusText] = useState('');
 
-  const handleImageUpload = (files: FileList | File[]) => {
+  const handleImageUpload = async (files: FileList | File[]) => {
     const selectedFiles = Array.from(files).slice(0, 4 - referenceImages.length);
     if (selectedFiles.length === 0) return;
 
-    if (selectedFiles.some(file => file.size > 8 * 1024 * 1024)) {
+    if (selectedFiles.some(file => file.size > MAX_REFERENCE_FILE_BYTES)) {
       alert('Each image size should be less than 8MB');
       return;
     }
 
-    Promise.all(selectedFiles.map(file => new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.readAsDataURL(file);
-    }))).then((images) => {
+    try {
+      setStatusText('正在优化参考图片…');
+      const images = await Promise.all(selectedFiles.map(compressReferenceImage));
       setReferenceImages(prev => [...prev, ...images].slice(0, 4));
       setImageUrl(null);
       setGeneratedPrompt('');
-    });
+      setStatusText('');
+    } catch (error) {
+      setStatusText('');
+      alert(`图片处理失败：${error instanceof Error ? error.message : '未知错误'}`);
+    }
   };
 
   const pollImageStatus = async (taskId: string) => {
@@ -52,7 +103,7 @@ export default function ImageToImagePage() {
 
       if (!response.ok) continue;
 
-      const data = await response.json();
+      const data = await readApiJson<any>(response, '查询生图状态失败');
       if (data.status === 'completed' && data.imageUrl) {
         setImageUrl(data.imageUrl);
         setStatusText('Completed');
@@ -84,11 +135,30 @@ export default function ImageToImagePage() {
     setImageUrl(null);
 
     try {
+      const uploadedReferences: string[] = [];
+      for (let index = 0; index < referenceImages.length; index += 1) {
+        const reference = referenceImages[index];
+        if (/^https?:\/\//i.test(reference)) {
+          uploadedReferences.push(reference);
+          continue;
+        }
+        setStatusText(`正在上传参考图片 ${index + 1}/${referenceImages.length}…`);
+        const uploadResponse = await fetch('/api/upload-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageData: reference }),
+        });
+        const { url } = await readApiJson<{ url: string }>(uploadResponse, `参考图片 ${index + 1} 上传失败`);
+        if (!url) throw new Error(`参考图片 ${index + 1} 上传后没有返回 URL`);
+        uploadedReferences.push(url);
+      }
+      setReferenceImages(uploadedReferences);
+      setStatusText('Creating image generation task...');
       const response = await fetch('/api/image-to-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          referenceImages,
+          referenceImages: uploadedReferences,
           userIntent,
           scaleNotes,
           aspectRatio,
@@ -97,12 +167,8 @@ export default function ImageToImagePage() {
         })
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to start generation');
-      }
-
-      const { taskId, prompt } = await response.json();
+      const { taskId, prompt } = await readApiJson<{ taskId: string; prompt: string }>(response, '启动生图失败');
+      if (!taskId) throw new Error('生图接口没有返回任务 ID');
       setGeneratedPrompt(prompt);
       await pollImageStatus(taskId);
     } catch (error) {
@@ -204,7 +270,7 @@ export default function ImageToImagePage() {
                         multiple
                         className="hidden"
                         onChange={(e) => {
-                          if (e.target.files) handleImageUpload(e.target.files);
+                          if (e.target.files) void handleImageUpload(e.target.files);
                           e.target.value = '';
                         }}
                       />
