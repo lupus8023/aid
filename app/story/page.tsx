@@ -295,7 +295,8 @@ export default function StoryPage() {
       setVisualStyle(normalizeVisualStyle(savedProject.visualStyle || settings.visualStyle));
       const savedStoryboards = (savedProject.storyboards || []).map(item => ({
         ...item,
-        imageFailureReason: normalizeSavedImageFailureReason(item.imageFailureReason),
+        imageFailureReason: normalizeSavedImageFailureReason(item.imageFailureReason)
+          || (item.status === 'failed' ? '上次分镜生成未完成；请重新生成，系统会定位具体原因并自动修正可恢复的提示词问题' : undefined),
       }));
       storyboardsRef.current = savedStoryboards;
       setStoryboards(savedStoryboards);
@@ -363,8 +364,13 @@ export default function StoryPage() {
                 console.warn(`九宫格任务 ${taskId} 已失效，允许重新生成:`, error);
                 if (savedProject.id !== projectIdRef.current) return;
                 const groupIds = new Set(group.map(item => item.id));
+                const recoveryFailureReason = `刷新后恢复任务失败：${extractImageTaskError(error)}；已解除锁定，请重新生成本批`;
                 setStoryboards(current => {
-                  const next = current.map(item => groupIds.has(item.id) ? { ...item, status: 'failed' as const } : item);
+                  const next = current.map(item => groupIds.has(item.id) ? {
+                    ...item,
+                    status: 'failed' as const,
+                    imageFailureReason: recoveryFailureReason,
+                  } : item);
                   storyboardsRef.current = next;
                   return next;
                 });

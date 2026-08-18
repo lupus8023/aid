@@ -12,6 +12,7 @@
 - Grid and single-image cards retain the original storyboard prompt while showing the diagnosed reason, candidate scene numbers, and automatic retry count.
 - Reloading a project now resumes a grid only when one durable APIMart task can be identified; orphaned or conflicting `generating` locks are released with an actionable diagnosis instead of remaining stuck forever.
 - Nested provider errors and legacy `[object Object]` failures are normalized into readable image-generation reasons.
+- Legacy failed shots and refresh-time recovery failures now always retain an actionable diagnosis on their cards.
 
 ## 0.1.17 - 2026-08-19
 
