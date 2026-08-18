@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.14 - 2026-08-18
+
+### Fixes
+
+- Story's connection check no longer downloads and parses the unrelated, large character-replacement workflow on a fresh computer.
+- The check now reports device-key, H3 workflow, and ComfyUI API stages separately and gives actionable browser/local-network errors.
+- Unavailable SSH hosts, ports, or instances now fail quickly with a specific error instead of hanging until the browser reports `Load failed`.
+- Companion authorization and Story requests now share public-DNS resolution, fixing false “authorized” states when a proxy/VPN maps the X-GPU hostname to a private fake IP.
+
 ## 0.1.13 - 2026-08-18
 
 ### Fixes

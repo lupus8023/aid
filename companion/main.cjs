@@ -313,13 +313,17 @@ app.whenReady().then(async () => {
   await stopStaleCompanionServer();
   const key = ensureKeyPair();
   const gatewayHost = 'me21gb3rds8p0h44.ssh.x-gpu.com';
-  // Keep the hostname in the server config so AID and J18IP derive the same
-  // OpenSSH ControlPath and reuse the already healthy master connection.
-  // A public DNS answer can rotate between launches and strand a request in a
-  // fresh banner handshake even though the hostname master is live.
+  // Some proxy/VPN DNS modes return a private fake IP for the X-GPU hostname.
+  // Password authorization already uses public DNS, so the actual Story server
+  // must use that same public address or it can report “authorized” while every
+  // ComfyUI request times out during the SSH banner exchange.
   privateKeyPath = key.privatePath;
-  resolvedSshHost = gatewayHost;
-  startServer(key.privatePath, key.privatePem, '');
+  resolvedSshHost = await resolveDirectHost(gatewayHost);
+  startServer(
+    key.privatePath,
+    key.privatePem,
+    resolvedSshHost !== gatewayHost ? resolvedSshHost : '',
+  );
   createWindow();
   createTray();
 

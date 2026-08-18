@@ -369,6 +369,53 @@ async function runSsh(config: ComfyUIConfig, remoteCommand: string): Promise<str
   throw new ComfyUIError(`读取云端工作流失败：${lastError || 'SSH 命令失败'}`);
 }
 
+async function probeSshAuthorization(config: ComfyUIConfig): Promise<string> {
+  if (config.sshPrivateKey) {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        runSshJs(config, 'printf AID_SSH_READY'),
+        new Promise<string>((_resolve, reject) => {
+          timeout = setTimeout(
+            () => reject(new ComfyUIError('SSH 连接超时；请确认仙宫云实例正在运行，且 SSH Host/Port 仍为当前值')),
+            75_000,
+          );
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
+  try {
+    const baseArgs = await sshPrefix(config);
+    const args = baseArgs.flatMap((arg, index) => {
+      if (arg === '-o' && /^ConnectTimeout=/.test(baseArgs[index + 1] || '')) return [];
+      if (/^ConnectTimeout=/.test(arg)) return [];
+      if (arg === '-o' && /^ConnectionAttempts=/.test(baseArgs[index + 1] || '')) return [];
+      if (/^ConnectionAttempts=/.test(arg)) return [];
+      return [arg];
+    });
+    const { stdout } = await execFileAsync('ssh', [
+      '-o', 'ConnectTimeout=45',
+      '-o', 'ConnectionAttempts=1',
+      ...args,
+      'printf AID_SSH_READY',
+    ], {
+      timeout: 75_000,
+      maxBuffer: 1024 * 1024,
+      encoding: 'utf8',
+    });
+    return stdout;
+  } catch (error: any) {
+    const detail = String(error?.stderr || error?.stdout || error?.message || error).trim();
+    if (/permission denied|authentication failed/i.test(detail)) {
+      throw new ComfyUIError('本机设备密钥尚未获得当前仙宫云实例授权，请在 Companion 中重新授权');
+    }
+    throw new ComfyUIError(`SSH 无法连接；请确认仙宫云实例正在运行，且 SSH Host/Port 仍为当前值${detail ? `：${detail}` : ''}`);
+  }
+}
+
 async function runSshUntilMarker(
   config: ComfyUIConfig,
   remoteCommand: string,
@@ -1603,6 +1650,8 @@ export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}
   };
   try {
     if (!config.sshHost) throw new ComfyUIError('ComfyUI SSH Host 未配置');
+    const sshProbe = await stage('验证 Companion 设备密钥', () => probeSshAuthorization(config));
+    if (sshProbe !== 'AID_SSH_READY') throw new ComfyUIError('SSH 已连接但没有返回预期响应');
     const workflows: Record<string, JsonRecord> = {};
     const prompts: Array<{ variant: ComfyUIWorkflow; prompt: JsonRecord; workflowPath: string; baseReferenceImages: number }> = [];
     for (const variant of ['aid_single_reference', 'aid_multi_reference', 'aid_first_last'] as ComfyUIWorkflow[]) {
@@ -1623,10 +1672,6 @@ export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}
       injectReferenceAudios(apiPrompt, []);
       prompts.push({ variant, prompt: apiPrompt, workflowPath, baseReferenceImages });
     }
-    const characterReplacePrompt = await stage(
-      '读取换人物工作流',
-      () => readCharacterReplacePrompt(config),
-    );
     const { stats, h3Definition } = await stage('检查 ComfyUI API', () => withTunnel(config, async baseUrl => ({
       stats: await fetchJson(baseUrl, '/system_stats', {}, 30_000),
       h3Definition: await fetchJson(baseUrl, '/object_info/MiniMaxH3AudioConditioningT8', {}, 30_000),
@@ -1643,25 +1688,13 @@ export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}
         hasLastFrame: Boolean(h3Inputs.last_frame),
       };
     }
-    workflows.scail2_character_replace = {
-      path: config.characterReplaceWorkflowPath,
-      mode: 'replacement',
-      drivingVideo: true,
-      referenceImages: 1,
-      maxFrames: 81,
-      frameRule: '4n+1',
-      longVideo: true,
-      segmentOverlap: 5,
-      segmentStep: 76,
-      automaticDimensions: true,
-      sam3VideoObject: requirePromptNode(characterReplacePrompt, '213:191').inputs.text,
-      sam3ImageObject: requirePromptNode(characterReplacePrompt, '213:212').inputs.text,
-    };
     const remoteRefImageMax = Number(
       h3Definition.MiniMaxH3AudioConditioningT8?.input?.optional?.ref_images?.[1]?.template?.max || 0,
     );
     return {
       ok: true,
+      scope: 'story-video',
+      ssh: 'authorized',
       version: stats.system?.comfyui_version || 'connected',
       workflows,
       referenceImages: {

@@ -85,10 +85,26 @@ export default function SettingsModal({
       const workflowCount = Object.keys(result.workflows || {}).length;
       setComfyTest({ loading: false, message: `连接成功 · ${result.version} · ${workflowCount} 个 H3 工作流校验通过`, ok: true });
     } catch (error) {
-      const message = error instanceof Error ? error.message : '连接失败';
+      let message = error instanceof Error ? error.message : '连接失败';
+      if (/Load failed|Failed to fetch|NetworkError/i.test(message)) {
+        try {
+          const statusResponse = await fetch(comfyUIApiUrl('/api/companion/status', localSettings.comfyui), {
+            cache: 'no-store',
+            signal: AbortSignal.timeout(2500),
+          });
+          if (statusResponse.ok) {
+            const status = await statusResponse.json();
+            message = `Companion ${status.version || ''} 在线，但 SSH/ComfyUI 完整测试连接被中断。请更新 Companion 后重试；若使用 Safari，请改用 Chrome 并允许访问本地网络。`;
+          } else {
+            message = '网页无法访问本地 Companion。请确认 Companion 正在运行；若使用 Safari，请改用 Chrome 并允许访问本地网络。';
+          }
+        } catch {
+          message = '网页无法访问本地 Companion。请确认 Companion 正在运行；若使用 Safari，请改用 Chrome 并允许访问本地网络。';
+        }
+      }
       setComfyTest({
         loading: false,
-        message: message === 'Failed to fetch' ? '本地 aid companion 未启动，请在 aid 目录运行 npm run companion' : message,
+        message,
         ok: false,
       });
     }
