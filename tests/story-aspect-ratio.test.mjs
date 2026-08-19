@@ -6,6 +6,7 @@ import {
   applyStoryAspectRatio,
   hasStoryMedia,
   projectStoryAspectRatio,
+  storyAspectRatioFromDimensions,
 } from '../lib/storyAspectRatio.ts';
 
 const storyboard = (extra = {}) => ({
@@ -34,6 +35,13 @@ test('switching to portrait invalidates landscape image and video artifacts', ()
   assert.equal(portrait.videoSourceUrl, undefined);
   assert.equal(portrait.videoTaskId, undefined);
   assert.equal(portrait.videoCacheKey, undefined);
+});
+
+test('video metadata automatically selects portrait, landscape or square preview', () => {
+  assert.equal(storyAspectRatioFromDimensions(736, 1280), '9:16');
+  assert.equal(storyAspectRatioFromDimensions(1280, 736), '16:9');
+  assert.equal(storyAspectRatioFromDimensions(1024, 1024), '1:1');
+  assert.equal(storyAspectRatioFromDimensions(0, 0, '9:16'), '9:16');
 });
 
 test('Story UI locks the selected project ratio into image and video requests', async () => {

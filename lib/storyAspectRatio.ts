@@ -8,6 +8,17 @@ export function storyAspectClass(aspectRatio: StoryAspectRatio | string | undefi
   return 'aspect-video';
 }
 
+export function storyAspectRatioFromDimensions(
+  width: number,
+  height: number,
+  fallback: StoryAspectRatio = '16:9',
+): StoryAspectRatio {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return fallback;
+  const ratio = width / height;
+  if (Math.abs(ratio - 1) <= 0.08) return '1:1';
+  return ratio < 1 ? '9:16' : '16:9';
+}
+
 export function normalizeStoryAspectRatio(value: unknown): StoryAspectRatio {
   if (value === '1:1') return '1:1';
   return value === '9:16' ? '9:16' : '16:9';

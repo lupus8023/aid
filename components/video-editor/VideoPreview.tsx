@@ -1,8 +1,8 @@
 'use client';
 
-import { useRef, useEffect, useMemo } from 'react';
+import { useRef, useEffect, useMemo, useState } from 'react';
 import { VideoClip } from './types';
-import { storyAspectClass, type StoryAspectRatio } from '@/lib/storyAspectRatio';
+import { storyAspectClass, storyAspectRatioFromDimensions, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 
 interface VideoPreviewProps {
   clips: VideoClip[];
@@ -17,6 +17,7 @@ export default function VideoPreview({ clips, currentTime, isPlaying, onTimeUpda
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const currentClipRef = useRef<string | null>(null);
   const lastReportedTimeRef = useRef(0);
+  const [detectedAspects, setDetectedAspects] = useState<Record<string, StoryAspectRatio>>({});
 
   const timeline = useMemo(() => {
     let accumulatedTime = 0;
@@ -41,6 +42,8 @@ export default function VideoPreview({ clips, currentTime, isPlaying, onTimeUpda
       relativeTime: Math.min(found.clip.duration - found.clip.trimEnd, clampedTime - found.start + found.clip.trimStart),
     };
   };
+  const activeClipId = getCurrentClip()?.clip.id;
+  const activeAspectRatio = (activeClipId && detectedAspects[activeClipId]) || aspectRatio;
 
   useEffect(() => {
     const current = getCurrentClip();
@@ -71,7 +74,7 @@ export default function VideoPreview({ clips, currentTime, isPlaying, onTimeUpda
   }, [currentTime, clips, isPlaying, totalDuration]);
 
   return (
-    <div className={`relative mx-auto max-h-[62vh] overflow-hidden rounded bg-black ${storyAspectClass(aspectRatio)}`}>
+    <div className={`relative mx-auto max-h-[62vh] overflow-hidden rounded bg-black ${storyAspectClass(activeAspectRatio)} ${activeAspectRatio === '9:16' ? 'max-w-[360px]' : 'w-full'}`}>
       {clips.map((clip, index) => (
         <video
           key={clip.id}
@@ -84,6 +87,10 @@ export default function VideoPreview({ clips, currentTime, isPlaying, onTimeUpda
           style={{ opacity: index === 0 ? 1 : 0 }}
           muted
           preload="auto"
+          onLoadedMetadata={(event) => {
+            const detected = storyAspectRatioFromDimensions(event.currentTarget.videoWidth, event.currentTarget.videoHeight, aspectRatio);
+            setDetectedAspects(current => current[clip.id] === detected ? current : { ...current, [clip.id]: detected });
+          }}
           onTimeUpdate={(e) => {
             const current = getCurrentClip();
             if (!current || current.clip.id !== clip.id) return;
