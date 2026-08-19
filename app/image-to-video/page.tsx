@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Upload, Video, X, Settings, Home, ChevronDown, ChevronUp, Edit, Clock3, Volume2, Layers3 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -27,12 +27,24 @@ export default function ImageToVideoPage() {
   const [videoUrls, setVideoUrls] = useState<string[]>([]);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
   const [prompt, setPrompt] = useState('');
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [cameraParams, setCameraParams] = useState('');
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16' | '1:1'>('16:9');
   const [duration, setDuration] = useState(5);
   const [quality, setQuality] = useState<'480p' | '720p'>('480p');
   const [comfyWorkflowMode, setComfyWorkflowMode] = useState<'single_reference' | 'multi_reference' | 'first_last'>('single_reference');
   const [isGenerating, setIsGenerating] = useState(false);
+
+  useLayoutEffect(() => {
+    const textarea = promptTextareaRef.current;
+    if (!textarea) return;
+    const minHeight = 192;
+    const maxHeight = 512;
+    textarea.style.height = 'auto';
+    const contentHeight = Math.max(minHeight, textarea.scrollHeight);
+    textarea.style.height = `${Math.min(contentHeight, maxHeight)}px`;
+    textarea.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
+  }, [prompt]);
 
   // 根据 videoModel 动态调整参数
   const videoProvider = settings.videoProvider || 'apimart';
@@ -634,12 +646,13 @@ export default function ImageToVideoPage() {
                   {isComfyUI ? 'Video & Sound Prompt' : 'Motion Description'}
                 </h2>
                 <textarea
+                  ref={promptTextareaRef}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder={isComfyUI
                     ? '描述画面动作、镜头、角色对白、环境声和音乐。H3 会原生生成同步音视频。'
                     : 'Describe the motion effect you want, e.g., camera slowly pushes in, person smiles and turns head...'}
-                  className="w-full h-24 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-3 text-sm text-[var(--text-primary)] resize-none focus:outline-none focus:border-[var(--accent-blue)] font-mono"
+                  className="w-full min-h-48 max-h-[32rem] bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-3 text-sm leading-6 text-[var(--text-primary)] resize-y focus:outline-none focus:border-[var(--accent-blue)] font-mono"
                 />
                 {isComfyUI && (
                   <p className="mt-2 text-xs font-mono text-[var(--text-secondary)]">
