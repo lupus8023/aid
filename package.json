@@ -1,6 +1,6 @@
 {
   "name": "aid",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -19,6 +19,7 @@
     "test:no-subtitles": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/no-subtitles.test.mjs",
     "test:h3-prompt": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/h3-prompt-structure.test.mjs",
     "test:grid-preprocess": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/grid-preprocess.test.mjs",
+    "test:local-export": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/local-video-export.test.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

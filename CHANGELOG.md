@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.19 - 2026-08-19
+
+### Added
+
+- Story export now downloads every completed H3 segment to durable Companion storage before starting FFmpeg, so a browser refresh no longer discards the film's source clips.
+- Native export jobs persist their manifest, normalized intermediates, progress and final output under the Companion data directory and resume after a Companion restart.
+
+### Fixed
+
+- Story export no longer remains indefinitely at 5% while waiting for browser FFmpeg WASM; Companion v0.1.19 performs the merge with its bundled native FFmpeg.
+- Segment download, per-segment normalization and final concatenation now retry independently up to three times. SHA-256-verified downloads and valid intermediate files are reused instead of repeated.
+- Native export normalizes resolution, frame rate, pixel format and audio layout, including silent audio for clips without a sound track, before a stream-copy final merge.
+- Failed native jobs retain a browser recovery marker and automatically restart when the same project returns to Export; completed jobs stream directly from Companion without loading the whole film into browser WASM memory.
+- The optional browser-only exporter now times out with an actionable Companion message instead of hanging forever during FFmpeg initialization.
+
 ## 0.1.18 - 2026-08-19
 
 ### Fixed

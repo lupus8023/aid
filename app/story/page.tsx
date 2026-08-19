@@ -1496,6 +1496,9 @@ export default function StoryPage() {
             {currentStep === 6 && (
               <Step6
                 storyboards={storyboards}
+                projectId={projectId}
+                projectName={projectName}
+                companionSettings={settings.comfyui}
                 onBack={() => setCurrentStep(5)}
               />
             )}

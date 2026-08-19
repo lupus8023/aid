@@ -1,13 +1,17 @@
 import VideoEditor from './video-editor/VideoEditor';
 import { Storyboard } from '@/types';
 import { ArrowLeft } from 'lucide-react';
+import type { AppSettings } from '@/types';
 
 interface Step6Props {
   storyboards: Storyboard[];
   onBack: () => void;
+  projectId: string;
+  projectName?: string;
+  companionSettings?: Partial<NonNullable<AppSettings['comfyui']>>;
 }
 
-export default function Step6({ storyboards, onBack }: Step6Props) {
+export default function Step6({ storyboards, onBack, projectId, projectName, companionSettings }: Step6Props) {
   const seenSegments = new Set<string>();
   const completedShots = storyboards
     .map((storyboard, originalIndex) => ({ storyboard, originalIndex }))
@@ -42,7 +46,13 @@ export default function Step6({ storyboards, onBack }: Step6Props) {
 
       {videoUrls.length > 0 ? (
         <div className="flex-1 border border-[var(--border-color)] rounded overflow-hidden">
-          <VideoEditor initialVideos={videoUrls} continuousFromPrevious={continuousFromPrevious} />
+          <VideoEditor
+            initialVideos={videoUrls}
+            continuousFromPrevious={continuousFromPrevious}
+            projectId={projectId}
+            projectName={projectName}
+            companionSettings={companionSettings}
+          />
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">

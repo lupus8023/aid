@@ -1,17 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { VideoClip } from './types';
 import Timeline from './Timeline';
 import VideoPreview from './VideoPreview';
 import TrimPanel from './TrimPanel';
 import { Play, Pause, Download } from 'lucide-react';
 import { exportVideo } from '@/lib/video-exporter';
+import { exportVideoWithCompanion, hasPendingNativeExport } from '@/lib/companionVideoExporter';
+import type { AppSettings } from '@/types';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS, CONTINUITY_HEAD_TRIM_SECONDS } from '@/lib/videoContinuity';
 
 interface VideoEditorProps {
   initialVideos: string[];
   continuousFromPrevious?: boolean[];
+  projectId?: string;
+  projectName?: string;
+  companionSettings?: Partial<NonNullable<AppSettings['comfyui']>>;
 }
 
 type ExportStatus = { progress: number; stage: string };
@@ -26,7 +31,13 @@ function recalculateStartTimes(clipList: VideoClip[]): VideoClip[] {
   });
 }
 
-export default function VideoEditor({ initialVideos, continuousFromPrevious }: VideoEditorProps) {
+export default function VideoEditor({
+  initialVideos,
+  continuousFromPrevious,
+  projectId,
+  projectName,
+  companionSettings,
+}: VideoEditorProps) {
   const continuityFlags = continuousFromPrevious ?? EMPTY_CONTINUITY_FLAGS;
   const [clips, setClips] = useState<VideoClip[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
@@ -36,6 +47,7 @@ export default function VideoEditor({ initialVideos, continuousFromPrevious }: V
   const [exportStatus, setExportStatus] = useState<ExportStatus>({ progress: 0, stage: '' });
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const recoveryStartedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,33 +139,52 @@ export default function VideoEditor({ initialVideos, continuousFromPrevious }: V
     setCurrentTime(Math.max(0, Math.min(totalDuration, clip.startTime + clipTime - clip.trimStart)));
   };
 
-  const handleExport = async () => {
+  const handleExport = async (automaticRecovery = false) => {
     if (clips.length === 0) return;
 
     setIsExporting(true);
     setExportStatus({ progress: 0, stage: '准备导出' });
 
     try {
-      const blob = await exportVideo(clips, (progress, stage = '') => {
-        setExportStatus({ progress, stage });
-      });
-
-      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `edited-video-${Date.now()}.mp4`;
+      if (projectId && companionSettings?.useLocalCompanion !== false) {
+        const result = await exportVideoWithCompanion(clips, {
+          projectId,
+          projectName,
+          settings: companionSettings,
+          onProgress: (progress, stage = '') => setExportStatus({ progress, stage }),
+        });
+        a.href = result.downloadUrl;
+        a.download = result.fileName;
+      } else {
+        const blob = await exportVideo(clips, (progress, stage = '') => {
+          setExportStatus({ progress, stage });
+        });
+        const url = URL.createObjectURL(blob);
+        a.href = url;
+        a.download = `${projectName || 'AID-Story'}-${Date.now()}.mp4`;
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
       a.click();
-      // Revoking synchronously can cancel a large download before the browser
-      // has opened the blob stream.
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (error) {
       console.error('Export failed:', error);
-      alert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      if (!automaticRecovery) alert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      else setExportStatus({ progress: 0, stage: `自动恢复失败：${error instanceof Error ? error.message : '未知错误'}` });
     } finally {
       setIsExporting(false);
-      setExportStatus({ progress: 0, stage: '' });
+      if (!automaticRecovery) setExportStatus({ progress: 0, stage: '' });
     }
   };
+
+  useEffect(() => {
+    if (isLoading || clips.length === 0 || recoveryStartedRef.current || !projectId) return;
+    if (!hasPendingNativeExport(projectId)) return;
+    recoveryStartedRef.current = true;
+    void handleExport(true);
+    // Recovery is intentionally evaluated only when this project's clips have
+    // finished loading. The persistent marker is cleared only after success.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, clips.length, projectId]);
 
   if (isLoading) {
     return <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)] font-mono text-sm">Loading videos...</div>;
@@ -188,15 +219,17 @@ export default function VideoEditor({ initialVideos, continuousFromPrevious }: V
               {isPlaying ? 'Pause' : 'Play'}
             </button>
             <button
-              onClick={handleExport}
+              onClick={() => void handleExport(false)}
               disabled={isExporting || clips.length === 0}
               className="flex items-center gap-2 px-4 py-2 text-xs font-mono bg-[var(--accent-green)] hover:bg-[#5dd18d] text-white rounded disabled:opacity-50"
             >
               <Download size={16} />
               {isExporting ? `Exporting... ${Math.round(exportStatus.progress)}%` : 'Export Video'}
             </button>
-            {isExporting && exportStatus.stage && (
-              <span className="text-xs font-mono text-[var(--text-secondary)]">{exportStatus.stage}</span>
+            {exportStatus.stage && (isExporting || exportStatus.stage.startsWith('自动恢复失败')) && (
+              <span className={`text-xs font-mono ${exportStatus.stage.startsWith('自动恢复失败') ? 'text-[var(--accent-red)]' : 'text-[var(--text-secondary)]'}`}>
+                {exportStatus.stage}
+              </span>
             )}
           </div>
         </div>

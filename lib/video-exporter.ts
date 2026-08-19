@@ -8,11 +8,24 @@ type ProgressCallback = (progress: number, stage?: string) => void;
 async function getFFmpeg(onProgress?: ProgressCallback): Promise<FFmpeg> {
   if (!ffmpeg) {
     onProgress?.(5, '准备 FFmpeg');
-    ffmpeg = new FFmpeg();
-    ffmpeg.on('log', ({ message }) => {
+    const instance = new FFmpeg();
+    ffmpeg = instance;
+    instance.on('log', ({ message }) => {
       console.log('FFmpeg:', message);
     });
-    await ffmpeg.load();
+    try {
+      await Promise.race([
+        instance.load(),
+        new Promise<never>((_, reject) => window.setTimeout(
+          () => reject(new Error('浏览器 FFmpeg 加载超时；请启动新版 Companion 使用本机合并')),
+          30_000,
+        )),
+      ]);
+    } catch (error) {
+      try { instance.terminate(); } catch {}
+      if (ffmpeg === instance) ffmpeg = null;
+      throw error;
+    }
   }
   return ffmpeg;
 }

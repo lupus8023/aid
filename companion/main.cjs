@@ -80,6 +80,9 @@ function startServer(privatePath, privatePem, directSshHost = '') {
       AID_LOCAL_COMPANION: '1',
       AID_COMPANION_SYSTEM_SSH: process.platform === 'win32' ? '0' : '1',
       AID_COMPANION_VERSION: app.getVersion(),
+      // Native export jobs and their downloaded H3 segments must survive a
+      // renderer refresh and a Companion restart.
+      AID_COMPANION_DATA_DIR: app.getPath('userData'),
       // macOS/Linux ship OpenSSH and it is considerably more resilient on the
       // high-latency X-GPU gateway. Windows keeps the bundled ssh2 path so the
       // Companion does not depend on an optional Windows feature.

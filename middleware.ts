@@ -11,6 +11,7 @@ function corsHeaders(response: NextResponse, origin: string): NextResponse {
   response.headers.set('Access-Control-Allow-Origin', origin);
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   response.headers.set('Access-Control-Allow-Headers', 'Content-Type');
+  response.headers.set('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length');
   response.headers.set('Access-Control-Allow-Private-Network', 'true');
   response.headers.set('Access-Control-Max-Age', '86400');
   response.headers.append('Vary', 'Origin');
@@ -35,6 +36,7 @@ export const config = {
   matcher: [
     '/api/comfyui/test',
     '/api/companion/status',
+    '/api/companion/export/:path*',
     '/api/comfyui/download',
     '/api/comfyui/character-replace',
     '/api/generate-video',
