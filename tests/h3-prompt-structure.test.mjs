@@ -38,7 +38,7 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   assert.match(prompt, /alone speaks exactly once/);
   assert.match(prompt, /FOREGROUND SPEECH:/);
   assert.match(prompt, /BACKGROUND HUMAN: none/);
-  assert.match(prompt, /Do not invent, paraphrase, repeat, overlap or reassign/);
+  assert.match(prompt, /Do not invent, paraphrase, repeat, overlap, swap voices or reassign/);
   assert.match(prompt, /setup and dramatic question/);
   assert.match(prompt, /consequence and emotional landing/);
   assert.equal((prompt.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
@@ -57,6 +57,22 @@ test('keeps silent clips free of all human vocalization and cannot be bypassed b
   assert.match(prompt, /SPEECH CONTRACT: none/);
   assert.match(prompt, /FOREGROUND SPEECH: none/);
   assert.match(prompt, /zero crowd voices, whispers, calls, laughter, humming, singing/);
+});
+
+test('binds multiple sequential dialogue lines to their matching H3 voice references', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, { characters: ['Lin', 'Mei'], speech: [{ speakerId: 'S01', character: 'Lin', exactLine: '你看见了吗？', emotion: 'alert', delivery: 'quietly', volume: 'soft', lipSync: true, source: 'story_required' }] }),
+    shot(2, { characters: ['Lin', 'Mei'], speech: [{ speakerId: 'S02', character: 'Mei', exactLine: '就在门后。', emotion: 'certain', delivery: 'briefly', volume: 'normal', lipSync: true, source: 'story_required' }] }),
+  ], [], { duration: 12, referenceAudioNames: ['Lin', 'Mei'], hasVoiceReferences: true });
+  assert.equal((prompt.match(/你看见了吗？/g) || []).length, 1);
+  assert.equal((prompt.match(/就在门后。/g) || []).length, 1);
+  assert.match(prompt, /<Audio 1> is the voice-timbre reference exclusively for <Subject 1>/);
+  assert.match(prompt, /<Audio 2> is the voice-timbre reference exclusively for <Subject 2>/);
+  assert.match(prompt, /S01\/Lin exactly once only during/);
+  assert.match(prompt, /S02\/Mei exactly once only during/);
+  assert.match(prompt, /Only one scheduled speaker may vocalize at a time/);
+  assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
+  assert.ok(prompt.length <= 7000);
 });
 
 test('writes first/last-frame H3 prompts in the official base-mode structure', () => {

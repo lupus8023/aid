@@ -44,14 +44,16 @@ test('starts a new segment when sequence or location changes', () => {
   assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
 });
 
-test('splits consecutive speaking beats into separate H3 clips', () => {
+test('keeps up to three timed dialogue beats together and splits before the fourth', () => {
   const groups = suggestVideoSegments([
     shot(1, { characters: ['A'], dialogueLines: [{ character: 'A', text: '第一句。' }] }),
     shot(2, { characters: ['B'], dialogueLines: [{ character: 'B', text: '第二句。' }] }),
-    shot(3),
+    shot(3, { characters: ['A'], dialogueLines: [{ character: 'A', text: '第三句。' }] }),
+    shot(4, { characters: ['C'], dialogueLines: [{ character: 'C', text: '第四句。' }] }),
   ]);
-  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2, 3]]);
-  assert.match(validateVideoSegment([groups[0][0], groups[1][0]]), /只允许一条权威台词/);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2, 3], [4]]);
+  assert.equal(validateVideoSegment(groups[0]), undefined);
+  assert.match(validateVideoSegment([shot(1, { characters: ['A'], imageUrl: 'x', dialogueLines: [{ character: 'A', text: '一。' }] }), shot(2, { characters: ['B'], imageUrl: 'x', dialogueLines: [{ character: 'B', text: '二。' }] }), shot(3, { characters: ['C'], imageUrl: 'x', dialogueLines: [{ character: 'C', text: '三。' }] }), shot(4, { characters: ['D'], imageUrl: 'x', dialogueLines: [{ character: 'D', text: '四。' }] })]), /最多安排 3 条/);
 });
 
 test('rejects non-contiguous or oversized manual groups', () => {

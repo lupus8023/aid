@@ -57,13 +57,15 @@ export function suggestVideoSegments(storyboards: Storyboard[]): Storyboard[][] 
     const previous = current.at(-1);
     const locationChanged = Boolean(previous && storyboard.locationId && previous.locationId && storyboard.locationId !== previous.locationId);
     const sequenceChanged = Boolean(previous && storyboard.sequenceId && previous.sequenceId && storyboard.sequenceId !== previous.sequenceId);
-    const wouldMixSpeech = Boolean(current.some(item => storyboardSpeech(item).length) && storyboardSpeech(storyboard).length);
+    const projectedSpeech = [...current, storyboard].flatMap(storyboardSpeech);
+    const speechLimitExceeded = projectedSpeech.length > 3
+      || new Set(projectedSpeech.map(line => line.character)).size > 3;
     const dramaticBreak = Boolean(previous && (
       previous.consequence && storyboard.cause && previous.consequence !== storyboard.cause
       && (previous.transition === 'fade' || storyboard.clipType === 'establishing')
     ));
     const wouldOverflow = currentSeconds + seconds > MAX_H3_SEGMENT_SECONDS;
-    if (current.length >= MAX_H3_STORYBOARDS_PER_SEGMENT || locationChanged || sequenceChanged || wouldMixSpeech || dramaticBreak || wouldOverflow) flush();
+    if (current.length >= MAX_H3_STORYBOARDS_PER_SEGMENT || locationChanged || sequenceChanged || speechLimitExceeded || dramaticBreak || wouldOverflow) flush();
 
     current.push(storyboard);
     currentSeconds += seconds;

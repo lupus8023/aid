@@ -41,12 +41,6 @@ export async function POST(request: NextRequest) {
     const videoStoryboards = Array.isArray(segmentStoryboards) && segmentStoryboards.length
       ? segmentStoryboards.slice(0, 4)
       : [storyboard];
-    const combinedStoryboard = {
-      ...storyboard,
-      characters: [...new Set(videoStoryboards.flatMap((shot: any) => shot.characters || []))],
-      objects: [...new Set(videoStoryboards.flatMap((shot: any) => shot.objects || []))],
-      dialogueLines: videoStoryboards.flatMap(dialogueLineList),
-    };
     if (videoProvider === 'comfyui') {
       if (videoStoryboards.some((shot: any) => !shot.imageUrl || typeof shot.imageUrl !== 'string')) return NextResponse.json({ error: 'Every selected storyboard needs an image' }, { status: 400 });
       if (videoStoryboards.some((shot: any) => shot.imageUrl.startsWith('blob:'))) {
@@ -54,7 +48,7 @@ export async function POST(request: NextRequest) {
       }
       // H3 的所有参考音频总计不能超过 15 秒。只传本镜头真正开口的角色，
       // 避免把画面中未说话角色的声音也计入额度。后续还会在 Companion 端统一裁剪总长。
-      const speakingCharacters = speakingCharacterNames(combinedStoryboard);
+      const speakingCharacters = [...new Set<string>(videoStoryboards.flatMap(speakingCharacterNames))];
       const referenceAudioNames: string[] = [];
       const referenceAudios = speakingCharacters
         .map((name) => ({ name, url: voiceReferences[name] }))

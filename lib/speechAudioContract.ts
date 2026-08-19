@@ -89,9 +89,10 @@ export function validateSpeechContract(storyboards: Storyboard[]): string | unde
     storyboard.speech?.length || storyboard.dialogueLines?.length || Object.keys(storyboard.dialogue || {}).length
   ), 0);
   if (rawCount > lines.length) return '台词中存在未出场角色、空台词或同一镜头多人说话，请先修正剧本';
-  if (lines.length > 1) return '为避免串台和混乱配音，一个 H3 生成片段只允许一条权威台词；系统应拆成独立片段';
-  const line = lines[0];
-  if (line && speechSeconds(line.exactLine) > 11.5) return `台词过长，无法在 15 秒内保留开场留白和说后反应：${line.character}`;
+  if (lines.length > 3) return '一个 H3 片段最多安排 3 条顺序台词，请拆成独立片段';
+  if (new Set(lines.map(line => line.character)).size > 3) return '一个 H3 片段最多绑定 3 个说话角色，请拆成独立片段';
+  const overlong = lines.find(line => speechSeconds(line.exactLine) > 11.5);
+  if (overlong) return `台词过长，无法在 15 秒内保留开场留白和说后反应：${overlong.character}`;
   return undefined;
 }
 
@@ -127,7 +128,7 @@ export function buildAudioManifest(storyboards: Storyboard[], timedSpeech: Timed
   const music = [...new Set(plans.map(plan => plan.music).filter(value => value && value !== 'none'))];
   const allowBackgroundPresence = plans.some(plan => plan.backgroundHuman === 'indistinct_nonverbal');
   const foreground = timedSpeech.length
-    ? `${timedSpeech[0].speakerId}/${timedSpeech[0].character} only, exactly once in its scheduled interval; no words before or after.`
+    ? timedSpeech.map(line => `${line.speakerId}/${line.character} exactly once only during ${line.start.toFixed(2)}–${line.end.toFixed(2)}s`).join('; ')
     : 'none.';
   return [
     `FOREGROUND SPEECH: ${foreground}`,
@@ -136,6 +137,6 @@ export function buildAudioManifest(storyboards: Storyboard[], timedSpeech: Timed
     `FOLEY: ${foley.length ? foley.join('; ') : 'only contacts visibly caused on screen; no decorative hits or whooshes.'}`,
     `MUSIC: ${music.length ? music.join('; ') : 'none.'}`,
     `SILENCE: preserve the written pre-line and post-line reaction gaps; do not fill them with human vocalization.`,
-    `AUTHORITY: this manifest and the timed speech schedule are exhaustive. Do not invent, paraphrase, repeat, overlap or reassign any speech or vocal sound.`,
+    `AUTHORITY: this manifest and the timed speech schedule are exhaustive. Only one scheduled speaker may vocalize at a time. Do not invent, paraphrase, repeat, overlap, swap voices or reassign any speech or vocal sound.`,
   ].join('\n');
 }
