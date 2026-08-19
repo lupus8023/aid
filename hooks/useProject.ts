@@ -12,6 +12,7 @@ export interface ProjectData {
   characters: Character[];
   objects?: ObjectItem[];
   storyContent: string;
+  language?: 'zh' | 'en';
   targetShotCount?: number;
   aspectRatio?: StoryAspectRatio;
   visualStyle?: VisualStyle;
@@ -77,6 +78,7 @@ export function useProject() {
       characters: (data.characters || []).map(cleanCharacter),
       objects: (data.objects || []).map(cleanObject),
       storyContent: data.storyContent || '',
+      language: data.language,
       targetShotCount: data.targetShotCount,
       aspectRatio: data.aspectRatio,
       visualStyle: data.visualStyle,
@@ -102,6 +104,7 @@ export function useProject() {
           name: projectName,
           characters: projectData.characters,
           storyContent: '',
+          language: projectData.language,
           targetShotCount: projectData.targetShotCount,
           aspectRatio: projectData.aspectRatio,
           visualStyle: projectData.visualStyle,

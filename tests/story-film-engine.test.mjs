@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { sanitizeStoryPlan } from '../lib/pipeline/storyWriter.ts';
+import { validateSpeechLanguage } from '../lib/speechAudioContract.ts';
 
 test('sanitizer creates one authoritative, visible and voice-bound speech line per beat', () => {
   const raw = {
@@ -54,4 +55,13 @@ test('sanitizer preserves the story spine and causal beat fields', () => {
   assert.equal(plan.finalChoice, '道歉');
   assert.equal(plan.sequences[0].beats[0].nextCause, '伙伴回头');
   assert.equal(plan.sequences[0].beats[0].dramaticPurpose, '让 A 首次放弃胜负');
+});
+
+test('video speech validation catches a generated Chinese line in an English project', () => {
+  const storyboards = [{
+    id: 'shot-1', sceneNumber: 1, characters: ['A'], objects: [], imageUrl: 'https://example.com/a.jpg',
+    dialogueLines: [{ character: 'A', text: '这不是英文。' }],
+  }];
+  assert.match(validateSpeechLanguage(storyboards, 'en'), /镜头 1/);
+  assert.equal(validateSpeechLanguage(storyboards, 'zh'), undefined);
 });

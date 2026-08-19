@@ -3,7 +3,7 @@ import type { Storyboard } from '@/types';
 import { buildVideoContinuityRules, getProductionStylePreset } from './promptArchitecture';
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds } from './videoSegments';
 import { NO_SUBTITLE_POLICY } from './videoTextPolicy';
-import { buildAudioManifest, buildNonDiegeticMusic, compileTimedSpeech } from './speechAudioContract';
+import { buildAudioManifest, buildNonDiegeticMusic, compileTimedSpeech, validateSpeechLanguage } from './speechAudioContract';
 
 function h3Timestamp(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -62,6 +62,7 @@ export function buildVideoSegmentPrompt(
     hasVoiceReferences?: boolean;
     referenceAudioNames?: string[];
     visualOverride?: string;
+    language?: 'zh' | 'en';
   } = {},
 ): string {
   const first = storyboards[0];
@@ -74,6 +75,8 @@ export function buildVideoSegmentPrompt(
   const referenceOffset = options.firstFrameUrl ? 2 : 1;
   const style = getProductionStylePreset(first.visualStyle);
   const timedSpeech = compileTimedSpeech(storyboards, timeline);
+  const speechLanguageError = validateSpeechLanguage(storyboards, options.language);
+  if (speechLanguageError) throw new Error(speechLanguageError);
   const referenceAudioNames = (options.referenceAudioNames?.length
     ? options.referenceAudioNames
     : characterAudios.map(audio => audio.character)).filter(Boolean).slice(0, 3);
@@ -121,6 +124,12 @@ export function buildVideoSegmentPrompt(
     .replace(/PHYSICS:|CONSTRAINTS:/g, '')
     .trim();
   const soundscape = `${style.sound} ${buildAudioManifest(storyboards, timedSpeech)}`;
+  const projectLanguage = options.language === 'en' ? 'English' : options.language === 'zh' ? 'Mandarin Chinese' : undefined;
+  const spokenLanguageContract = projectLanguage
+    ? timedSpeech.length
+      ? `Spoken-language lock: the project dialogue language is ${projectLanguage}. Every story-generated line must remain in ${projectLanguage}; an explicit user-authored exact quotation keeps its written source language. Pronounce each <d> line exactly as tagged. Never translate, localize, replace, or add dialogue.`
+      : `Spoken-language lock: the project language is ${projectLanguage}, but this clip contains no scheduled speech; do not generate any intelligible words in any language.`
+    : '';
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
 
   if (isFirstLastMode) {
@@ -128,7 +137,7 @@ export function buildVideoSegmentPrompt(
 
 integrated_multimodal_description: ${styleOpening} ${shotDescriptions.join(' ')} ${physics}
 
-overall_soundscape: ${soundscape}
+overall_soundscape: ${soundscape} ${spokenLanguageContract}
 
 non_diegetic_music: ${nonDiegeticMusic}`;
   }
@@ -168,7 +177,7 @@ ${shotDescriptions.join('\n')}
 ${physics}
 
 overall_soundscape:
-${soundscape}
+${soundscape} ${spokenLanguageContract}
 
 non_diegetic_music:
 ${nonDiegeticMusic}`;
@@ -178,6 +187,7 @@ export function buildStoryboardVideoPrompt(
   storyboard: Storyboard,
   characterAudios: { character: string; audioUrl: string }[] = [],
   firstFrameUrl?: string,
+  language?: 'zh' | 'en',
 ): string {
   if (storyboard.videoPromptOverride && storyboard.videoPrompt?.trim()) {
     return buildVideoSegmentPrompt([storyboard], characterAudios, {
@@ -186,11 +196,13 @@ export function buildStoryboardVideoPrompt(
       hasVoiceReferences: characterAudios.length > 0,
       referenceAudioNames: characterAudios.map(audio => audio.character),
       visualOverride: storyboard.videoPrompt.trim(),
+      language,
     });
   }
   return buildVideoSegmentPrompt([storyboard], characterAudios, {
     firstFrameUrl,
     duration: storyboard.videoDuration,
+    language,
   });
 }
 
@@ -203,7 +215,8 @@ export async function generateStoryboardVideo(
   audioFiles: string[] = [],
   characterAudios: { character: string; audioUrl: string }[] = [],
   firstFrameUrl?: string,
-  generateAudio?: boolean
+  generateAudio?: boolean,
+  language?: 'zh' | 'en',
 ): Promise<string> {
   // 确保有生成的图片
   if (!storyboard.imageUrl) {
@@ -215,7 +228,7 @@ export async function generateStoryboardVideo(
     throw new Error(`Scene ${storyboard.sceneNumber} image is not a public URL. Please regenerate the image individually first.`);
   }
 
-  const videoPrompt = buildStoryboardVideoPrompt(storyboard, characterAudios, firstFrameUrl);
+  const videoPrompt = buildStoryboardVideoPrompt(storyboard, characterAudios, firstFrameUrl, language);
 
 
   console.log(`Creating video task for storyboard scene ${storyboard.sceneNumber}`);

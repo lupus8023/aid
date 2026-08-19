@@ -127,6 +127,7 @@ export default function StoryPage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [objects, setObjects] = useState<ObjectItem[]>([]);
   const [storyContent, setStoryContent] = useState('');
+  const [projectLanguage, setProjectLanguage] = useState<'zh' | 'en'>('zh');
   const [targetShotCount, setTargetShotCount] = useState(DEFAULT_TARGET_SHOT_COUNT);
   const [projectAspectRatio, setProjectAspectRatio] = useState<StoryAspectRatio>('16:9');
   const [visualStyle, setVisualStyle] = useState<VisualStyle>(DEFAULT_VISUAL_STYLE);
@@ -258,6 +259,8 @@ export default function StoryPage() {
   const voiceReferencesRef = useRef(voiceReferences);
   const sceneImagesRef = useRef(sceneImages);
   const settingsRef = useRef(settings);
+  const projectLanguageRef = useRef<'zh' | 'en'>(projectLanguage);
+  const projectLanguageLockedRef = useRef(false);
   const projectAspectRatioRef = useRef<StoryAspectRatio>(projectAspectRatio);
   const projectAspectLockedRef = useRef(false);
   const commitStoryboards = (updater: (current: Storyboard[]) => Storyboard[]) => {
@@ -278,8 +281,17 @@ export default function StoryPage() {
     voiceReferencesRef.current = voiceReferences;
     sceneImagesRef.current = sceneImages;
     settingsRef.current = settings;
+    projectLanguageRef.current = projectLanguage;
     projectAspectRatioRef.current = projectAspectRatio;
-  }, [storyboards, characters, objects, costumeImages, voiceReferences, sceneImages, settings, projectAspectRatio]);
+  }, [storyboards, characters, objects, costumeImages, voiceReferences, sceneImages, settings, projectLanguage, projectAspectRatio]);
+
+  useEffect(() => {
+    if (!projectLanguageLockedRef.current) {
+      const language = settings.language === 'en' ? 'en' : 'zh';
+      projectLanguageRef.current = language;
+      setProjectLanguage(language);
+    }
+  }, [settings.language]);
 
   useEffect(() => {
     if (!projectAspectLockedRef.current) {
@@ -305,6 +317,12 @@ export default function StoryPage() {
       setCharacters(savedCharacters);
       setObjects(savedObjects);
       setStoryContent(savedProject.storyContent || '');
+      const savedLanguage = savedProject.language === 'en' || savedProject.language === 'zh' ? savedProject.language : undefined;
+      projectLanguageLockedRef.current = Boolean(savedLanguage);
+      if (savedLanguage) {
+        projectLanguageRef.current = savedLanguage;
+        setProjectLanguage(savedLanguage);
+      }
       setTargetShotCount(normalizeTargetShotCount(savedProject.targetShotCount));
       const savedAspectRatio = projectStoryAspectRatio(savedProject.aspectRatio, savedProject.storyboards || [], settings.aspectRatio);
       projectAspectLockedRef.current = Boolean(
@@ -413,14 +431,14 @@ export default function StoryPage() {
   useEffect(() => {
     const timer = setInterval(() => {
       if (characters.length > 0 || storyContent || storyboards.length > 0) {
-        saveProject({ characters, objects, storyContent, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
+        saveProject({ characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
       }
     }, 30000);
     return () => clearInterval(timer);
-  }, [characters, objects, storyContent, targetShotCount, projectAspectRatio, visualStyle, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, saveProject]);
+  }, [characters, objects, storyContent, projectLanguage, targetShotCount, projectAspectRatio, visualStyle, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, saveProject]);
 
   const handleSave = () => {
-    saveProject({ characters, objects, storyContent, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
+    saveProject({ characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
     alert('Project saved!');
   };
 
@@ -453,6 +471,12 @@ export default function StoryPage() {
         setCharacters(importedCharacters);
         setObjects(importedObjects);
         setStoryContent(data.storyContent || '');
+        const importedLanguage = data.language === 'en' || data.language === 'zh'
+          ? data.language
+          : (settingsRef.current.language === 'en' ? 'en' : 'zh');
+        projectLanguageLockedRef.current = Boolean(data.language);
+        projectLanguageRef.current = importedLanguage;
+        setProjectLanguage(importedLanguage);
         setTargetShotCount(normalizeTargetShotCount(data.targetShotCount));
         const importedAspectRatio = projectStoryAspectRatio(data.aspectRatio, data.storyboards || [], settingsRef.current.aspectRatio);
         projectAspectLockedRef.current = Boolean(data.aspectRatio || (data.storyboards || []).some((item: Storyboard) => item.aspectRatio));
@@ -479,7 +503,7 @@ export default function StoryPage() {
   };
 
   const handleExport = () => {
-    exportProject({ name: projectName, characters, objects, storyContent, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    exportProject({ name: projectName, characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   };
 
   const handleUpdateStoryboard = (updated: Storyboard) => {
@@ -515,7 +539,11 @@ export default function StoryPage() {
 
   const handleSettingsSave = (nextSettings: typeof settings): boolean => {
     if (nextSettings.aspectRatio !== projectAspectRatioRef.current && !handleAspectRatioChange(nextSettings.aspectRatio)) return false;
-    const merged = { ...nextSettings, aspectRatio: projectAspectRatioRef.current };
+    const nextLanguage: 'zh' | 'en' = nextSettings.language === 'en' ? 'en' : 'zh';
+    projectLanguageLockedRef.current = true;
+    projectLanguageRef.current = nextLanguage;
+    setProjectLanguage(nextLanguage);
+    const merged = { ...nextSettings, language: nextLanguage, aspectRatio: projectAspectRatioRef.current };
     settingsRef.current = merged;
     saveSettings(merged);
     return true;
@@ -529,7 +557,7 @@ export default function StoryPage() {
     // hosting gateway reject the request with an HTML 413/5xx page.
     const writerCharacters = characters.map(({ name, description, voiceId }) => ({ name, description, voiceId }));
     const writerObjects = objects.map(({ name, description }) => ({ name, description }));
-    const language = settings.language || 'zh';
+    const language = projectLanguageRef.current;
     // Older Companion builds ignore the structured field below, so append the
     // same production spec to the brief as a backwards-compatible contract.
     const planningSynopsis = `${storyContent.trim()}\n\n${buildShotCountContract(targetShotCount, language)}`;
@@ -997,7 +1025,7 @@ export default function StoryPage() {
     try {
       // Description text can leak wardrobe/appearance words into H3's native
       // soundtrack. Keep the voice sample short, neutral, and unrelated to plot.
-      const sampleText = (settings.language || 'zh') === 'en'
+      const sampleText = projectLanguageRef.current === 'en'
         ? 'Morning light moves softly across the quiet room. I speak clearly, calmly, and naturally.'
         : '清晨的光线缓缓穿过安静房间，我用自然、清晰、平稳的语气说话。';
       const res = await fetch('/api/generate-voice-reference', {
@@ -1036,10 +1064,9 @@ export default function StoryPage() {
       const response = await fetch('/api/generate-video-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle }, segmentStoryboards, apiKey: settings.apiKey })
+        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle }, segmentStoryboards, language: projectLanguageRef.current, apiKey: settings.apiKey })
       });
-      if (!response.ok) throw new Error('Failed to generate video prompt');
-      const data = await response.json();
+      const data = await readApiJson<{ videoPrompt: string }>(response, '视频提示词生成失败');
       if (generationProjectId !== projectIdRef.current) return;
       // Generated previews are informative. The final H3 request is rebuilt
       // with the current segment members and runtime voice references unless
@@ -1048,7 +1075,7 @@ export default function StoryPage() {
     } catch (error) {
       if (generationProjectId !== projectIdRef.current) return;
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: '' } : sb));
-      alert(`Failed to generate video prompt`);
+      alert(`视频提示词生成失败：${error instanceof Error ? error.message : '未知错误'}`);
     }
   };
 
@@ -1101,7 +1128,7 @@ export default function StoryPage() {
     const currentShots = storyboardsRef.current;
     const requestedIds = (requestedSegment?.length ? requestedSegment : [storyboard]).map(item => item.id);
     const segment = currentShots.filter(item => requestedIds.includes(item.id)).sort((a, b) => a.sceneNumber - b.sceneNumber);
-    const validationError = validateVideoSegment(segment);
+    const validationError = validateVideoSegment(segment, projectLanguageRef.current);
     if (validationError) { alert(validationError); return; }
     if (segment.length > 1 && videoProvider !== 'comfyui') {
       alert('多分镜单片段目前使用 MiniMax H3 多图工作流，请先在设置中选择仙宫云 ComfyUI');
@@ -1227,7 +1254,7 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: projectAspectRatioRef.current, characterAudios: leader.characterAudios || [], firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
+        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, language: projectLanguageRef.current, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: projectAspectRatioRef.current, characterAudios: leader.characterAudios || [], firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string }>(response, '视频任务创建失败');
       if (generationProjectId !== projectIdRef.current) return;
@@ -1482,8 +1509,15 @@ export default function StoryPage() {
                 onNext={handleGenerateScript}
                 onBack={() => setCurrentStep(1)}
                 isLoading={isLoading}
-                language={settings.language || 'zh'}
-                onLanguageChange={(lang) => saveSettings({ ...settings, language: lang })}
+                language={projectLanguage}
+                onLanguageChange={(lang) => {
+                  projectLanguageLockedRef.current = true;
+                  projectLanguageRef.current = lang;
+                  setProjectLanguage(lang);
+                  const nextSettings = { ...settingsRef.current, language: lang };
+                  settingsRef.current = nextSettings;
+                  saveSettings(nextSettings);
+                }}
                 targetShotCount={targetShotCount}
                 onTargetShotCountChange={setTargetShotCount}
                 aspectRatio={projectAspectRatio}
@@ -1537,6 +1571,7 @@ export default function StoryPage() {
                 videoModel={settings.videoModel}
                 videoProvider={settings.videoProvider || 'apimart'}
                 aspectRatio={projectAspectRatio}
+                language={projectLanguage}
                 voiceReferences={voiceReferences || {}}
                 onBack={() => setCurrentStep(4)}
                 onNext={() => setCurrentStep(6)}

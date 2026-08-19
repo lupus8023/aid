@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
       characterAudios = [], firstFrameUrl,
       voiceReferences = {},  // { 角色名: CloudinaryURL }
       videoProvider = 'apimart', comfyui = {},
+      language = 'zh',
     } = await request.json();
 
     if (!storyboard) return NextResponse.json({ error: 'Storyboard is required' }, { status: 400 });
@@ -87,6 +88,7 @@ export async function POST(request: NextRequest) {
           visualOverride: storyboard.videoPromptOverride && String(storyboard.videoPrompt || '').trim()
             ? String(storyboard.videoPrompt).trim()
             : undefined,
+          language: language === 'en' ? 'en' : 'zh',
         }),
         duration: Number(storyboard.videoDuration) || 5,
         aspectRatio: aspectRatio || '16:9',
@@ -148,6 +150,7 @@ export async function POST(request: NextRequest) {
       characterAudios,
       firstFrameUrl,
       useGenerateAudio,
+      language === 'en' ? 'en' : 'zh',
     );
 
     console.log('Video task created, ID:', taskId);

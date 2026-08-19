@@ -58,6 +58,19 @@ test('keeps silent clips free of all human vocalization and cannot be bypassed b
   assert.match(prompt, /No background or unlisted person produces any voice/);
 });
 
+test('locks H3 speech to the project language and rejects mismatched generated dialogue', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, { dialogueLines: [{ character: 'Lin', text: 'The answer is already here.' }] }),
+  ], [], { duration: 7, language: 'en' });
+  assert.match(prompt, /<d>\[English\] The answer is already here\.<\/d>/);
+  assert.match(prompt, /Spoken-language lock: the project dialogue language is English/);
+  assert.match(prompt, /Never translate, localize, replace, or add dialogue/);
+
+  assert.throws(() => buildVideoSegmentPrompt([
+    shot(2, { dialogueLines: [{ character: 'Lin', text: '答案就在这里。' }] }),
+  ], [], { duration: 7, language: 'en' }), /项目对白语言为 English/);
+});
+
 test('binds multiple sequential dialogue lines to their matching H3 voice references', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1, { characters: ['Lin', 'Mei'], speech: [{ speakerId: 'S01', character: 'Lin', exactLine: '你看见了吗？', emotion: 'alert', delivery: 'quietly', volume: 'soft', lipSync: true, source: 'story_required' }] }),

@@ -83,6 +83,21 @@ export function storyboardAudioPlan(storyboard: Storyboard): StoryAudioPlan {
   };
 }
 
+export function validateSpeechLanguage(storyboards: Storyboard[], language?: 'zh' | 'en'): string | undefined {
+  if (!language) return undefined;
+  const mismatch = storyboards
+    .flatMap(storyboard => storyboardSpeech(storyboard).map(line => ({ storyboard, line })))
+    .find(({ line }) => {
+      if (line.source === 'user_exact') return false;
+      const containsChinese = /[\u3400-\u9fff]/.test(line.exactLine);
+      const containsEnglish = /[A-Za-z]/.test(line.exactLine);
+      return language === 'en' ? containsChinese : containsEnglish && !containsChinese;
+    });
+  if (!mismatch) return undefined;
+  const expected = language === 'en' ? 'English' : '中文';
+  return `项目对白语言为 ${expected}，但镜头 ${mismatch.storyboard.sceneNumber} 的生成台词语言不一致：${mismatch.line.exactLine}`;
+}
+
 export function validateSpeechContract(storyboards: Storyboard[]): string | undefined {
   const lines = storyboards.flatMap(storyboardSpeech);
   const rawCount = storyboards.reduce((total, storyboard) => total + (

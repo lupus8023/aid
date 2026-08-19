@@ -34,6 +34,7 @@ interface Step5Props {
   videoProvider?: 'apimart' | 'comfyui';
   voiceReferences?: Record<string, string>;
   aspectRatio?: StoryAspectRatio;
+  language?: 'zh' | 'en';
   onBack: () => void;
   onNext: () => void;
   onGenerateVideo: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void;
@@ -74,6 +75,7 @@ export default function Step5({
   videoProvider = 'apimart',
   voiceReferences = {},
   aspectRatio = '16:9',
+  language = 'zh',
   onBack,
   onNext,
   onGenerateVideo,
@@ -113,7 +115,7 @@ export default function Step5({
   const activeLeader = activeGroup[0];
   const activeStatus = segmentStatus(activeGroup);
   const activeSpeech = activeGroup.flatMap(storyboardSpeech);
-  const activeValidationError = activeGroup.length ? validateVideoSegment(activeGroup) : undefined;
+  const activeValidationError = activeGroup.length ? validateVideoSegment(activeGroup, language) : undefined;
   const activeEnvironment = [...new Set(activeGroup.flatMap(item => storyboardAudioPlan(item).environment))];
   const activeFoley = [...new Set(activeGroup.flatMap(item => storyboardAudioPlan(item).foley))];
   const allowsBackgroundHuman = activeGroup.some(item => storyboardAudioPlan(item).backgroundHuman === 'indistinct_nonverbal');
@@ -186,7 +188,7 @@ export default function Step5({
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--workspace-accent)]">05 · Segment edit</p>
           <h2 className="mt-2 text-xl font-semibold text-white"><span className="text-[var(--workspace-accent)]">{withImages.length}</span> 分镜 → <span className="text-[var(--workspace-accent)]">{groups.length}</span> 个视频片段 · 预计 {Math.floor(totalSeconds / 60)}m{String(totalSeconds % 60).padStart(2, '0')}s</h2>
-          <p className="mt-2 text-xs text-[var(--text-secondary)]">MiniMax H3 · 每段 1–4 个节拍 · 最长 15s · AI 已按剧情、地点、台词与节奏自动分组</p>
+          <p className="mt-2 text-xs text-[var(--text-secondary)]">MiniMax H3 · {language === 'en' ? 'English dialogue' : '中文对白'} · 每段 1–4 个节拍 · 最长 15s · AI 已按剧情、地点、台词与节奏自动分组</p>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><HardDrive size={13} />本地缓存 {cachedCount}/{completedCount}</div>
       </header>
@@ -224,7 +226,7 @@ export default function Step5({
                   const left = group.at(-1)!;
                   const right = groups[segmentIndex + 1][0];
                   const mergeCandidate = [...group, ...groups[segmentIndex + 1]];
-                  const canMerge = !validateVideoSegment(mergeCandidate);
+                  const canMerge = !validateVideoSegment(mergeCandidate, language);
                   const canMoveLeft = group.length < 4 && groups[segmentIndex + 1].length > 1;
                   const canMoveRight = group.length > 1 && groups[segmentIndex + 1].length < 4;
                   return (
@@ -248,7 +250,7 @@ export default function Step5({
         <aside className="h-fit rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4 xl:sticky xl:top-4">
           {activeLeader ? (
             <>
-              <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h3 className="text-lg font-semibold text-white">片段 {String(safeActiveIndex + 1).padStart(2, '0')}</h3><StatusLabel status={activeStatus} /></div><p className="mt-1 text-[11px] text-[var(--text-secondary)]">{activeGroup.length} 个节拍 · {estimateVideoSegmentSeconds(activeGroup)}s</p></div><span className="rounded border border-[var(--border-color)] px-2 py-1 font-mono text-[9px] text-[var(--text-secondary)]">MiniMax H3</span></div>
+              <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h3 className="text-lg font-semibold text-white">片段 {String(safeActiveIndex + 1).padStart(2, '0')}</h3><StatusLabel status={activeStatus} /></div><p className="mt-1 text-[11px] text-[var(--text-secondary)]">{activeGroup.length} 个节拍 · {estimateVideoSegmentSeconds(activeGroup)}s</p></div><span className="rounded border border-[var(--border-color)] px-2 py-1 font-mono text-[9px] text-[var(--text-secondary)]">MiniMax H3 · {language === 'en' ? 'EN' : 'ZH'}</span></div>
               {activeLeader.videoUrl && (() => { const activeVideoAspect = detectedVideoAspect(activeLeader.videoUrl, activeLeader.aspectRatio || aspectRatio); return <div className={`relative mx-auto mt-4 max-h-[62vh] overflow-hidden rounded-lg bg-black ${storyAspectClass(activeVideoAspect)} ${activeVideoAspect === '9:16' ? 'max-w-[220px]' : 'w-full'}`}><video src={activeLeader.videoUrl} controls onLoadedMetadata={event => rememberVideoAspect(activeLeader.videoUrl, event.currentTarget)} className="h-full w-full object-contain" /><span className="pointer-events-none absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[9px] text-white">已生成片段</span></div>; })()}
               <div className="mt-4 border-t border-[var(--border-color)] pt-4"><p className="text-[11px] font-semibold text-white">包含分镜</p><div className="mt-3 space-y-2">{activeGroup.map(item => <div key={item.id} className="flex items-center gap-2"><img src={item.imageUrl} alt="" className="h-10 w-14 rounded object-cover" /><div className="min-w-0"><p className="font-mono text-[10px] text-white">镜 {String(item.sceneNumber).padStart(2, '0')}</p><p className="truncate text-[10px] text-[var(--text-muted)]">{item.description}</p></div></div>)}</div></div>
               <div className="mt-4 space-y-2 border-t border-[var(--border-color)] pt-4 text-[11px]"><div className="flex justify-between"><span className="text-[var(--text-secondary)]">时长分配</span><span className="text-white">自动 · {estimateVideoSegmentSeconds(activeGroup)}s</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">连续性检查</span><span className={`inline-flex items-center gap-1 ${activeValidationError ? 'text-red-300' : 'text-emerald-300'}`}><CheckCircle2 size={12} />{activeValidationError || '通过'}</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">权威台词</span><span className="text-white">{activeSpeech.length} 条</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">画面文字</span><span className="text-white">干净画面</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">参考图预处理</span><span className="text-emerald-300">高清压缩</span></div></div>

@@ -1,5 +1,5 @@
 import type { Storyboard } from '@/types';
-import { speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechContract } from './speechAudioContract';
+import { speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechContract, validateSpeechLanguage } from './speechAudioContract';
 
 export const MAX_H3_SEGMENT_SECONDS = 15;
 export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
@@ -31,13 +31,15 @@ export function areContiguousStoryboards(storyboards: Storyboard[]): boolean {
   return storyboards.every((storyboard, index) => index === 0 || storyboard.sceneNumber === storyboards[index - 1].sceneNumber + 1);
 }
 
-export function validateVideoSegment(storyboards: Storyboard[]): string | undefined {
+export function validateVideoSegment(storyboards: Storyboard[], language?: 'zh' | 'en'): string | undefined {
   if (!storyboards.length) return '请至少选择一个分镜';
   if (storyboards.length > MAX_H3_STORYBOARDS_PER_SEGMENT) return `一个 H3 片段最多选择 ${MAX_H3_STORYBOARDS_PER_SEGMENT} 个分镜`;
   if (!areContiguousStoryboards(storyboards)) return '同一视频片段只能选择连续分镜';
   if (storyboards.some(storyboard => !storyboard.imageUrl)) return '所选分镜必须先完成分镜图';
   const speechError = validateSpeechContract(storyboards);
   if (speechError) return speechError;
+  const languageError = validateSpeechLanguage(storyboards, language);
+  if (languageError) return languageError;
   return undefined;
 }
 
