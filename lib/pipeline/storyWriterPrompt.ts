@@ -172,6 +172,7 @@ ${synopsis}
 - transition：默认 "cut"；情绪切换或时间跳转可用 "dissolve"/"fade"。
 - characters/objects 数组为空时写 []。
 - promptDraft：已上传角色用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。
+- cameraMove 必须是单一、可执行的物理运镜，不要把多个方向堆在一起；sceneStyle、promptDraft、audioPlan.environment、audioPlan.foley 和非 none 的 audioPlan.music 必须使用英文，只有 action、剧情字段和台词按项目语言输出。
 - 最终自检 sequences[].beats 的总数必须严格等于 ${targetShots}，beat.index 必须为 1–${targetShots}。
 
 现在请开始，把这个梗概戏剧化成一个完整、有电影感的故事结构。`;

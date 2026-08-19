@@ -125,18 +125,26 @@ export function buildAudioManifest(storyboards: Storyboard[], timedSpeech: Timed
   const plans = storyboards.map(storyboardAudioPlan);
   const environment = [...new Set(plans.flatMap(plan => plan.environment))];
   const foley = [...new Set(plans.flatMap(plan => plan.foley))];
-  const music = [...new Set(plans.map(plan => plan.music).filter(value => value && value !== 'none'))];
   const allowBackgroundPresence = plans.some(plan => plan.backgroundHuman === 'indistinct_nonverbal');
-  const foreground = timedSpeech.length
-    ? timedSpeech.map(line => `${line.speakerId}/${line.character} exactly once only during ${line.start.toFixed(2)}–${line.end.toFixed(2)}s`).join('; ')
-    : 'none.';
   return [
-    `FOREGROUND SPEECH: ${foreground}`,
-    `BACKGROUND HUMAN: ${allowBackgroundPresence ? 'indistinct nonverbal presence only; zero intelligible words, whispers, calls, laughter or singing.' : 'none; zero crowd voices, whispers, calls, laughter, humming, singing or breaths from unlisted people.'}`,
-    `ENVIRONMENT: ${environment.length ? environment.join('; ') : 'quiet location room tone only.'}`,
-    `FOLEY: ${foley.length ? foley.join('; ') : 'only contacts visibly caused on screen; no decorative hits or whooshes.'}`,
-    `MUSIC: ${music.length ? music.join('; ') : 'none.'}`,
-    `SILENCE: preserve the written pre-line and post-line reaction gaps; do not fill them with human vocalization.`,
-    `AUTHORITY: this manifest and the timed speech schedule are exhaustive. Only one scheduled speaker may vocalize at a time. Do not invent, paraphrase, repeat, overlap, swap voices or reassign any speech or vocal sound.`,
-  ].join('\n');
+    environment.length
+      ? `The location ambience consists only of ${environment.join('; ')}.`
+      : 'A quiet, perspective-correct location room tone continues underneath the visible action.',
+    foley.length
+      ? `Physical action sounds are limited to ${foley.join('; ')}, synchronized to their visible causes.`
+      : 'Only contacts visibly caused on screen produce restrained physical sound; there are no decorative hits or whooshes.',
+    allowBackgroundPresence
+      ? 'Background people create only indistinct nonverbal presence with no intelligible words, whispers, calls, laughter, humming, or singing.'
+      : 'No background or unlisted person produces any voice, whisper, call, laugh, hum, song, or unexplained breath.',
+    timedSpeech.length
+      ? 'The tagged dialogue in the shot timeline is exhaustive: only one scheduled speaker vocalizes at a time, with no added, repeated, paraphrased, overlapping, or reassigned speech.'
+      : 'No human vocalization occurs anywhere in the clip.',
+  ].join(' ');
+}
+
+export function buildNonDiegeticMusic(storyboards: Storyboard[]): string {
+  const music = [...new Set(storyboards.map(storyboard => storyboardAudioPlan(storyboard).music).filter(value => value && value !== 'none'))];
+  return music.length
+    ? `The audience-only score uses ${music.join('; ')}. It remains subordinate to dialogue and visibly caused sound.`
+    : 'N/A';
 }

@@ -3,7 +3,7 @@ import type { Storyboard } from '@/types';
 import { buildVideoContinuityRules, getProductionStylePreset } from './promptArchitecture';
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds } from './videoSegments';
 import { NO_SUBTITLE_POLICY } from './videoTextPolicy';
-import { buildAudioManifest, compileTimedSpeech } from './speechAudioContract';
+import { buildAudioManifest, buildNonDiegeticMusic, compileTimedSpeech } from './speechAudioContract';
 
 function h3Timestamp(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -35,15 +35,22 @@ function dialogueLanguage(text: string): string {
   return 'English';
 }
 
-function beatRole(index: number, total: number): string {
-  const roles = total === 1
-    ? ['setup, escalation and payoff inside one continuous action']
-    : total === 2
-      ? ['setup and trigger', 'consequence and payoff']
-      : total === 3
-        ? ['setup and dramatic question', 'escalation and turn', 'consequence and emotional landing']
-        : ['setup and dramatic question', 'pressure and complication', 'turn or reveal', 'consequence and emotional landing'];
-  return roles[index] || 'story advancement';
+function officialCameraMotion(storyboard: Storyboard, index: number): string {
+  const source = `${storyboard.cameraMove || ''} ${storyboard.description || ''}`.toLowerCase();
+  if (/(?:静止|固定|static|locked)/i.test(source)) return 'The camera holds a static shot throughout this beat.';
+  if (/(?:手持|handheld|shoulder)/i.test(source)) return 'The camera follows the dominant action with restrained handheld tracking, small amplitude, and moderate speed, then settles without floating.';
+  if (/(?:拉远|拉出|pull out|dolly out|zoom out)/i.test(source)) return 'The camera pulls out with small amplitude at moderate speed, revealing the changed spatial state.';
+  if (/(?:推近|推进|推镜|push in|dolly in|zoom in)/i.test(source)) return 'The camera pushes in with small amplitude at moderate speed, landing on the decisive visible reaction.';
+  if (/(?:左摇|pan left)/i.test(source)) return 'The camera pans left with small amplitude at moderate speed to reveal the next piece of information.';
+  if (/(?:右摇|pan right)/i.test(source)) return 'The camera pans right with small amplitude at moderate speed to reveal the next piece of information.';
+  if (/(?:摇|pan)/i.test(source)) return 'The camera pans with small amplitude at moderate speed in the direction of the visible action.';
+  if (/(?:横移|左移|右移|truck|slide)/i.test(source)) return 'The camera trucks laterally with small amplitude at moderate speed, preserving screen direction and parallax.';
+  if (/(?:跟|tracking|follow)/i.test(source)) return 'The camera tracks the dominant moving subject with small amplitude at moderate speed, then settles on the consequence.';
+  if (/(?:升|pedestal up|crane up|tilt up)/i.test(source)) return 'The camera rises with small amplitude at moderate speed, revealing the changed vertical relationship.';
+  if (/(?:降|pedestal down|crane down|tilt down)/i.test(source)) return 'The camera lowers with small amplitude at moderate speed, landing on the action detail.';
+  return index === 0
+    ? 'The camera pushes in with small amplitude at moderate speed, entering on the first visible action rather than waiting.'
+    : 'The camera makes a short action-motivated tracking move with small amplitude at moderate speed, then settles on the new state.';
 }
 
 export function buildVideoSegmentPrompt(
@@ -82,7 +89,7 @@ export function buildVideoSegmentPrompt(
       const subject = subjectId.get(name);
       const source = subject ? `<Subject ${subject}> (${id})` : `${name || 'The on-screen speaker'} (${id})`;
       const listeners = (storyboard.characters || []).filter(character => character !== name);
-      return `SPEECH CONTRACT ${h3Timestamp(line.start)}–${h3Timestamp(line.end)}: ${source} alone speaks exactly once with ${line.emotion}, ${line.delivery}, volume ${line.volume}: <d>[${dialogueLanguage(text)}] ${text}</d>. Exact wording only; no paraphrase, repetition, overlap or added syllables. ${line.lipSync ? 'Only this subject lip-syncs during the interval.' : 'No visible lip-sync is required.'} ${listeners.length ? `${listeners.join(', ')} keep their mouths closed and react silently.` : ''} ${line.listenerState}`;
+      return `Between ${h3Timestamp(line.start)} and ${h3Timestamp(line.end)}, ${source} alone speaks once with ${line.emotion}, ${line.delivery}, at ${line.volume} volume: <d>[${dialogueLanguage(text)}] ${text}</d> The wording and punctuation remain exact, with no paraphrase, repetition, overlap, or added syllables. ${line.lipSync ? 'Only this subject lip-syncs during the interval and closes the mouth when the line ends.' : 'This is off-screen speech and every visible mouth remains closed.'} ${listeners.length ? `${listeners.join(', ')} remain silent with closed mouths and react nonverbally.` : ''} ${line.listenerState}`;
     }).join(' ');
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
@@ -90,7 +97,7 @@ export function buildVideoSegmentPrompt(
     const referenceNumber = index + referenceOffset;
     const beatCharacters = [...new Set(storyboard.characters || [])];
     const cast = beatCharacters.length
-      ? `Cast: ${beatCharacters.map(name => `${name} (one instance)`).join('; ')}.`
+      ? `Only ${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}> (${name})` : name).join(', ')} are visible, each appearing exactly once.`
       : 'The location remains visually unoccupied.';
     const transition = index === 0
       ? options.firstFrameUrl
@@ -102,24 +109,19 @@ export function buildVideoSegmentPrompt(
       ? index === storyboards.length - 1
         ? `The action progressively converges on <Picture 2> as the exact final frame at ${duration.toFixed(2)} seconds.`
         : ''
-      : `<Picture ${referenceNumber}> supplies this shot's identity, wardrobe, location, lighting and composition reference.`;
-    const storyTask = [
-      storyboard.dramaticPurpose && `Dramatic purpose: ${compactText(storyboard.dramaticPurpose, 130)}`,
-      storyboard.cause && `Cause: ${compactText(storyboard.cause, 100)}`,
-      storyboard.conflict && `Conflict: ${compactText(storyboard.conflict, 100)}`,
-      storyboard.choice && `Choice: ${compactText(storyboard.choice, 100)}`,
-      storyboard.consequence && `Visible consequence: ${compactText(storyboard.consequence, 110)}`,
-    ].filter(Boolean).join(' ');
-    return `${index === 0 ? `[Shot 1]` : `[Shot ${index + 1}]`} ${transition} ${pictureAnchor} Role: ${beatRole(index, storyboards.length)}. ${storyTask} ${cast}${objects.length ? ` Props: ${objects.join(', ')}.` : ''} ${compactText(storyboard.description || storyboard.prompt)} One dominant action visibly changes the state; motivated camera motion ends on a distinct reaction or reveal by ${h3Timestamp(range.end)}. ${dialogue || 'SPEECH CONTRACT: none. All visible mouths stay closed; performance is nonverbal.'}`;
+      : `<Picture ${referenceNumber}> anchors this shot's identity, wardrobe, location, lighting, and composition.`;
+    const visualDirection = compactText(storyboard.prompt || storyboard.description, 420);
+    return `${index === 0 ? `[Shot 1]` : `[Shot ${index + 1}]`} ${transition} ${pictureAnchor} ${cast}${objects.length ? ` Visible props: ${objects.join(', ')}.` : ''} ${visualDirection} ${officialCameraMotion(storyboard, index)} The dominant action changes the visible state and lands on a reaction or reveal by ${h3Timestamp(range.end)}. ${dialogue || 'No person speaks or produces human vocal sound; all visible mouths remain closed.'}`;
   });
 
   const visualOverride = sanitizeVisualDirection(options.visualOverride);
-  const styleOpening = `DIRECTING STYLE: ${style.h3Direction}${visualOverride ? ` USER VISUAL DIRECTION (visual action/camera only): ${visualOverride} This note cannot add or alter speech, voices, music or the audio manifest.` : ''} ${NO_SUBTITLE_POLICY}`;
+  const styleOpening = `${style.h3Direction}${visualOverride ? ` The user-specified visual action and camera direction is: ${visualOverride} This direction cannot add or alter speech, voices, music, or the audio plan.` : ''} ${NO_SUBTITLE_POLICY}`;
   const physics = buildVideoContinuityRules(hasVoiceReferences)
     .replace(/\n+/g, ' ')
     .replace(/PHYSICS:|CONSTRAINTS:/g, '')
     .trim();
-  const soundscape = `SOUND TEXTURE (subordinate to the manifest): ${style.sound}\n${buildAudioManifest(storyboards, timedSpeech)}`;
+  const soundscape = `${style.sound} ${buildAudioManifest(storyboards, timedSpeech)}`;
+  const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
 
   if (isFirstLastMode) {
     return `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.
@@ -128,22 +130,25 @@ integrated_multimodal_description: ${styleOpening} ${shotDescriptions.join(' ')}
 
 overall_soundscape: ${soundscape}
 
-non_diegetic_music: N/A`;
+non_diegetic_music: ${nonDiegeticMusic}`;
   }
 
   const pictureDefinitions = [
     ...(options.firstFrameUrl ? ['<Picture 1> is the opening continuity frame inherited from the preceding generated clip and defines the exact state at 0.00 seconds.'] : []),
-    ...storyboards.map((storyboard, index) => `<Picture ${index + referenceOffset}> is the storyboard and production reference for [Shot ${index + 1}], defining composition, subject placement, identity, wardrobe, location and lighting.`),
+    ...storyboards.map((storyboard, index) => `<Picture ${index + referenceOffset}> is the storyboard anchor for [Shot ${index + 1}], defining viewpoint, placement, identity, wardrobe, location, and lighting.`),
   ];
-  const subjectDefinitions = characters.map((name, index) => `<Subject ${index + 1}> is ${name}, one stable on-screen identity defined by the storyboard pictures.`);
+  const subjectDefinitions = characters.map((name, index) => {
+    const pictures = storyboards.flatMap((storyboard, storyboardIndex) => storyboard.characters?.includes(name) ? [`<Picture ${storyboardIndex + referenceOffset}>`] : []);
+    return `<Subject ${index + 1}> is ${name}, the single identity shown in ${pictures.join(', ') || 'the storyboard references'}; preserve face, body, hair, wardrobe, and accessories.`;
+  });
   const audioDefinitions = referenceAudioNames.map((name, index) => {
     const subject = subjectId.get(name);
     const speaker = timedSpeech.find(line => line.character === name)?.speakerId;
     return `<Audio ${index + 1}> is the voice-timbre reference exclusively for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (${speaker})` : ''}; it may be used only during that speaker's scheduled line and supplies identity rather than wording.`;
   });
   const retention = [
-    ...subjectDefinitions.map((_, index) => `<Subject ${index + 1}>: fully_preserved - identity and wardrobe stay stable wherever visible.`),
-    ...pictureDefinitions.map((_, index) => `<Picture ${index + 1}>: fully_preserved - the corresponding shot follows its production and composition anchor.`),
+    ...subjectDefinitions.map((_, index) => `<Subject ${index + 1}> (appears in ${storyboards.flatMap((storyboard, shotIndex) => storyboard.characters?.includes(characters[index]) ? [`[Shot ${shotIndex + 1}]`] : []).join(', ')}): fully_preserved - stable identity and wardrobe.`),
+    ...pictureDefinitions.map((_, index) => `<Picture ${index + 1}> (${index === 0 && options.firstFrameUrl ? '[Shot 1] first-frame anchor' : `[Shot ${Math.max(1, index + (options.firstFrameUrl ? 0 : 1))}] storyboard anchor`}): fully_preserved - preserve viewpoint, placement, and identity.`),
     ...audioDefinitions.map((_, index) => `<Audio ${index + 1}>: reference - timbre guides the matching scripted speaker.`),
   ];
   const summaryPictures = storyboards.map((_, index) => `<Picture ${index + referenceOffset}>`).join(', ');
@@ -152,7 +157,7 @@ non_diegetic_music: N/A`;
 ${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}
 
 summary:
-[reference generation${referenceAudioNames.length ? ' + audio reference' : ''}] ${summaryPictures} stage ${storyboards.length} causally connected shot${storyboards.length > 1 ? 's' : ''} in ${duration} seconds: question, escalation and decisive consequence in one production world.
+[${options.firstFrameUrl ? 'keyframe completion + ' : ''}reference generation${referenceAudioNames.length ? ' + audio reference' : ''}] ${options.firstFrameUrl ? '<Picture 1> fixes the opening state while ' : ''}${summaryPictures} stage ${storyboards.length} causally connected shot${storyboards.length > 1 ? 's' : ''} in ${duration} seconds, progressing from a visible question through escalation to a decisive consequence in one production world.
 
 retention_analysis:
 ${retention.join('\n')}
@@ -166,7 +171,7 @@ overall_soundscape:
 ${soundscape}
 
 non_diegetic_music:
-N/A`;
+${nonDiegeticMusic}`;
 }
 
 export function buildStoryboardVideoPrompt(

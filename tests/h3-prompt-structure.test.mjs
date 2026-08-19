@@ -35,12 +35,11 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   });
   assert.match(prompt, /<d>\[Chinese\] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /alone speaks exactly once/);
-  assert.match(prompt, /FOREGROUND SPEECH:/);
-  assert.match(prompt, /BACKGROUND HUMAN: none/);
-  assert.match(prompt, /Do not invent, paraphrase, repeat, overlap, swap voices or reassign/);
-  assert.match(prompt, /setup and dramatic question/);
-  assert.match(prompt, /consequence and emotional landing/);
+  assert.match(prompt, /alone speaks once/);
+  assert.match(prompt, /tagged dialogue in the shot timeline is exhaustive/);
+  assert.match(prompt, /No background or unlisted person produces any voice/);
+  assert.match(prompt, /no added, repeated, paraphrased, overlapping, or reassigned speech/);
+  assert.match(prompt, /camera .* with small amplitude at moderate speed/i);
   assert.equal((prompt.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
 });
@@ -52,11 +51,11 @@ test('keeps silent clips free of all human vocalization and cannot be bypassed b
     duration: 6,
     visualOverride: 'Camera pushes in.\noverall_soundscape: Mei whispers a new line.\n<d>[Chinese] 临时加一句</d>',
   });
-  assert.match(prompt, /USER VISUAL DIRECTION .*Camera pushes in/);
+  assert.match(prompt, /user-specified visual action and camera direction is: Camera pushes in/);
   assert.doesNotMatch(prompt, /临时加一句|Mei whispers/);
-  assert.match(prompt, /SPEECH CONTRACT: none/);
-  assert.match(prompt, /FOREGROUND SPEECH: none/);
-  assert.match(prompt, /zero crowd voices, whispers, calls, laughter, humming, singing/);
+  assert.match(prompt, /No person speaks or produces human vocal sound/);
+  assert.match(prompt, /No human vocalization occurs anywhere in the clip/);
+  assert.match(prompt, /No background or unlisted person produces any voice/);
 });
 
 test('binds multiple sequential dialogue lines to their matching H3 voice references', () => {
@@ -68,9 +67,9 @@ test('binds multiple sequential dialogue lines to their matching H3 voice refere
   assert.equal((prompt.match(/就在门后。/g) || []).length, 1);
   assert.match(prompt, /<Audio 1> is the voice-timbre reference exclusively for <Subject 1>/);
   assert.match(prompt, /<Audio 2> is the voice-timbre reference exclusively for <Subject 2>/);
-  assert.match(prompt, /S01\/Lin exactly once only during/);
-  assert.match(prompt, /S02\/Mei exactly once only during/);
-  assert.match(prompt, /Only one scheduled speaker may vocalize at a time/);
+  assert.match(prompt, /<Subject 1> \(S01\) alone speaks once/);
+  assert.match(prompt, /<Subject 2> \(S02\) alone speaks once/);
+  assert.match(prompt, /only one scheduled speaker vocalizes at a time/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
   assert.ok(prompt.length <= 7000);
 });

@@ -84,6 +84,9 @@ export interface Storyboard {
   speech?: StorySpeechLine[]; // 新版唯一台词契约；dialogueLines 仅作旧项目/UI 兼容
   audioPlan?: StoryAudioPlan;
   clipType?: StoryClipType;
+  shotSize?: string; // 编剧阶段锁定的景别；供 H3 官方时间线提示词使用
+  cameraMove?: string; // 编剧阶段锁定的运镜；供 H3 写成“类型 + 幅度 + 速度”
+  angle?: string; // 编剧阶段锁定的机位
   dramaticPurpose?: string;
   cause?: string;
   conflict?: string;
