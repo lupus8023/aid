@@ -31,6 +31,7 @@ ${storyPlan.sourceBrief || '（旧项目未保存原始输入，请以 StoryPlan
 🎯 最高原则：忠实于 StoryPlan，不重新创作
 - 分镜数量必须等于 ${beatCount}，顺序与 beats 完全一致，不得增删或重排。
 - 台词、景别、运镜、机位、时长、转场、连续关系都来自 beat，你只负责【画面化】。
+- 必须让 dramaticPurpose、cause、conflict、choice、consequence 和 stateBefore/stateAfter 在画面中可见；镜头必须改变信息、关系、决定或物理状态，不能只制造氛围。
 - 不得添加 beat 中没有的情节、台词、旁白、画外音、声音或角色行为。
 - 如果用户原始输入含有 beat 未重复写出的明确视觉、服装、场景或语气要求，必须落实到 description/prompt，但不得改变剧情与镜头数量。
 
@@ -94,6 +95,18 @@ function mergeBeats(
       characters: beat.characters,
       objects: beat.objects,
       dialogueLines: beat.dialogueLines,
+      speech: beat.speech,
+      audioPlan: beat.audioPlan,
+      clipType: beat.clipType,
+      dramaticPurpose: beat.dramaticPurpose,
+      cause: beat.cause,
+      conflict: beat.conflict,
+      choice: beat.choice,
+      consequence: beat.consequence,
+      characterChange: beat.characterChange,
+      nextCause: beat.nextCause,
+      stateBefore: beat.stateBefore,
+      stateAfter: beat.stateAfter,
       durationHint: beat.durationHint,
       videoDuration: beat.durationHint, // 内容驱动时长：让每个镜头有长有短
       transition: beat.transition,

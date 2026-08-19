@@ -44,6 +44,16 @@ test('starts a new segment when sequence or location changes', () => {
   assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
 });
 
+test('splits consecutive speaking beats into separate H3 clips', () => {
+  const groups = suggestVideoSegments([
+    shot(1, { characters: ['A'], dialogueLines: [{ character: 'A', text: '第一句。' }] }),
+    shot(2, { characters: ['B'], dialogueLines: [{ character: 'B', text: '第二句。' }] }),
+    shot(3),
+  ]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2, 3]]);
+  assert.match(validateVideoSegment([groups[0][0], groups[1][0]]), /只允许一条权威台词/);
+});
+
 test('rejects non-contiguous or oversized manual groups', () => {
   assert.match(validateVideoSegment([shot(1), shot(3)]), /连续分镜/);
   assert.match(validateVideoSegment([1, 2, 3, 4, 5].map(number => shot(number))), /最多选择 4/);

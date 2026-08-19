@@ -28,6 +28,7 @@ import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
 import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
 import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@/lib/gridRecovery';
+import { storyboardSpeech } from '@/lib/speechAudioContract';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -1000,25 +1001,18 @@ export default function StoryPage() {
   const handleGenerateAudio = async (storyboard: Storyboard) => {
     if (!settings.fishAudioKey) { alert('Please configure Fish Audio API Key in settings'); return; }
     const generationProjectId = projectIdRef.current;
-    const hasLines = (storyboard.dialogueLines?.length ?? 0) > 0 || Object.keys(storyboard.dialogue || {}).length > 0;
-    if (!hasLines) return;
+    const speech = storyboardSpeech(storyboard);
+    if (!speech.length) return;
 
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, audioStatus: 'generating' } : sb));
     try {
-      // Use ordered dialogueLines if available, fall back to dialogue object
-      const rawLines = storyboard.dialogueLines?.length
-        ? storyboard.dialogueLines
-        : Object.entries(storyboard.dialogue || {}).map(([character, text]) => ({ character, text }));
-
-      const lines = rawLines
-        .filter(l => l.text?.trim())
-        .map(l => {
-          const charName = l.character?.trim().toLowerCase();
+      const lines = speech.map(line => {
+          const charName = line.character.trim().toLowerCase();
           const matched = characters.find(c => c.name.trim().toLowerCase() === charName);
           return {
-            character: l.character,
-            text: l.text,
-            voiceId: matched?.voiceId
+            character: line.character,
+            text: line.exactLine,
+            voiceId: line.voiceId || matched?.voiceId,
           };
         });
 
@@ -1447,6 +1441,7 @@ export default function StoryPage() {
             )}
             {currentStep === 3 && (
               <Step3
+                storyPlan={storyPlan}
                 storyboards={storyboards}
                 characters={characters}
                 objects={objects}
@@ -1485,6 +1480,7 @@ export default function StoryPage() {
                 characters={characters}
                 videoModel={settings.videoModel}
                 videoProvider={settings.videoProvider || 'apimart'}
+                voiceReferences={voiceReferences || {}}
                 onBack={() => setCurrentStep(4)}
                 onNext={() => setCurrentStep(6)}
                 onGenerateVideo={handleGenerateVideo}

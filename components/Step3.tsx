@@ -2,9 +2,11 @@
 
 import { useState } from 'react';
 import { Storyboard, Character, ObjectItem } from '@/types';
+import type { StoryPlan } from '@/lib/pipeline/types';
 import { Loader2, RefreshCw, ZoomIn, X, Mic, MicOff } from 'lucide-react';
 
 interface Step3Props {
+  storyPlan?: StoryPlan;
   storyboards: Storyboard[];
   characters: Character[];
   objects: ObjectItem[];
@@ -62,7 +64,7 @@ function ImageThumb({ src, label, generating, onGenerate, onClear }: {
   );
 }
 
-export default function Step3({ storyboards, characters, objects, costumeImages, costumeGenerating, sceneImages, sceneGenerating, voiceReferences, voiceGenerating, onBack, onNext, onUpdate, onGenerateCostume, onClearCostumeImage, onClearSceneImage, onGenerateVoiceReference, onClearVoiceReference }: Step3Props) {
+export default function Step3({ storyPlan, storyboards, characters, objects, costumeImages, costumeGenerating, sceneImages, sceneGenerating, voiceReferences, voiceGenerating, onBack, onNext, onUpdate, onGenerateCostume, onClearCostumeImage, onClearSceneImage, onGenerateVoiceReference, onClearVoiceReference }: Step3Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedPrompt, setEditedPrompt] = useState('');
   const [draggingScene, setDraggingScene] = useState<string | null>(null);
@@ -82,6 +84,23 @@ export default function Step3({ storyboards, characters, objects, costumeImages,
           Generate character bibles & scene references, then review shots
         </p>
       </div>
+
+      {storyPlan && (
+        <section className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--accent-green)]">Story Bible</p><h3 className="mt-1 text-lg font-semibold text-white">{storyPlan.title || '未命名故事'}</h3><p className="mt-1 max-w-4xl text-xs leading-5 text-[var(--text-secondary)]">{storyPlan.logline}</p></div>
+            <span className="rounded border border-[var(--border-color)] px-2 py-1 font-mono text-[10px] text-[var(--text-secondary)]">{storyPlan.protagonist || '主角未定'}</span>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              ['外在目标', storyPlan.externalWant], ['内在需要', storyPlan.internalNeed],
+              ['失败代价', storyPlan.stakes], ['核心阻碍', storyPlan.obstacle],
+              ['最终选择', storyPlan.finalChoice], ['选择后果', storyPlan.consequence],
+              ['人物变化', storyPlan.change], ['故事锚点', storyPlan.storyAnchor],
+            ].map(([label, value]) => <div key={label} className="rounded-lg border border-white/5 bg-black/10 p-3"><p className="text-[9px] text-[var(--text-muted)]">{label}</p><p className="mt-1 text-[11px] leading-5 text-white">{value || '—'}</p></div>)}
+          </div>
+        </section>
+      )}
 
       {/* Global costume/scene reference panel */}
       <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-4">

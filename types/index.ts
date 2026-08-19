@@ -19,6 +19,38 @@ export interface ObjectItem {
   imageFile?: File;
 }
 
+export type StoryClipType = 'insert' | 'reaction' | 'establishing' | 'action' | 'dialogue' | 'performance' | 'montage' | 'long_take';
+
+export interface StorySpeechLine {
+  speakerId: string; // 全片稳定的说话者编号，不随视频片段重新编号
+  character: string;
+  voiceId?: string; // 与角色绑定的参考音色；没有则不得借用其他角色音色
+  exactLine: string; // 唯一权威台词，视频提示词不得改写或补写
+  emotion: string;
+  delivery: string;
+  volume: 'whisper' | 'soft' | 'normal' | 'raised';
+  lipSync: boolean;
+  listenerState?: string;
+  source: 'user_exact' | 'story_required';
+}
+
+export interface StoryAudioPlan {
+  backgroundHuman: 'none' | 'indistinct_nonverbal';
+  environment: string[];
+  foley: string[];
+  music: string; // 默认 none；只有用户或剧本明确要求才填写
+  silenceBefore: number;
+  silenceAfter: number;
+}
+
+export interface NarrativeState {
+  characters?: string;
+  objects?: string;
+  environment?: string;
+  relationships?: string;
+  emotion?: string;
+}
+
 // 分镜类型
 export interface Storyboard {
   id: string;
@@ -49,6 +81,18 @@ export interface Storyboard {
   audioStatus?: 'generating' | 'completed' | 'failed';
   dialogue?: Record<string, string>; // { 角色名: 台词 } - legacy
   dialogueLines?: { character: string; text: string }[]; // ordered dialogue lines
+  speech?: StorySpeechLine[]; // 新版唯一台词契约；dialogueLines 仅作旧项目/UI 兼容
+  audioPlan?: StoryAudioPlan;
+  clipType?: StoryClipType;
+  dramaticPurpose?: string;
+  cause?: string;
+  conflict?: string;
+  choice?: string;
+  consequence?: string;
+  characterChange?: string;
+  nextCause?: string;
+  stateBefore?: NarrativeState;
+  stateAfter?: NarrativeState;
   videoPrompt?: string; // 视频生成提示词
   videoPromptOverride?: boolean; // 用户或模块化引擎明确生成/编辑的最终提示词
   videoDuration?: number; // 视频时长（秒）；ComfyUI H3 为 2-15，其他模型按各自限制

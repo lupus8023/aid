@@ -1,4 +1,4 @@
-import { Character, ObjectItem, Storyboard } from '@/types';
+import type { Character, NarrativeState, ObjectItem, StoryAudioPlan, Storyboard, StoryClipType, StorySpeechLine } from '@/types';
 
 // 编剧阶段：把「一句话梗概」变成「有欲望/冲突/转折/潜台词/母题」的结构化故事。
 // 这是「全自动」的关键契约——阶段之间传结构化 JSON，而非自由文本。
@@ -22,6 +22,18 @@ export interface Beat {
   characters: string[]; // 本镜头出现的角色（精确匹配上传角色名）
   objects: string[]; // 本镜头出现的道具（精确匹配上传物件名）
   dialogueLines: { character: string; text: string }[]; // 台词（≤1 句/镜，带潜台词）
+  speech: StorySpeechLine[]; // 唯一权威台词源；每 beat 最多一个已出场角色说话
+  audioPlan: StoryAudioPlan; // 人声/环境/拟音/音乐/留白分层，不允许模型自由补人声
+  clipType: StoryClipType;
+  dramaticPurpose: string;
+  cause: string;
+  conflict: string;
+  choice: string;
+  consequence: string;
+  characterChange: string;
+  nextCause: string;
+  stateBefore?: NarrativeState;
+  stateAfter?: NarrativeState;
   durationHint: number; // 建议时长（秒），由台词字数 + 动作权重 + 情绪停顿推导
   transition: 'cut' | 'dissolve' | 'fade' | 'wipe';
   continuityFrom?: number; // 接前一个 beat 的 index（通常 index-1，动作连贯时）
@@ -52,8 +64,18 @@ export interface StoryPlan {
   sourceBrief?: string; // original user input, retained as the source of truth across stages
   intentSummary?: string; // concise understanding of what the user is asking for
   requirements?: StoryRequirement[]; // auditable mapping from explicit asks to beats
+  title: string;
   theme: string; // 主题（一句话说清「谁 + 想得到什么 + 阻碍是什么」）
   logline: string; // 一句话梗概
+  protagonist: string;
+  externalWant: string;
+  internalNeed: string;
+  stakes: string;
+  obstacle: string;
+  finalChoice: string;
+  consequence: string;
+  change: string;
+  storyAnchor: string;
   visualMotif: string; // 视觉母题：一个反复出现的意象/道具承载主题
   emotionalArc: string; // 全片情绪弧线（起点 → 转折 → 终点）
   characters: PlannedCharacter[];

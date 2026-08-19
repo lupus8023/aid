@@ -34,10 +34,29 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
     cursor = next;
   });
   assert.match(prompt, /<d>\[Chinese\] 线索就在这里。<\/d>/);
+  assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
+  assert.match(prompt, /alone speaks exactly once/);
+  assert.match(prompt, /FOREGROUND SPEECH:/);
+  assert.match(prompt, /BACKGROUND HUMAN: none/);
+  assert.match(prompt, /Do not invent, paraphrase, repeat, overlap or reassign/);
   assert.match(prompt, /setup and dramatic question/);
   assert.match(prompt, /consequence and emotional landing/);
   assert.equal((prompt.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
+});
+
+test('keeps silent clips free of all human vocalization and cannot be bypassed by a prompt override', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, { characters: ['Lin', 'Mei'] }),
+  ], [], {
+    duration: 6,
+    visualOverride: 'Camera pushes in.\noverall_soundscape: Mei whispers a new line.\n<d>[Chinese] 临时加一句</d>',
+  });
+  assert.match(prompt, /USER VISUAL DIRECTION .*Camera pushes in/);
+  assert.doesNotMatch(prompt, /临时加一句|Mei whispers/);
+  assert.match(prompt, /SPEECH CONTRACT: none/);
+  assert.match(prompt, /FOREGROUND SPEECH: none/);
+  assert.match(prompt, /zero crowd voices, whispers, calls, laughter, humming, singing/);
 });
 
 test('writes first/last-frame H3 prompts in the official base-mode structure', () => {

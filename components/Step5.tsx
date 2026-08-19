@@ -24,12 +24,14 @@ import {
   suggestVideoSegments,
   validateVideoSegment,
 } from '@/lib/videoSegments';
+import { storyboardAudioPlan, storyboardSpeech } from '@/lib/speechAudioContract';
 
 interface Step5Props {
   storyboards: Storyboard[];
   characters: Character[];
   videoModel?: string;
   videoProvider?: 'apimart' | 'comfyui';
+  voiceReferences?: Record<string, string>;
   onBack: () => void;
   onNext: () => void;
   onGenerateVideo: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void;
@@ -60,12 +62,6 @@ function StatusLabel({ status }: { status: SegmentStatus }) {
   return <span className="inline-flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><i className={`h-2 w-2 rounded-full ${config[1]}`} />{config[0]}</span>;
 }
 
-function dialogueLines(storyboard: Storyboard) {
-  return storyboard.dialogueLines?.length
-    ? storyboard.dialogueLines
-    : Object.entries(storyboard.dialogue || {}).map(([character, text]) => ({ character, text }));
-}
-
 function sameMembers(groups: string[][], storyboards: Storyboard[]) {
   return groups.flat().join('|') === storyboards.map(item => item.id).join('|');
 }
@@ -74,6 +70,7 @@ export default function Step5({
   storyboards,
   videoModel,
   videoProvider = 'apimart',
+  voiceReferences = {},
   onBack,
   onNext,
   onGenerateVideo,
@@ -102,7 +99,11 @@ export default function Step5({
   const activeGroup = groups[safeActiveIndex] || [];
   const activeLeader = activeGroup[0];
   const activeStatus = segmentStatus(activeGroup);
-  const activeDialogue = activeGroup.flatMap(dialogueLines).filter(line => String(line.text || '').trim());
+  const activeSpeech = activeGroup.flatMap(storyboardSpeech);
+  const activeValidationError = activeGroup.length ? validateVideoSegment(activeGroup) : undefined;
+  const activeEnvironment = [...new Set(activeGroup.flatMap(item => storyboardAudioPlan(item).environment))];
+  const activeFoley = [...new Set(activeGroup.flatMap(item => storyboardAudioPlan(item).foley))];
+  const allowsBackgroundHuman = activeGroup.some(item => storyboardAudioPlan(item).backgroundHuman === 'indistinct_nonverbal');
   const totalSeconds = groups.reduce((sum, group) => sum + estimateVideoSegmentSeconds(group), 0);
   const completedCount = isComfyUI ? persistedVideoClipCount(storyboards) : storyboards.filter(item => item.videoStatus === 'completed').length;
   const cachingCount = storyboards.filter(item => item.videoCacheStatus === 'caching').length;
@@ -209,7 +210,8 @@ export default function Step5({
                 {segmentIndex < groups.length - 1 && (() => {
                   const left = group.at(-1)!;
                   const right = groups[segmentIndex + 1][0];
-                  const canMerge = group.length + groups[segmentIndex + 1].length <= 4;
+                  const mergeCandidate = [...group, ...groups[segmentIndex + 1]];
+                  const canMerge = !validateVideoSegment(mergeCandidate);
                   const canMoveLeft = group.length < 4 && groups[segmentIndex + 1].length > 1;
                   const canMoveRight = group.length > 1 && groups[segmentIndex + 1].length < 4;
                   return (
@@ -236,11 +238,17 @@ export default function Step5({
               <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h3 className="text-lg font-semibold text-white">片段 {String(safeActiveIndex + 1).padStart(2, '0')}</h3><StatusLabel status={activeStatus} /></div><p className="mt-1 text-[11px] text-[var(--text-secondary)]">{activeGroup.length} 个节拍 · {estimateVideoSegmentSeconds(activeGroup)}s</p></div><span className="rounded border border-[var(--border-color)] px-2 py-1 font-mono text-[9px] text-[var(--text-secondary)]">MiniMax H3</span></div>
               {activeLeader.videoUrl && <div className="relative mt-4 overflow-hidden rounded-lg"><video src={activeLeader.videoUrl} controls className="aspect-video w-full object-cover" /><span className="pointer-events-none absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[9px] text-white">已生成片段</span></div>}
               <div className="mt-4 border-t border-[var(--border-color)] pt-4"><p className="text-[11px] font-semibold text-white">包含分镜</p><div className="mt-3 space-y-2">{activeGroup.map(item => <div key={item.id} className="flex items-center gap-2"><img src={item.imageUrl} alt="" className="h-10 w-14 rounded object-cover" /><div className="min-w-0"><p className="font-mono text-[10px] text-white">镜 {String(item.sceneNumber).padStart(2, '0')}</p><p className="truncate text-[10px] text-[var(--text-muted)]">{item.description}</p></div></div>)}</div></div>
-              <div className="mt-4 space-y-2 border-t border-[var(--border-color)] pt-4 text-[11px]"><div className="flex justify-between"><span className="text-[var(--text-secondary)]">时长分配</span><span className="text-white">自动 · {estimateVideoSegmentSeconds(activeGroup)}s</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">连续性检查</span><span className="inline-flex items-center gap-1 text-emerald-300"><CheckCircle2 size={12} />通过</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">对话（估算）</span><span className="text-white">{activeDialogue.length} 条</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">画面文字</span><span className="text-white">干净画面</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">参考图预处理</span><span className="text-emerald-300">高清压缩</span></div></div>
+              <div className="mt-4 space-y-2 border-t border-[var(--border-color)] pt-4 text-[11px]"><div className="flex justify-between"><span className="text-[var(--text-secondary)]">时长分配</span><span className="text-white">自动 · {estimateVideoSegmentSeconds(activeGroup)}s</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">连续性检查</span><span className={`inline-flex items-center gap-1 ${activeValidationError ? 'text-red-300' : 'text-emerald-300'}`}><CheckCircle2 size={12} />{activeValidationError || '通过'}</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">权威台词</span><span className="text-white">{activeSpeech.length} 条</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">画面文字</span><span className="text-white">干净画面</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">参考图预处理</span><span className="text-emerald-300">高清压缩</span></div></div>
+
+              <div className="mt-4 rounded-lg border border-[var(--border-color)] bg-black/10 p-3 text-[10px]">
+                <p className="font-semibold text-white">台词与声音白名单</p>
+                {activeSpeech.length ? activeSpeech.map(line => { const hasVoice = Boolean(line.voiceId || voiceReferences[line.character]); return <div key={`${line.speakerId}-${line.exactLine}`} className="mt-2 rounded border border-white/5 p-2"><div className="flex justify-between gap-2"><span className="text-[var(--workspace-accent)]">{line.speakerId} · {line.character}</span><span className={hasVoice ? 'text-emerald-300' : 'text-amber-300'}>{hasVoice ? '音色已绑定' : '未绑定角色音色'}</span></div><p className="mt-1 leading-5 text-white">“{line.exactLine}”</p><p className="mt-1 text-[var(--text-muted)]">只说一次 · 其余人物闭嘴无声反应</p></div>; }) : <p className="mt-2 text-[var(--text-secondary)]">无人声；所有可见人物保持无声表演。</p>}
+                <div className="mt-3 space-y-1 text-[var(--text-secondary)]"><p>背景人声：{allowsBackgroundHuman ? '仅不可辨识的非语言存在感' : '禁止'}</p><p>环境声：{activeEnvironment.length ? activeEnvironment.join('、') : '仅安静场底'}</p><p>拟音：{activeFoley.length ? activeFoley.join('、') : '仅画面可见接触声'}</p><p>音乐：{activeGroup.some(item => storyboardAudioPlan(item).music !== 'none') ? '按剧本指定' : '禁止'}</p></div>
+              </div>
 
               {editingPrompt ? <div className="mt-4"><textarea value={promptDraft} onChange={event => setPromptDraft(event.target.value)} rows={7} className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 text-[10px] leading-5 text-white" /><div className="mt-2 flex gap-2"><button onClick={() => { onUpdate?.({ ...activeLeader, videoPrompt: promptDraft, videoPromptOverride: true }); setEditingPrompt(false); }} className="flex-1 rounded-lg bg-[var(--workspace-accent)] px-3 py-2 text-xs text-[var(--workspace-on-accent)]">保存</button><button onClick={() => setEditingPrompt(false)} className="rounded-lg border border-[var(--border-color)] px-3 py-2 text-xs">取消</button></div></div> : <div className="mt-4 grid grid-cols-2 gap-2"><button onClick={() => onGenerateVideoPrompt?.(activeLeader, activeGroup)} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[10px]"><Wand2 size={12} />刷新提示词</button><button onClick={beginPromptEdit} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[10px]"><RefreshCw size={12} />编辑提示词</button></div>}
 
-              <button onClick={generateActive} disabled={activeStatus === 'generating'} className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[var(--workspace-accent)] text-sm font-semibold text-[var(--workspace-on-accent)] disabled:opacity-50">{activeStatus === 'generating' ? <><Loader2 size={16} className="animate-spin" />正在生成</> : activeStatus === 'completed' ? <><RefreshCw size={15} />重新生成此片段</> : <><Sparkles size={15} />生成此片段</>}</button>
+              <button onClick={generateActive} disabled={activeStatus === 'generating' || Boolean(activeValidationError)} title={activeValidationError} className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[var(--workspace-accent)] text-sm font-semibold text-[var(--workspace-on-accent)] disabled:opacity-50">{activeStatus === 'generating' ? <><Loader2 size={16} className="animate-spin" />正在生成</> : activeStatus === 'completed' ? <><RefreshCw size={15} />重新生成此片段</> : <><Sparkles size={15} />生成此片段</>}</button>
               <p className="mt-2 text-center text-[10px] text-[var(--text-muted)]">最长 15s · 原生同步音频 · 生成后自动缓存</p>
             </>
           ) : <div className="py-12 text-center text-sm text-[var(--text-muted)]">暂无可编排分镜</div>}

@@ -25,7 +25,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
     camera: 'Use one coherent physical camera and lens family inferred from the references. Movement is motivated by action, carries believable inertia and never changes the established rendering pipeline.',
     rhythm: 'Feature-film cause-and-effect cutting. Vary shot scale, enter on action and remove dead air while preserving the reference production’s narrative tone.',
     performance: 'Infer acting scale and motion cadence from the reference medium. Preserve its posture, silhouette, material behavior and degree of imperfection instead of imposing generic cinematic motion.',
-    sound: 'Build restrained, perspective-correct ambience and Foley from the visible location and materials; preserve the reference production’s acoustic character.',
+    sound: 'Build restrained, perspective-correct ambience and visibly caused Foley from the location and materials. Human vocal sound exists only when the authoritative speech manifest schedules it.',
     h3Direction: 'Match the reference medium, lens behavior, performance scale and motion cadence exactly; motivated physical camera, causal cuts and no generic AI glide.',
   },
   {
@@ -35,7 +35,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
     camera: 'Use one plausible physical capture device and lens family for the scene. Preserve human-operated inertia, slight handheld micro-jitter when appropriate, realistic autofocus or focus-pull recovery, exposure adaptation and rolling-shutter behavior; no frictionless AI glide, impossible orbit or perpetual shallow focus.',
     rhythm: 'Decisive feature-film cutting. Enter each beat late and leave early. Alternate wide geography, medium action and meaningful close detail; no empty waiting, decorative drift or uniformly slow movement.',
     performance: 'Subtext-first micro-performance: breath, eye-line and weight shift precede each gesture; anticipation leads to contact, then a visible reaction. People do not pose for the camera or move in slow motion by default.',
-    sound: 'Natural location room tone, perspective-correct voices and restrained tactile Foley. Keep ordinary acoustic imperfections; use no unexplained voices, trailer impacts or decorative music.',
+    sound: 'Natural location room tone and restrained tactile Foley. Keep ordinary acoustic imperfections; human voices exist only when the authoritative speech manifest schedules them, with no extra breaths, murmurs, laughter or dialogue.',
     h3Direction: 'Authentic direct-camera live action: real skin and fabric, finite exposure, natural white balance, optical motion blur, slight human-operated inertia and focus recovery. Subtext-first micro-performance; enter late, leave early.',
   },
   {

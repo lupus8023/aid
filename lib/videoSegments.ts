@@ -1,25 +1,30 @@
 import type { Storyboard } from '@/types';
+import { speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechContract } from './speechAudioContract';
 
 export const MAX_H3_SEGMENT_SECONDS = 15;
 export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
 
-function dialogueSeconds(storyboard: Storyboard): number {
-  const text = (storyboard.dialogueLines || []).map(line => line.text).join(' ')
-    || Object.values(storyboard.dialogue || {}).join(' ');
-  const han = (text.match(/[\u3400-\u9fff]/g) || []).length;
-  const words = (text.replace(/[\u3400-\u9fff]/g, ' ').match(/[A-Za-z0-9']+/g) || []).length;
-  return han / 4 + words / 2.5;
-}
-
 export function estimateStoryboardBeatSeconds(storyboard: Storyboard): number {
-  const spoken = dialogueSeconds(storyboard);
-  const visual = Math.min(4, Math.max(2, Number(storyboard.durationHint || storyboard.videoDuration || 5) * 0.6));
-  return Math.min(MAX_H3_SEGMENT_SECONDS, Math.max(visual, spoken ? spoken + 0.8 : 0));
+  const line = storyboardSpeech(storyboard)[0];
+  const plan = storyboardAudioPlan(storyboard);
+  const hint = Number(storyboard.durationHint || storyboard.videoDuration || 5);
+  const typeFloor: Record<string, number> = {
+    insert: 2, reaction: 3, establishing: 3, action: 3.5,
+    dialogue: 5, performance: 5, montage: 2, long_take: 10,
+  };
+  const typeCeiling: Record<string, number> = {
+    insert: 4, reaction: 5, establishing: 6, action: 7,
+    dialogue: 8, performance: 8, montage: 4, long_take: 15,
+  };
+  const clipType = storyboard.clipType || (line ? 'dialogue' : 'action');
+  const visual = Math.min(typeCeiling[clipType] || 7, Math.max(typeFloor[clipType] || 3.5, hint * 0.7));
+  const spoken = line ? speechSeconds(line.exactLine) + plan.silenceBefore + plan.silenceAfter : 0;
+  return Math.min(MAX_H3_SEGMENT_SECONDS, Math.max(visual, spoken));
 }
 
 export function estimateVideoSegmentSeconds(storyboards: Storyboard[]): number {
   const total = storyboards.reduce((sum, storyboard) => sum + estimateStoryboardBeatSeconds(storyboard), 0);
-  return Math.min(MAX_H3_SEGMENT_SECONDS, Math.max(5, Math.round(total)));
+  return Math.min(MAX_H3_SEGMENT_SECONDS, Math.max(3, Math.round(total)));
 }
 
 export function areContiguousStoryboards(storyboards: Storyboard[]): boolean {
@@ -31,6 +36,8 @@ export function validateVideoSegment(storyboards: Storyboard[]): string | undefi
   if (storyboards.length > MAX_H3_STORYBOARDS_PER_SEGMENT) return `一个 H3 片段最多选择 ${MAX_H3_STORYBOARDS_PER_SEGMENT} 个分镜`;
   if (!areContiguousStoryboards(storyboards)) return '同一视频片段只能选择连续分镜';
   if (storyboards.some(storyboard => !storyboard.imageUrl)) return '所选分镜必须先完成分镜图';
+  const speechError = validateSpeechContract(storyboards);
+  if (speechError) return speechError;
   return undefined;
 }
 
@@ -50,8 +57,13 @@ export function suggestVideoSegments(storyboards: Storyboard[]): Storyboard[][] 
     const previous = current.at(-1);
     const locationChanged = Boolean(previous && storyboard.locationId && previous.locationId && storyboard.locationId !== previous.locationId);
     const sequenceChanged = Boolean(previous && storyboard.sequenceId && previous.sequenceId && storyboard.sequenceId !== previous.sequenceId);
+    const wouldMixSpeech = Boolean(current.some(item => storyboardSpeech(item).length) && storyboardSpeech(storyboard).length);
+    const dramaticBreak = Boolean(previous && (
+      previous.consequence && storyboard.cause && previous.consequence !== storyboard.cause
+      && (previous.transition === 'fade' || storyboard.clipType === 'establishing')
+    ));
     const wouldOverflow = currentSeconds + seconds > MAX_H3_SEGMENT_SECONDS;
-    if (current.length >= MAX_H3_STORYBOARDS_PER_SEGMENT || locationChanged || sequenceChanged || wouldOverflow) flush();
+    if (current.length >= MAX_H3_STORYBOARDS_PER_SEGMENT || locationChanged || sequenceChanged || wouldMixSpeech || dramaticBreak || wouldOverflow) flush();
 
     current.push(storyboard);
     currentSeconds += seconds;

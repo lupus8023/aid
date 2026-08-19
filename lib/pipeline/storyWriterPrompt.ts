@@ -1,4 +1,4 @@
-import { WriterCharacter, WriterObject } from './types';
+import type { WriterCharacter, WriterObject } from './types';
 import { normalizeTargetShotCount, targetDurationSeconds } from './shotCount';
 
 // 编剧阶段 prompt：先准确理解用户约束，再把允许创作的空白发展成结构化故事。
@@ -38,13 +38,18 @@ export function buildStoryPlanPrompt(input: {
 - 只在原文留白处补充因果、动作、过渡和潜台词。补充内容不得与原文冲突。
 - 在输出前逐条自检：每个 must 要求必须能指向至少一个 beat；禁止事项的 coveredBy 可指向落实该约束的相关 beats。
 
-🎯 最高原则：戏剧化，而不是罗列画面
+🎯 Story Engine：先建立故事，再设计镜头
 - 在不违背用户要求时，为故事寻找自然的局面变化；若用户明确要求平静、纪实、无反转，则不要强加转折。
+- 在写 beats 前，先明确 protagonist、externalWant、internalNeed、stakes、obstacle、finalChoice、consequence、change 和 storyAnchor。它们必须贯穿全片，不能只是装饰字段。
 - 每个角色必须有「想要的东西（want）」和「挡着他的东西（obstacle）」，这是戏剧性的根。
+- 每个 beat 必须是因果动作：cause 引发 conflict，角色作出 choice，产生 consequence；consequence 或 nextCause 必须推动下一 beat。
+- 每个 beat 必须有一个可见、可表演的 dramaticPurpose。禁止只写“人物站着、看着、慢慢走、镜头缓缓移动”而没有局面变化。
 - 情绪弧线：起点情绪必须不同于终点情绪（如从压抑→释然，从疏离→靠近）。
 - 台词必须有潜台词（subtext）：嘴上说的 ≠ 心里想的，不直说。
-- 台词必须克制：用户没有明确要求对白、旁白或口播时，默认用动作和表情讲故事，dialogueLines 写 []。只有信息无法用画面表达或用户明确提供台词时才写台词。
+- 台词必须克制：用户没有明确要求对白、旁白或口播时，默认用动作和表情讲故事，speech 写 []。只有信息无法用画面表达或用户明确提供台词时才写台词。
 - 不得为了“电影感”添加旁白、画外音、路人说话、感叹词、笑声、哼唱或无来源的人声。用户给出的指定台词必须逐字保留，不改写、不扩写。
+- speech 是全片唯一权威台词源。每个 beat 最多一条；speaker 必须在当前 characters 中；exactLine 只能说一次。其他可见角色嘴巴闭合、只做无声反应。
+- audioPlan 是唯一权威声音源。backgroundHuman 默认 none；只有剧情明确需要人群存在感时才可用 indistinct_nonverbal，且绝不能产生可辨识词语。环境、拟音、音乐必须分层，未要求音乐时 music 写 none。
 - 视觉母题（visualMotif）：一个反复出现的意象/道具，承载主题，首尾呼应（如一把伞、一盏灯、一封信）。
 
 🌐 输出语言要求（强制）：
@@ -76,6 +81,7 @@ ${synopsis}
 - 无台词动作镜头：2-5 秒。
 - 情绪停顿/留白镜头：4-8 秒（表达「电影感」的关键，不要全片一个速度）。
 - 每个 beat 的 durationHint 是建议时长（秒），可以是一位小数；长镜头与短切交替才有节奏。
+- 按 clipType 控制节奏：insert 2-4秒；reaction/establishing 3-6秒；action 4-7秒；dialogue/performance 5-8秒；montage 2-4秒；long_take 10-15秒。没有叙事理由不要用 long_take。
 
 🎬 镜头/节奏要求
 - 全片必须严格输出 ${targetShots} 个 beats，不多不少；这是制作规格，不是建议。
@@ -99,8 +105,18 @@ ${synopsis}
       "coveredBy": [1, 2]
     }
   ],
+  "title": "片名",
   "theme": "一句话主题（谁 + 想得到什么 + 阻碍是什么）",
   "logline": "一句话梗概",
+  "protagonist": "主角名",
+  "externalWant": "主角表面想得到的具体目标",
+  "internalNeed": "主角真正需要学会或承认的东西",
+  "stakes": "失败会失去什么",
+  "obstacle": "持续阻碍主角的核心力量",
+  "finalChoice": "高潮处主角必须做出的选择",
+  "consequence": "这个选择造成的可见结果",
+  "change": "主角从开场到结尾的变化",
+  "storyAnchor": "贯穿全片并在关键转折回响的故事锚点",
   "visualMotif": "视觉母题（一个反复出现的意象/道具，承载主题）",
   "emotionalArc": "全片情绪弧线（起点 → 转折 → 终点）",
   "characters": [
@@ -122,7 +138,18 @@ ${synopsis}
           "action": "一个明确动作单元 + 情绪氛围（中文）",
           "characters": ["角色名"],
           "objects": ["物体名"],
-          "dialogueLines": [ { "character": "角色名", "text": "用户指定或剧情必需的简短台词（每镜最多一句；否则 []）" } ],
+          "clipType": "insert|reaction|establishing|action|dialogue|performance|montage|long_take",
+          "dramaticPurpose": "本镜头必须改变什么信息、关系或决定",
+          "cause": "导致本镜头发生的直接原因",
+          "conflict": "本镜头中的阻力或两难",
+          "choice": "角色做出的可见选择；没有则写空字符串",
+          "consequence": "选择/动作产生的可见结果",
+          "characterChange": "本镜头前后角色认知或情绪变化",
+          "nextCause": "推动下一镜头的直接原因",
+          "speech": [ { "character": "角色名", "exactLine": "唯一且逐字执行的简短台词", "emotion": "克制的具体情绪", "delivery": "语速、停顿、重音", "volume": "whisper|soft|normal|raised", "lipSync": true, "listenerState": "其他角色的无声反应", "source": "user_exact|story_required" } ],
+          "audioPlan": { "backgroundHuman": "none|indistinct_nonverbal", "environment": ["明确环境声"], "foley": ["由可见动作触发的拟音"], "music": "none 或用户明确要求的音乐", "silenceBefore": 0.8, "silenceAfter": 0.8 },
+          "stateBefore": { "characters": "人物位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "关系状态", "emotion": "情绪状态" },
+          "stateAfter": { "characters": "人物位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "关系状态", "emotion": "情绪状态" },
           "durationHint": 4.5,
           "transition": "cut",
           "continuityFrom": 0,
@@ -140,6 +167,8 @@ ${synopsis}
 - locationId：同一地点的所有镜头用相同 locationId（英文小写下划线，如 cafe、street、room）。
 - sequenceId：同一场（连续时间/地点）的镜头用相同 sequenceId。
 - continuityFrom：需要与前一个镜头动作连贯时，写前一个 beat 的 index；否则写 0。
+- 除非发生明确时空跳转，前一 beat 的 stateAfter 必须与后一 beat 的 stateBefore 一致；不能让人物、道具、关系或情绪无原因复位。
+- source="user_exact" 时 exactLine 必须能在用户原始输入中逐字找到；否则只能写 story_required。绝不输出 narrator、voice-over、路人或当前 characters 之外的 speaker。
 - transition：默认 "cut"；情绪切换或时间跳转可用 "dissolve"/"fade"。
 - characters/objects 数组为空时写 []。
 - promptDraft：已上传角色用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。

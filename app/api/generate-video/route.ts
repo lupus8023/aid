@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildStoryboardVideoPrompt, buildVideoSegmentPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
 import { snapDurationToModel } from '@/lib/apimart';
 import { createComfyUIVideoTask } from '@/lib/comfyui';
-import { enforceNoSubtitles } from '@/lib/videoTextPolicy';
+import { storyboardSpeech } from '@/lib/speechAudioContract';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 function dialogueLineList(storyboard: any): any[] {
+  const speech = storyboardSpeech(storyboard);
+  if (speech.length) return speech.map(line => ({ character: line.character, text: line.exactLine }));
   return Array.isArray(storyboard?.dialogueLines) && storyboard.dialogueLines.length
     ? storyboard.dialogueLines
     : Object.entries(storyboard?.dialogue || {}).map(([character, text]) => ({ character, text }));
@@ -83,11 +85,15 @@ export async function POST(request: NextRequest) {
         referenceAudioNames,
         // H3 generates the synchronized soundtrack natively. Voice samples are
         // optional references, so APIMart's URL-tag syntax must not enter the prompt.
-        prompt: storyboard.videoPromptOverride && String(storyboard.videoPrompt || '').trim()
-          ? enforceNoSubtitles(String(storyboard.videoPrompt).trim())
-          : isMultiBeatSegment
-            ? buildVideoSegmentPrompt(videoStoryboards, [], { firstFrameUrl, duration: Number(storyboard.videoDuration) || 15, hasVoiceReferences: referenceAudios.length > 0, referenceAudioNames })
-            : buildVideoSegmentPrompt([storyboard], [], { firstFrameUrl, duration: Number(storyboard.videoDuration) || 5, hasVoiceReferences: referenceAudios.length > 0, referenceAudioNames }),
+        prompt: buildVideoSegmentPrompt(isMultiBeatSegment ? videoStoryboards : [storyboard], [], {
+          firstFrameUrl,
+          duration: Number(storyboard.videoDuration) || (isMultiBeatSegment ? 15 : 5),
+          hasVoiceReferences: referenceAudios.length > 0,
+          referenceAudioNames,
+          visualOverride: storyboard.videoPromptOverride && String(storyboard.videoPrompt || '').trim()
+            ? String(storyboard.videoPrompt).trim()
+            : undefined,
+        }),
         duration: Number(storyboard.videoDuration) || 5,
         aspectRatio: aspectRatio || '16:9',
         settings: comfyui,
