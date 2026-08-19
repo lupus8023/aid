@@ -29,6 +29,7 @@ export type CompanionExportJob = {
   jobId: string;
   projectId: string;
   outputName: string;
+  aspectRatio?: '16:9' | '9:16' | '1:1';
   status: 'queued' | 'running' | 'retrying' | 'completed' | 'failed';
   progress: number;
   stage: string;
@@ -180,7 +181,7 @@ function normalizeClip(input: CompanionExportClip): CompanionExportClip {
   };
 }
 
-export function exportJobId(clips: CompanionExportClip[]): string {
+export function exportJobId(clips: CompanionExportClip[], aspectRatio?: CompanionExportJob['aspectRatio']): string {
   const signature = clips.map(clip => ({
     id: clip.clipId,
     sha256: clip.segmentSha256,
@@ -188,7 +189,7 @@ export function exportJobId(clips: CompanionExportClip[]): string {
     trimStart: Number(clip.trimStart.toFixed(3)),
     trimEnd: Number(clip.trimEnd.toFixed(3)),
   }));
-  return `export-${createHash('sha256').update(JSON.stringify(signature)).digest('hex').slice(0, 24)}`;
+  return `export-${createHash('sha256').update(JSON.stringify({ signature, aspectRatio })).digest('hex').slice(0, 24)}`;
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -249,6 +250,32 @@ async function retryCommand(label: string, operation: () => Promise<void>): Prom
 }
 
 type MediaProbe = { width: number; height: number; hasAudio: boolean };
+
+function normalizeExportAspectRatio(value: unknown): CompanionExportJob['aspectRatio'] | undefined {
+  return value === '16:9' || value === '9:16' || value === '1:1' ? value : undefined;
+}
+
+export function selectExportTarget(
+  probes: Array<Pick<MediaProbe, 'width' | 'height'>>,
+  aspectRatio?: CompanionExportJob['aspectRatio'],
+): { width: number; height: number } {
+  const first = probes[0];
+  if (!first) throw new Error('没有可导出的片段');
+  if (!aspectRatio) return { width: even(first.width), height: even(first.height) };
+
+  const matches = (probe: Pick<MediaProbe, 'width' | 'height'>) => (
+    aspectRatio === '9:16' ? probe.height > probe.width
+      : aspectRatio === '16:9' ? probe.width > probe.height
+        : Math.abs(probe.width - probe.height) <= Math.max(probe.width, probe.height) * 0.05
+  );
+  const matching = probes.find(matches);
+  if (matching) return { width: even(matching.width), height: even(matching.height) };
+
+  const ratio = aspectRatio === '9:16' ? 9 / 16 : aspectRatio === '16:9' ? 16 / 9 : 1;
+  const pixels = Math.max(4, first.width * first.height);
+  const height = Math.sqrt(pixels / ratio);
+  return { width: even(height * ratio), height: even(height) };
+}
 
 async function probeMedia(filePath: string): Promise<MediaProbe> {
   const output = await new Promise<string>((resolve, reject) => {
@@ -317,8 +344,8 @@ async function runExportOnce(job: CompanionExportJob): Promise<void> {
   for (const input of inputs) {
     if (!(await isValidVideo(input))) throw new Error('本地片段缺失或损坏，请重新下载该片段');
   }
-  const firstProbe = await probeMedia(inputs[0]);
-  const target = { width: even(firstProbe.width), height: even(firstProbe.height) };
+  const probes = await Promise.all(inputs.map(probeMedia));
+  const target = selectExportTarget(probes, job.aspectRatio);
   const normalized: string[] = [];
 
   for (let index = 0; index < job.clips.length; index += 1) {
@@ -414,15 +441,17 @@ export async function createOrResumeExportJob(
   projectId: string,
   clipsInput: CompanionExportClip[],
   outputName?: string,
+  requestedAspectRatio?: unknown,
 ): Promise<CompanionExportJob> {
   if (!projectId || !Array.isArray(clipsInput) || clipsInput.length === 0 || clipsInput.length > 200) {
     throw new Error('导出项目或片段列表无效');
   }
   const clips = clipsInput.map(normalizeClip);
+  const aspectRatio = normalizeExportAspectRatio(requestedAspectRatio);
   for (const clip of clips) {
     await access(segmentPath(projectId, clip.clipId, clip.segmentSha256));
   }
-  const jobId = exportJobId(clips);
+  const jobId = exportJobId(clips, aspectRatio);
   const existing = await readExportJob(projectId, jobId);
   if (existing?.status === 'completed' && await isValidVideo(jobOutputPath(existing))) return existing;
 
@@ -431,6 +460,7 @@ export async function createOrResumeExportJob(
     ...existing,
     clips,
     outputName: String(outputName || existing.outputName || 'AID-Story.mp4').slice(0, 180),
+    aspectRatio,
     status: 'queued',
     attempts: existing.status === 'failed' ? 0 : existing.attempts,
     error: undefined,
@@ -440,6 +470,7 @@ export async function createOrResumeExportJob(
     jobId,
     projectId,
     outputName: String(outputName || 'AID-Story.mp4').slice(0, 180),
+    aspectRatio,
     status: 'queued',
     progress: 8,
     stage: '片段已保存，准备本机合并',

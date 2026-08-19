@@ -6,6 +6,7 @@ import { readApiJson } from '@/lib/apiResponse';
 import { fetchStoryApi } from '@/lib/comfyuiClient';
 import { DEFAULT_TARGET_SHOT_COUNT, SHOT_COUNT_OPTIONS, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import type { AppSettings } from '@/types';
+import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
 
 interface Step1Props {
   storyContent: string;
@@ -22,9 +23,11 @@ interface Step1Props {
   scriptModel?: string;
   dmxApiKey?: string;
   companionSettings?: AppSettings['comfyui'];
+  aspectRatio?: StoryAspectRatio;
+  onAspectRatioChange?: (aspectRatio: StoryAspectRatio) => void;
 }
 
-export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, targetShotCount = DEFAULT_TARGET_SHOT_COUNT, onTargetShotCountChange, apiKey, scriptProvider, scriptModel, dmxApiKey, companionSettings }: Step1Props) {
+export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, targetShotCount = DEFAULT_TARGET_SHOT_COUNT, onTargetShotCountChange, apiKey, scriptProvider, scriptModel, dmxApiKey, companionSettings, aspectRatio = '16:9', onAspectRatioChange }: Step1Props) {
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text');
   const [textInput, setTextInput] = useState(storyContent);
   const [isExpanding, setIsExpanding] = useState(false);
@@ -107,6 +110,15 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
           className={`px-3 py-1 rounded font-mono text-xs transition-colors ${language === 'en' ? 'bg-[var(--accent-blue)] text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
         >English</button>
       </div>
+
+      <section className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div><p className="text-sm font-semibold text-[var(--text-primary)]">成片画幅</p><p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">画幅会在剧本阶段锁定，并统一应用到分镜图、H3 视频和最终导出。</p></div>
+          <div className="grid grid-cols-3 gap-2">
+            {(['16:9', '9:16', '1:1'] as const).map(ratio => <button key={ratio} type="button" aria-pressed={aspectRatio === ratio} onClick={() => onAspectRatioChange?.(ratio)} className={`flex min-w-[104px] items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${aspectRatio === ratio ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/15 text-white' : 'border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--accent-blue)]'}`}><span className={`block rounded-sm border border-current ${ratio === '9:16' ? 'h-8 w-[18px]' : ratio === '1:1' ? 'h-7 w-7' : 'h-[18px] w-8'}`} /><span className="text-left"><b className="block font-mono text-xs">{ratio}</b><small className="text-[9px]">{ratio === '9:16' ? '竖屏' : ratio === '1:1' ? '方形' : '横屏'}</small></span></button>)}
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">

@@ -29,6 +29,7 @@ import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
 import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
 import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@/lib/gridRecovery';
 import { storyboardSpeech } from '@/lib/speechAudioContract';
+import { applyStoryAspectRatio, hasStoryMedia, projectStoryAspectRatio, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -127,6 +128,7 @@ export default function StoryPage() {
   const [objects, setObjects] = useState<ObjectItem[]>([]);
   const [storyContent, setStoryContent] = useState('');
   const [targetShotCount, setTargetShotCount] = useState(DEFAULT_TARGET_SHOT_COUNT);
+  const [projectAspectRatio, setProjectAspectRatio] = useState<StoryAspectRatio>('16:9');
   const [visualStyle, setVisualStyle] = useState<VisualStyle>(DEFAULT_VISUAL_STYLE);
   const [storyboards, setStoryboards] = useState<Storyboard[]>([]);
   const [storyPlan, setStoryPlan] = useState<StoryPlan | undefined>();
@@ -256,6 +258,8 @@ export default function StoryPage() {
   const voiceReferencesRef = useRef(voiceReferences);
   const sceneImagesRef = useRef(sceneImages);
   const settingsRef = useRef(settings);
+  const projectAspectRatioRef = useRef<StoryAspectRatio>(projectAspectRatio);
+  const projectAspectLockedRef = useRef(false);
   const commitStoryboards = (updater: (current: Storyboard[]) => Storyboard[]) => {
     setStoryboards(current => {
       const next = updater(current);
@@ -274,7 +278,16 @@ export default function StoryPage() {
     voiceReferencesRef.current = voiceReferences;
     sceneImagesRef.current = sceneImages;
     settingsRef.current = settings;
-  }, [storyboards, characters, objects, costumeImages, voiceReferences, sceneImages, settings]);
+    projectAspectRatioRef.current = projectAspectRatio;
+  }, [storyboards, characters, objects, costumeImages, voiceReferences, sceneImages, settings, projectAspectRatio]);
+
+  useEffect(() => {
+    if (!projectAspectLockedRef.current) {
+      const ratio = projectStoryAspectRatio(undefined, [], settings.aspectRatio);
+      projectAspectRatioRef.current = ratio;
+      setProjectAspectRatio(ratio);
+    }
+  }, [settings.aspectRatio]);
 
   useEffect(() => {
     const savedProject = loadProject();
@@ -293,9 +306,17 @@ export default function StoryPage() {
       setObjects(savedObjects);
       setStoryContent(savedProject.storyContent || '');
       setTargetShotCount(normalizeTargetShotCount(savedProject.targetShotCount));
+      const savedAspectRatio = projectStoryAspectRatio(savedProject.aspectRatio, savedProject.storyboards || [], settings.aspectRatio);
+      projectAspectLockedRef.current = Boolean(
+        savedProject.aspectRatio
+        || (savedProject.storyboards || []).some(item => item.aspectRatio),
+      );
+      projectAspectRatioRef.current = savedAspectRatio;
+      setProjectAspectRatio(savedAspectRatio);
       setVisualStyle(normalizeVisualStyle(savedProject.visualStyle || settings.visualStyle));
       const savedStoryboards = (savedProject.storyboards || []).map(item => ({
         ...item,
+        aspectRatio: savedAspectRatio,
         imageFailureReason: normalizeSavedImageFailureReason(item.imageFailureReason)
           || (item.status === 'failed' ? '上次分镜生成未完成；请重新生成，系统会定位具体原因并自动修正可恢复的提示词问题' : undefined),
       }));
@@ -392,14 +413,14 @@ export default function StoryPage() {
   useEffect(() => {
     const timer = setInterval(() => {
       if (characters.length > 0 || storyContent || storyboards.length > 0) {
-        saveProject({ characters, objects, storyContent, targetShotCount, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
+        saveProject({ characters, objects, storyContent, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
       }
     }, 30000);
     return () => clearInterval(timer);
-  }, [characters, objects, storyContent, targetShotCount, visualStyle, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, saveProject]);
+  }, [characters, objects, storyContent, targetShotCount, projectAspectRatio, visualStyle, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, saveProject]);
 
   const handleSave = () => {
-    saveProject({ characters, objects, storyContent, targetShotCount, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
+    saveProject({ characters, objects, storyContent, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
     alert('Project saved!');
   };
 
@@ -433,8 +454,12 @@ export default function StoryPage() {
         setObjects(importedObjects);
         setStoryContent(data.storyContent || '');
         setTargetShotCount(normalizeTargetShotCount(data.targetShotCount));
+        const importedAspectRatio = projectStoryAspectRatio(data.aspectRatio, data.storyboards || [], settingsRef.current.aspectRatio);
+        projectAspectLockedRef.current = Boolean(data.aspectRatio || (data.storyboards || []).some((item: Storyboard) => item.aspectRatio));
+        projectAspectRatioRef.current = importedAspectRatio;
+        setProjectAspectRatio(importedAspectRatio);
         setVisualStyle(normalizeVisualStyle(data.visualStyle || settings.visualStyle));
-        const importedStoryboards = data.storyboards || [];
+        const importedStoryboards = (data.storyboards || []).map((item: Storyboard) => ({ ...item, aspectRatio: importedAspectRatio }));
         storyboardsRef.current = importedStoryboards;
         setStoryboards(importedStoryboards);
         void recoverProjectVideos(importedStoryboards, importedProjectId);
@@ -454,7 +479,7 @@ export default function StoryPage() {
   };
 
   const handleExport = () => {
-    exportProject({ name: projectName, characters, objects, storyContent, targetShotCount, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    exportProject({ name: projectName, characters, objects, storyContent, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   };
 
   const handleUpdateStoryboard = (updated: Storyboard) => {
@@ -465,6 +490,35 @@ export default function StoryPage() {
     const normalized = normalizeVisualStyle(style);
     setVisualStyle(normalized);
     setStoryboards(prev => prev.map(storyboard => ({ ...storyboard, visualStyle: normalized })));
+  };
+
+  const handleAspectRatioChange = (aspectRatio: StoryAspectRatio): boolean => {
+    if (aspectRatio === projectAspectRatioRef.current) return true;
+    if (storyboardsRef.current.some(item => item.status === 'generating' || item.videoStatus === 'generating')) {
+      alert('当前仍有图片或视频正在生成，请等待任务结束后再切换画幅。');
+      return false;
+    }
+    if (hasStoryMedia(storyboardsRef.current) && !window.confirm('切换成片画幅需要重新生成现有分镜图和视频。继续后会保留剧本，但清除当前项目已关联的图片与视频结果。是否继续？')) {
+      return false;
+    }
+    projectAspectLockedRef.current = true;
+    projectAspectRatioRef.current = aspectRatio;
+    setProjectAspectRatio(aspectRatio);
+    const nextStoryboards = applyStoryAspectRatio(storyboardsRef.current, aspectRatio);
+    storyboardsRef.current = nextStoryboards;
+    setStoryboards(nextStoryboards);
+    const nextSettings = { ...settingsRef.current, aspectRatio };
+    settingsRef.current = nextSettings;
+    saveSettings(nextSettings);
+    return true;
+  };
+
+  const handleSettingsSave = (nextSettings: typeof settings): boolean => {
+    if (nextSettings.aspectRatio !== projectAspectRatioRef.current && !handleAspectRatioChange(nextSettings.aspectRatio)) return false;
+    const merged = { ...nextSettings, aspectRatio: projectAspectRatioRef.current };
+    settingsRef.current = merged;
+    saveSettings(merged);
+    return true;
   };
 
   // Step2 → Step3: generate shot script from story + characters
@@ -502,7 +556,7 @@ export default function StoryPage() {
     const dirRes = await fetchStoryApi('/api/direct-storyboard', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, aspectRatio: settings.aspectRatio, language, scriptProvider: settings.scriptProvider || 'auto', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
+      body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, aspectRatio: projectAspectRatioRef.current, language, scriptProvider: settings.scriptProvider || 'auto', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
     }, settings.comfyui);
     const { storyboards } = await readApiJson<{ storyboards: Storyboard[] }>(dirRes, '分镜导演失败');
     const styledStoryboards = storyboards.map(storyboard => ({ ...storyboard, visualStyle }));
@@ -536,7 +590,7 @@ export default function StoryPage() {
     }
     if (batch.length === 0) return;
     const { buildGridPrompt, chunkGridBatch } = await import('@/lib/gridSplitter');
-    const aspectRatio = activeSettings.aspectRatio;
+    const aspectRatio = projectAspectRatioRef.current;
     const generationProjectId = projectIdRef.current;
     const updateGridStoryboards = (updater: (items: Storyboard[]) => Storyboard[]) => {
       if (generationProjectId !== projectIdRef.current) return;
@@ -797,7 +851,7 @@ export default function StoryPage() {
           const response = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ storyboard: { ...storyboard, prompt }, characters, objects, aspectRatio: storyboard.aspectRatio || settings.aspectRatio, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle })
+            body: JSON.stringify({ storyboard: { ...storyboard, prompt }, characters, objects, aspectRatio: projectAspectRatioRef.current, imageModel: settings.imageModel, apiKey: settings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle })
           });
           const data = await readApiJson<{ taskId: string }>(response, '启动单张分镜生成失败');
           if (!data.taskId) throw new Error('生图接口没有返回任务 ID');
@@ -886,7 +940,7 @@ export default function StoryPage() {
           referenceImageUrl: type === 'scene'
             ? (costumeImagesRef.current[charactersRef.current[0]?.name || ''] || charactersRef.current[0]?.imageUrl)
             : character?.imageUrl,
-          aspectRatio: settings.aspectRatio,
+          aspectRatio: projectAspectRatioRef.current,
           imageModel: settings.imageModel,
           apiKey: settings.apiKey,
           visualStyle
@@ -1120,7 +1174,7 @@ export default function StoryPage() {
           // Crop once to the project ratio and use a quality/size ladder before
           // inlining. H3 receives a sharp standalone frame instead of a huge
           // 4K mother grid or a soft low-resolution crop.
-          ? await prepareStoryboardReference(item.imageUrl!, `场景 ${item.sceneNumber} 分镜图`, item.aspectRatio || settings.aspectRatio)
+          ? await prepareStoryboardReference(item.imageUrl!, `场景 ${item.sceneNumber} 分镜图`, projectAspectRatioRef.current)
           : item.imageUrl,
       })));
       const speakingCharacters = [...new Set(segment.flatMap(item => {
@@ -1156,7 +1210,7 @@ export default function StoryPage() {
         // Cloudinary supports CORS, while its old so_100p still was too static.
         try {
           const extractedFrame = await extractVideoTailFrame(prevShot.videoUrl, `场景 ${prevShot.sceneNumber} 视频`);
-          firstFrameUrl = await prepareStoryboardReference(extractedFrame, `场景 ${prevShot.sceneNumber} 运动交接帧`, leader.aspectRatio || settings.aspectRatio);
+          firstFrameUrl = await prepareStoryboardReference(extractedFrame, `场景 ${prevShot.sceneNumber} 运动交接帧`, projectAspectRatioRef.current);
         } catch (error) {
           if (!prevShot.videoUrl.includes('res.cloudinary.com')) throw error;
           // Compatibility fallback for legacy Cloudinary assets that cannot be
@@ -1164,7 +1218,7 @@ export default function StoryPage() {
           firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_100p/').replace(/\.\w+$/, '.jpg');
         }
       } else if (videoProvider === 'comfyui' && prevShot?.imageUrl) {
-        firstFrameUrl = await prepareStoryboardReference(prevShot.imageUrl, `场景 ${prevShot.sceneNumber} 分镜图`, leader.aspectRatio || settings.aspectRatio);
+        firstFrameUrl = await prepareStoryboardReference(prevShot.imageUrl, `场景 ${prevShot.sceneNumber} 分镜图`, projectAspectRatioRef.current);
       }
 
       const generationUrl = videoProvider === 'comfyui'
@@ -1173,7 +1227,7 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: leader.aspectRatio || settings.aspectRatio, characterAudios: leader.characterAudios || [], firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
+        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: projectAspectRatioRef.current, characterAudios: leader.characterAudios || [], firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string }>(response, '视频任务创建失败');
       if (generationProjectId !== projectIdRef.current) return;
@@ -1432,6 +1486,8 @@ export default function StoryPage() {
                 onLanguageChange={(lang) => saveSettings({ ...settings, language: lang })}
                 targetShotCount={targetShotCount}
                 onTargetShotCountChange={setTargetShotCount}
+                aspectRatio={projectAspectRatio}
+                onAspectRatioChange={handleAspectRatioChange}
                 apiKey={settings.apiKey}
                 scriptProvider={settings.scriptProvider || 'auto'}
                 scriptModel={settings.scriptModel}
@@ -1480,6 +1536,7 @@ export default function StoryPage() {
                 characters={characters}
                 videoModel={settings.videoModel}
                 videoProvider={settings.videoProvider || 'apimart'}
+                aspectRatio={projectAspectRatio}
                 voiceReferences={voiceReferences || {}}
                 onBack={() => setCurrentStep(4)}
                 onNext={() => setCurrentStep(6)}
@@ -1495,6 +1552,7 @@ export default function StoryPage() {
                 projectId={projectId}
                 projectName={projectName}
                 companionSettings={settings.comfyui}
+                aspectRatio={projectAspectRatio}
                 onBack={() => setCurrentStep(5)}
               />
             )}
@@ -1505,7 +1563,7 @@ export default function StoryPage() {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         settings={settings}
-        onSave={saveSettings}
+        onSave={handleSettingsSave}
       />
     </DevToolsLayout>
     </div>

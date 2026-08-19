@@ -25,6 +25,7 @@ import {
   validateVideoSegment,
 } from '@/lib/videoSegments';
 import { storyboardAudioPlan, storyboardSpeech } from '@/lib/speechAudioContract';
+import { storyAspectClass, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 
 interface Step5Props {
   storyboards: Storyboard[];
@@ -32,6 +33,7 @@ interface Step5Props {
   videoModel?: string;
   videoProvider?: 'apimart' | 'comfyui';
   voiceReferences?: Record<string, string>;
+  aspectRatio?: StoryAspectRatio;
   onBack: () => void;
   onNext: () => void;
   onGenerateVideo: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void;
@@ -71,12 +73,14 @@ export default function Step5({
   videoModel,
   videoProvider = 'apimart',
   voiceReferences = {},
+  aspectRatio = '16:9',
   onBack,
   onNext,
   onGenerateVideo,
   onGenerateVideoPrompt,
   onUpdate,
 }: Step5Props) {
+  const previewAspectClass = storyAspectClass(aspectRatio);
   const isComfyUI = videoProvider === 'comfyui';
   const withImages = useMemo(() => storyboards.filter(item => item.imageUrl), [storyboards]);
   const storyboardById = useMemo(() => new Map(withImages.map(item => [item.id, item])), [withImages]);
@@ -161,7 +165,7 @@ export default function Step5({
     return (
       <div className="space-y-5">
         <div className="border-l-4 border-[var(--accent-purple)] pl-4"><h2 className="text-2xl font-mono text-[var(--accent-green)]"><span className="text-[var(--text-secondary)]">05.</span> Generate Videos</h2><p className="mt-2 text-sm text-[var(--text-secondary)]">当前视频通道按单个分镜生成；选择仙宫云 ComfyUI 可启用 H3 片段编排。</p></div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{withImages.map(item => <article key={item.id} className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]"><img src={item.imageUrl} alt={`镜 ${item.sceneNumber}`} className="aspect-video w-full object-cover" /><div className="p-3"><p className="text-xs text-[var(--text-secondary)]">镜 {String(item.sceneNumber).padStart(2, '0')}</p><button onClick={() => onGenerateVideo(item)} className="mt-3 w-full rounded-lg bg-[var(--accent-purple)] px-3 py-2 text-xs text-white">{item.videoStatus === 'generating' ? '生成中…' : '生成视频'}</button></div></article>)}</div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{withImages.map(item => <article key={item.id} className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]"><img src={item.imageUrl} alt={`镜 ${item.sceneNumber}`} className={`${storyAspectClass(item.aspectRatio || aspectRatio)} w-full object-cover`} /><div className="p-3"><p className="text-xs text-[var(--text-secondary)]">镜 {String(item.sceneNumber).padStart(2, '0')}</p><button onClick={() => onGenerateVideo(item)} className="mt-3 w-full rounded-lg bg-[var(--accent-purple)] px-3 py-2 text-xs text-white">{item.videoStatus === 'generating' ? '生成中…' : '生成视频'}</button></div></article>)}</div>
         <div className="flex justify-between border-t border-[var(--border-color)] pt-4"><button onClick={onBack} className="rounded-lg border border-[var(--border-color)] px-5 py-2 text-sm">返回</button><button onClick={onNext} disabled={!completedCount} className="rounded-lg bg-[var(--accent-green)] px-5 py-2 text-sm text-black disabled:opacity-40">下一步：导出</button></div>
       </div>
     );
@@ -195,7 +199,7 @@ export default function Step5({
                     {group.map((item, shotIndex) => (
                       <div key={item.id} className="flex shrink-0 items-center gap-2">
                         <article className="group relative w-[178px] overflow-hidden rounded-lg border border-white/8 bg-black/20">
-                          {item.videoUrl ? <video src={item.videoUrl} muted playsInline className="aspect-video w-full object-cover" /> : <img src={item.imageUrl} alt={`镜 ${item.sceneNumber}`} className="aspect-video w-full object-cover" />}
+                          {item.videoUrl ? <video src={item.videoUrl} muted playsInline className={`${previewAspectClass} w-full object-contain`} /> : <img src={item.imageUrl} alt={`镜 ${item.sceneNumber}`} className={`${previewAspectClass} w-full object-cover`} />}
                           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2 pb-1.5 pt-6 text-center font-mono text-[10px] text-white">镜 {String(item.sceneNumber).padStart(2, '0')}</div>
                           {item.videoStatus === 'generating' && <div className="absolute inset-0 grid place-items-center bg-black/55"><Loader2 size={22} className="animate-spin text-[var(--workspace-accent)]" /></div>}
                         </article>
@@ -236,7 +240,7 @@ export default function Step5({
           {activeLeader ? (
             <>
               <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h3 className="text-lg font-semibold text-white">片段 {String(safeActiveIndex + 1).padStart(2, '0')}</h3><StatusLabel status={activeStatus} /></div><p className="mt-1 text-[11px] text-[var(--text-secondary)]">{activeGroup.length} 个节拍 · {estimateVideoSegmentSeconds(activeGroup)}s</p></div><span className="rounded border border-[var(--border-color)] px-2 py-1 font-mono text-[9px] text-[var(--text-secondary)]">MiniMax H3</span></div>
-              {activeLeader.videoUrl && <div className="relative mt-4 overflow-hidden rounded-lg"><video src={activeLeader.videoUrl} controls className="aspect-video w-full object-cover" /><span className="pointer-events-none absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[9px] text-white">已生成片段</span></div>}
+              {activeLeader.videoUrl && <div className={`relative mx-auto mt-4 max-h-[62vh] overflow-hidden rounded-lg bg-black ${previewAspectClass}`}><video src={activeLeader.videoUrl} controls className="h-full w-full object-contain" /><span className="pointer-events-none absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[9px] text-white">已生成片段</span></div>}
               <div className="mt-4 border-t border-[var(--border-color)] pt-4"><p className="text-[11px] font-semibold text-white">包含分镜</p><div className="mt-3 space-y-2">{activeGroup.map(item => <div key={item.id} className="flex items-center gap-2"><img src={item.imageUrl} alt="" className="h-10 w-14 rounded object-cover" /><div className="min-w-0"><p className="font-mono text-[10px] text-white">镜 {String(item.sceneNumber).padStart(2, '0')}</p><p className="truncate text-[10px] text-[var(--text-muted)]">{item.description}</p></div></div>)}</div></div>
               <div className="mt-4 space-y-2 border-t border-[var(--border-color)] pt-4 text-[11px]"><div className="flex justify-between"><span className="text-[var(--text-secondary)]">时长分配</span><span className="text-white">自动 · {estimateVideoSegmentSeconds(activeGroup)}s</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">连续性检查</span><span className={`inline-flex items-center gap-1 ${activeValidationError ? 'text-red-300' : 'text-emerald-300'}`}><CheckCircle2 size={12} />{activeValidationError || '通过'}</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">权威台词</span><span className="text-white">{activeSpeech.length} 条</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">画面文字</span><span className="text-white">干净画面</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">参考图预处理</span><span className="text-emerald-300">高清压缩</span></div></div>
 

@@ -2,6 +2,7 @@ import VideoEditor from './video-editor/VideoEditor';
 import { Storyboard } from '@/types';
 import { ArrowLeft } from 'lucide-react';
 import type { AppSettings } from '@/types';
+import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
 
 interface Step6Props {
   storyboards: Storyboard[];
@@ -9,9 +10,10 @@ interface Step6Props {
   projectId: string;
   projectName?: string;
   companionSettings?: Partial<NonNullable<AppSettings['comfyui']>>;
+  aspectRatio?: StoryAspectRatio;
 }
 
-export default function Step6({ storyboards, onBack, projectId, projectName, companionSettings }: Step6Props) {
+export default function Step6({ storyboards, onBack, projectId, projectName, companionSettings, aspectRatio = '16:9' }: Step6Props) {
   const seenSegments = new Set<string>();
   const completedShots = storyboards
     .map((storyboard, originalIndex) => ({ storyboard, originalIndex }))
@@ -52,6 +54,7 @@ export default function Step6({ storyboards, onBack, projectId, projectName, com
             projectId={projectId}
             projectName={projectName}
             companionSettings={companionSettings}
+            aspectRatio={aspectRatio}
           />
         </div>
       ) : (

@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
   }
   try {
     const body = await request.json();
-    const job = await createOrResumeExportJob(body.projectId, body.clips, body.outputName);
+    const job = await createOrResumeExportJob(body.projectId, body.clips, body.outputName, body.aspectRatio);
     return NextResponse.json({ ok: true, job });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '创建导出任务失败' }, { status: 400 });

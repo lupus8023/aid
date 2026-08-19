@@ -10,6 +10,7 @@ import { exportVideo } from '@/lib/video-exporter';
 import { exportVideoWithCompanion, hasPendingNativeExport } from '@/lib/companionVideoExporter';
 import type { AppSettings } from '@/types';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS, CONTINUITY_HEAD_TRIM_SECONDS } from '@/lib/videoContinuity';
+import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
 
 interface VideoEditorProps {
   initialVideos: string[];
@@ -17,6 +18,7 @@ interface VideoEditorProps {
   projectId?: string;
   projectName?: string;
   companionSettings?: Partial<NonNullable<AppSettings['comfyui']>>;
+  aspectRatio?: StoryAspectRatio;
 }
 
 type ExportStatus = { progress: number; stage: string };
@@ -37,6 +39,7 @@ export default function VideoEditor({
   projectId,
   projectName,
   companionSettings,
+  aspectRatio = '16:9',
 }: VideoEditorProps) {
   const continuityFlags = continuousFromPrevious ?? EMPTY_CONTINUITY_FLAGS;
   const [clips, setClips] = useState<VideoClip[]>([]);
@@ -151,6 +154,7 @@ export default function VideoEditor({
         const result = await exportVideoWithCompanion(clips, {
           projectId,
           projectName,
+          aspectRatio,
           settings: companionSettings,
           onProgress: (progress, stage = '') => setExportStatus({ progress, stage }),
         });
@@ -209,6 +213,7 @@ export default function VideoEditor({
             isPlaying={isPlaying}
             onTimeUpdate={setCurrentTime}
             onEnded={() => setIsPlaying(false)}
+            aspectRatio={aspectRatio}
           />
 
           <div className="flex items-center gap-2 mt-4">

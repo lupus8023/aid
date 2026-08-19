@@ -27,7 +27,7 @@ test('Companion persists, reuses, retries and natively merges local clips', { ti
       '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', sourceFiles[0],
     ]);
     await execFileAsync(ffmpeg, [
-      '-y', '-f', 'lavfi', '-i', 'color=c=blue:s=320x180:d=0.7:r=24',
+      '-y', '-f', 'lavfi', '-i', 'color=c=blue:s=180x320:d=0.7:r=24',
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', sourceFiles[1],
     ]);
 
@@ -56,7 +56,7 @@ test('Companion persists, reuses, retries and natively merges local clips', { ti
       });
     }
 
-    const created = await server.createOrResumeExportJob(projectId, clips, 'recovered-film.mp4');
+    const created = await server.createOrResumeExportJob(projectId, clips, 'recovered-film.mp4', '9:16');
     let job = created;
     const deadline = Date.now() + 90_000;
     while (job.status !== 'completed' && job.status !== 'failed' && Date.now() < deadline) {
@@ -67,8 +67,13 @@ test('Companion persists, reuses, retries and natively merges local clips', { ti
     assert.equal(job.progress, 100);
     const download = await server.exportDownloadInfo(projectId, created.jobId);
     assert.ok((await stat(download.filePath)).size > 0);
+    const { stdout: dimensions } = await execFileAsync(ffprobe, [
+      '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', download.filePath,
+    ]);
+    const [width, height] = dimensions.trim().split(',').map(Number);
+    assert.ok(height > width, `expected portrait export, received ${width}x${height}`);
 
-    const resumed = await server.createOrResumeExportJob(projectId, clips, 'recovered-film.mp4');
+    const resumed = await server.createOrResumeExportJob(projectId, clips, 'recovered-film.mp4', '9:16');
     assert.equal(resumed.status, 'completed');
     assert.equal(resumed.jobId, created.jobId);
   } finally {

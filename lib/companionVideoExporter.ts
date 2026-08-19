@@ -2,6 +2,7 @@
 
 import type { VideoClip } from '@/components/video-editor/types';
 import type { AppSettings } from '@/types';
+import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
 import {
   comfyUIApiUrl,
   companionVersionAtLeast,
@@ -150,6 +151,7 @@ export async function exportVideoWithCompanion(
   options: {
     projectId: string;
     projectName?: string;
+    aspectRatio?: StoryAspectRatio;
     settings?: Partial<ComfyUISettings>;
     onProgress: ProgressCallback;
   },
@@ -192,6 +194,7 @@ export async function exportVideoWithCompanion(
       body: JSON.stringify({
         projectId,
         outputName,
+        aspectRatio: options.aspectRatio,
         clips: uploaded.map(clip => ({
           clipId: clip.id,
           name: clip.name,

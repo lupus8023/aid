@@ -9,7 +9,7 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   settings: AppSettings;
-  onSave: (settings: AppSettings) => void;
+  onSave: (settings: AppSettings) => void | boolean;
 }
 
 export default function SettingsModal({
@@ -36,8 +36,7 @@ export default function SettingsModal({
   if (!isOpen) return null;
 
   const handleSave = () => {
-    onSave(localSettings);
-    onClose();
+    if (onSave(localSettings) !== false) onClose();
   };
 
   const updateComfyUI = (key: string, value: string | number | boolean) => {

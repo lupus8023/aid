@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useMemo } from 'react';
 import { VideoClip } from './types';
+import { storyAspectClass, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 
 interface VideoPreviewProps {
   clips: VideoClip[];
@@ -9,9 +10,10 @@ interface VideoPreviewProps {
   isPlaying: boolean;
   onTimeUpdate: (time: number) => void;
   onEnded: () => void;
+  aspectRatio?: StoryAspectRatio;
 }
 
-export default function VideoPreview({ clips, currentTime, isPlaying, onTimeUpdate, onEnded }: VideoPreviewProps) {
+export default function VideoPreview({ clips, currentTime, isPlaying, onTimeUpdate, onEnded, aspectRatio = '16:9' }: VideoPreviewProps) {
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const currentClipRef = useRef<string | null>(null);
   const lastReportedTimeRef = useRef(0);
@@ -69,7 +71,7 @@ export default function VideoPreview({ clips, currentTime, isPlaying, onTimeUpda
   }, [currentTime, clips, isPlaying, totalDuration]);
 
   return (
-    <div className="relative bg-black rounded aspect-video overflow-hidden">
+    <div className={`relative mx-auto max-h-[62vh] overflow-hidden rounded bg-black ${storyAspectClass(aspectRatio)}`}>
       {clips.map((clip, index) => (
         <video
           key={clip.id}

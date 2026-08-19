@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { Character, Storyboard, ObjectItem, VisualStyle } from '@/types';
+import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { StoryPlan, PipelineState } from '@/lib/pipeline/types';
 import { createProjectId } from '@/lib/projectIdentity';
 
@@ -12,6 +13,7 @@ export interface ProjectData {
   objects?: ObjectItem[];
   storyContent: string;
   targetShotCount?: number;
+  aspectRatio?: StoryAspectRatio;
   visualStyle?: VisualStyle;
   storyOutline: string;
   storyboards: Storyboard[];
@@ -76,6 +78,7 @@ export function useProject() {
       objects: (data.objects || []).map(cleanObject),
       storyContent: data.storyContent || '',
       targetShotCount: data.targetShotCount,
+      aspectRatio: data.aspectRatio,
       visualStyle: data.visualStyle,
       storyOutline: data.storyOutline || '',
       storyboards: (data.storyboards || []).map(cleanStoryboard),
@@ -100,6 +103,7 @@ export function useProject() {
           characters: projectData.characters,
           storyContent: '',
           targetShotCount: projectData.targetShotCount,
+          aspectRatio: projectData.aspectRatio,
           visualStyle: projectData.visualStyle,
           storyOutline: '',
           storyboards: [],

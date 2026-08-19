@@ -193,8 +193,9 @@ CHARACTER DESCRIPTION RULES (Visual Specificity)
 ${buildMediumLock(input.visualStyle)}`;
 }
 
-export function buildSceneReferencePrompt(sceneStyle?: string, style?: VisualStyle) {
-  return `Create a professional 16:9 environment continuity bible for: ${clean(sceneStyle)}.
+export function buildSceneReferencePrompt(sceneStyle?: string, style?: VisualStyle, aspectRatio: '16:9' | '9:16' | '1:1' = '16:9') {
+  const composition = aspectRatio === '9:16' ? 'vertical portrait composition' : aspectRatio === '1:1' ? 'square composition' : 'horizontal landscape composition';
+  return `Create a professional ${aspectRatio} environment continuity bible with ${composition} for: ${clean(sceneStyle)}.
 Show one coherent location through a hero establishing view plus complementary wide, reverse-angle, and key-detail views. Lock architecture, geography, entrances, landmarks, practical props, time of day, weather, light direction, color temperature, and material palette. Empty location, no characters. Clean editorial board, high production detail, no captions, labels, logos, watermark, or readable text.
 
 ${buildMediumLock(style)}`;

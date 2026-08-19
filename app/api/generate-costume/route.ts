@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
         visualStyle,
       });
     } else if (type === 'scene') {
-      prompt = buildSceneReferencePrompt(sceneStyle, visualStyle);
+      prompt = buildSceneReferencePrompt(sceneStyle, visualStyle, aspectRatio || '16:9');
     } else {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
     }

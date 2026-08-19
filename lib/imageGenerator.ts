@@ -8,7 +8,7 @@ export async function generateStoryboardImage(
   characters: Character[],
   apiKey: string,
   objects: ObjectItem[] = [],
-  aspectRatio: '16:9' | '9:16' = '16:9',
+  aspectRatio: '16:9' | '9:16' | '1:1' = '16:9',
   imageModel?: string,
   globalCostumeImages: Record<string, string> = {},
   globalSceneImage?: string,
