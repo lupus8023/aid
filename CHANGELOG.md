@@ -12,7 +12,8 @@
 - Story export no longer remains indefinitely at 5% while waiting for browser FFmpeg WASM; Companion v0.1.19 performs the merge with its bundled native FFmpeg.
 - Segment download, per-segment normalization and final concatenation now retry independently up to three times. SHA-256-verified downloads and valid intermediate files are reused instead of repeated.
 - Native export normalizes resolution, frame rate, pixel format and audio layout, including silent audio for clips without a sound track, before a stream-copy final merge.
-- Failed native jobs retain a browser recovery marker and automatically restart when the same project returns to Export; completed jobs stream directly from Companion without loading the whole film into browser WASM memory.
+- Failed native jobs retain a browser recovery marker and automatically restart when the same project returns to Export; completed files transfer only after native merging and never enter browser WASM memory.
+- Final delivery uses a browser blob download instead of a blocked HTTPS-to-localhost top-level navigation.
 - The optional browser-only exporter now times out with an actionable Companion message instead of hanging forever during FFmpeg initialization.
 
 ## 0.1.18 - 2026-08-19

@@ -25,6 +25,7 @@ export type CompanionExportResult = {
   downloadUrl: string;
   fileName: string;
   jobId: string;
+  blob: Blob;
 };
 
 const REQUEST_ATTEMPTS = 3;
@@ -211,14 +212,24 @@ export async function exportVideoWithCompanion(
     : await pollJob(projectId, jobId, settings, onProgress);
   if (job.status !== 'completed') throw new Error(job.error || '本机合并未完成');
 
+  const downloadUrl = comfyUIApiUrl(
+    `/api/companion/export/download?projectId=${encodeURIComponent(projectId)}&jobId=${encodeURIComponent(jobId)}`,
+    settings,
+  );
+  onProgress(99, '读取本机成片');
+  const blob = await retry('读取本机成片', async () => {
+    const response = await fetch(downloadUrl, { cache: 'no-store' });
+    if (!response.ok) throw new Error(await responseError(response));
+    const result = await response.blob();
+    if (!result.size) throw new Error('本机成片为空');
+    return result;
+  });
   clearPending(projectId);
   onProgress(100, '完成；本机片段与成片均已保留');
   return {
     jobId,
     fileName: outputName,
-    downloadUrl: comfyUIApiUrl(
-      `/api/companion/export/download?projectId=${encodeURIComponent(projectId)}&jobId=${encodeURIComponent(jobId)}`,
-      settings,
-    ),
+    downloadUrl,
+    blob,
   };
 }

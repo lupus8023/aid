@@ -154,8 +154,13 @@ export default function VideoEditor({
           settings: companionSettings,
           onProgress: (progress, stage = '') => setExportStatus({ progress, stage }),
         });
-        a.href = result.downloadUrl;
+        // A top-level navigation from HTTPS to 127.0.0.1 can be blocked by
+        // Chromium extensions/private-network policy. Read only the finished
+        // file from Companion, then download through a same-page blob URL.
+        const url = URL.createObjectURL(result.blob);
+        a.href = url;
         a.download = result.fileName;
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
       } else {
         const blob = await exportVideo(clips, (progress, stage = '') => {
           setExportStatus({ progress, stage });
