@@ -8,6 +8,10 @@
 - Production style now reaches the director and still-image generation paths, keeping one camera/rendering family and color response while allowing shot-specific optical differences.
 - Nine-panel storyboard prompts use a compact project capture bible plus per-panel deltas, with a 3,500-character budget that preserves all nine scene identities, exact cast and essential image physics before trimming repeated continuity prose.
 
+### Fixed
+
+- Translucent accent selection cards no longer inherit the dark foreground and solid hover treatment intended only for filled accent buttons; Story aspect-ratio selections now retain readable theme-colored labels and icons.
+
 ### Tests
 
 - Added regression coverage for still-image capture physics, compact optics prompts, provider prompt budgets, and preservation of panels 1–9.

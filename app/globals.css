@@ -238,15 +238,15 @@ textarea::placeholder {
   opacity: 1 !important;
 }
 
-:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-blue)]"],
-:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-green)]"],
-:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-purple)]"] {
+:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-blue)]"]:not([class*="bg-[var(--accent-blue)]/"]),
+:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-green)]"]:not([class*="bg-[var(--accent-green)]/"]),
+:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-purple)]"]:not([class*="bg-[var(--accent-purple)]/"]) {
   color: var(--workspace-on-accent) !important;
 }
 
-:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-blue)]"]:hover,
-:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-green)]"]:hover,
-:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-purple)]"]:hover {
+:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-blue)]"]:not([class*="bg-[var(--accent-blue)]/"]):hover,
+:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-green)]"]:not([class*="bg-[var(--accent-green)]/"]):hover,
+:is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(button, a, label)[class*="bg-[var(--accent-purple)]"]:not([class*="bg-[var(--accent-purple)]/"]):hover {
   background-color: var(--workspace-accent-strong) !important;
 }
 
