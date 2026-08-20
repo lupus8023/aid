@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.20 - 2026-08-20
+
+### Improved
+
+- Story storyboard direction now describes physically coherent camera distance, lens perspective, composition and occlusion, focus-plane depth, motivated lighting, finite exposure, material response, and capture-appropriate optical imperfections instead of generic cinematic adjectives.
+- Production style now reaches the director and still-image generation paths, keeping one camera/rendering family and color response while allowing shot-specific optical differences.
+- Nine-panel storyboard prompts use a compact project capture bible plus per-panel deltas, with a 3,500-character budget that preserves all nine scene identities, exact cast and essential image physics before trimming repeated continuity prose.
+
+### Tests
+
+- Added regression coverage for still-image capture physics, compact optics prompts, provider prompt budgets, and preservation of panels 1–9.
+
 ## 0.1.19 - 2026-08-19
 
 ### Added

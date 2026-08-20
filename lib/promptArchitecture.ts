@@ -131,6 +131,44 @@ export function buildMediumLock(style?: VisualStyle): string {
   return `STYLE LOCK (authoritative): the entire frame — every character, object, environment, and the lighting — must be rendered in the exact same visual medium as the character reference image. If the reference is anime/illustration, render the whole scene as anime/illustration (line art + cel shading); if it is 3D CG, render as 3D CG; if it is live action, render as realistic photography. Never render the character in one medium and the background in another — one medium, one style, whole frame.`;
 }
 
+// 静帧摄影契约：风格锁只解决「画成什么媒介」，这里补足真实摄影最容易
+// 丢失的因果关系。它故意要求选择一套成像系统，而不是把所有镜头缺陷堆在一起。
+export function buildImageCaptureContract(style?: VisualStyle): string {
+  const normalized = normalizeVisualStyle(style);
+  const profile = normalized === 'cinematic-natural'
+    ? 'Choose one capture profile implied by the scene/reference — cinema or mirrorless location photography, OR direct modern-phone capture — and keep it coherent; never average them into a generic glossy image.'
+    : normalized === 'documentary'
+      ? 'Use an available-light observational camera profile with imperfect but plausible framing, finite exposure, mild sensor texture and optically caused focus falloff.'
+      : normalized === 'warm-film'
+        ? 'Use one warm photochemical camera and vintage spherical-prime response with organic falloff, fine grain and restrained halation.'
+        : normalized === 'neo-noir'
+          ? 'Use one close-proximity neo-noir lens family with motivated hard sources, dense textured shadows, controlled practical highlights and deliberate obstruction.'
+          : normalized === 'commercial'
+            ? 'Use one premium commercial camera and lens family with precise surface response, controlled specular highlights and clean subject separation.'
+            : normalized === 'follow-reference'
+              ? 'Infer one coherent capture/rendering system from the supplied references and preserve its exact optical or medium-specific behavior.'
+              : 'Use one coherent camera/rendering system appropriate to the selected medium and preserve its depth, light and material logic.';
+
+  return `STILL-CAPTURE PHYSICS (authoritative): ${profile} Every shot must have physically related camera height, camera-to-subject distance and perspective; intentional subject placement and foreground/midground/background separation; one explicit focus plane with plausible near/far falloff; motivated key/practical light with direction, source size, bounce, shadow density and distance falloff; finite exposure, natural highlight roll-off and material-specific diffuse/specular response. Preserve only capture-appropriate imperfections such as mild grain/noise, edge softness, vignetting, flare/halation, chromatic fringing or phone sharpening when physically justified. Do not stack random lens defects, blur the whole frame, use synthetic HDR, beauty retouching, uniform fill light or generic "cinematic" gloss.`;
+}
+
+// 九宫格有更严格的提示词长度限制：保留成像因果的骨架，把逐镜差异留给 panel prompt。
+export function buildCompactImageCaptureContract(style?: VisualStyle): string {
+  const normalized = normalizeVisualStyle(style);
+  const profile = normalized === 'cinematic-natural'
+    ? 'direct-captured live action; one scene-appropriate cinema/mirrorless OR phone profile, truthful skin/materials, finite dynamic range'
+    : normalized === 'documentary'
+      ? 'available-light observational capture, ordinary contrast, mild sensor texture and imperfect framing'
+      : normalized === 'warm-film'
+        ? 'warm photochemical film, vintage spherical-prime response, fine grain and restrained halation'
+        : normalized === 'neo-noir'
+          ? 'neo-noir live action, motivated hard sources, dense textured shadows and controlled practical highlights'
+          : normalized === 'commercial'
+            ? 'premium commercial photography, precise surface response and controlled specular highlights'
+            : `${getProductionStylePreset(style).label} with one coherent camera/rendering family`;
+  return `GRID CAPTURE PHYSICS (authoritative): ${profile}. Each panel needs distinct camera height/distance and perspective, composition/occlusion, one focus plane with near/mid/far falloff, motivated light angle/falloff, finite exposure and material response. Use only physically justified optical imperfections; no random lens defects, synthetic HDR, beauty retouching, uniform fill or glossy AI rendering.`;
+}
+
 export function buildVideoStyleContract(style?: VisualStyle): string {
   const preset = getProductionStylePreset(style);
   return `LOOK:\n${preset.look}\n\nCAMERA SYSTEM:\n${preset.camera}\n\nPERFORMANCE & MOTION:\n${preset.performance}\n\nEDITING & RHYTHM:\n${preset.rhythm}\n\nSOUND TEXTURE:\n${preset.sound}`;

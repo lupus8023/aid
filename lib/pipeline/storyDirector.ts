@@ -2,6 +2,8 @@ import { Storyboard } from '@/types';
 import { StoryPlan, Beat, WriterCharacter, WriterObject } from './types';
 import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
+import type { VisualStyle } from '@/types';
+import { buildImageCaptureContract, getProductionStylePreset } from '@/lib/promptArchitecture';
 
 // 导演阶段：把编剧产出的 StoryPlan 可视化成分镜（Storyboard[]）。
 // 关键点：镜头数量/顺序/台词/时长/转场/连续关系【忠实于 StoryPlan】，只补画面/视频提示词与定妆。
@@ -10,11 +12,13 @@ function buildDirectorPrompt(input: {
   characters: WriterCharacter[];
   objects: WriterObject[];
   language: 'zh' | 'en';
+  visualStyle?: VisualStyle;
 }): string {
-  const { storyPlan, characters, objects, language } = input;
+  const { storyPlan, characters, objects, language, visualStyle } = input;
   const characterDetails = characters.map(c => `- ${c.name}: ${c.description}`).join('\n');
   const objectDetails = objects.length ? objects.map(o => `- ${o.name}: ${o.description}`).join('\n') : '无';
   const beatCount = storyPlan.sequences.reduce((n, s) => n + s.beats.length, 0);
+  const stylePreset = getProductionStylePreset(visualStyle);
 
   const langInstruction = language === 'en'
     ? 'MANDATORY: output description, prompt and characterCostume in ENGLISH.'
@@ -51,11 +55,23 @@ ${JSON.stringify(storyPlan, null, 2)}
 1. description（中文镜头描述）：必须以「[景别，机位角度]」开头，包含动作主体、环境、情绪氛围、运镜方式、物理细节（布料/水流/光影）。
 2. prompt（英文图像提示词）：
    - 已上传角色/物体用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。
-   - 包含景别、角度、构图、动作、表情、光影、景深。
+   - 不要写成关键词堆砌。使用紧凑的摄影因果链，顺序固定为：SUBJECT/ACTION → CAMERA POSITION & DISTANCE → LENS PERSPECTIVE → COMPOSITION & OCCLUSION → FOCUS PLANE & DEPTH LAYERS → MOTIVATED LIGHT → EXPOSURE/COLOR/MATERIAL RESPONSE。
+   - CAMERA 必须写清相机相对主体的高度、距离和朝向；不能只写 eye-level、close-up。
+   - COMPOSITION 必须写清主体在画面中的位置、留白方向，以及前景/中景/背景关系；需要时使用真实遮挡、非对称裁切或贴近地面的机位，不要每镜都中央构图。
+   - FOCUS 必须指定唯一焦点平面，并说明近景与远景如何衰减；景深由焦距感、相机距离、主体与背景距离共同决定，禁止无理由地每镜都浅景深或整幅虚化。
+   - LIGHT 必须来自场景中可解释的方向与光源，写清软硬、大小、反射/负补光、阴影密度与距离衰减；同一 sequence 延续光源方向，但每个机位呈现不同的入射角和材质反应。
+   - IMAGE RESPONSE 必须描述有限动态范围、高光滚降、暗部层次、白平衡与皮肤/布料/金属/水面等材质的漫反射和高光。仅在成像系统支持时加入轻微颗粒、暗角、边缘柔化、色散、光晕或手机锐化，禁止随机堆叠镜头缺陷。
+   - 每条 prompt 控制在 65–95 个英文词；最重要、最独特的摄影信息放在前 45 个词，保证九宫格压缩后仍保留镜头差异。
    - 禁止艺术风格词（anime/cartoon/Ghibli/realistic 等），视觉风格由参考图决定。
    - 精确执行 beat.characters：每个列出的角色在画面中只出现一次，未列出的角色不出现；角色设定图中的多角度/多姿势只用于识别同一身份，不得复制为多人。
    - 禁止字幕、标题、对白文字、气泡、Logo、水印或任何可读文字。
 3. characterCostume：为每个在本镜头出现的角色给一套服装/发型/配饰/颜色描述，跨镜头保持一致。
+
+🎥 项目成像基线（只用于落实摄影物理，不要原样复制成长段落）：
+Selected production style: ${stylePreset.label} — ${stylePreset.description}
+${buildImageCaptureContract(visualStyle)}
+
+连续镜头应共享同一相机/镜头家族、色彩响应、主光方向和场景材质；每镜只改变有叙事理由的机位、距离、焦点、遮挡和曝光反应。真实感来自一致的物理因果，而不是反复添加 cinematic、8K、masterpiece、photorealistic 等泛化词。
 
 不要输出视频生成提示词。下游会把 1–4 个分镜重新编组成一个不超过 15 秒的 H3 片段，并按统一制作风格生成时间轴式导演说明。
 
@@ -130,12 +146,13 @@ export async function directStoryboard(input: {
   apiKey: string;
   aspectRatio: '16:9' | '9:16' | '1:1';
   language?: 'zh' | 'en';
+  visualStyle?: VisualStyle;
   scriptProvider?: ScriptProvider;
   scriptModel?: string;
   dmxApiKey?: string;
 }): Promise<Storyboard[]> {
-  const { storyPlan, characters, objects, apiKey, aspectRatio, language = 'zh', scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
-  const prompt = buildDirectorPrompt({ storyPlan, characters, objects, language });
+  const { storyPlan, characters, objects, apiKey, aspectRatio, language = 'zh', visualStyle, scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
+  const prompt = buildDirectorPrompt({ storyPlan, characters, objects, language, visualStyle });
 
   const response = await chatOnce(prompt, { apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel });
 

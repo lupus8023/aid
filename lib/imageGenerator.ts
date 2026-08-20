@@ -1,6 +1,6 @@
 import { createImageTask, getTaskStatus } from './apimart';
 import { Storyboard, Character, ObjectItem, VisualStyle } from '@/types';
-import { buildMediumLock } from './promptArchitecture';
+import { buildImageCaptureContract, buildMediumLock } from './promptArchitecture';
 
 // 为单个分镜生成图片
 export async function generateStoryboardImage(
@@ -71,11 +71,21 @@ export async function generateStoryboardImage(
     // Grid-specific scene content must lead the request. If APIMart's practical
     // prompt limit is reached, the generic style/reference tail may be trimmed,
     // but the nine distinct panels and batch identity must always survive.
-    const enhancedPrompt = `${cleanPrompt}
+    const isStructuredGridPrompt = cleanPrompt.includes('UNIQUE STORYBOARD BATCH:')
+      && cleanPrompt.includes('GRID CAPTURE PHYSICS (authoritative)');
+    const supplementalObjectRules = objectsWithoutRef.map(obj =>
+      `Unmapped object "${obj.name}": ${obj.description}. Keep its design identical wherever requested.`
+    );
+    const enhancedPrompt = isStructuredGridPrompt ? `${cleanPrompt}
+
+${supplementalObjectRules.join('\n')}
+` : `${cleanPrompt}
 
 GRID CAST AUTHORITY: obey the separate EXACT CAST declaration inside each panel description. Never apply the batch-wide reference list as the cast of every panel. Each character sheet is identity evidence for one identity, not permission to create multiple poses or copies.
 
 ${buildMediumLock(visualStyle)}
+
+${buildImageCaptureContract(visualStyle)}
 
 ${referenceDescriptions.join('\n')}
 
@@ -151,7 +161,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     console.log(`Scene ${storyboard.sceneNumber} has no characters or objects, using text-to-image generation`);
 
     // 纯文生图也要清理 brackets
-    const cleanPrompt = `${buildMediumLock(visualStyle)}\n\n${storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1')}`;
+    const cleanPrompt = `${buildMediumLock(visualStyle)}\n\n${buildImageCaptureContract(visualStyle)}\n\n${storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1')}`;
 
     const taskId = await createImageTask(
       cleanPrompt,
@@ -208,9 +218,11 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
 
 ${buildMediumLock(visualStyle)}
 
-${cleanedScenePrompt}
+${buildImageCaptureContract(visualStyle)}
 
 ${referenceDescriptions.join('\n')}
+
+${cleanedScenePrompt}
 
 Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. No captions, subtitles, dialogue text, speech bubbles, titles, logos, watermark, or UI. Maintain exact lighting and atmosphere from the scene reference.
 

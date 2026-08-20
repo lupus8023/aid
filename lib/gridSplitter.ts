@@ -1,3 +1,6 @@
+import type { VisualStyle } from '@/types';
+import { buildCompactImageCaptureContract } from './promptArchitecture';
+
 // Split a 3x3 grid image into 9 individual images using Canvas
 // Each cell has the same aspect ratio as the whole grid
 export function chunkGridBatch<T>(items: T[], size = 9): T[][] {
@@ -58,20 +61,23 @@ export function buildGridPrompt(
   shotDescriptions: string[],
   aspectRatio: '16:9' | '9:16' | '1:1',
   referenceImageLabels?: string[], // e.g. ['TOTODA (ref image 1)', 'MOMODA (ref image 2)']
-  sceneNumbers?: Array<number | string>
+  sceneNumbers?: Array<number | string>,
+  visualStyle?: VisualStyle,
 ): string {
+  const GRID_PROMPT_BUDGET = 3500;
   const orientation = aspectRatio === '9:16' ? 'vertical portrait' : aspectRatio === '1:1' ? 'square' : 'horizontal landscape';
   const shots = shotDescriptions.slice(0, 9).map(shot => {
-    const requirementIndex = shot.indexOf('REQUIRED CHARACTERS');
-    if (requirementIndex === -1 || shot.length <= 320) return shot;
+    const requirementIndex = Math.max(shot.indexOf('CAST['), shot.indexOf('REQUIRED CHARACTERS'));
+    if (requirementIndex === -1) return shot.length <= 185 ? shot : `${shot.slice(0, 182).trim()}...`;
+    if (shot.length <= 210) return shot;
     const requirements = shot.slice(requirementIndex);
-    const visualBudget = Math.max(80, 320 - requirements.length - 1);
+    const visualBudget = Math.max(105, 210 - requirements.length - 1);
     return `${shot.slice(0, visualBudget).trim()} ${requirements}`;
   });
   while (shots.length < 9) shots.push(shots[shots.length - 1] || 'medium shot');
 
   const refSection = referenceImageLabels && referenceImageLabels.length > 0
-    ? `\nReference image mapping:\n${referenceImageLabels.map((label, i) => `- Reference image ${i + 1}: ${label}`).join('\n')}\n`
+    ? `Reference mapping: ${referenceImageLabels.map((label, i) => `#${i + 1}=${label}`).join('; ').slice(0, 340)}`
     : '';
 
   const normalizedSceneNumbers = shots.map((_, index) => sceneNumbers?.[index] ?? index + 1);
@@ -84,23 +90,31 @@ export function buildGridPrompt(
   // image endpoint has a practical prompt limit, so any defensive truncation
   // must remove secondary continuity prose rather than the content that makes
   // this grid different from the previous/next batch.
-  return `UNIQUE STORYBOARD BATCH: ${batchId}
-Render exactly these nine distinct story moments, in this exact order:
+  const prompt = `UNIQUE STORYBOARD BATCH: ${batchId}
+${buildCompactImageCaptureContract(visualStyle)}
+${refSection}
+
+CAST AUTHORITY: each panel's CAST[n] count/list is exact. Show each listed identity exactly once; no omission, merge, clone, sheet-layout copy, reflection-double or extra. Character sheets prove one identity only. No captions, subtitles, speech bubbles, labels, logos, watermark or readable text.
+
+Render these nine distinct moments in exact order:
 ${panelSection}
 
 Generate one 3x3 cinematic storyboard contact sheet. Each panel is ${orientation} (${aspectRatio}). Arrange panels left-to-right, top-to-bottom with no borders, gaps, separator lines, labels, captions, or text.
 
-Scene environment: ${sceneStyle}
-${refSection}
+Scene continuity: ${sceneStyle.slice(0, 180)}
 Character identities (match mapped references exactly wherever they appear):
-${characterDescriptions}
+${characterDescriptions.slice(0, 300)}
 
 CRITICAL CAST RULES:
-- Every panel's EXACT CAST count and REQUIRED CHARACTERS list are authoritative. Every listed identity is clearly visible exactly once; never omit, replace, merge, clone, split, or hide one as a background detail.
-- A mapped character sheet may contain several views or poses of one identity. It is identity evidence only: never copy its sheet layout or instantiate those views as multiple characters.
-- Animals and non-human characters are full characters, not props. A required cat must visibly match its reference identity, fur, markings, size, and species.
-- Do not add people, creatures, extras, silhouettes, reflection-doubles or crowds to panels where they are not requested. Preserve each character's exact reference appearance across panels.
+- Each panel's EXACT CAST count is authoritative; never infer the batch-wide reference list as every panel's cast.
+- Character sheets prove one identity only. Animals are full characters and must retain species, markings and scale.
 - No captions, subtitles, dialogue text, speech bubbles, panel labels, logos, watermark, or readable text.
 
-Keep lighting and environment continuous. Each cell must be a complete standalone composition, never a cropped fragment.`;
+Keep the established source positions, color temperature and environment continuous while allowing physically correct angle-dependent shadows, highlights and depth. Every cell is a complete standalone composition.`;
+
+  // All nine panels and the authoritative capture/cast rules are intentionally
+  // placed first. Only repeated continuity prose at the tail may be removed.
+  return prompt.length <= GRID_PROMPT_BUDGET
+    ? prompt
+    : prompt.slice(0, GRID_PROMPT_BUDGET).trimEnd();
 }

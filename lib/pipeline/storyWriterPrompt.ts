@@ -171,7 +171,8 @@ ${synopsis}
 - source="user_exact" 时 exactLine 必须能在用户原始输入中逐字找到；否则只能写 story_required。绝不输出 narrator、voice-over、路人或当前 characters 之外的 speaker。
 - transition：默认 "cut"；情绪切换或时间跳转可用 "dissolve"/"fade"。
 - characters/objects 数组为空时写 []。
-- promptDraft：已上传角色用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。
+- sceneStyle：不要只写“cinematic lighting”或情绪形容词。用紧凑英文确定本 sequence 的拍摄基线：一种相机/镜头家族、主光来源与方向/软硬/色温、环境反射或负补光、有限曝光与高光滚降、阴影密度、色彩响应和主要材质。相邻 sequence 若时空连续必须继承同一成像系统。
+- promptDraft：已上传角色用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。动作之后简要写出独特机位距离、前中后景、焦点平面和光线入射关系；不要堆 cinematic、8K、masterpiece、photorealistic 等空泛词。
 - cameraMove 必须是单一、可执行的物理运镜，不要把多个方向堆在一起；sceneStyle、promptDraft、audioPlan.environment、audioPlan.foley 和非 none 的 audioPlan.music 必须使用英文，只有 action、剧情字段和台词按项目语言输出。
 - 最终自检 sequences[].beats 的总数必须严格等于 ${targetShots}，beat.index 必须为 1–${targetShots}。
 

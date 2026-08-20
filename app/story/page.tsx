@@ -584,7 +584,7 @@ export default function StoryPage() {
     const dirRes = await fetchStoryApi('/api/direct-storyboard', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, aspectRatio: projectAspectRatioRef.current, language, scriptProvider: settings.scriptProvider || 'auto', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
+      body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: settings.apiKey, aspectRatio: projectAspectRatioRef.current, language, visualStyle, scriptProvider: settings.scriptProvider || 'auto', scriptModel: settings.scriptModel || 'gpt-4o', dmxApiKey: settings.dmxApiKey })
     }, settings.comfyui);
     const { storyboards } = await readApiJson<{ storyboards: Storyboard[] }>(dirRes, '分镜导演失败');
     const styledStoryboards = storyboards.map(storyboard => ({ ...storyboard, visualStyle }));
@@ -688,12 +688,12 @@ export default function StoryPage() {
             .filter(object => mentionsEntity(sb, object.name, sb.objects))
             .map(object => object.name);
           const panelChars = requiredCharacters.length
-            ? `REQUIRED CHARACTERS — EXACT CAST ${requiredCharacters.length} total (all must be visible exactly once): ${requiredCharacters.join(', ')}.`
-            : 'REQUIRED CHARACTERS — EXACT CAST 0 total: none.';
+            ? `CAST[${requiredCharacters.length}]: ${requiredCharacters.join(', ')}; each exactly once.`
+            : 'CAST[0]: none.';
           const panelObjs = requiredObjects.length
-            ? `REQUIRED OBJECTS (all must be visible): ${requiredObjects.join(', ')}.`
+            ? `PROPS: ${requiredObjects.join(', ')}.`
             : '';
-          return `${summarize(cleanPrompt, 220)} ${panelChars} ${panelObjs}`.trim();
+          return `${summarize(cleanPrompt, 210)} ${panelChars} ${panelObjs}`.trim();
         });
 
         // Keep labels and images in exactly the same order. Text-only entities
@@ -727,7 +727,8 @@ export default function StoryPage() {
             shotDescs,
             aspectRatio,
             refLabels,
-            group.map(storyboard => storyboard.sceneNumber)
+            group.map(storyboard => storyboard.sceneNumber),
+            visualStyle,
           );
           const usesSafetyRewrite = safetyFindings.length > 0 || safetyAttempt > 0;
           const gridPrompt = usesSafetyRewrite
