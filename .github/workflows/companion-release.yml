@@ -66,6 +66,9 @@ jobs:
       - run: npm run test:video-segments
       - run: npm run test:project-isolation
       - run: npm run test:provider-payload
+      - run: npm run test:story-engine
+      - run: npm run test:story-stages
+      - run: npm run test:story-adaptation
       - run: npm run test:image-prompt-safety
       - run: npm run test:grid-recovery
       - run: npm run build:companion

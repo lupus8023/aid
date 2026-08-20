@@ -30,7 +30,7 @@ interface Step1Props {
 export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, targetShotCount = DEFAULT_TARGET_SHOT_COUNT, onTargetShotCountChange, apiKey, scriptProvider, scriptModel, dmxApiKey, companionSettings, aspectRatio = '16:9', onAspectRatioChange }: Step1Props) {
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text');
   const [textInput, setTextInput] = useState(storyContent);
-  const [isExpanding, setIsExpanding] = useState(false);
+  const [isAdapting, setIsAdapting] = useState(false);
   const estimatedSeconds = targetDurationSeconds(targetShotCount);
   const estimatedDuration = estimatedSeconds >= 60
     ? `${Math.floor(estimatedSeconds / 60)}分${estimatedSeconds % 60 ? `${estimatedSeconds % 60}秒` : ''}`
@@ -53,18 +53,18 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
     onStoryLoad(value);
   };
 
-  const handleExpand = async () => {
+  const handleAdapt = async () => {
     if (!textInput.trim() || (!apiKey && !dmxApiKey)) return;
-    setIsExpanding(true);
+    setIsAdapting(true);
     try {
       const res = await fetchStoryApi('/api/expand-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brief: textInput, language, apiKey, scriptProvider, scriptModel, dmxApiKey })
+        body: JSON.stringify({ brief: textInput, language, targetShotCount, apiKey, scriptProvider, scriptModel, dmxApiKey })
       }, companionSettings);
       if (!res.ok || !String(res.headers.get('content-type') || '').includes('text/event-stream')) {
-        const unexpected = await readApiJson<{ error?: string }>(res, 'AI 扩写失败');
-        throw new Error(unexpected.error || 'AI 扩写服务返回了非流式响应');
+        const unexpected = await readApiJson<{ error?: string }>(res, '剧本改编失败');
+        throw new Error(unexpected.error || '剧本改编服务返回了非流式响应');
       }
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
@@ -87,9 +87,9 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
         }
       }
     } catch (error) {
-      alert(`Expand failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`剧本改编失败：${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
-      setIsExpanding(false);
+      setIsAdapting(false);
     }
   };
 
@@ -184,11 +184,11 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
           />
           {(apiKey || dmxApiKey) && (
             <button
-              onClick={handleExpand}
-              disabled={!textInput.trim() || isExpanding}
+              onClick={handleAdapt}
+              disabled={!textInput.trim() || isAdapting}
               className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-[var(--accent-purple,#a855f7)] hover:bg-[#9333ea] text-white disabled:opacity-50 rounded transition-colors"
             >
-              {isExpanding ? <><Loader2 size={11} className="animate-spin" /> 正在扩写…</> : <><Wand2 size={11} /> AI 扩写</>}
+              {isAdapting ? <><Loader2 size={11} className="animate-spin" /> 正在改编…</> : <><Wand2 size={11} /> 改编剧本</>}
             </button>
           )}
         </div>

@@ -1,6 +1,192 @@
 import type { WriterCharacter, WriterObject } from './types';
 import { normalizeTargetShotCount, targetDurationSeconds } from './shotCount';
 
+export function buildStoryOutlinePrompt(input: {
+  synopsis: string;
+  characters: WriterCharacter[];
+  objects: WriterObject[];
+  language: 'zh' | 'en';
+  targetShotCount?: number;
+}): string {
+  const { synopsis, characters, objects, language } = input;
+  const targetShots = normalizeTargetShotCount(input.targetShotCount);
+  const targetSeconds = targetDurationSeconds(targetShots);
+  const characterDetails = characters.map(character => `- ${character.name}: ${character.description}`).join('\n');
+  const objectDetails = objects.length
+    ? objects.map(object => `- ${object.name}: ${object.description}`).join('\n')
+    : 'None';
+  const outputLanguage = language === 'en'
+    ? 'All story text must be English; preserve uploaded entity names exactly.'
+    : '所有故事文本必须使用中文；已上传实体名称保持原样。';
+
+  return `你是长片总编剧。只做【全片故事骨架与镜头地图】，不要写详细分镜、摄影 prompt、声音设计或逐镜状态 JSON。
+
+最高优先级：准确执行用户明确的剧情、人物关系、顺序、结局、台词、风格与禁止事项；只在留白处创作。
+${outputLanguage}
+
+用户原始输入：
+${synopsis}
+
+已上传角色（characters 只能使用这些精确名称）：
+${characterDetails}
+
+已上传物体（objects 只能使用这些精确名称）：
+${objectDetails}
+
+制作规格：全片严格 ${targetShots} 镜，目标约 ${targetSeconds} 秒。
+
+先锁定全片因果链、人物弧线、高潮选择、结局、伏笔回收，再分配 sequences。每个 sequence 的 beatMap 只写一句极简镜头地图；所有 beatMap 合计必须严格 ${targetShots} 条，全片 index 从 1 连续到 ${targetShots}。
+
+连续性规则：
+- 前一条 consequence 必须成为后一条 cause，或明确推动下一场。
+- actionGoal 是该镜头唯一可见动作/局面变化，不是摄影描述。
+- emotionalTurn 写镜头前后变化；没有变化也要写“保持X但新增Y信息”。
+- 用户指定台词在 beatMap 的 requiredLine 中逐字保留；未指定则留空，禁止新增旁白或无来源人声。
+- sequence 的 entryState / exitState 必须能交接人物位置、关系、关键道具与情绪。
+- 不要输出 shotSize、cameraMove、angle、sceneStyle、promptDraft、audioPlan、stateBefore 或 stateAfter；这些由后续阶段分批完成。
+
+只输出以下 JSON 对象：
+{
+  "intentSummary": "准确复述用户要求",
+  "requirements": [{ "id": "req-1", "text": "可核验要求", "category": "plot|character|setting|tone|format|pacing|dialogue|visual|avoid|other", "priority": "must|preference", "coveredBy": [1] }],
+  "title": "片名",
+  "theme": "主题",
+  "logline": "一句话梗概",
+  "protagonist": "主角名",
+  "externalWant": "外在目标",
+  "internalNeed": "内在需求",
+  "stakes": "失败代价",
+  "obstacle": "核心阻碍",
+  "finalChoice": "高潮选择",
+  "consequence": "最终结果",
+  "change": "人物变化",
+  "storyAnchor": "故事锚点",
+  "visualMotif": "视觉母题",
+  "emotionalArc": "全片情绪弧线",
+  "characters": [{ "name": "已上传角色名", "want": "欲望", "obstacle": "阻碍", "arc": "弧线", "subtext": "潜台词" }],
+  "sequences": [{
+    "id": "seq-1",
+    "locationId": "english_location_key",
+    "sceneGoal": "本场必须完成的剧情目标",
+    "entryState": "人物/关系/道具/情绪入场状态",
+    "exitState": "本场结束状态，供下一场继承",
+    "shotCount": 9,
+    "beatMap": [{
+      "index": 1,
+      "actionGoal": "唯一可见动作与局面变化",
+      "cause": "直接前因",
+      "consequence": "直接后果",
+      "emotionalTurn": "情绪或认知变化",
+      "requiredLine": "用户指定台词或空字符串"
+    }]
+  }]
+}
+
+输出前自检：sequences[].shotCount 之和、beatMap 长度之和都必须等于 ${targetShots}；index 必须无重复、无跳号地覆盖 1–${targetShots}。`;
+}
+
+export function buildStoryBeatBatchPrompt(input: {
+  synopsis: string;
+  outline: unknown;
+  sequence: unknown;
+  beatMap: Array<{ index: number }>;
+  previousBoundary?: unknown;
+  continuesSequence?: boolean;
+  nextRoadmap?: Array<{ index: number }>;
+  characters: WriterCharacter[];
+  objects: WriterObject[];
+  language: 'zh' | 'en';
+}): string {
+  const { synopsis, outline, sequence, beatMap, previousBoundary, continuesSequence = false, nextRoadmap = [], characters, objects, language } = input;
+  const outlineRecord = (outline && typeof outline === 'object' ? outline : {}) as Record<string, unknown>;
+  const firstIndex = Number(beatMap[0]?.index || 0);
+  const lastIndex = Number(beatMap[beatMap.length - 1]?.index || 0);
+  const outputLanguage = language === 'en'
+    ? 'All action, story, dialogue and state text must be English. Technical sound strings may also be English.'
+    : 'action、剧情、状态和台词使用中文；sceneStyle、环境声和拟音使用简洁英文。';
+  const storySpine = {
+    title: outlineRecord.title,
+    theme: outlineRecord.theme,
+    logline: outlineRecord.logline,
+    protagonist: outlineRecord.protagonist,
+    externalWant: outlineRecord.externalWant,
+    internalNeed: outlineRecord.internalNeed,
+    stakes: outlineRecord.stakes,
+    obstacle: outlineRecord.obstacle,
+    finalChoice: outlineRecord.finalChoice,
+    consequence: outlineRecord.consequence,
+    change: outlineRecord.change,
+    storyAnchor: outlineRecord.storyAnchor,
+    visualMotif: outlineRecord.visualMotif,
+    emotionalArc: outlineRecord.emotionalArc,
+  };
+
+  return `你是执行编剧。全片骨架已经锁定，只展开镜头 ${firstIndex}–${lastIndex} 的【详细剧本】，不得重写故事、改变镜头数量或提前/延后结局。
+
+${outputLanguage}
+
+用户原始输入（用于核对指定事实和逐字台词）：
+${synopsis}
+
+全片故事脊柱：
+${JSON.stringify(storySpine, null, 2)}
+
+当前场次：
+${JSON.stringify(sequence, null, 2)}
+
+本批权威镜头地图（顺序与因果不可改变）：
+${JSON.stringify(beatMap, null, 2)}
+
+上一批交接状态（为空表示全片开场）：
+${JSON.stringify(previousBoundary || null, null, 2)}
+
+交接类型：${continuesSequence
+  ? '同一场次续写。第一镜必须逐项继承人物位置、姿态、持物、服装、空间关系、时间和环境状态。'
+  : '新场次开始。必须继承人物身份、服装、关系变化、已获得/失去的关键物和未解决因果；允许通过明确转场改变地点、时间、人物位置和环境状态。'}
+
+后续两镜路线提示（只为铺垫，不得在本批提前发生）：
+${JSON.stringify(nextRoadmap.slice(0, 2), null, 2)}
+
+允许角色：
+${characters.map(character => `- ${character.name}: ${character.description}`).join('\n')}
+允许物体：
+${objects.length ? objects.map(object => `- ${object.name}: ${object.description}`).join('\n') : 'None'}
+
+写作规则：
+- 严格输出 ${beatMap.length} 个 beats，对应 index ${firstIndex}–${lastIndex}；每个 beat 只展开对应 beatMap，不得合并、拆分、增删或调序。
+- characters / objects 只能使用允许列表中的精确名称；临时环境元素只写在 action。
+- cause → conflict → choice → consequence → nextCause 必须形成可见因果；前一镜 stateAfter 必须等于后一镜 stateBefore。
+- 第一镜 stateBefore 必须按照上述交接类型承接上一批；最后一镜 nextCause 要准确铺向后续路线。
+- 台词克制。beatMap.requiredLine 非空时逐字写入 speech；否则只有画面无法表达的关键信息才允许一名当前角色说一句。禁止旁白、画外音、路人台词、笑声、哼唱和无来源人声。
+- speech 每镜最多一条；audioPlan 是唯一声音源。backgroundHuman 默认 none；环境声和拟音必须由地点或可见动作引起；未要求音乐时 music 为 none。
+- 不生成摄影内容：不要输出 promptDraft、sceneStyle、shotSize、cameraMove、angle 或图像 prompt。
+
+只输出：
+{
+  "beats": [{
+    "index": ${firstIndex},
+    "action": "一个明确、可见、可表演的动作单元",
+    "characters": ["允许角色名"],
+    "objects": ["允许物体名"],
+    "clipType": "insert|reaction|establishing|action|dialogue|performance|montage|long_take",
+    "dramaticPurpose": "本镜改变了什么",
+    "cause": "直接前因",
+    "conflict": "阻力或两难",
+    "choice": "可见选择或空字符串",
+    "consequence": "可见结果",
+    "characterChange": "情绪/认知变化",
+    "nextCause": "下一镜直接原因",
+    "speech": [{ "character": "当前角色", "exactLine": "唯一台词", "emotion": "克制情绪", "delivery": "语速停顿重音", "volume": "whisper|soft|normal|raised", "lipSync": true, "listenerState": "其他角色无声反应", "source": "user_exact|story_required" }],
+    "audioPlan": { "backgroundHuman": "none|indistinct_nonverbal", "environment": ["sound"], "foley": ["sound"], "music": "none", "silenceBefore": 0.0, "silenceAfter": 0.4 },
+    "stateBefore": { "characters": "位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "关系状态", "emotion": "情绪状态" },
+    "stateAfter": { "characters": "位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "关系状态", "emotion": "情绪状态" },
+    "durationHint": 4.5,
+    "transition": "cut|dissolve|fade|wipe",
+    "continuityFrom": 0
+  }]
+}`;
+}
+
 // 编剧阶段 prompt：先准确理解用户约束，再把允许创作的空白发展成结构化故事。
 // 与 storyAnalyzer 的分镜 prompt 相反：这里【鼓励创作】，分镜阶段才【忠实拆解】。
 export function buildStoryPlanPrompt(input: {

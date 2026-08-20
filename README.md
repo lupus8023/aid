@@ -128,6 +128,10 @@ CLOUDINARY_API_SECRET=your_cloudinary_secret
 
 剧本生成通道可在 Settings 中明确选择 `Auto`、`DMX only` 或 `APIMart only`。Auto 模式优先 DMX，失败后回退 APIMart，并同时保留两家的失败原因；仅使用模式不会静默切换供应商。桌面版 Companion 对这两个 API 域名使用独立公网 DNS，避免代理或 VPN 的 Fake-IP 解析导致“授权正常但剧本 API 无法连接”。
 
+Story 长片生成采用分阶段流程：先锁定全片故事骨架和精确镜头数，再按场次以最多 9 镜一批展开详细剧本，最后按相同边界生成导演分镜提示词。批次之间会传递人物、道具、关系和物理状态；切换场次时允许明确重建时间、空间和光线，避免一次性长请求超时或前后剧情漂移。
+
+故事输入页的“改编剧本”会使用当前选择的目标镜头数和预计片长，把梗概、小说片段或既有剧本整理为精确编号的连续剧情节拍；用户明确指定的事实、事件顺序、结局和台词仍保持最高优先级。
+
 普通用户可直接从 AID 首页下载桌面版 Companion。桌面版内置 Node.js 运行环境、FFmpeg/FFprobe 和独立 SSH 客户端，支持 macOS Apple Silicon、macOS Intel 与 Windows x64；启动时会生成仅保存在本机应用数据目录的专属 Ed25519 密钥，并可使用仙宫云 SSH 密码一键完成公钥授权。
 
 维护者可创建 `companion-v*` Git tag，或在 GitHub Actions 手动运行 `Release AID Companion`，自动生成三个平台包并发布到 GitHub Releases。首页下载链接始终指向 latest release。

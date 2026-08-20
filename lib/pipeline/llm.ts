@@ -61,7 +61,7 @@ async function requestDmxText(
     return content;
 }
 
-async function dmxChatCompletion(prompt: string, apiKey: string, model: string, timeoutMs: number): Promise<string> {
+async function dmxChatCompletion(prompt: string, apiKey: string, model: string, timeoutMs: number, maxOutputTokens: number): Promise<string> {
   try {
     const preferResponses = isResponsesPreferredModel(model);
     const transports: Array<'chat/completions' | 'responses'> = preferResponses
@@ -76,20 +76,26 @@ async function dmxChatCompletion(prompt: string, apiKey: string, model: string, 
               model,
               input: prompt,
               stream: false,
-              max_output_tokens: 24000,
+              max_output_tokens: maxOutputTokens,
               reasoning: { effort: 'low' },
             }
           : {
               model,
               stream: false,
               ...(preferResponses
-                ? { max_completion_tokens: 24000, reasoning_effort: 'low' }
-                : { max_tokens: 16000 }),
+                ? { max_completion_tokens: maxOutputTokens, reasoning_effort: 'low' }
+                : { max_tokens: maxOutputTokens }),
               messages: [{ role: 'user', content: prompt }],
             };
         return await requestDmxText(endpoint, body, apiKey, timeoutMs);
       } catch (error) {
-        failures.push(`${endpoint}: ${error instanceof Error ? error.message : String(error)}`);
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push(`${endpoint}: ${message}`);
+        // A timeout means the model did not finish this payload in time. Sending
+        // the same oversized request through the alternate OpenAI transport only
+        // doubles the wait; transport fallback remains useful for shape/endpoint
+        // incompatibilities and explicit upstream errors.
+        if (/timeout|timed out|ECONNABORTED/i.test(message)) break;
       }
     }
     throw new Error(failures.join('；'));
@@ -102,9 +108,9 @@ async function dmxChatCompletion(prompt: string, apiKey: string, model: string, 
 
 export async function chatOnce(
   prompt: string,
-  opts: { apiKey?: string; dmxApiKey?: string; provider?: ScriptProvider; model?: string },
+  opts: { apiKey?: string; dmxApiKey?: string; provider?: ScriptProvider; model?: string; maxOutputTokens?: number; timeoutMs?: number },
 ): Promise<string> {
-  const { apiKey = '', dmxApiKey = '', provider = 'auto', model = 'gpt-4o' } = opts;
+  const { apiKey = '', dmxApiKey = '', provider = 'auto', model = 'gpt-4o', maxOutputTokens = 24_000 } = opts;
   if (provider === 'dmx' && !dmxApiKey) throw new Error('剧本 API 选择了 DMX，但尚未配置 DMXAPI Key');
   if (provider === 'apimart' && !apiKey) throw new Error('剧本 API 选择了 APIMart，但尚未配置 APIMart API Key');
 
@@ -114,13 +120,13 @@ export async function chatOnce(
   const isLocalCompanion = process.env.AID_LOCAL_COMPANION === '1';
   // Hosted functions have a hard 60-second ceiling. The Companion can allow
   // long-form planning requests to finish without a gateway replacing JSON.
-  const providerTimeout = isLocalCompanion ? 240_000 : order.length > 1 ? 24_000 : 50_000;
+  const providerTimeout = opts.timeoutMs ?? (isLocalCompanion ? 240_000 : order.length > 1 ? 24_000 : 50_000);
   const errors: string[] = [];
 
   for (const candidate of order) {
     try {
-      if (candidate === 'dmx') return await dmxChatCompletion(prompt, dmxApiKey, model, providerTimeout);
-      return await chatCompletion(prompt, apiKey, model, providerTimeout);
+      if (candidate === 'dmx') return await dmxChatCompletion(prompt, dmxApiKey, model, providerTimeout, maxOutputTokens);
+      return await chatCompletion(prompt, apiKey, model, providerTimeout, maxOutputTokens);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const label = candidate === 'dmx' ? 'DMXAPI' : 'APIMart';

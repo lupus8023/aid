@@ -1,7 +1,7 @@
 import type { AppSettings } from '@/types';
 
 export const DEFAULT_COMFYUI_COMPANION_URL = 'http://127.0.0.1:3018';
-export const STORY_COMPANION_MIN_VERSION = [0, 1, 18] as const;
+export const STORY_COMPANION_MIN_VERSION = [0, 1, 21] as const;
 export const SEGMENT_VIDEO_COMPANION_MIN_VERSION = [0, 1, 17] as const;
 export const LOCAL_EXPORT_COMPANION_MIN_VERSION = [0, 1, 19] as const;
 
@@ -48,7 +48,7 @@ export async function fetchStoryApi(
       const status = statusResponse.ok ? await statusResponse.json() : undefined;
       if (status?.ok && !supportsStoryGeneration(String(status.version || ''))) {
         return new Response(JSON.stringify({
-          error: `当前 Companion v${status.version || '未知'} 不支持新版 DMX GPT-5 剧本响应；请更新到 v${STORY_COMPANION_MIN_VERSION.join('.')} 或更高版本。`,
+          error: `当前 Companion v${status.version || '未知'} 不支持分阶段剧本生成；请更新到 v${STORY_COMPANION_MIN_VERSION.join('.')} 或更高版本。`,
         }), {
           status: 426,
           headers: { 'Content-Type': 'application/json' },

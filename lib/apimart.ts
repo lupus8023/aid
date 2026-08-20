@@ -5,14 +5,14 @@ import { providerHttpsAgent } from './publicDns';
 const APIMART_BASE_URL = 'https://api.apimart.ai/v1';
 
 // 聊天 API - 用于分析故事
-export async function chatCompletion(prompt: string, apiKey: string, model: string = 'gpt-4o', timeoutMs = 120000): Promise<string> {
+export async function chatCompletion(prompt: string, apiKey: string, model: string = 'gpt-4o', timeoutMs = 120000, maxTokens = 16000): Promise<string> {
   try {
     const response = await axios.post<ApiMartChatResponse>(
       `${APIMART_BASE_URL}/chat/completions`,
       {
         model,
         stream: false,
-        max_tokens: 16000,
+        max_tokens: maxTokens,
         messages: [
           {
             role: 'user',

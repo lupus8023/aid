@@ -1,5 +1,5 @@
-import { Storyboard } from '@/types';
-import { StoryPlan, Beat, WriterCharacter, WriterObject } from './types';
+import type { Storyboard } from '@/types';
+import type { StoryPlan, Beat, WriterCharacter, WriterObject } from './types';
 import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
 import type { VisualStyle } from '@/types';
@@ -9,22 +9,46 @@ import { buildImageCaptureContract, getProductionStylePreset } from '@/lib/promp
 // 关键点：镜头数量/顺序/台词/时长/转场/连续关系【忠实于 StoryPlan】，只补画面/视频提示词与定妆。
 function buildDirectorPrompt(input: {
   storyPlan: StoryPlan;
+  beats: Beat[];
+  batchNumber: number;
+  totalBatches: number;
+  previousShots?: Array<Record<string, unknown>>;
+  continuesSequence?: boolean;
+  nextBeats?: Beat[];
   characters: WriterCharacter[];
   objects: WriterObject[];
   language: 'zh' | 'en';
   visualStyle?: VisualStyle;
 }): string {
-  const { storyPlan, characters, objects, language, visualStyle } = input;
+  const { storyPlan, beats, batchNumber, totalBatches, previousShots = [], continuesSequence = false, nextBeats = [], characters, objects, language, visualStyle } = input;
   const characterDetails = characters.map(c => `- ${c.name}: ${c.description}`).join('\n');
   const objectDetails = objects.length ? objects.map(o => `- ${o.name}: ${o.description}`).join('\n') : '无';
-  const beatCount = storyPlan.sequences.reduce((n, s) => n + s.beats.length, 0);
+  const firstIndex = beats[0]?.index || 0;
+  const lastIndex = beats[beats.length - 1]?.index || 0;
   const stylePreset = getProductionStylePreset(visualStyle);
 
   const langInstruction = language === 'en'
     ? 'MANDATORY: output description, prompt and characterCostume in ENGLISH.'
     : '强制：description 使用中文，prompt 使用英文，characterCostume 使用具体可视描述。';
 
-  return `你是一位电影导演兼分镜师。下面是编剧已经完成的【故事结构 StoryPlan】与角色/物体设定。你的任务是把每个 beat 可视化成一个可拍摄的分镜。
+  const storySpine = {
+    title: storyPlan.title,
+    theme: storyPlan.theme,
+    logline: storyPlan.logline,
+    protagonist: storyPlan.protagonist,
+    externalWant: storyPlan.externalWant,
+    internalNeed: storyPlan.internalNeed,
+    stakes: storyPlan.stakes,
+    obstacle: storyPlan.obstacle,
+    finalChoice: storyPlan.finalChoice,
+    consequence: storyPlan.consequence,
+    change: storyPlan.change,
+    storyAnchor: storyPlan.storyAnchor,
+    visualMotif: storyPlan.visualMotif,
+    emotionalArc: storyPlan.emotionalArc,
+  };
+
+  return `你是一位电影导演兼分镜师。全片剧本已经锁定。现在只处理导演批次 ${batchNumber}/${totalBatches}（镜头 ${firstIndex}–${lastIndex}），把本批 beats 可视化为可拍摄分镜。
 
 📌 用户原始输入仍是最高优先级：
 ${storyPlan.sourceBrief || '（旧项目未保存原始输入，请以 StoryPlan 为准）'}
@@ -33,8 +57,8 @@ ${storyPlan.sourceBrief || '（旧项目未保存原始输入，请以 StoryPlan
 需求核对表：${JSON.stringify(storyPlan.requirements || [], null, 2)}
 
 🎯 最高原则：忠实于 StoryPlan，不重新创作
-- 分镜数量必须等于 ${beatCount}，顺序与 beats 完全一致，不得增删或重排。
-- 台词、景别、运镜、机位、时长、转场、连续关系都来自 beat，你只负责【画面化】。
+- 本批分镜数量必须等于 ${beats.length}，顺序与 index ${firstIndex}–${lastIndex} 完全一致，不得增删或重排。
+- 台词、动作、时长、转场和连续关系来自 beat；你负责设计景别、运镜、机位、场景成像基线与正式图片 prompt。
 - 必须让 dramaticPurpose、cause、conflict、choice、consequence 和 stateBefore/stateAfter 在画面中可见；镜头必须改变信息、关系、决定或物理状态，不能只制造氛围。
 - 不得添加 beat 中没有的情节、台词、旁白、画外音、声音或角色行为。
 - 如果用户原始输入含有 beat 未重复写出的明确视觉、服装、场景或语气要求，必须落实到 description/prompt，但不得改变剧情与镜头数量。
@@ -48,11 +72,24 @@ ${characterDetails}
 📦 已上传物体：
 ${objectDetails}
 
-📖 StoryPlan（JSON）：
-${JSON.stringify(storyPlan, null, 2)}
+📖 全片故事脊柱：
+${JSON.stringify(storySpine, null, 2)}
+
+上一批最后两镜的视觉交接：
+${JSON.stringify(previousShots.slice(-2), null, 2)}
+
+交接类型：${continuesSequence
+  ? '同一场次续拍。保持人物位置和银幕方向、服装、道具、主光方向、空间关系与曝光基线。'
+  : '新场次开始。保持人物身份、服装、关键道具和剧情状态；允许按新场次明确重建地点、时间、光源、构图和银幕方向。'}
+
+本批详细剧本（权威）：
+${JSON.stringify(beats, null, 2)}
+
+后续两镜剧情目标（只铺垫，不得提前发生）：
+${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action: beat.action, cause: beat.cause, dramaticPurpose: beat.dramaticPurpose })), null, 2)}
 
 🎬 分镜可视化要求：
-1. description（中文镜头描述）：必须以「[景别，机位角度]」开头，包含动作主体、环境、情绪氛围、运镜方式、物理细节（布料/水流/光影）。
+1. description：必须以「[景别，机位角度]」开头，包含动作主体、环境、情绪氛围、运镜方式、物理细节（布料/水流/光影）。
 2. prompt（英文图像提示词）：
    - 已上传角色/物体用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。
    - 不要写成关键词堆砌。使用紧凑的摄影因果链，顺序固定为：SUBJECT/ACTION → CAMERA POSITION & DISTANCE → LENS PERSPECTIVE → COMPOSITION & OCCLUSION → FOCUS PLANE & DEPTH LAYERS → MOTIVATED LIGHT → EXPOSURE/COLOR/MATERIAL RESPONSE。
@@ -66,6 +103,8 @@ ${JSON.stringify(storyPlan, null, 2)}
    - 精确执行 beat.characters：每个列出的角色在画面中只出现一次，未列出的角色不出现；角色设定图中的多角度/多姿势只用于识别同一身份，不得复制为多人。
    - 禁止字幕、标题、对白文字、气泡、Logo、水印或任何可读文字。
 3. characterCostume：为每个在本镜头出现的角色给一套服装/发型/配饰/颜色描述，跨镜头保持一致。
+4. shotSize / cameraMove / angle：为剧本动作选择一个明确且可执行的景别、单一物理运镜和机位；相邻镜头避免机械重复。
+5. sceneStyle：用紧凑英文记录本 sequence 的相机/镜头家族、主光方向与软硬/色温、环境反射或负补光、有限曝光、高光滚降、阴影密度、色彩响应和主要材质。连续 sequence 内保持相同基线。
 
 🎥 项目成像基线（只用于落实摄影物理，不要原样复制成长段落）：
 Selected production style: ${stylePreset.label} — ${stylePreset.description}
@@ -78,9 +117,13 @@ ${buildImageCaptureContract(visualStyle)}
 📝 输出（只输出 JSON 数组，按 beat 顺序，第 i 个元素对应第 i 个 beat）：
 [
   {
-    "index": 1,
-    "description": "中文镜头描述",
+    "index": ${firstIndex},
+    "description": "镜头描述",
     "prompt": "English image prompt",
+    "shotSize": "景别",
+    "cameraMove": "单一物理运镜",
+    "angle": "机位",
+    "sceneStyle": "English scene capture baseline",
     "characterCostume": { "角色名": "服装造型描述" }
   }
 ]`;
@@ -114,9 +157,9 @@ function mergeBeats(
       speech: beat.speech,
       audioPlan: beat.audioPlan,
       clipType: beat.clipType,
-      shotSize: beat.shotSize,
-      cameraMove: beat.cameraMove,
-      angle: beat.angle,
+      shotSize: typeof raw?.shotSize === 'string' ? raw.shotSize : beat.shotSize,
+      cameraMove: typeof raw?.cameraMove === 'string' ? raw.cameraMove : beat.cameraMove,
+      angle: typeof raw?.angle === 'string' ? raw.angle : beat.angle,
       dramaticPurpose: beat.dramaticPurpose,
       cause: beat.cause,
       conflict: beat.conflict,
@@ -139,6 +182,22 @@ function mergeBeats(
   });
 }
 
+export function buildDirectorBatches(storyPlan: StoryPlan, maxBatchSize = 9): Beat[][] {
+  const size = Math.max(1, Math.min(9, Math.floor(maxBatchSize) || 9));
+  const batches: Beat[][] = [];
+  for (const sequence of storyPlan.sequences) {
+    for (let index = 0; index < sequence.beats.length; index += size) {
+      batches.push(sequence.beats.slice(index, index + size));
+    }
+  }
+  return batches;
+}
+
+function parsedDirectorShots(value: any): any[] {
+  if (Array.isArray(value)) return value;
+  return Array.isArray(value?.shots) ? value.shots : [];
+}
+
 export async function directStoryboard(input: {
   storyPlan: StoryPlan;
   characters: WriterCharacter[];
@@ -152,12 +211,69 @@ export async function directStoryboard(input: {
   dmxApiKey?: string;
 }): Promise<Storyboard[]> {
   const { storyPlan, characters, objects, apiKey, aspectRatio, language = 'zh', visualStyle, scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
-  const prompt = buildDirectorPrompt({ storyPlan, characters, objects, language, visualStyle });
+  const batches = buildDirectorBatches(storyPlan);
+  const allBeats = storyPlan.sequences.flatMap(sequence => sequence.beats);
+  const rawShots: any[] = [];
 
-  const response = await chatOnce(prompt, { apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel });
-
-  const parsed = extractJson(response);
-  const rawShots: any[] = Array.isArray(parsed) ? parsed : [];
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+    const beats = batches[batchIndex];
+    const lastIndex = beats[beats.length - 1]?.index || 0;
+    const prompt = buildDirectorPrompt({
+      storyPlan,
+      beats,
+      batchNumber: batchIndex + 1,
+      totalBatches: batches.length,
+      previousShots: rawShots.slice(-2).map(shot => ({
+        index: shot.index,
+        description: shot.description,
+        shotSize: shot.shotSize,
+        angle: shot.angle,
+        sceneStyle: shot.sceneStyle,
+        characterCostume: shot.characterCostume,
+      })),
+      continuesSequence: rawShots.length > 0 && rawShots[rawShots.length - 1]?.sequenceId === beats[0]?.sequenceId,
+      nextBeats: allBeats.filter(beat => beat.index > lastIndex).slice(0, 2),
+      characters,
+      objects,
+      language,
+      visualStyle,
+    });
+    let batchShots: any[] | undefined;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 2 && !batchShots; attempt += 1) {
+      try {
+        const correction = attempt === 1
+          ? ''
+          : `\n\nCORRECTION RETRY: the previous response was invalid (${lastError instanceof Error ? lastError.message : 'unknown error'}). Return only a complete JSON array with exactly ${beats.length} items.`;
+        console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, attempt ${attempt}/2`);
+        const response = await chatOnce(`${prompt}${correction}`, {
+          apiKey,
+          dmxApiKey,
+          provider: scriptProvider,
+          model: scriptModel,
+          maxOutputTokens: 7_000,
+          timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000,
+        });
+        const parsed = parsedDirectorShots(extractJson(response));
+        if (parsed.length !== beats.length) throw new Error(`返回 ${parsed.length} 镜，要求 ${beats.length} 镜`);
+        batchShots = parsed.map((shot, index) => ({
+          ...shot,
+          index: beats[index].index,
+          sequenceId: beats[index].sequenceId,
+        }));
+      } catch (error) {
+        lastError = error;
+        console.warn(`[story-director] batch ${batchIndex + 1} failed:`, error instanceof Error ? error.message : error);
+        if (/timeout|timed out|ECONNABORTED/i.test(error instanceof Error ? error.message : String(error))) break;
+      }
+    }
+    if (!batchShots) {
+      const first = beats[0]?.index || 0;
+      const last = beats[beats.length - 1]?.index || 0;
+      throw new Error(`分镜提示词 ${first}–${last} 生成失败：${lastError instanceof Error ? lastError.message : String(lastError)}`);
+    }
+    rawShots.push(...batchShots);
+  }
 
   return mergeBeats(storyPlan, rawShots, aspectRatio);
 }

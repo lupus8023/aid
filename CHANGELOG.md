@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.21 - 2026-08-20
+
+### Improved
+
+- Story generation now locks a compact whole-film outline and exact shot map first, expands the detailed screenplay in sequence-bound batches of at most nine shots, and generates director/storyboard prompts in matching batches.
+- Every batch receives the global story spine, the prior boundary state, and a short future roadmap. Continuing sequences preserve physical blocking and lighting, while a new sequence may explicitly reset time, location, composition, and light without losing character or plot state.
+- The former generic “AI Expand” action is now “Adapt Screenplay”: it uses the selected 9–81 shot production target and approximate runtime to rewrite the source into exactly numbered, causally connected story beats before planning begins.
+
+### Fixed
+
+- Long films no longer ask DMX to return story structure, detailed screenplay, audio planning, and camera prompts for as many as 81 shots in one response. Each stage now has an independent output-token and timeout budget.
+- A timed-out DMX request no longer repeats the same oversized payload through the alternate OpenAI transport, avoiding consecutive four-minute waits.
+- Invalid JSON or an incorrect shot count is retried within the affected batch and reports the exact shot range instead of discarding the entire plan without a location.
+
+### Tests
+
+- Added staged-generation regression coverage for exact outline quotas, continuous indexes, sequence-safe 9-shot batching, prompt-stage separation, and matching director boundaries.
+
 ## 0.1.20 - 2026-08-20
 
 ### Improved
