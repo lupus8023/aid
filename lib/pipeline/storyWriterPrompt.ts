@@ -234,7 +234,7 @@ export function buildStoryPlanPrompt(input: {
 - 台词必须有潜台词（subtext）：嘴上说的 ≠ 心里想的，不直说。
 - 台词必须克制：用户没有明确要求对白、旁白或口播时，默认用动作和表情讲故事，speech 写 []。只有信息无法用画面表达或用户明确提供台词时才写台词。
 - 不得为了“电影感”添加旁白、画外音、路人说话、感叹词、笑声、哼唱或无来源的人声。用户给出的指定台词必须逐字保留，不改写、不扩写。
-- speech 是全片唯一权威台词源。每个 beat 最多一条；speaker 必须在当前 characters 中；exactLine 只能包含角色真正说出口的逐字内容，绝不能填写“无人说话”“无其他角色在场”“其他角色沉默/闭嘴/无声反应”等导演指令。其他角色状态只写进 action 或 state，不得放进 speech。
+- speech 是全片唯一权威台词源。每个 beat 最多一条；speaker 必须在当前 characters 中；exactLine 只能包含角色真正说出口的逐字内容，绝不能填写“无人说话”“无其他角色在场”“其他角色沉默/闭嘴/无声反应”“先短暂停顿，再以坚定语气说”等导演或表演指令。停顿写入 audioPlan.silenceBefore，情绪写入 emotion，说话方式写入 delivery，其他角色状态写进 action 或 state；这些字段都不是可朗读台词。
 - audioPlan 是唯一权威声音源。backgroundHuman 默认 none；只有剧情明确需要人群存在感时才可用 indistinct_nonverbal，且绝不能产生可辨识词语。环境、拟音、音乐必须分层，未要求音乐时 music 写 none。
 - 视觉母题（visualMotif）：一个反复出现的意象/道具，承载主题，首尾呼应（如一把伞、一盏灯、一封信）。
 

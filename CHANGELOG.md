@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.25 - 2026-08-22
+
+### Improved
+
+- Story now carries each screenplay beat's authoritative visible action into its storyboard instead of asking the final video prompt to infer motion from a still-image description.
+- Every storyboard inside a grouped MiniMax H3 clip receives its own exact time window, action cadence and landing, camera move, dialogue state, caused sound and motivated cinematic handoff. Grouping several storyboards changes only the generation batch and never collapses their individual content.
+- H3 action timing now enters on movement, completes the decisive contact or turn before the final reaction window, and preserves live secondary motion at real-time physical speed instead of stretching one gesture into apparent slow motion.
+- First/last-frame continuity treats the final reference as a landing composition: the main action completes before the final 16% instead of uniformly interpolating between two still poses for the whole clip.
+
+### Fixed
+
+- Model-written performance prose such as “pause briefly, then speak firmly” is stripped from generated dialogue or reduced to the quoted spoken words before Story saves or regenerates the shot.
+- Emotion, pause and delivery metadata are converted into non-spoken H3 control codes; only words inside the authoritative `<d>` block may be vocalized.
+- Storyboard references preserve identity, wardrobe, location and light without locking pose, blocking or viewpoint, allowing complete action and camera movement to develop within each beat.
+- The complete four-storyboard H3 structure remains within the provider's 7,000-character prompt limit without dropping actions, cameras, dialogue states or transitions.
+
+### Tests
+
+- Added regression coverage for grouped per-storyboard timelines, complete action/camera/dialogue contracts, cinematic handoffs, first/last-frame cadence, performance-direction filtering and H3 prompt budgets.
+
 ## 0.1.24 - 2026-08-21
 
 ### Added

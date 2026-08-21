@@ -39,7 +39,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
     rhythm: 'Decisive feature-film cutting. Enter each beat late and leave early. Alternate wide geography, medium action and meaningful close detail; no empty waiting, decorative drift or uniformly slow movement.',
     performance: 'Subtext-first micro-performance: breath, eye-line and weight shift precede each gesture; anticipation leads to contact, then a visible reaction. People do not pose for the camera or move in slow motion by default.',
     sound: 'Natural location room tone and restrained tactile Foley. Keep ordinary acoustic imperfections; human voices exist only when the authoritative speech manifest schedules them, with no extra breaths, murmurs, laughter or dialogue.',
-    h3Direction: 'Authentic direct-camera live action: real skin and fabric, finite exposure, natural white balance, optical motion blur, slight human-operated inertia and focus recovery. Subtext-first micro-performance; enter late, leave early.',
+    h3Direction: 'Authentic direct-camera live action: real skin and fabric, finite exposure, natural white balance, optical motion blur, slight human-operated inertia and focus recovery. Subtext-first micro-performance at real-time physical speed; enter late, leave early; never default to slow motion.',
   },
   {
     value: 'warm-film', label: '温暖胶片', description: '金色、柔和、带记忆质感的叙事',
@@ -293,16 +293,8 @@ export function buildVideoContinuityRules(hasAudioReference: boolean) {
     : '';
 
   return `
-PHYSICS:
-
-Maintain continuous temporal causality from frame to frame.
-Hair, fabric, carried objects, contact points, shadows, reflections and body orientation evolve from the preceding state with believable weight and inertia.
-Screen direction, spatial relationships, lighting direction, and environment geography remain stable throughout.
-The established visual medium and rendering language remain stable.${audioSync}
-
-CONSTRAINTS:
-
-Each listed identity appears once with stable face, proportions, hair, wardrobe and accessories. Every shot preserves the established environment and causal state; the timed dialogue and sound fields are authoritative.`;
+PHYSICS: Continuous causality and believable weight/inertia for bodies, hair, fabric, props, contact, shadows and reflections. Preserve screen direction, geography, spatial/light continuity and visual medium.${audioSync}
+CONSTRAINTS: Each listed identity appears exactly once with stable face/body/hair/wardrobe/accessories. Timed action, camera, dialogue and sound fields are authoritative.`;
 }
 
 export function getStoryboardDuration(storyboard: Pick<Storyboard, 'videoDuration'>) {

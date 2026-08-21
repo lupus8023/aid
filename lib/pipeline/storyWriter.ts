@@ -4,7 +4,7 @@ import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
 import { normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from './shotCount';
 import type { NarrativeState, StoryAudioPlan, StoryClipType, StorySpeechLine } from '@/types';
-import { isDirectingInstructionDialogue } from '@/lib/speechAudioContract';
+import { isDirectingInstructionDialogue, sanitizeGeneratedSpeechText } from '@/lib/speechAudioContract';
 
 const TRANSITIONS: Beat['transition'][] = ['cut', 'dissolve', 'fade', 'wipe'];
 const REQUIREMENT_CATEGORIES: StoryRequirement['category'][] = ['plot', 'character', 'setting', 'tone', 'format', 'pacing', 'dialogue', 'visual', 'avoid', 'other'];
@@ -208,8 +208,9 @@ export function sanitizeStoryPlan(
           }));
       const speech: StorySpeechLine[] = rawSpeech.map((line: any): StorySpeechLine | undefined => {
         const character = asString(line?.character || line?.speaker).trim();
-        const exactLine = asString(line?.exactLine || line?.text).replace(/\s+/g, ' ').trim();
         const source = line?.source === 'user_exact' ? 'user_exact' : 'story_required';
+        const rawExactLine = asString(line?.exactLine || line?.text).replace(/\s+/g, ' ').trim();
+        const exactLine = source === 'user_exact' ? rawExactLine : sanitizeGeneratedSpeechText(rawExactLine);
         if (!character || !exactLine || !allowedCharacters.includes(character) || !beatCharacters.includes(character)) return undefined;
         if (source === 'user_exact' && !sourceBrief.includes(exactLine)) return undefined;
         if (source !== 'user_exact' && isDirectingInstructionDialogue(exactLine)) return undefined;

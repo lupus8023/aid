@@ -3,7 +3,7 @@ import type { Storyboard } from '@/types';
 import { buildVideoContinuityRules, getProductionStylePreset } from './promptArchitecture';
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds } from './videoSegments';
 import { NO_SUBTITLE_POLICY } from './videoTextPolicy';
-import { buildAudioManifest, buildNonDiegeticMusic, compileTimedSpeech, validateSpeechLanguage } from './speechAudioContract';
+import { buildAudioManifest, buildNonDiegeticMusic, compileTimedSpeech, storyboardAudioPlan, validateSpeechLanguage } from './speechAudioContract';
 
 function h3Timestamp(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -40,22 +40,109 @@ function dialogueLanguage(text: string): string {
   return 'English';
 }
 
+function nonSpokenPerformanceControl(emotion: string, delivery: string): string {
+  const source = `${emotion || ''} ${delivery || ''}`.toLowerCase();
+  const emotionCode = /坚定|果断|决心|determined|firm|resolute/.test(source)
+    ? 'controlled_determination'
+    : /害怕|恐惧|紧张|fear|afraid|tense|anxious/.test(source)
+      ? 'contained_tension'
+      : /悲|难过|伤心|sad|grief|sorrow/.test(source)
+        ? 'restrained_sadness'
+        : /愤怒|生气|angry|anger|furious/.test(source)
+          ? 'contained_anger'
+          : /喜悦|开心|温柔|happy|warm|gentle|joy/.test(source)
+            ? 'subtle_warmth'
+            : 'restrained_scene_emotion';
+  const onsetCode = /停顿|沉默|pause|hesitat/.test(source) ? 'brief_pre_line_pause' : 'direct_onset';
+  const paceCode = /快速|急促|fast|quick|urgent/.test(source)
+    ? 'brisk_natural_pace'
+    : /缓慢|慢速|slow|measured/.test(source)
+      ? 'measured_natural_pace'
+      : 'natural_pace';
+  return `NON_SPOKEN_PERFORMANCE={emotion:${emotionCode},onset:${onsetCode},pace:${paceCode}}`;
+}
+
 function officialCameraMotion(storyboard: Storyboard, index: number): string {
   const source = `${storyboard.cameraMove || ''} ${storyboard.description || ''}`.toLowerCase();
-  if (/(?:静止|固定|static|locked)/i.test(source)) return 'The camera holds a static shot throughout this beat.';
-  if (/(?:手持|handheld|shoulder)/i.test(source)) return 'The camera follows the dominant action with restrained handheld tracking, small amplitude, and moderate speed, then settles without floating.';
-  if (/(?:拉远|拉出|pull out|dolly out|zoom out)/i.test(source)) return 'The camera pulls out with small amplitude at moderate speed, revealing the changed spatial state.';
-  if (/(?:推近|推进|推镜|push in|dolly in|zoom in)/i.test(source)) return 'The camera pushes in with small amplitude at moderate speed, landing on the decisive visible reaction.';
-  if (/(?:左摇|pan left)/i.test(source)) return 'The camera pans left with small amplitude at moderate speed to reveal the next piece of information.';
-  if (/(?:右摇|pan right)/i.test(source)) return 'The camera pans right with small amplitude at moderate speed to reveal the next piece of information.';
-  if (/(?:摇|pan)/i.test(source)) return 'The camera pans with small amplitude at moderate speed in the direction of the visible action.';
-  if (/(?:横移|左移|右移|truck|slide)/i.test(source)) return 'The camera trucks laterally with small amplitude at moderate speed, preserving screen direction and parallax.';
-  if (/(?:跟|tracking|follow)/i.test(source)) return 'The camera tracks the dominant moving subject with small amplitude at moderate speed, then settles on the consequence.';
-  if (/(?:升|pedestal up|crane up|tilt up)/i.test(source)) return 'The camera rises with small amplitude at moderate speed, revealing the changed vertical relationship.';
-  if (/(?:降|pedestal down|crane down|tilt down)/i.test(source)) return 'The camera lowers with small amplitude at moderate speed, landing on the action detail.';
+  if (/(?:静止|固定|static|locked)/i.test(source)) return 'locked shot through this beat';
+  if (/(?:手持|handheld|shoulder)/i.test(source)) return 'restrained handheld track, moderate speed; follow action then settle, no float';
+  if (/(?:拉远|拉出|pull out|dolly out|zoom out)/i.test(source)) return 'small moderate pull-out revealing changed spatial state';
+  if (/(?:推近|推进|推镜|push in|dolly in|zoom in)/i.test(source)) return 'small moderate push-in landing on decisive reaction';
+  if (/(?:左摇|pan left)/i.test(source)) return 'small moderate pan left revealing next information';
+  if (/(?:右摇|pan right)/i.test(source)) return 'small moderate pan right revealing next information';
+  if (/(?:摇|pan)/i.test(source)) return 'small moderate pan following visible action';
+  if (/(?:横移|左移|右移|truck|slide)/i.test(source)) return 'small moderate lateral truck preserving direction and parallax';
+  if (/(?:跟|tracking|follow)/i.test(source)) return 'small moderate subject track, settling on consequence';
+  if (/(?:升|pedestal up|crane up|tilt up)/i.test(source)) return 'small moderate rise revealing changed vertical relation';
+  if (/(?:降|pedestal down|crane down|tilt down)/i.test(source)) return 'small moderate lower move landing on action detail';
   return index === 0
-    ? 'The camera pushes in with small amplitude at moderate speed, entering on the first visible action rather than waiting.'
-    : 'The camera makes a short action-motivated tracking move with small amplitude at moderate speed, then settles on the new state.';
+    ? 'small moderate push-in entering on first action, no wait'
+    : 'short action-motivated moderate track, then settle on new state';
+}
+
+function authoritativeShotAction(storyboard: Storyboard): string {
+  return compactText(
+    sanitizeVisualDirection(storyboard.action || storyboard.description || storyboard.prompt),
+    260,
+  );
+}
+
+function shotMotionCadence(storyboard: Storyboard): string {
+  switch (storyboard.clipType) {
+    case 'insert':
+    case 'montage':
+      return 'brisk real time; immediate change; no hold';
+    case 'reaction':
+      return 'real-time trigger/reaction; one brief punctuation; no slow motion';
+    case 'dialogue':
+    case 'performance':
+      return 'natural conversational speed; gestures support rather than stretch the line';
+    case 'long_take':
+      return 'sustained real-time blocking; continuous progress; no slow motion';
+    case 'establishing':
+      return 'active real-time geography reveal; no empty drift';
+    default:
+      return 'decisive real time; visible acceleration/contact/direction change; no slow motion';
+  }
+}
+
+function shotSoundCue(storyboard: Storyboard): string {
+  const plan = storyboardAudioPlan(storyboard);
+  const environment = plan.environment.length ? plan.environment.join(', ') : 'location room tone';
+  const foley = plan.foley.length ? plan.foley.join(', ') : 'only sounds caused by the visible action';
+  return `SOUND: env={${environment}}; Foley={${foley}}; people=${plan.backgroundHuman}.`;
+}
+
+function cinematicTransition(previous: Storyboard, next: Storyboard): string {
+  const previousCharacters = new Set(previous.characters || []);
+  const sharedCharacters = (next.characters || []).filter(name => previousCharacters.has(name));
+  const previousObjects = new Set(previous.objects || []);
+  const sharedObjects = (next.objects || []).filter(name => previousObjects.has(name));
+  const explicitContinuity = Boolean(
+    next.continuousFromPrev
+    || next.continuityFrom === previous.id
+    || (next.continuityFrom && next.continuityFrom === `scene-${previous.sceneNumber}`),
+  );
+  if (explicitContinuity) {
+    return 'ACTION-MATCH CUT: cut mid-motion; resume vector, speed, screen direction and physical state';
+  }
+  if (sharedObjects.length) {
+    return `PROP-MATCH CUT on ${sharedObjects[0]}: end on motion/contact; resume its cause or changed state`;
+  }
+  if (sharedCharacters.length) {
+    return `EYELINE/REACTION BRIDGE via ${sharedCharacters[0]}: directed look/gesture motivates next view`;
+  }
+  if (previous.sequenceId === next.sequenceId && previous.locationId === next.locationId) {
+    return 'CUT ON MOTION: foreground crossing hides cut; preserve geography/screen direction';
+  }
+  return 'MOTIVATED MATCH CUT: shared vector/shape/light/sound cause enters new geography';
+}
+
+function shotActionSchedule(storyboard: Storyboard, range: { start: number; end: number }): string {
+  const span = Math.max(0.1, range.end - range.start);
+  const commitment = range.start + span * 0.62;
+  const consequence = range.start + span * 0.84;
+  return `ACTION: ${authoritativeShotAction(storyboard)} CADENCE: ${shotMotionCadence(storyboard)} TIMING: initiate ${h3Timestamp(range.start)}; decisive move/contact by ${h3Timestamp(commitment)}; consequence/reaction by ${h3Timestamp(consequence)}; live secondary motion to ${h3Timestamp(range.end)}, never stretch one gesture.`;
 }
 
 export function buildVideoSegmentPrompt(
@@ -96,35 +183,47 @@ export function buildVideoSegmentPrompt(
       const id = line.speakerId;
       const subject = subjectId.get(name);
       const source = subject ? `<Subject ${subject}> (${id})` : `${name || 'The on-screen speaker'} (${id})`;
+      const performance = nonSpokenPerformanceControl(line.emotion, line.delivery);
       return line.lipSync
-        ? `At ${h3Timestamp(line.start)}, ${source}, with ${line.emotion}, delivers the line ${line.delivery} at ${line.volume} volume: <d>[${dialogueLanguage(text)}] ${text}</d> The spoken line ends by ${h3Timestamp(line.end)}.`
-        : `At ${h3Timestamp(line.start)}, ${source} says in an off-screen voiceover, with ${line.emotion}, ${line.delivery}, at ${line.volume} volume: <d>[${dialogueLanguage(text)}] ${text}</d> while every on-screen character's lips remain completely closed. The voiceover ends by ${h3Timestamp(line.end)}.`;
+        ? `${h3Timestamp(line.start)}–${h3Timestamp(line.end)} ${source}; ${performance}; volume=${line.volume}; SPOKEN_WORDS_ONLY=<d>[${dialogueLanguage(text)}] ${text}</d>.`
+        : `${h3Timestamp(line.start)}–${h3Timestamp(line.end)} off-screen ${source}; ${performance}; volume=${line.volume}; SPOKEN_WORDS_ONLY=<d>[${dialogueLanguage(text)}] ${text}</d>; all on-screen mouths closed.`;
     }).join(' ');
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
     const range = timeline[index];
+    const shotSeconds = Math.max(0.1, range.end - range.start);
     const referenceNumber = index + referenceOffset;
     const beatCharacters = [...new Set(storyboard.characters || [])];
     const cast = beatCharacters.length
       ? `CAST={${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}> (${name})` : name).join(', ')}}; MULTIPLICITY=one_each.`
       : 'CAST={};';
-    const transition = index === 0
+    const entry = index === 0
       ? options.firstFrameUrl
-        ? 'The opening frame is already in motion; body momentum, camera inertia, eyeline and secondary motion continue immediately.'
-        : 'Enter on action; establish geography in the first second.'
-      : `At ${h3Timestamp(range.start)}, ${storyboard.transition === 'fade' ? 'fade' : storyboard.transition === 'dissolve' ? 'cross-dissolve' : 'cut on action'} from [Shot ${index}] as its visible consequence; preserve screen direction and geography.`;
+        ? 'ENTRY: inherited frame already moving; continue momentum, eyeline and camera inertia.'
+        : 'ENTRY: start on action; establish geography within one second.'
+      : `ENTRY ${h3Timestamp(range.start)}: continue [Shot ${index}] via its motivated cut.`;
     const dialogue = renderDialogue(storyboard, index);
     const pictureAnchor = isFirstLastMode
       ? index === storyboards.length - 1
-        ? `The action progressively converges on <Picture 2> as the exact final frame at ${duration.toFixed(2)} seconds.`
+        ? `<Picture 2> is final composition only. Finish primary action by ${h3Timestamp(range.start + shotSeconds * 0.84)}; use final 16% to resolve into it; do not uniformly interpolate or slow one gesture.`
         : ''
-      : `<Picture ${referenceNumber}> anchors this shot's identity, wardrobe, location, lighting, and composition.`;
+      : `<Picture ${referenceNumber}> starts this shot.`;
     const visualDirection = sanitizeVisualDirection(storyboard.prompt || storyboard.description);
-    return `${index === 0 ? `[Shot 1]` : `[Shot ${index + 1}]`} ${transition} ${pictureAnchor} ${cast}${objects.length ? ` PROPS={${objects.join(', ')}}.` : ''} ${compactText(visualDirection, 420)} ${officialCameraMotion(storyboard, index)} The dominant action changes the visible state and lands on a reaction or reveal by ${h3Timestamp(range.end)}.${dialogue ? ` ${dialogue}` : ''}`;
+    const actionDirection = authoritativeShotAction(storyboard);
+    const visualAnchor = visualDirection && visualDirection !== actionDirection
+      ? ` LOOK: ${compactText(visualDirection, 140)}`
+      : '';
+    const handoff = index < storyboards.length - 1
+      ? `TO [Shot ${index + 2}] ${h3Timestamp(range.end)}: ${cinematicTransition(storyboard, storyboards[index + 1])}.`
+      : `END ${h3Timestamp(range.end)}: leave motivated motion/eyeline/consequence, never a dead hold.`;
+    return `[Shot ${index + 1} | ${h3Timestamp(range.start)}–${h3Timestamp(range.end)} | ${shotSeconds.toFixed(1)}s] ${entry} ${pictureAnchor} ${cast}${(storyboard.objects || []).length ? ` PROPS={${(storyboard.objects || []).join(', ')}}.` : ''} FRAME: ${storyboard.shotSize || 'story-motivated size'}, ${storyboard.angle || 'story-motivated angle'}.${visualAnchor} ${shotActionSchedule(storyboard, range)} CAMERA: ${officialCameraMotion(storyboard, index)} ${dialogue ? `DIALOGUE: ${dialogue}` : 'DIALOGUE: none; mouths non-speaking.'} ${shotSoundCue(storyboard)} ${handoff}`;
   });
 
   const visualOverride = sanitizeVisualDirection(options.visualOverride);
-  const styleOpening = `${style.h3Direction}${visualOverride ? ` The user-specified visual action and camera direction is: ${visualOverride} This direction is visual-only.` : ''} ${NO_SUBTITLE_POLICY}`;
+  const speechGate = timedSpeech.length
+    ? 'SPEECH GATE: vocalize only text inside <d>; never speak timing/performance/camera/sound controls.'
+    : 'SPEECH GATE: no spoken words or human vocalization.';
+  const styleOpening = `${style.h3Direction}${visualOverride ? ` Visual-only override: ${visualOverride} This direction is visual-only.` : ''} ${NO_SUBTITLE_POLICY} ${speechGate} Cuts are physical/cinematic, never fades or dissolves.`;
   const physics = buildVideoContinuityRules(hasVoiceReferences)
     .replace(/\n+/g, ' ')
     .replace(/PHYSICS:|CONSTRAINTS:/g, '')
@@ -146,21 +245,21 @@ non_diegetic_music: ${nonDiegeticMusic}`;
 
   const pictureDefinitions = [
     ...(options.firstFrameUrl ? ['<Picture 1> is the opening continuity frame inherited from the preceding generated clip and defines the exact state at 0.00 seconds.'] : []),
-    ...storyboards.map((storyboard, index) => `<Picture ${index + referenceOffset}> is the storyboard anchor for [Shot ${index + 1}], defining viewpoint, placement, identity, wardrobe, location, and lighting.`),
+    ...storyboards.map((storyboard, index) => `<Picture ${index + referenceOffset}> opens [Shot ${index + 1}]: lock identity/wardrobe/location/light; allow action-driven pose/blocking/viewpoint change.`),
   ];
   const subjectDefinitions = characters.map((name, index) => {
     const pictures = storyboards.flatMap((storyboard, storyboardIndex) => storyboard.characters?.includes(name) ? [`<Picture ${storyboardIndex + referenceOffset}>`] : []);
-    return `<Subject ${index + 1}> is ${name}, the single identity shown in ${pictures.join(', ') || 'the storyboard references'}; preserve face, body, hair, wardrobe, and accessories.`;
+    return `<Subject ${index + 1}> = ${name} in ${pictures.join(', ') || 'references'}; preserve one face/body/hair/wardrobe/accessory identity.`;
   });
   const audioDefinitions = referenceAudioNames.map((name, index) => {
     const subject = subjectId.get(name);
     const speaker = timedSpeech.find(line => line.character === name)?.speakerId;
-    return `<Audio ${index + 1}> is the voice-timbre reference exclusively for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (${speaker})` : ''}; it may be used only during that speaker's scheduled line and supplies identity rather than wording.`;
+    return `<Audio ${index + 1}> = timbre only for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (${speaker})` : ''}, usable only in that scheduled line.`;
   });
   const retention = [
-    ...subjectDefinitions.map((_, index) => `<Subject ${index + 1}> (appears in ${storyboards.flatMap((storyboard, shotIndex) => storyboard.characters?.includes(characters[index]) ? [`[Shot ${shotIndex + 1}]`] : []).join(', ')}): fully_preserved - stable identity and wardrobe.`),
-    ...pictureDefinitions.map((_, index) => `<Picture ${index + 1}> (${index === 0 && options.firstFrameUrl ? '[Shot 1] first-frame anchor' : `[Shot ${Math.max(1, index + (options.firstFrameUrl ? 0 : 1))}] storyboard anchor`}): fully_preserved - preserve viewpoint, placement, and identity.`),
-    ...audioDefinitions.map((_, index) => `<Audio ${index + 1}>: reference - timbre guides the matching scripted speaker.`),
+    ...subjectDefinitions.map((_, index) => `<Subject ${index + 1}>: fully_preserved identity/wardrobe across ${storyboards.flatMap((storyboard, shotIndex) => storyboard.characters?.includes(characters[index]) ? [`[Shot ${shotIndex + 1}]`] : []).join(',')}.`),
+    ...pictureDefinitions.map((_, index) => `<Picture ${index + 1}>: reference; lock identity/world, not pose/viewpoint.`),
+    ...audioDefinitions.map((_, index) => `<Audio ${index + 1}>: timbre reference for its bound speaker only.`),
   ];
   const summaryPictures = storyboards.map((_, index) => `<Picture ${index + referenceOffset}>`).join(', ');
 
@@ -168,7 +267,7 @@ non_diegetic_music: ${nonDiegeticMusic}`;
 ${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}
 
 summary:
-[${options.firstFrameUrl ? 'keyframe completion + ' : ''}reference generation${referenceAudioNames.length ? ' + audio reference' : ''}] ${options.firstFrameUrl ? '<Picture 1> fixes the opening state while ' : ''}${summaryPictures} stage ${storyboards.length} causally connected shot${storyboards.length > 1 ? 's' : ''} in ${duration} seconds, progressing from a visible question through escalation to a decisive consequence in one production world.
+[${options.firstFrameUrl ? 'keyframe + ' : ''}references${referenceAudioNames.length ? ' + audio' : ''}] ${summaryPictures}; ${storyboards.length} causal shots / ${duration}s / one production world.
 
 retention_analysis:
 ${retention.join('\n')}

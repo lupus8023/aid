@@ -146,6 +146,7 @@ function mergeBeats(
     return {
       id: `scene-${i + 1}`,
       sceneNumber: i + 1,
+      action: beat.action,
       sequenceId: beat.sequenceId,
       locationId: beat.locationId,
       description: typeof raw?.description === 'string' ? raw.description : beat.action,

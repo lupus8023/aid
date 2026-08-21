@@ -55,6 +55,7 @@ export interface NarrativeState {
 export interface Storyboard {
   id: string;
   sceneNumber: number;
+  action?: string; // 编剧阶段锁定的权威可见动作；H3 必须逐镜按时间表执行
   description: string;
   prompt: string;
   characters: string[]; // 角色名称列表

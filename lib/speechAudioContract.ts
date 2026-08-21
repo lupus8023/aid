@@ -31,7 +31,32 @@ const DIRECTING_LINE_PATTERNS = [
   /^(?:other|all|remaining)\s+(?:visible\s+)?(?:characters|people|persons)\s+(?:remain|stay|are)\s+(?:silent|quiet)[.!]?$/i,
   /^(?:no|without)\s+(?:dialogue|speech|narration|voice|voices|vocalization)[.!]?$/i,
   /^(?:all|other|remaining)\s+(?:visible\s+)?mouths?\s+(?:remain|stay|are)\s+closed[.!]?$/i,
+  /^(?:先)?(?:短暂|稍作|略作|片刻)?(?:停顿|沉默)(?:片刻|一下)?(?:，|,)?(?:再|然后)?(?:以|用)?[^。！？!?]{0,24}(?:语气|口吻)?(?:说|说道|开口|回答)(?:话)?[。.!！]?$/i,
+  /^(?:以|用)[^。！？!?]{0,24}(?:语气|口吻)(?:说|说道|开口|回答)(?:话)?[。.!！]?$/i,
+  /^(?:pause|hesitate)(?:\s+(?:briefly|for a moment))?(?:,?\s+then)?(?:\s+(?:say|speak|reply)(?:\s+in\s+an?\s+[\w -]+\s+(?:tone|voice))?)?[.!]?$/i,
 ];
+
+const SPOKEN_WRAPPER_PATTERNS = [
+  /^(?:先)?(?:短暂|稍作|略作|片刻)?(?:停顿|沉默)(?:片刻|一下)?(?:，|,)?(?:再|然后)?(?:以|用)?[^：“”\"。！？!?]{0,24}(?:语气|口吻)?(?:说|说道|开口|回答)\s*[:：，,]?\s*[“\"](.+?)[”\"]\s*[。.!！]?$/i,
+  /^(?:以|用)[^：“”\"。！？!?]{0,24}(?:语气|口吻)(?:说|说道|开口|回答)\s*[:：，,]?\s*[“\"](.+?)[”\"]\s*[。.!！]?$/i,
+  /^(?:after\s+)?(?:a\s+)?brief\s+pause,?\s+(?:then\s+)?(?:says?|speaks?|replies?)\s*(?:in\s+an?\s+[\w -]+\s+(?:tone|voice))?\s*[:：,]?\s*[“\"](.+?)[”\"]\s*[.!]?$/i,
+];
+
+/** Strip model-written performance prose while retaining only words the character actually says. */
+export function sanitizeGeneratedSpeechText(value: unknown): string {
+  let text = clean(value)
+    .replace(/^[\[【（(]\s*(?:台词|对白|语音|speech|dialogue)\s*[\]】）)]\s*[:：-]?\s*/i, '')
+    .replace(/^[\[【（(](?:停顿|沉默|坚定|犹豫|轻声|低声|大声|语气|口吻)[^\]】）)]{0,30}[\]】）)]\s*/i, '')
+    .trim();
+  for (const pattern of SPOKEN_WRAPPER_PATTERNS) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      text = clean(match[1]);
+      break;
+    }
+  }
+  return isDirectingInstructionDialogue(text) ? '' : text;
+}
 
 /** Prevent stage directions from being performed as native H3 dialogue. */
 export function isDirectingInstructionDialogue(value: unknown): boolean {
@@ -78,7 +103,9 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
       ...line,
       speakerId: clean(line.speakerId) || stableSpeakerId(clean(line.character)),
       character: clean(line.character),
-      exactLine: clean(line.exactLine),
+      exactLine: line.source === 'user_exact'
+        ? clean(line.exactLine)
+        : sanitizeGeneratedSpeechText(line.exactLine),
       emotion: clean(line.emotion) || 'restrained and scene-appropriate',
       delivery: clean(line.delivery) || 'natural, concise, no theatrical emphasis',
       volume: line.volume || 'normal',

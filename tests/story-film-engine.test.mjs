@@ -3,6 +3,16 @@ import test from 'node:test';
 
 import { sanitizeStoryPlan } from '../lib/pipeline/storyWriter.ts';
 import { validateSpeechLanguage } from '../lib/speechAudioContract.ts';
+import { sanitizeGeneratedSpeechText } from '../lib/speechAudioContract.ts';
+
+test('speech sanitizer removes performance prose but keeps the quoted spoken words', () => {
+  assert.equal(sanitizeGeneratedSpeechText('先短暂停顿，再以坚定语气说'), '');
+  assert.equal(
+    sanitizeGeneratedSpeechText('先短暂停顿，再以坚定语气说：“女娲娘娘，请借我力量！”'),
+    '女娲娘娘，请借我力量！',
+  );
+  assert.equal(sanitizeGeneratedSpeechText('（坚定）我们现在出发。'), '我们现在出发。');
+});
 
 test('sanitizer creates one authoritative, visible and voice-bound speech line per beat', () => {
   const raw = {
