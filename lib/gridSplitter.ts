@@ -1,6 +1,13 @@
 import type { VisualStyle } from '@/types';
 import { buildCompactImageCaptureContract } from './promptArchitecture';
 
+function clipAtWord(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  const candidate = value.slice(0, Math.max(1, maxLength - 3));
+  const boundary = candidate.lastIndexOf(' ');
+  return `${(boundary >= maxLength * 0.68 ? candidate.slice(0, boundary) : candidate).trimEnd()}...`;
+}
+
 // Split a 3x3 grid image into 9 individual images using Canvas
 // Each cell has the same aspect ratio as the whole grid
 export function chunkGridBatch<T>(items: T[], size = 9): T[][] {
@@ -65,14 +72,15 @@ export function buildGridPrompt(
   visualStyle?: VisualStyle,
 ): string {
   const GRID_PROMPT_BUDGET = 3500;
+  const PANEL_PROMPT_BUDGET = 180;
   const orientation = aspectRatio === '9:16' ? 'vertical portrait' : aspectRatio === '1:1' ? 'square' : 'horizontal landscape';
   const shots = shotDescriptions.slice(0, 9).map(shot => {
     const requirementIndex = Math.max(shot.indexOf('CAST['), shot.indexOf('REQUIRED CHARACTERS'));
-    if (requirementIndex === -1) return shot.length <= 185 ? shot : `${shot.slice(0, 182).trim()}...`;
-    if (shot.length <= 210) return shot;
+    if (requirementIndex === -1) return clipAtWord(shot, 160);
+    if (shot.length <= PANEL_PROMPT_BUDGET) return shot;
     const requirements = shot.slice(requirementIndex);
-    const visualBudget = Math.max(105, 210 - requirements.length - 1);
-    return `${shot.slice(0, visualBudget).trim()} ${requirements}`;
+    const visualBudget = Math.max(90, PANEL_PROMPT_BUDGET - requirements.length - 1);
+    return `${clipAtWord(shot.slice(0, requirementIndex).trim(), visualBudget)} ${requirements}`;
   });
   while (shots.length < 9) shots.push(shots[shots.length - 1] || 'medium shot');
 
@@ -94,7 +102,7 @@ export function buildGridPrompt(
 ${buildCompactImageCaptureContract(visualStyle)}
 ${refSection}
 
-CAST AUTHORITY: each panel's CAST[n] count/list is exact. Show each listed identity exactly once; no omission, merge, clone, sheet-layout copy, reflection-double or extra. Character sheets prove one identity only. No captions, subtitles, speech bubbles, labels, logos, watermark or readable text.
+CAST AUTHORITY: each panel's EXACT CAST count/list in CAST[n] is authoritative. Show each listed identity exactly once; no omission, merge, clone, sheet-layout copy, reflection-double or extra. Character sheets prove one identity only. No captions, subtitles, speech bubbles, labels, logos, watermark or readable text.
 
 Render these nine distinct moments in exact order:
 ${panelSection}

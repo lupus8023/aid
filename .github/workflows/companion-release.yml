@@ -63,6 +63,9 @@ jobs:
       - run: npm run test:no-subtitles
       - run: npm run test:grid-preprocess
       - run: npm run test:character-design
+      - run: npm run test:character-library
+      - run: npm run test:image-capture
+      - run: npm run test:image-models
       - run: npm run test:shot-count
       - run: npm run test:video-segments
       - run: npm run test:project-isolation

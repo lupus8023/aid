@@ -1,6 +1,13 @@
 import axios from 'axios';
 import type { ApiMartChatResponse, ApiMartImageTaskResponse, ApiMartImageStatusResponse, ApiMartVideoStatusResponse } from '@/types';
 import { providerHttpsAgent } from './publicDns';
+import {
+  buildImageGenerationPayload,
+  extractImageTaskId,
+  getImageModelCapabilities,
+  type ImageGenerationAspectRatio,
+  type ImageResolutionOverride,
+} from './imageModels';
 
 const APIMART_BASE_URL = 'https://api.apimart.ai/v1';
 
@@ -57,13 +64,19 @@ export async function createImageTask(
   referenceImageUrls: string | string[],
   apiKey: string,
   model: string = 'doubao-seedream-5-0-lite',
-  aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' = '16:9',
-  resolutionOverride?: '2K' | '4K',
+  aspectRatio: ImageGenerationAspectRatio = '16:9',
+  resolutionOverride?: ImageResolutionOverride,
 ): Promise<string> {
   try {
-    const rawUrls = Array.isArray(referenceImageUrls)
+    const allRawUrls = Array.isArray(referenceImageUrls)
       ? referenceImageUrls
       : [referenceImageUrls];
+    const capabilities = getImageModelCapabilities(model);
+    const validRawUrls = allRawUrls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0);
+    const rawUrls = validRawUrls.slice(0, capabilities.maxReferenceImages);
+    if (validRawUrls.length > capabilities.maxReferenceImages) {
+      console.warn(`${capabilities.label} supports up to ${capabilities.maxReferenceImages} references; extra images were omitted.`);
+    }
 
     // 将 base64 图片上传到 APIMart 获取公网 URL
     const imageUrls: string[] = [];
@@ -86,24 +99,13 @@ export async function createImageTask(
       }
     }
 
-    const requestBody: any = {
+    const { body: requestBody, extraHeaders } = buildImageGenerationPayload({
       model,
       prompt,
-      size: aspectRatio,
-      n: 1
-    };
-
-    if (model.includes('gpt-image')) {
-      // 4k 仅支持 16:9, 9:16, 2:1, 1:2, 21:9, 9:21；1:1 等比例用 2k
-      const supports4k = ['16:9', '9:16', '2:1', '1:2', '21:9', '9:21'].includes(aspectRatio);
-      requestBody.resolution = (resolutionOverride || (supports4k ? '4K' : '2K')).toLowerCase();
-    } else {
-      requestBody.resolution = resolutionOverride || '2K';
-    }
-
-    if (imageUrls.length > 0 && imageUrls[0]) {
-      requestBody.image_urls = imageUrls;
-    }
+      aspectRatio,
+      imageUrls,
+      resolutionOverride,
+    });
 
     console.log('=== Image Generation Request ===');
     console.log('Model:', model);
@@ -122,12 +124,15 @@ export async function createImageTask(
       {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...extraHeaders,
         }
       }
     );
 
-    return response.data.data[0].task_id;
+    const taskId = extractImageTaskId(response.data);
+    if (!taskId) throw new Error(`APIMart response did not include an image task ID: ${JSON.stringify(response.data)}`);
+    return taskId;
   } catch (error: any) {
     console.error('Image generation API error:', error);
     console.error('Error response:', error.response?.data);

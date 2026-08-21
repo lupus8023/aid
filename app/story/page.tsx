@@ -30,6 +30,7 @@ import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel
 import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@/lib/gridRecovery';
 import { storyboardSpeech } from '@/lib/speechAudioContract';
 import { applyStoryAspectRatio, hasStoryMedia, projectStoryAspectRatio, type StoryAspectRatio } from '@/lib/storyAspectRatio';
+import { getImageModelCapabilities } from '@/lib/imageModels';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -649,8 +650,12 @@ export default function StoryPage() {
         const groupObjects = objectsRef.current.filter(object =>
           group.some(sb => mentionsEntity(sb, object.name, sb.objects))
         );
-        const summarize = (value: string, maxLength = 160) =>
-          value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
+        const summarize = (value: string, maxLength = 160) => {
+          if (value.length <= maxLength) return value;
+          const candidate = value.slice(0, maxLength - 3);
+          const boundary = candidate.lastIndexOf(' ');
+          return `${(boundary >= maxLength * 0.68 ? candidate.slice(0, boundary) : candidate).trimEnd()}...`;
+        };
 
         // Build grid prompt from group's prompts
         const sceneStyle = group[0]?.sceneStyle || '';
@@ -713,7 +718,8 @@ export default function StoryPage() {
         const sceneReference = sceneImagesRef.current[0]
           ? [{ image: sceneImagesRef.current[0], label: 'Scene/environment reference' }]
           : [];
-        const references = [...characterReferences, ...sceneReference, ...objectReferences];
+        const referenceLimit = getImageModelCapabilities(activeSettings.imageModel).maxReferenceImages;
+        const references = [...characterReferences, ...sceneReference, ...objectReferences].slice(0, referenceLimit);
         const refLabels = references.map(reference => reference.label);
         const refImages = references.map(reference => reference.image);
         let gridUrl = '';

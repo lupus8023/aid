@@ -21,9 +21,16 @@ import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
 import { readApiJson } from '@/lib/apiResponse';
 import { PRODUCTION_STYLE_PRESETS } from '@/lib/promptArchitecture';
+import {
+  CHARACTER_DESIGNS_STORAGE_KEY,
+  CHARACTER_HISTORY_STORAGE_KEY,
+  characterFromDesignRecord,
+  parseStoredArray,
+  upsertCharacterHistory,
+} from '@/lib/characterLibrary';
+import { getImageModelCapabilities } from '@/lib/imageModels';
 import type { VisualStyle } from '@/types';
 
-const MAX_REFERENCES = 4;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const TARGET_BYTES = 1200 * 1024;
 
@@ -77,6 +84,7 @@ async function downloadImage(url: string, filename: string) {
 
 export default function CharacterDesignPage() {
   const { settings, saveSettings } = useSettings();
+  const referenceLimit = Math.min(4, getImageModelCapabilities(settings.imageModel).maxReferenceImages);
   const [showSettings, setShowSettings] = useState(false);
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
@@ -99,7 +107,7 @@ export default function CharacterDesignPage() {
   const selectedIndex = useMemo(() => concepts.indexOf(selectedConcept), [concepts, selectedConcept]);
 
   const uploadReferences = async (files: FileList) => {
-    const incoming = Array.from(files).slice(0, MAX_REFERENCES - references.length);
+    const incoming = Array.from(files).slice(0, referenceLimit - references.length);
     if (!incoming.length) return;
     if (incoming.some(file => file.size > MAX_FILE_BYTES)) {
       alert('单张参考图不能超过 8MB');
@@ -108,7 +116,7 @@ export default function CharacterDesignPage() {
     setBusyStage('upload');
     try {
       const values = await Promise.all(incoming.map(compressImage));
-      setReferences(previous => [...previous, ...values].slice(0, MAX_REFERENCES));
+      setReferences(previous => [...previous, ...values].slice(0, referenceLimit));
       setStatus('参考图已加入。它们会约束身份特征、媒介和材质语言。');
     } catch (error) {
       alert(error instanceof Error ? error.message : '图片处理失败');
@@ -238,8 +246,6 @@ export default function CharacterDesignPage() {
 
   const saveToLibrary = () => {
     if (!bibleUrl) return;
-    const key = 'aidCharacterDesigns';
-    const existing = JSON.parse(localStorage.getItem(key) || '[]') as unknown[];
     const record = {
       id: `character-${Date.now()}`,
       name,
@@ -254,8 +260,15 @@ export default function CharacterDesignPage() {
       bibleUrl,
       createdAt: new Date().toISOString(),
     };
-    localStorage.setItem(key, JSON.stringify([record, ...existing].slice(0, 50)));
-    setStatus('已存入这台电脑的 AID 角色库。');
+    const existing = parseStoredArray(localStorage.getItem(CHARACTER_DESIGNS_STORAGE_KEY));
+    localStorage.setItem(CHARACTER_DESIGNS_STORAGE_KEY, JSON.stringify([record, ...existing].slice(0, 50)));
+
+    const historyCharacter = characterFromDesignRecord(record);
+    if (historyCharacter) {
+      const history = parseStoredArray(localStorage.getItem(CHARACTER_HISTORY_STORAGE_KEY));
+      localStorage.setItem(CHARACTER_HISTORY_STORAGE_KEY, JSON.stringify(upsertCharacterHistory(history, historyCharacter)));
+    }
+    setStatus('已存入 AID 角色库，可在 Story 的“历史角色”中直接引用。');
   };
 
   const toolbar = (
@@ -298,10 +311,10 @@ export default function CharacterDesignPage() {
                 </div>
 
                 <div>
-                  <div className="mb-2 flex items-center justify-between"><span className="aid-field-label !mb-0">参考图</span><span className="font-mono text-[10px] text-[var(--text-muted)]">{references.length}/{MAX_REFERENCES}</span></div>
+                  <div className="mb-2 flex items-center justify-between"><span className="aid-field-label !mb-0">参考图</span><span className="font-mono text-[10px] text-[var(--text-muted)]">{references.length}/{referenceLimit}</span></div>
                   <div className="grid grid-cols-4 gap-2">
                     {references.map((image, index) => <button key={`${image.slice(0, 24)}-${index}`} onClick={() => setReferences(previous => previous.filter((_, itemIndex) => itemIndex !== index))} className="group relative aspect-square overflow-hidden rounded-lg border border-[var(--border-color)] bg-black/20"><img src={image} alt={`参考 ${index + 1}`} className="h-full w-full object-cover" /><span className="absolute inset-x-0 bottom-0 bg-black/70 py-1 text-[9px] opacity-0 group-hover:opacity-100">移除</span></button>)}
-                    {references.length < MAX_REFERENCES && <label className="grid aspect-square cursor-pointer place-items-center rounded-lg border border-dashed border-[var(--border-strong)] text-[var(--text-muted)] hover:border-[var(--accent-green)] hover:text-[var(--accent-green)]"><Upload size={18} /><input type="file" accept="image/*" multiple className="hidden" onChange={event => { if (event.target.files) void uploadReferences(event.target.files); event.target.value = ''; }} /></label>}
+                    {references.length < referenceLimit && <label className="grid aspect-square cursor-pointer place-items-center rounded-lg border border-dashed border-[var(--border-strong)] text-[var(--text-muted)] hover:border-[var(--accent-green)] hover:text-[var(--accent-green)]"><Upload size={18} /><input type="file" accept="image/*" multiple className="hidden" onChange={event => { if (event.target.files) void uploadReferences(event.target.files); event.target.value = ''; }} /></label>}
                   </div>
                 </div>
 

@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Character } from '@/types';
 import { compressImageToThumbnail } from '@/utils/imageCompression';
-
-const STORAGE_KEY = 'character_history';
-const MAX_HISTORY = 20; // 最多保存20个历史记录（避免localStorage容量限制）
+import {
+  CHARACTER_DESIGNS_STORAGE_KEY,
+  CHARACTER_HISTORY_STORAGE_KEY,
+  mergeCharacterHistory,
+  parseStoredArray,
+  upsertCharacterHistory,
+} from '@/lib/characterLibrary';
 
 export function useCharacterHistory() {
   const [history, setHistory] = useState<Character[]>([]);
@@ -11,11 +15,11 @@ export function useCharacterHistory() {
   // 加载历史记录
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setHistory(parsed);
-      }
+      const saved = parseStoredArray(localStorage.getItem(CHARACTER_HISTORY_STORAGE_KEY));
+      const designs = parseStoredArray(localStorage.getItem(CHARACTER_DESIGNS_STORAGE_KEY));
+      const merged = mergeCharacterHistory(saved, designs);
+      setHistory(merged);
+      localStorage.setItem(CHARACTER_HISTORY_STORAGE_KEY, JSON.stringify(merged));
     } catch (error) {
       console.error('Failed to load character history:', error);
     }
@@ -40,21 +44,10 @@ export function useCharacterHistory() {
         voiceId: character.voiceId,
       };
 
-      // 检查是否已存在相同名称的角色
-      const exists = history.some(c => c.name === character.name);
-      if (exists) {
-        // 如果存在，更新该角色
-        const updated = history.map(c =>
-          c.name === character.name ? historyItem : c
-        );
-        setHistory(updated);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } else {
-        // 如果不存在，添加新角色
-        const updated = [historyItem, ...history].slice(0, MAX_HISTORY);
-        setHistory(updated);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      }
+      const saved = parseStoredArray(localStorage.getItem(CHARACTER_HISTORY_STORAGE_KEY));
+      const updated = upsertCharacterHistory(saved, historyItem);
+      setHistory(updated);
+      localStorage.setItem(CHARACTER_HISTORY_STORAGE_KEY, JSON.stringify(updated));
     } catch (error: any) {
       console.error('Failed to save character to history:', error);
       if (error.name === 'QuotaExceededError') {
@@ -68,7 +61,11 @@ export function useCharacterHistory() {
     try {
       const updated = history.filter(c => c.id !== id);
       setHistory(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      localStorage.setItem(CHARACTER_HISTORY_STORAGE_KEY, JSON.stringify(updated));
+      const designs = parseStoredArray(localStorage.getItem(CHARACTER_DESIGNS_STORAGE_KEY));
+      localStorage.setItem(CHARACTER_DESIGNS_STORAGE_KEY, JSON.stringify(
+        designs.filter(item => !item || typeof item !== 'object' || (item as { id?: string }).id !== id),
+      ));
     } catch (error) {
       console.error('Failed to remove character from history:', error);
     }
@@ -78,7 +75,7 @@ export function useCharacterHistory() {
   const clearHistory = () => {
     try {
       setHistory([]);
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(CHARACTER_HISTORY_STORAGE_KEY);
     } catch (error) {
       console.error('Failed to clear character history:', error);
     }

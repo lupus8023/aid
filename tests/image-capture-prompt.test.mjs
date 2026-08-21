@@ -18,13 +18,36 @@ test('still capture contract models optical cause and effect instead of generic 
   assert.match(contract, /Do not stack random lens defects/i);
 });
 
-test('compact capture contract keeps the essential grid optics within a small budget', () => {
+test('compact capture contract gives grids a concrete style, light, lens and texture bible', () => {
   const contract = buildCompactImageCaptureContract('cinematic-natural');
 
-  assert.ok(contract.length < 700, `compact contract was ${contract.length} characters`);
-  assert.match(contract, /camera height\/distance/i);
-  assert.match(contract, /near\/mid\/far falloff/i);
-  assert.match(contract, /motivated light angle\/falloff/i);
+  assert.ok(contract.length < 1000, `compact contract was ${contract.length} characters`);
+  assert.match(contract, /MEDIUM\/TEXTURE/i);
+  assert.match(contract, /LIGHT:/i);
+  assert.match(contract, /LENS\/DEPTH:/i);
+  assert.match(contract, /COLOR:/i);
+  assert.match(contract, /unretouched pores/i);
+  assert.match(contract, /motivated light falloff/i);
+});
+
+test('grid image styles are materially distinct instead of generic style labels', () => {
+  const natural = buildCompactImageCaptureContract('cinematic-natural');
+  const film = buildCompactImageCaptureContract('warm-film');
+  const anime = buildCompactImageCaptureContract('anime');
+  const stopMotion = buildCompactImageCaptureContract('stop-motion');
+
+  assert.match(film, /photochemical/i);
+  assert.match(anime, /line-weight hierarchy/i);
+  assert.match(stopMotion, /fingerprints/i);
+  assert.notEqual(natural, film);
+  assert.notEqual(film, anime);
+  assert.notEqual(anime, stopMotion);
+});
+
+test('grid prompts preserve structural line breaks at the provider boundary', async () => {
+  const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../lib/imageGenerator.ts', import.meta.url), 'utf8'));
+  assert.match(source, /replace\(\/\\r\\n\?\/g, '\\n'\)/);
+  assert.doesNotMatch(source, /replace\(\/\[\\x00-\\x1F\\x7F\]\/g, ''\)/);
 });
 
 test('grid prompt preserves all nine unique shot identities under the provider budget', () => {
@@ -42,7 +65,7 @@ test('grid prompt preserves all nine unique shot identities under the provider b
   );
 
   assert.ok(prompt.length <= 3500, `grid prompt was ${prompt.length} characters`);
-  assert.match(prompt, /GRID CAPTURE PHYSICS/);
+  assert.match(prompt, /GRID STYLE BIBLE/);
   assert.match(prompt, /Panel 9 \(story scene 9\): UNIQUE_OPTICS_9/);
   for (let index = 1; index <= 9; index += 1) {
     assert.match(prompt, new RegExp(`UNIQUE_OPTICS_${index}`));

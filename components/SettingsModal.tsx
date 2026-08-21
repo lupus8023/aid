@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { AppSettings } from '@/types';
 import { Check, Copy, X } from 'lucide-react';
 import { comfyUIApiUrl, localComfyUISettings } from '@/lib/comfyuiClient';
+import { APIMART_IMAGE_MODEL_OPTIONS, getImageModelCapabilities } from '@/lib/imageModels';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -217,12 +218,16 @@ export default function SettingsModal({
               })}
               className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
             >
-              <option value="doubao-seedream-5-0-lite">doubao-seedream-5-0-lite</option>
-              <option value="doubao-seedance-4-5">doubao-seedance-4-5</option>
-              <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview</option>
-              <option value="gpt-image-2">gpt-image-2</option>
-              <option value="gpt-image-2-official">gpt-image-2-official</option>
+              {APIMART_IMAGE_MODEL_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
+            <p className="mt-1.5 text-xs leading-5 text-[var(--text-secondary)]">
+              {(() => {
+                const capability = getImageModelCapabilities(localSettings.imageModel);
+                return `${capability.label} · 最高 ${capability.maxResolution} · 最多 ${capability.maxReferenceImages} 张参考图`;
+              })()}
+            </p>
           </div>
 
           {/* Video Provider */}

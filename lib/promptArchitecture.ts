@@ -9,6 +9,7 @@ export interface ProductionStylePreset {
   label: string;
   description: string;
   imageContract: string;
+  gridImageDirection: string;
   look: string;
   camera: string;
   rhythm: string;
@@ -21,6 +22,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
   {
     value: 'follow-reference', label: '跟随参考', description: '保留上传图片原有媒介、色彩与镜头质感',
     imageContract: 'the exact visual medium, color response, lighting philosophy, texture and lens rendering established by the supplied reference images',
+    gridImageDirection: 'MEDIUM/TEXTURE: inherit the reference medium and its exact surface detail, finish and degree of imperfection. LIGHT: preserve its source direction, softness, contrast and highlight roll-off. LENS/DEPTH: preserve its perspective, subject scale, focus plane and background falloff. COLOR: preserve its white balance, palette, saturation and shadow density.',
     look: 'Preserve the reference images as the complete rendering authority: identical medium, color temperature, contrast response, highlight roll-off, shadow density, texture, grain, depth of field and skin or surface treatment.',
     camera: 'Use one coherent physical camera and lens family inferred from the references. Movement is motivated by action, carries believable inertia and never changes the established rendering pipeline.',
     rhythm: 'Feature-film cause-and-effect cutting. Vary shot scale, enter on action and remove dead air while preserving the reference production’s narrative tone.',
@@ -31,6 +33,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
   {
     value: 'cinematic-natural', label: '自然电影', description: '克制、真实、演员驱动的院线叙事',
     imageContract: 'direct-captured natural live action from a real camera or modern phone, truthful skin pores and fabric, available and practical light, plausible exposure latitude, natural white balance, optical depth and motion blur, restrained color, no beauty filter, synthetic HDR or glossy AI rendering',
+    gridImageDirection: 'MEDIUM/TEXTURE: direct-camera live action; unretouched pores, individual hair strands, woven fabric and ordinary wear, never waxy. LIGHT: motivated window, sky or practical sources with defined direction, softness, bounce and falloff. LENS/DEPTH: plausible cinema/mirrorless perspective, one focus plane, optical foreground/background falloff and restrained edge distortion. COLOR: natural white balance, finite dynamic range, gentle highlight roll-off and readable shadows.',
     look: 'Authentic direct-camera live action, as if photographed on location with a real mirrorless camera, cinema camera or recent phone appropriate to the scene. Truthful skin and fabric, available/practical light, plausible finite dynamic range, natural white balance, restrained color, real optical depth and motion blur; never airbrushed, hyper-sharp or synthetic HDR.',
     camera: 'Use one plausible physical capture device and lens family for the scene. Preserve human-operated inertia, slight handheld micro-jitter when appropriate, realistic autofocus or focus-pull recovery, exposure adaptation and rolling-shutter behavior; no frictionless AI glide, impossible orbit or perpetual shallow focus.',
     rhythm: 'Decisive feature-film cutting. Enter each beat late and leave early. Alternate wide geography, medium action and meaningful close detail; no empty waiting, decorative drift or uniformly slow movement.',
@@ -41,6 +44,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
   {
     value: 'warm-film', label: '温暖胶片', description: '金色、柔和、带记忆质感的叙事',
     imageContract: 'warm photochemical film photography, amber practical light, creamy skin tones, gentle halation, lifted shadow detail, visible fine grain, organic lens falloff, no digital HDR cleanliness',
+    gridImageDirection: 'MEDIUM/TEXTURE: photochemical live-action still with fine irregular grain, natural skin and tactile cloth, not a digital vintage filter. LIGHT: warm amber practicals or low sun contour the subject, with soft environmental fill and restrained halation only around bright sources. LENS/DEPTH: vintage spherical-prime perspective, gentle focus roll-off, mild breathing and organic edge softness. COLOR: creamy skin, honey highlights, softened greens/blues, lifted but textured shadows and no synthetic HDR.',
     look: 'Warm photochemical film palette, amber practical light, creamy but textured skin, gentle halation, fine grain, soft contrast and organic lens falloff.',
     camera: 'Vintage spherical prime lens family. Human-operated dolly and restrained shoulder camera with gentle focus breathing and natural exposure response.',
     rhythm: 'Lyrical but active narrative cutting: short sensory inserts between held human moments. Preserve momentum; never turn every beat into slow motion.',
@@ -51,6 +55,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
   {
     value: 'neo-noir', label: '冷峻黑色', description: '高反差、压迫感、方向明确的悬疑影像',
     imageContract: 'neo-noir live-action cinema, cool cyan shadows, controlled warm practicals, deep blacks with retained texture, hard motivated edge light, wet reflective surfaces, subtle grain, no flat AI fill light',
+    gridImageDirection: 'MEDIUM/TEXTURE: grounded neo-noir live action with real skin, cloth, metal, rain and concrete response. LIGHT: one hard motivated edge/key plus sparse warm practicals; strong negative fill, deliberate obstruction and deep shadows that retain local texture. LENS/DEPTH: close-proximity perspective, layered foreground occlusion, selective focus and purposeful negative space. COLOR: cool cyan-black separation against limited amber highlights, controlled reflections and restrained grain.',
     look: 'Neo-noir color separation: cool dense shadows, selective warm practicals, textured blacks, hard motivated edge light, wet reflections and restrained grain.',
     camera: 'Wider close-proximity lenses, low or obstructed angles, controlled lateral tracks and short snap reframes; stable screen direction and deliberate negative space.',
     rhythm: 'Tense compressed cutting with abrupt reveals, reaction inserts and short holds before impact. No floating camera and no evenly timed actions.',
@@ -61,6 +66,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
   {
     value: 'documentary', label: '观察纪录', description: '手持、现场感、不过度表演',
     imageContract: 'observational documentary photography, available light, ordinary contrast, authentic skin, mild sensor noise, imperfect framing, real contact shadows, no staged commercial polish',
+    gridImageDirection: 'MEDIUM/TEXTURE: unstaged observational photograph with authentic skin, clothing wear, dust and mild sensor texture. LIGHT: use only believable available daylight and location practicals, including mixed color temperatures, finite exposure and real contact shadows. LENS/DEPTH: eye-level phone, mirrorless or shoulder-camera perspective, imperfect but meaningful framing, modest depth of field and occasional foreground blockage. COLOR: ordinary location color, natural contrast and no beauty, fashion or commercial polish.',
     look: 'Available-light documentary rendering, ordinary contrast, authentic skin and surfaces, mild sensor noise, practical exposure adaptation and no cosmetic polish.',
     camera: 'Present-tense footage from a phone, mirrorless camera or shoulder camera: small hand tremor, corrective reframing, believable autofocus hunting/recovery, auto-exposure adaptation, occasional rolling shutter and foreground obstruction; never mechanically floating.',
     rhythm: 'Event-driven documentary rhythm. Cut on action, discovery or reaction; keep incidental imperfections while removing dead time.',
@@ -71,6 +77,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
   {
     value: 'commercial', label: '高级商业', description: '精确光线、材质与视觉高潮',
     imageContract: 'high-end live-action commercial photography, precise material response, controlled specular highlights, clean color separation, premium production lighting, crisp subject hierarchy, no generic CGI gloss',
+    gridImageDirection: 'MEDIUM/TEXTURE: premium live-action advertising still with precise skin, glass, metal, liquid and fabric response; polished but physically real. LIGHT: shaped key, controlled fill, clean rim and intentional specular placement reveal form and material. LENS/DEPTH: exact hero framing, crisp focal priority, coherent macro/telephoto compression and clean background separation. COLOR: deliberate limited hero palette, luminous exposure, clean separation and controlled contrast without plastic CGI gloss.',
     look: 'Premium commercial color pipeline, controlled specular highlights, precise material texture, clean separation, polished contrast and a consistent hero palette.',
     camera: 'Precisely repeatable dolly, macro slider and stabilized arc moves with coherent parallax. Each move reveals a feature or advances the story.',
     rhythm: 'Confident advertising rhythm: rapid evidence inserts, clear product or character hero moments and a decisive final visual payoff.',
@@ -81,6 +88,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
   {
     value: 'anime', label: '动漫电影', description: '统一线条、赛璐璐光影与动画节奏',
     imageContract: 'cinematic anime, consistent character model, clean controlled line art, intentional cel shading, stable color script, hand-authored background perspective, no photorealistic skin or 3D drift',
+    gridImageDirection: 'MEDIUM/TEXTURE: authored 2D anime frame with stable character model, deliberate line-weight hierarchy and painterly background detail. LIGHT: graphic key shapes, controlled cel-shadow groups and selective rim accents that obey one source direction. LENS/DEPTH: hand-authored perspective, readable silhouette, layered parallax planes and focus emphasis without photographic bokeh pasted onto line art. COLOR: locked color script, purposeful saturation contrast and no live-action skin or 3D material drift.',
     look: 'Cinematic anime with stable line weight, intentional cel shading, controlled color script, painterly backgrounds and consistent character-model rendering.',
     camera: 'Animation-aware virtual camera with readable key poses, controlled parallax and purposeful smears only during fast action.',
     rhythm: 'Anime feature rhythm: strong key poses, quick impact cuts, reaction close-ups and deliberate held frames only at emotional punctuation.',
@@ -91,6 +99,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
   {
     value: '3d-cg', label: '3D 电影', description: '统一材质、体积光与动画表演',
     imageContract: 'cinematic 3D CG, physically coherent materials, stable character topology, unified global illumination, controlled volumetric light, filmic color response, no 2D line art or live-action texture drift',
+    gridImageDirection: 'MEDIUM/TEXTURE: feature-quality 3D animation with stable topology, fine grooming and coherent physically based skin, cloth, metal and environment materials. LIGHT: unified global illumination plus motivated key/practical sources, contact shadows and restrained volumetric depth. LENS/DEPTH: physical virtual-camera perspective, one focal plane, coherent depth falloff and believable scale. COLOR: filmic highlight roll-off, stable palette and no 2D linework, plastic surfaces or live-action texture drift.',
     look: 'Cinematic 3D rendering with coherent physically based materials, stable topology, volumetric depth, filmic highlights and unified global illumination.',
     camera: 'Virtual cinema camera with physical lens behavior, believable mass and acceleration; no frictionless floating or impossible pivots.',
     rhythm: 'Feature-animation cutting driven by silhouette, action and reaction. Vary scale and timing; avoid uniform easing and generic orbit shots.',
@@ -101,6 +110,7 @@ export const PRODUCTION_STYLE_PRESETS: ProductionStylePreset[] = [
   {
     value: 'stop-motion', label: '定格手作', description: '触感材质、逐帧节奏与真实布景',
     imageContract: 'handmade stop-motion cinema, tactile fabric clay paper and miniature materials, visible frame-to-frame texture, practical miniature lighting, physical contact shadows, no smooth CG surfaces',
+    gridImageDirection: 'MEDIUM/TEXTURE: photographed handmade miniature with visible clay, fabric, paper, paint, seams, fingerprints and tiny construction variation. LIGHT: practical tabletop sources create scale-appropriate falloff, hard miniature contact shadows and subtle bounce. LENS/DEPTH: physical macro/tabletop lens perspective, shallow but purposeful focus plane and miniature-scale background falloff. COLOR: tactile pigment and material color, slight frame texture and no smooth CG interpolation or synthetic surfaces.',
     look: 'Tactile stop-motion rendering with handmade materials, miniature practical light, slight frame texture and real contact shadows.',
     camera: 'Physical tabletop camera, restrained slider moves and locked macro setups; movement retains handcrafted stepped timing.',
     rhythm: 'Playful stop-motion cutting with clear pose changes and tactile action beats; no smooth synthetic interpolation.',
@@ -154,19 +164,9 @@ export function buildImageCaptureContract(style?: VisualStyle): string {
 
 // 九宫格有更严格的提示词长度限制：保留成像因果的骨架，把逐镜差异留给 panel prompt。
 export function buildCompactImageCaptureContract(style?: VisualStyle): string {
-  const normalized = normalizeVisualStyle(style);
-  const profile = normalized === 'cinematic-natural'
-    ? 'direct-captured live action; one scene-appropriate cinema/mirrorless OR phone profile, truthful skin/materials, finite dynamic range'
-    : normalized === 'documentary'
-      ? 'available-light observational capture, ordinary contrast, mild sensor texture and imperfect framing'
-      : normalized === 'warm-film'
-        ? 'warm photochemical film, vintage spherical-prime response, fine grain and restrained halation'
-        : normalized === 'neo-noir'
-          ? 'neo-noir live action, motivated hard sources, dense textured shadows and controlled practical highlights'
-          : normalized === 'commercial'
-            ? 'premium commercial photography, precise surface response and controlled specular highlights'
-            : `${getProductionStylePreset(style).label} with one coherent camera/rendering family`;
-  return `GRID CAPTURE PHYSICS (authoritative): ${profile}. Each panel needs distinct camera height/distance and perspective, composition/occlusion, one focus plane with near/mid/far falloff, motivated light angle/falloff, finite exposure and material response. Use only physically justified optical imperfections; no random lens defects, synthetic HDR, beauty retouching, uniform fill or glossy AI rendering.`;
+  const preset = getProductionStylePreset(style);
+  return `GRID STYLE BIBLE (authoritative — apply to every panel): ${preset.gridImageDirection}
+CAPTURE COHERENCE: Vary camera height/distance, perspective, composition and occlusion by panel. Keep one style-specific imaging system with clear near/mid/far separation, motivated light falloff and material response. Use only medium-justified imperfections; no generic AI gloss.`;
 }
 
 export function buildVideoStyleContract(style?: VisualStyle): string {

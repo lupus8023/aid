@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Download, Home, Image as ImageIcon, Loader2, RefreshCw, Settings, Sparkles, Upload, Layers3, Ratio } from 'lucide-react';
 import DevToolsLayout from '@/components/DevToolsLayout';
 import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
 import { readApiJson } from '@/lib/apiResponse';
+import { getImageModelCapabilities } from '@/lib/imageModels';
 
 const MAX_REFERENCE_FILE_BYTES = 8 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES = 1200 * 1024;
@@ -58,6 +59,7 @@ async function compressReferenceImage(file: File): Promise<string> {
 
 export default function ImageToImagePage() {
   const { settings, saveSettings } = useSettings();
+  const referenceLimit = getImageModelCapabilities(settings.imageModel).maxReferenceImages;
   const [showSettings, setShowSettings] = useState(false);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
   const [userIntent, setUserIntent] = useState('');
@@ -68,8 +70,14 @@ export default function ImageToImagePage() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [statusText, setStatusText] = useState('');
 
+  useEffect(() => {
+    setReferenceImages(previous => previous.length > referenceLimit
+      ? previous.slice(0, referenceLimit)
+      : previous);
+  }, [referenceLimit]);
+
   const handleImageUpload = async (files: FileList | File[]) => {
-    const selectedFiles = Array.from(files).slice(0, 4 - referenceImages.length);
+    const selectedFiles = Array.from(files).slice(0, referenceLimit - referenceImages.length);
     if (selectedFiles.length === 0) return;
 
     if (selectedFiles.some(file => file.size > MAX_REFERENCE_FILE_BYTES)) {
@@ -80,7 +88,7 @@ export default function ImageToImagePage() {
     try {
       setStatusText('正在优化参考图片…');
       const images = await Promise.all(selectedFiles.map(compressReferenceImage));
-      setReferenceImages(prev => [...prev, ...images].slice(0, 4));
+      setReferenceImages(prev => [...prev, ...images].slice(0, referenceLimit));
       setImageUrl(null);
       setGeneratedPrompt('');
       setStatusText('');
@@ -240,7 +248,7 @@ export default function ImageToImagePage() {
             <div className="aid-form-stack space-y-5">
               <header className="aid-page-lead !border-0 !bg-transparent !p-0 !shadow-none">
                 <div><p className="aid-eyebrow">Image creation console</p><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">用参考图控制创意结果</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">上传主体与风格参考，补充创意方向和尺寸关系，生成更稳定的商业视觉。</p></div>
-                <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-1.5 font-mono text-[10px] text-[var(--text-secondary)]">{referenceImages.length}/4 REFERENCES</span>
+                <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-1.5 font-mono text-[10px] text-[var(--text-secondary)]">{referenceImages.length}/{referenceLimit} REFERENCES</span>
               </header>
 
               <div className="space-y-4">
@@ -259,11 +267,11 @@ export default function ImageToImagePage() {
                     </div>
                   ))}
 
-                  {referenceImages.length < 4 && (
+                  {referenceImages.length < referenceLimit && (
                     <label className="h-40 border-2 border-dashed border-[var(--border-color)] rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--bg-hover)] transition-colors bg-[var(--bg-primary)]">
                       <Upload size={32} className="text-[var(--text-secondary)] mb-3" />
                       <span className="text-sm text-[var(--text-primary)]">上传参考图片</span>
-                      <span className="mt-1 text-xs text-[var(--text-secondary)]">支持多选 · 已上传 {referenceImages.length}/4</span>
+                      <span className="mt-1 text-xs text-[var(--text-secondary)]">支持多选 · 已上传 {referenceImages.length}/{referenceLimit}</span>
                       <input
                         type="file"
                         accept="image/*"
@@ -371,7 +379,7 @@ export default function ImageToImagePage() {
               </div>
 
               <div className="aid-panel divide-y divide-[var(--border-color)] px-4">
-                <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Layers3 size={14} />参考素材</span><span className="font-mono text-white">{referenceImages.length} / 4</span></div>
+                <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Layers3 size={14} />参考素材</span><span className="font-mono text-white">{referenceImages.length} / {referenceLimit}</span></div>
                 <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Ratio size={14} />输出比例</span><span className="font-mono text-white">{aspectRatio}</span></div>
               </div>
               {generatedPrompt && (

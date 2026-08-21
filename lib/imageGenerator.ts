@@ -1,6 +1,7 @@
 import { createImageTask, getTaskStatus } from './apimart';
 import { Storyboard, Character, ObjectItem, VisualStyle } from '@/types';
 import { buildImageCaptureContract, buildMediumLock } from './promptArchitecture';
+import { getImageModelCapabilities } from './imageModels';
 
 // 为单个分镜生成图片
 export async function generateStoryboardImage(
@@ -16,6 +17,8 @@ export async function generateStoryboardImage(
   preUploadedReferenceLabels: string[] = [],
   visualStyle?: VisualStyle
 ): Promise<string> {
+  const selectedImageModel = imageModel || 'doubao-seedream-5-0-lite';
+  const maxReferenceImages = getImageModelCapabilities(selectedImageModel).maxReferenceImages;
   // 找到该分镜中出现的角色
   const sceneCharacters = characters.filter(c =>
     storyboard.characters.includes(c.name)
@@ -38,6 +41,8 @@ export async function generateStoryboardImage(
   // 如果提供了预上传的参考图（用于九宫格生成），直接使用
   if (preUploadedReferences && preUploadedReferences.length > 0) {
     console.log('Using pre-uploaded references for grid generation');
+    const effectiveReferences = preUploadedReferences.slice(0, maxReferenceImages);
+    const effectiveReferenceLabels = preUploadedReferenceLabels.slice(0, effectiveReferences.length);
 
     const cleanPrompt = storyboard.prompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1');
 
@@ -56,8 +61,8 @@ export async function generateStoryboardImage(
 
     // Grid callers provide labels in the exact same order as the images. Using
     // those labels avoids reference number drift when an entity has no image.
-    const referenceDescriptions = preUploadedReferences.map((_, index) => {
-      const label = preUploadedReferenceLabels[index];
+    const referenceDescriptions = effectiveReferences.map((_, index) => {
+      const label = effectiveReferenceLabels[index];
       return `Reference image ${index + 1}: ${label || `uploaded visual reference ${index + 1}`}. Match this reference exactly.`;
     });
 
@@ -72,7 +77,7 @@ export async function generateStoryboardImage(
     // prompt limit is reached, the generic style/reference tail may be trimmed,
     // but the nine distinct panels and batch identity must always survive.
     const isStructuredGridPrompt = cleanPrompt.includes('UNIQUE STORYBOARD BATCH:')
-      && cleanPrompt.includes('GRID CAPTURE PHYSICS (authoritative)');
+      && cleanPrompt.includes('GRID STYLE BIBLE (authoritative');
     const supplementalObjectRules = objectsWithoutRef.map(obj =>
       `Unmapped object "${obj.name}": ${obj.description}. Keep its design identical wherever requested.`
     );
@@ -95,7 +100,8 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
 
     // 清理 prompt 中可能导致 API 错误的特殊字符
     const cleanEnhancedPrompt = enhancedPrompt
-      .replace(/[\x00-\x1F\x7F]/g, '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/g, '')
       .replace(/[\u200B-\u200D\uFEFF]/g, '');
 
     const finalPrompt = cleanEnhancedPrompt.length > 4000
@@ -107,14 +113,14 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
         })()
       : cleanEnhancedPrompt;
 
-    console.log(`Creating grid image task with ${preUploadedReferences.length} reference images`);
+    console.log(`Creating grid image task with ${effectiveReferences.length} reference images`);
     console.log(`Prompt length: ${finalPrompt.length} characters`);
 
     const taskId = await createImageTask(
       finalPrompt,
-      preUploadedReferences,
+      effectiveReferences,
       apiKey,
-      imageModel || 'doubao-seedream-5-0-lite',
+      selectedImageModel,
       aspectRatio,
       // A 2K mother contact sheet leaves each of the nine cells at roughly
       // 650×360. Generate the grid at 4K, then the split route stores a
@@ -126,32 +132,45 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     return taskId;
   }
 
-  // 单个分镜生成的正常流程
-  // 收集所有角色的参考图片 — 优先使用全局定妆图
-  const characterImages = sceneCharacters
-    .map(char => globalCostumeImages[char.name] || char.imageUrl || char.imageBase64)
-    .filter(img => img);
+  // 单个分镜生成的正常流程。先建立“图片 + 对应说明”的原子条目，
+  // 再按模型上限裁剪，确保提示词中的 Reference image N 永远与实际上传一致。
+  const referenceEntries: Array<{ image: string; description: string; fallback: string }> = [];
+  sceneCharacters.forEach(char => {
+    const image = globalCostumeImages[char.name] || char.imageUrl || char.imageBase64;
+    if (!image) return;
+    const usingCostume = Boolean(globalCostumeImages[char.name]);
+    referenceEntries.push({
+      image,
+      description: `"${char.name}" - ${usingCostume ? 'CHARACTER REFERENCE. Maintain consistent appearance, hairstyle, clothing, and visual style from this reference.' : `${char.description}. Match the character's appearance and clothing style from this reference image.`}`,
+      fallback: `Character requirement: "${char.name}" - ${char.description}. Preserve this identity exactly once.`,
+    });
+  });
+  if (globalSceneImage) {
+    referenceEntries.push({
+      image: globalSceneImage,
+      description: 'SCENE REFERENCE - Use this as the environment/background style. Match the lighting, atmosphere, and setting exactly.',
+      fallback: 'Scene requirement: follow the environment, lighting and atmosphere described in the storyboard prompt.',
+    });
+  }
 
-  // 场景参考图
-  const sceneImages_list = globalSceneImage ? [globalSceneImage] : [];
-
-  // 收集所有物体的参考图片，同时记录哪些物体有参考图
-  const objectImages: string[] = [];
-  const objectsWithRef: ObjectItem[] = [];
   const objectsWithoutRef: ObjectItem[] = [];
 
   sceneObjects.forEach((obj) => {
     const img = obj.imageUrl || obj.imageBase64;
     if (img) {
-      objectImages.push(img);
-      objectsWithRef.push(obj);
+      referenceEntries.push({
+        image: img,
+        description: `"${obj.name}" - ${obj.description}. MUST reproduce exact shape, color, material, texture, text, and all details from this reference image.`,
+        fallback: `Object requirement: "${obj.name}" - ${obj.description}. Keep its appearance consistent.`,
+      });
     } else {
       objectsWithoutRef.push(obj);
     }
   });
 
-  // 合并所有参考图片：定妆图 + 场景图 + 有参考图的物体图
-  const referenceImages = [...characterImages, ...sceneImages_list, ...objectImages];
+  const selectedReferenceEntries = referenceEntries.slice(0, maxReferenceImages);
+  const omittedReferenceEntries = referenceEntries.slice(maxReferenceImages);
+  const referenceImages = selectedReferenceEntries.map(entry => entry.image);
 
   // 检查是否有任何角色或物体（无论是否有参考图）
   const hasAnyContent = sceneCharacters.length > 0 || sceneObjects.length > 0;
@@ -167,7 +186,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       cleanPrompt,
       [],
       apiKey,
-      imageModel || 'doubao-seedream-5-0-lite',
+      selectedImageModel,
       aspectRatio
     );
 
@@ -181,31 +200,10 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
   cleanedScenePrompt = cleanedScenePrompt.replace(/\[([^\]]+)\]/g, '$1');
 
   // 构建清晰的参考图说明 — 让模型明确知道每张参考图对应什么
-  const referenceDescriptions: string[] = [];
-  let imgIndex = 1;
-
-  sceneCharacters.forEach((char) => {
-    const usingCostume = !!globalCostumeImages[char.name];
-    referenceDescriptions.push(
-      `Reference image ${imgIndex}: "${char.name}" - ${usingCostume ? 'CHARACTER REFERENCE. Maintain consistent appearance, hairstyle, clothing, and visual style from this reference.' : `${char.description}. Match the character's appearance and clothing style from this reference image.`}`
-    );
-    imgIndex++;
-  });
-
-  if (globalSceneImage) {
-    referenceDescriptions.push(
-      `Reference image ${imgIndex}: SCENE REFERENCE - Use this as the environment/background style. Match the lighting, atmosphere, and setting exactly.`
-    );
-    imgIndex++;
-  }
-
-  // 有参考图的物体：添加 Reference image X 引用
-  objectsWithRef.forEach((obj) => {
-    referenceDescriptions.push(
-      `Reference image ${imgIndex}: "${obj.name}" - ${obj.description}. MUST reproduce exact shape, color, material, texture, text, and all details from this reference image.`
-    );
-    imgIndex++;
-  });
+  const referenceDescriptions = selectedReferenceEntries.map((entry, index) =>
+    `Reference image ${index + 1}: ${entry.description}`
+  );
+  omittedReferenceEntries.forEach(entry => referenceDescriptions.push(entry.fallback));
 
   // 没有参考图的物体：直接添加描述，不引用 Reference image
   objectsWithoutRef.forEach((obj) => {
@@ -230,7 +228,8 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
 
   // 清理 prompt 中可能导致 API 错误的特殊字符
   const cleanEnhancedPrompt = enhancedPrompt
-    .replace(/[\x00-\x1F\x7F]/g, '') // 移除控制字符
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/g, '') // 保留结构换行，仅移除其他控制字符
     .replace(/[\u200B-\u200D\uFEFF]/g, ''); // 移除零宽字符
 
   // 创建图像生成任务
@@ -258,7 +257,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     finalPrompt,
     referenceImages.filter((img): img is string => typeof img === 'string'),
     apiKey,
-    imageModel || 'doubao-seedream-5-0-lite',
+    selectedImageModel,
     aspectRatio
   );
 

@@ -1,6 +1,6 @@
 {
   "name": "aid",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -24,7 +24,9 @@
     "test:story-aspect": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/story-aspect-ratio.test.mjs",
     "test:grid-preprocess": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/grid-preprocess.test.mjs",
     "test:image-capture": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/image-capture-prompt.test.mjs",
+    "test:image-models": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/image-models.test.mjs",
     "test:character-design": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/character-design.test.mjs",
+    "test:character-library": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/character-library.test.mjs",
     "test:local-export": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/local-video-export.test.mjs",
     "build": "next build",
     "start": "next start",

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createImageTask } from '@/lib/apimart';
+import { getImageModelCapabilities } from '@/lib/imageModels';
 
 function buildStudioPrompt(userIntent?: string, scaleNotes?: string) {
   const intent = userIntent?.trim();
@@ -44,8 +45,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'At least one reference image is required' }, { status: 400 });
     }
 
-    if (images.length > 4) {
-      return NextResponse.json({ error: 'Up to 4 reference images are supported' }, { status: 400 });
+    const referenceLimit = getImageModelCapabilities(imageModel || 'doubao-seedream-5-0-lite').maxReferenceImages;
+    if (images.length > referenceLimit) {
+      return NextResponse.json({ error: `The selected model supports up to ${referenceLimit} reference images` }, { status: 400 });
     }
 
     if (!apiKey) {

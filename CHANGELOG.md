@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.24 - 2026-08-21
+
+### Added
+
+- Added APIMart Nano Banana 2 (`gemini-3.1-flash-image-preview`) and official Grok Imagine 2.0 (`grok-imagine-image-2.0`) to the global image-model selector for Story grids and shots, character/scene references, Character Design, and Image-to-Image.
+- Character designs saved from the standalone workspace now appear automatically in Story's reusable character history, including their production bible, role, age, personality, theme, costume and visual style.
+
+### Improved
+
+- All nine production styles now give storyboard grids a concrete medium/texture, motivated-light, lens/depth and color contract instead of relying on generic style labels.
+- Natural Cinema more explicitly targets direct camera or phone capture with truthful pores, hair, fabric, finite dynamic range, optical depth and restrained lens behavior.
+- Grid prompts preserve structural line breaks and trim panel descriptions at word boundaries while retaining all nine panel identities and exact-cast constraints.
+
+### Fixed
+
+- The shared APIMart image adapter now handles Grok's `aspect_ratio`, response-version header, 2K/three-reference limits and object task IDs, while preserving Nano Banana 2's 4K and fourteen-reference support.
+- Story reference labels are capped together with their images, preventing missing or shifted `Reference image N` mappings when a provider accepts fewer inputs.
+- Image-to-Image and Character Design adjust their reference limits to the selected model instead of submitting an unsupported payload.
+
+### Tests
+
+- Added regression coverage for model selection, provider-specific image payloads and task IDs, Story-compatible character-library migration, style-specific capture contracts and grid prompt structure.
+
 ## 0.1.23 - 2026-08-21
 
 ### Added
