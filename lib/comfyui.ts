@@ -1064,9 +1064,6 @@ async function probeReferenceAudio(sourcePath: string, index: number): Promise<n
     throw new ComfyUIError(`参考音频 ${index} 无法解析：${error instanceof Error ? error.message : String(error)}`);
   }
 
-  if (duration < H3_REFERENCE_AUDIO_MIN_SECONDS) {
-    throw new ComfyUIError(`参考音频 ${index} 只有 ${duration.toFixed(1)} 秒；MiniMax H3 要求至少 2 秒`);
-  }
   return duration;
 }
 
@@ -1076,20 +1073,21 @@ export function fitH3ReferenceAudioDurations(
   minimum = H3_REFERENCE_AUDIO_MIN_SECONDS,
 ): number[] {
   if (!durations.length) return [];
-  if (durations.some(duration => !Number.isFinite(duration) || duration < minimum)) {
-    throw new ComfyUIError(`MiniMax H3 每条参考音频必须至少 ${minimum} 秒`);
+  if (durations.some(duration => !Number.isFinite(duration) || duration <= 0)) {
+    throw new ComfyUIError('MiniMax H3 参考音频时长无效');
   }
   if (durations.length * minimum > totalBudget) {
     throw new ComfyUIError(`参考音频数量过多，无法同时满足每条至少 ${minimum} 秒和总计不超过 ${totalBudget} 秒`);
   }
 
-  const targets = durations.map(duration => Math.min(duration, minimum));
+  const paddedDurations = durations.map(duration => Math.max(duration, minimum));
+  const targets = paddedDurations.map(duration => Math.min(duration, minimum));
   let remaining = totalBudget - targets.reduce((total, duration) => total + duration, 0);
   const epsilon = 0.0001;
 
   while (remaining > epsilon) {
     const expandable = targets
-      .map((target, index) => ({ index, capacity: durations[index] - target }))
+      .map((target, index) => ({ index, capacity: paddedDurations[index] - target }))
       .filter(item => item.capacity > epsilon);
     if (!expandable.length) break;
 
@@ -1120,10 +1118,12 @@ async function normalizeReferenceAudio(
 
   const outputPath = path.join(directory, `audio_reference_${index}_32k_stereo.wav`);
   try {
+    const padFilter = targetDuration > sourceDuration + 0.01 ? ['-af', 'apad'] : [];
     await execFileAsync(process.env.FFMPEG_PATH || 'ffmpeg', [
       '-hide_banner', '-loglevel', 'error', '-y',
       '-i', sourcePath,
       '-map', '0:a:0', '-vn',
+      ...padFilter,
       '-ar', '32000', '-ac', '2', '-c:a', 'pcm_s16le',
       '-t', targetDuration.toFixed(3),
       outputPath,

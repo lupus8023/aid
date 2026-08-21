@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 
 import {
   allocateSegmentTimeline,
+  createVideoSegmentPlan,
   estimateVideoSegmentSeconds,
   isCompletedVideoSegment,
   persistedVideoClipCount,
+  resolveVideoSegmentGroups,
   restoredStoryStep,
   suggestVideoSegments,
   validateVideoSegment,
@@ -35,13 +37,23 @@ test('suggests compact groups without exceeding four storyboards', () => {
   assert.ok(groups.every(group => estimateVideoSegmentSeconds(group) <= 15));
 });
 
-test('starts a new segment when sequence or location changes', () => {
+test('keeps causal shots grouped across motivated sequence or location changes', () => {
   const groups = suggestVideoSegments([
-    shot(1), shot(2),
-    shot(3, { sequenceId: 'seq-2', locationId: 'loc-2' }),
-    shot(4, { sequenceId: 'seq-2', locationId: 'loc-2' }),
+    shot(1, { durationHint: 3 }),
+    shot(2, { durationHint: 3 }),
+    shot(3, { durationHint: 3, sequenceId: 'seq-2', locationId: 'loc-2' }),
+    shot(4, { durationHint: 3, sequenceId: 'seq-3', locationId: 'loc-3' }),
   ]);
-  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2, 3, 4]]);
+});
+
+test('persists and restores a manual director segment plan', () => {
+  const storyboards = [1, 2, 3, 4].map(number => shot(number, { durationHint: 3 }));
+  const plan = createVideoSegmentPlan(storyboards, [storyboards.slice(0, 2), storyboards.slice(2)], 'manual');
+  const restored = resolveVideoSegmentGroups(storyboards, JSON.parse(JSON.stringify(plan)));
+  assert.equal(plan.source, 'manual');
+  assert.deepEqual(restored.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
+  assert.deepEqual(resolveVideoSegmentGroups([...storyboards].reverse(), plan).map(group => group.map(item => item.sceneNumber)), [[4, 3, 2, 1]]);
 });
 
 test('keeps up to three timed dialogue beats together and splits before the fourth', () => {
@@ -59,6 +71,14 @@ test('keeps up to three timed dialogue beats together and splits before the four
 test('rejects non-contiguous or oversized manual groups', () => {
   assert.match(validateVideoSegment([shot(1), shot(3)]), /连续分镜/);
   assert.match(validateVideoSegment([1, 2, 3, 4, 5].map(number => shot(number))), /最多选择 4/);
+});
+
+test('rejects a manual merge whose real beat budget exceeds fifteen seconds', () => {
+  assert.match(validateVideoSegment([
+    shot(1, { durationHint: 10 }),
+    shot(2, { durationHint: 10 }),
+    shot(3, { durationHint: 10 }),
+  ]), /超过 H3 的 15 秒上限/);
 });
 
 test('timeline fills the entire H3 duration without gaps', () => {
@@ -96,6 +116,18 @@ test('restores a saved H3 project directly to export after refresh', () => {
   assert.equal(persistedVideoClipCount(saved), 1);
   assert.equal(restoredStoryStep(saved.map(item => ({ ...item, videoCacheKey: undefined }))), 5);
   assert.equal(restoredStoryStep(saved.map((item, index) => index ? item : { ...item, imageUrl: undefined })), 4);
+});
+
+test('keeps a newly merged manual plan in segment edit until that exact group is generated', () => {
+  const individuallyGenerated = [shot(1), shot(2)].map((item, index) => ({
+    ...item,
+    videoStatus: 'completed',
+    videoSegmentId: `old-segment-${index + 1}`,
+    videoSegmentStoryboardIds: [item.id],
+    videoCacheKey: `storyboard-video:project-1:${item.id}`,
+  }));
+  const plan = createVideoSegmentPlan(individuallyGenerated, [individuallyGenerated], 'manual');
+  assert.equal(restoredStoryStep(individuallyGenerated, plan), 5);
 });
 
 test('uses a moving continuity handoff and trims the H3 restart', () => {

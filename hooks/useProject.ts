@@ -5,6 +5,7 @@ import { Character, Storyboard, ObjectItem, VisualStyle } from '@/types';
 import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { StoryPlan, PipelineState } from '@/lib/pipeline/types';
 import { createProjectId } from '@/lib/projectIdentity';
+import type { VideoSegmentPlan } from '@/lib/videoSegments';
 
 export interface ProjectData {
   id?: string;
@@ -23,6 +24,7 @@ export interface ProjectData {
   costumeImages?: Record<string, string>;
   sceneImages?: string[];
   storyPlan?: StoryPlan;
+  videoSegmentPlan?: VideoSegmentPlan;
   pipelineState?: PipelineState;
   createdAt: string;
   updatedAt: string;
@@ -88,6 +90,7 @@ export function useProject() {
       costumeImages: data.costumeImages,
       sceneImages: data.sceneImages,
       storyPlan: data.storyPlan,
+      videoSegmentPlan: data.videoSegmentPlan,
       pipelineState: data.pipelineState,
       createdAt: data.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()

@@ -78,7 +78,8 @@ export interface Storyboard {
   videoTaskId?: string; // 视频任务 ID
   aspectRatio?: '16:9' | '9:16' | '1:1'; // 宽高比
   audioUrl?: string; // 生成的音频 URL (legacy single)
-  characterAudios?: { character: string; audioUrl: string }[]; // per-character audio
+  characterAudios?: { character: string; audioUrl: string; audioDuration?: number }[]; // per-character exact-dialogue references
+  audioSpeechSignature?: string; // exact dialogue revision represented by characterAudios
   audioStatus?: 'generating' | 'completed' | 'failed';
   dialogue?: Record<string, string>; // { 角色名: 台词 } - legacy
   dialogueLines?: { character: string; text: string }[]; // ordered dialogue lines

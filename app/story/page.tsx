@@ -23,12 +23,12 @@ import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
-import { estimateVideoSegmentSeconds, isCompletedVideoSegment, restoredStoryStep, suggestVideoSegments, validateVideoSegment } from '@/lib/videoSegments';
+import { estimateVideoSegmentSeconds, isCompletedVideoSegment, resolveVideoSegmentGroups, restoredStoryStep, validateVideoSegment, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
 import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
 import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@/lib/gridRecovery';
-import { storyboardSpeech } from '@/lib/speechAudioContract';
+import { segmentSpeechSignature, storyboardSpeech } from '@/lib/speechAudioContract';
 import { applyStoryAspectRatio, hasStoryMedia, projectStoryAspectRatio, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { getImageModelCapabilities } from '@/lib/imageModels';
 
@@ -134,6 +134,7 @@ export default function StoryPage() {
   const [visualStyle, setVisualStyle] = useState<VisualStyle>(DEFAULT_VISUAL_STYLE);
   const [storyboards, setStoryboards] = useState<Storyboard[]>([]);
   const [storyPlan, setStoryPlan] = useState<StoryPlan | undefined>();
+  const [videoSegmentPlan, setVideoSegmentPlan] = useState<VideoSegmentPlan | undefined>();
   const [isLoading, setIsLoading] = useState(false);
   const [costumeImages, setCostumeImages] = useState<Record<string, string>>({}); // { 角色名: URL }
   const [costumeGenerating, setCostumeGenerating] = useState<Record<string, boolean>>({}); // { 角色名: bool }
@@ -264,6 +265,7 @@ export default function StoryPage() {
   const projectLanguageLockedRef = useRef(false);
   const projectAspectRatioRef = useRef<StoryAspectRatio>(projectAspectRatio);
   const projectAspectLockedRef = useRef(false);
+  const videoSegmentPlanRef = useRef(videoSegmentPlan);
   const commitStoryboards = (updater: (current: Storyboard[]) => Storyboard[]) => {
     setStoryboards(current => {
       const next = updater(current);
@@ -284,7 +286,8 @@ export default function StoryPage() {
     settingsRef.current = settings;
     projectLanguageRef.current = projectLanguage;
     projectAspectRatioRef.current = projectAspectRatio;
-  }, [storyboards, characters, objects, costumeImages, voiceReferences, sceneImages, settings, projectLanguage, projectAspectRatio]);
+    videoSegmentPlanRef.current = videoSegmentPlan;
+  }, [storyboards, characters, objects, costumeImages, voiceReferences, sceneImages, settings, projectLanguage, projectAspectRatio, videoSegmentPlan]);
 
   useEffect(() => {
     if (!projectLanguageLockedRef.current) {
@@ -424,7 +427,9 @@ export default function StoryPage() {
       setCostumeImages(savedCostumeImages);
       setSceneImages(savedSceneImages);
       setStoryPlan(savedProject.storyPlan);
-      if (savedProject.storyboards?.length > 0) setCurrentStep(restoredStoryStep(savedStoryboards));
+      setVideoSegmentPlan(savedProject.videoSegmentPlan);
+      videoSegmentPlanRef.current = savedProject.videoSegmentPlan;
+      if (savedProject.storyboards?.length > 0) setCurrentStep(restoredStoryStep(savedStoryboards, savedProject.videoSegmentPlan));
       else if (savedProject.storyContent && savedProject.characters?.length > 0) setCurrentStep(2);
     }
   }, [loadProject]);
@@ -432,15 +437,40 @@ export default function StoryPage() {
   useEffect(() => {
     const timer = setInterval(() => {
       if (characters.length > 0 || storyContent || storyboards.length > 0) {
-        saveProject({ characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
+        saveProject({ characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, videoSegmentPlan, createdAt: new Date().toISOString() });
       }
     }, 30000);
     return () => clearInterval(timer);
-  }, [characters, objects, storyContent, projectLanguage, targetShotCount, projectAspectRatio, visualStyle, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, saveProject]);
+  }, [characters, objects, storyContent, projectLanguage, targetShotCount, projectAspectRatio, visualStyle, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, videoSegmentPlan, saveProject]);
 
   const handleSave = () => {
-    saveProject({ characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString() });
+    saveProject({ characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, videoSegmentPlan, createdAt: new Date().toISOString() });
     alert('Project saved!');
+  };
+
+  const handleVideoSegmentPlanChange = (plan: VideoSegmentPlan) => {
+    videoSegmentPlanRef.current = plan;
+    setVideoSegmentPlan(plan);
+    // Director edits are explicit user decisions. Persist immediately instead
+    // of waiting for the 30-second autosave window, so an immediate refresh
+    // cannot silently replace the manual schedule with a new AI suggestion.
+    saveProject({
+      characters,
+      objects,
+      storyContent,
+      language: projectLanguage,
+      targetShotCount,
+      aspectRatio: projectAspectRatio,
+      visualStyle,
+      storyOutline: '',
+      storyboards: storyboardsRef.current,
+      voiceReferences: voiceReferencesRef.current,
+      costumeImages: costumeImagesRef.current,
+      sceneImages: sceneImagesRef.current,
+      storyPlan,
+      videoSegmentPlan: plan,
+      createdAt: new Date().toISOString(),
+    });
   };
 
   const handleOpen = () => {
@@ -492,6 +522,8 @@ export default function StoryPage() {
         setCostumeImages(importedCostumeImages);
         setSceneImages(importedSceneImages);
         setStoryPlan(data.storyPlan);
+        setVideoSegmentPlan(data.videoSegmentPlan);
+        videoSegmentPlanRef.current = data.videoSegmentPlan;
         if (data.storyboards?.length > 0) setCurrentStep(4);
         else if (data.storyContent && data.characters?.length > 0) setCurrentStep(2);
         else setCurrentStep(1);
@@ -504,7 +536,7 @@ export default function StoryPage() {
   };
 
   const handleExport = () => {
-    exportProject({ name: projectName, characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    exportProject({ name: projectName, characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, videoSegmentPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   };
 
   const handleUpdateStoryboard = (updated: Storyboard) => {
@@ -589,6 +621,8 @@ export default function StoryPage() {
     }, settings.comfyui);
     const { storyboards } = await readApiJson<{ storyboards: Storyboard[] }>(dirRes, '分镜导演失败');
     const styledStoryboards = storyboards.map(storyboard => ({ ...storyboard, visualStyle }));
+    setVideoSegmentPlan(undefined);
+    videoSegmentPlanRef.current = undefined;
     setStoryboards(styledStoryboards);
     storyboardsRef.current = styledStoryboards;
     return styledStoryboards;
@@ -1157,6 +1191,10 @@ export default function StoryPage() {
 
     const segmentIds = segment.map(item => item.id);
     const leader = segment[0];
+    const speechSignature = segmentSpeechSignature(segment);
+    let exactCharacterAudios = leader.audioSpeechSignature === speechSignature
+      ? (leader.characterAudios || [])
+      : [];
     const segmentId = `segment-${Date.now()}-${leader.sceneNumber}`;
     const duration = estimateVideoSegmentSeconds(segment);
     const leaderIndex = currentShots.findIndex(item => item.id === leader.id);
@@ -1201,6 +1239,36 @@ export default function StoryPage() {
       });
     });
     try {
+      // A generic voice sample contains unrelated words and can leak fragments
+      // into Ref2VA's native soundtrack. When Fish Audio is configured, create
+      // one clean reference per speaking character from this segment's exact
+      // authoritative lines. If H3 follows either timbre or source content, it
+      // can only hear words that are already allowed in the segment.
+      if (videoProvider === 'comfyui' && speechSignature !== '[]' && settings.fishAudioKey && !exactCharacterAudios.length) {
+        commitStoryboards(prev => prev.map(item => item.id === leader.id ? { ...item, audioStatus: 'generating' as const } : item));
+        const lines = segment.flatMap(item => storyboardSpeech(item)).map(line => {
+          const matched = charactersRef.current.find(character => character.name.trim().toLowerCase() === line.character.trim().toLowerCase());
+          return {
+            character: line.character,
+            text: line.exactLine,
+            voiceId: line.voiceId || matched?.voiceId,
+          };
+        });
+        const audioResponse = await fetch('/api/generate-audio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lines, fishAudioKey: settings.fishAudioKey }),
+        });
+        const audioData = await readApiJson<{ characterAudios: { character: string; audioUrl: string; audioDuration?: number }[] }>(audioResponse, '准确台词音频生成失败');
+        exactCharacterAudios = audioData.characterAudios || [];
+        commitStoryboards(prev => prev.map(item => item.id === leader.id ? {
+          ...item,
+          audioStatus: 'completed' as const,
+          characterAudios: exactCharacterAudios,
+          audioSpeechSignature: speechSignature,
+        } : item));
+      }
+
       const portableSegment = await Promise.all(segment.map(async item => ({
         ...item,
         visualStyle,
@@ -1226,6 +1294,12 @@ export default function StoryPage() {
           }))
         : [];
       const portableVoiceReferences = Object.fromEntries(portableVoiceEntries.filter((entry): entry is readonly [string, string] => Boolean(entry)));
+      const portableCharacterAudios = videoProvider === 'comfyui'
+        ? await Promise.all(exactCharacterAudios.map(async audio => ({
+            ...audio,
+            audioUrl: await makePortableMediaSource(audio.audioUrl, `${audio.character} 准确台词音频`, true),
+          })))
+        : exactCharacterAudios;
       const storyboardForRequest = {
         ...portableSegment[0],
         videoDuration: duration,
@@ -1261,7 +1335,7 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, language: projectLanguageRef.current, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: projectAspectRatioRef.current, characterAudios: leader.characterAudios || [], firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
+        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, language: projectLanguageRef.current, apiKey: settings.apiKey, videoModel: settings.videoModel, aspectRatio: projectAspectRatioRef.current, characterAudios: portableCharacterAudios, firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), videoProvider, comfyui: localComfyUISettings(settings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string }>(response, '视频任务创建失败');
       if (generationProjectId !== projectIdRef.current) return;
@@ -1367,7 +1441,11 @@ export default function StoryPage() {
       // ④ 视频（顺序生成，连续镜头自动接上一镜尾帧；读最新状态，图片阶段刚生成完）
       setAutoStage('生成视频');
       const videoGroups = (settings.videoProvider || 'apimart') === 'comfyui'
-        ? suggestVideoSegments(storyboardsRef.current.filter(item => item.imageUrl))
+        ? resolveVideoSegmentGroups(
+            storyboardsRef.current.filter(item => item.imageUrl),
+            videoSegmentPlanRef.current,
+            projectLanguageRef.current,
+          )
         : storyboardsRef.current.filter(item => item.imageUrl).map(item => [item]);
       for (const group of videoGroups) {
         if (autoAbortRef.current) return;
@@ -1443,6 +1521,7 @@ export default function StoryPage() {
             key={projectId}
             storyContent={storyContent}
             storyboards={storyboards}
+            videoSegmentPlan={videoSegmentPlan}
             onExit={() => setIsCanvasMode(false)}
             onUpdate={handleUpdateStoryboard}
             onGenerateImage={handleGenerateImage}
@@ -1580,6 +1659,8 @@ export default function StoryPage() {
                 aspectRatio={projectAspectRatio}
                 language={projectLanguage}
                 voiceReferences={voiceReferences || {}}
+                videoSegmentPlan={videoSegmentPlan}
+                onVideoSegmentPlanChange={handleVideoSegmentPlanChange}
                 onBack={() => setCurrentStep(4)}
                 onNext={() => setCurrentStep(6)}
                 onGenerateVideo={handleGenerateVideo}

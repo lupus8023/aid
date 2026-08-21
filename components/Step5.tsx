@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Character, Storyboard } from '@/types';
 import {
   ArrowLeft,
@@ -20,8 +20,11 @@ import {
 } from 'lucide-react';
 import {
   estimateVideoSegmentSeconds,
+  createVideoSegmentPlan,
+  isValidVideoSegmentPlan,
   persistedVideoClipCount,
-  suggestVideoSegments,
+  resolveVideoSegmentGroups,
+  type VideoSegmentPlan,
   validateVideoSegment,
 } from '@/lib/videoSegments';
 import { storyboardAudioPlan, storyboardSpeech } from '@/lib/speechAudioContract';
@@ -41,6 +44,8 @@ interface Step5Props {
   onGenerateVideoPrompt?: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void;
   onGenerateAudio?: (storyboard: Storyboard) => void;
   onUpdate?: (storyboard: Storyboard) => void;
+  videoSegmentPlan?: VideoSegmentPlan;
+  onVideoSegmentPlanChange?: (plan: VideoSegmentPlan) => void;
 }
 
 type SegmentStatus = 'ready' | 'generating' | 'completed' | 'failed';
@@ -65,10 +70,6 @@ function StatusLabel({ status }: { status: SegmentStatus }) {
   return <span className="inline-flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><i className={`h-2 w-2 rounded-full ${config[1]}`} />{config[0]}</span>;
 }
 
-function sameMembers(groups: string[][], storyboards: Storyboard[]) {
-  return groups.flat().join('|') === storyboards.map(item => item.id).join('|');
-}
-
 export default function Step5({
   storyboards,
   videoModel,
@@ -81,12 +82,19 @@ export default function Step5({
   onGenerateVideo,
   onGenerateVideoPrompt,
   onUpdate,
+  videoSegmentPlan,
+  onVideoSegmentPlanChange,
 }: Step5Props) {
   const isComfyUI = videoProvider === 'comfyui';
   const withImages = useMemo(() => storyboards.filter(item => item.imageUrl), [storyboards]);
   const storyboardById = useMemo(() => new Map(withImages.map(item => [item.id, item])), [withImages]);
-  const suggested = useMemo(() => suggestVideoSegments(withImages), [withImages]);
-  const [groupIds, setGroupIds] = useState<string[][]>(() => suggested.map(group => group.map(item => item.id)));
+  const plannedGroups = useMemo(
+    () => resolveVideoSegmentGroups(withImages, videoSegmentPlan, language),
+    [language, videoSegmentPlan, withImages],
+  );
+  const groupIds = plannedGroups.map(group => group.map(item => item.id));
+  const usesManualPlan = isValidVideoSegmentPlan(videoSegmentPlan, withImages, language)
+    && videoSegmentPlan.source === 'manual';
   const [activeIndex, setActiveIndex] = useState(0);
   const [editingPrompt, setEditingPrompt] = useState(false);
   const [promptDraft, setPromptDraft] = useState('');
@@ -100,12 +108,6 @@ export default function Step5({
     const detected = storyAspectRatioFromDimensions(video.videoWidth, video.videoHeight, aspectRatio);
     setVideoAspects(current => current[url] === detected ? current : { ...current, [url]: detected });
   };
-
-  useEffect(() => {
-    setGroupIds(current => sameMembers(current, withImages)
-      ? current
-      : suggested.map(group => group.map(item => item.id)));
-  }, [suggested, withImages]);
 
   const groups = groupIds
     .map(ids => ids.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item)))
@@ -125,7 +127,10 @@ export default function Step5({
   const cachedCount = isComfyUI ? persistedVideoClipCount(storyboards, true) : storyboards.filter(item => item.videoCacheStatus === 'completed').length;
 
   const commitGroups = (next: string[][], nextActive = safeActiveIndex) => {
-    setGroupIds(next.filter(group => group.length));
+    const nextGroups = next
+      .filter(group => group.length)
+      .map(ids => ids.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item)));
+    onVideoSegmentPlanChange?.(createVideoSegmentPlan(withImages, nextGroups, 'manual'));
     setActiveIndex(Math.min(nextActive, Math.max(0, next.length - 1)));
   };
 
@@ -140,7 +145,7 @@ export default function Step5({
   const mergeWithNext = (segmentIndex: number) => {
     const mergedIds = [...(groupIds[segmentIndex] || []), ...(groupIds[segmentIndex + 1] || [])];
     const merged = mergedIds.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item));
-    if (validateVideoSegment(merged)) return;
+    if (validateVideoSegment(merged, language)) return;
     const next = [...groupIds];
     next.splice(segmentIndex, 2, mergedIds);
     commitGroups(next, segmentIndex);
@@ -155,14 +160,14 @@ export default function Step5({
     if (!left.length || !right.length) return;
     const leftShots = left.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item));
     const rightShots = right.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item));
-    if (validateVideoSegment(leftShots) || validateVideoSegment(rightShots)) return;
+    if (validateVideoSegment(leftShots, language) || validateVideoSegment(rightShots, language)) return;
     const next = [...groupIds];
     next.splice(segmentIndex, 2, left, right);
     commitGroups(next, direction === 'left' ? segmentIndex : segmentIndex + 1);
   };
 
   const generateActive = () => {
-    if (!activeLeader || validateVideoSegment(activeGroup)) return;
+    if (!activeLeader || validateVideoSegment(activeGroup, language)) return;
     onGenerateVideo(activeLeader, activeGroup);
   };
 
@@ -203,7 +208,7 @@ export default function Step5({
               <div key={group.map(item => item.id).join('-')}>
                 <section onClick={() => setActiveIndex(segmentIndex)} className={`rounded-xl border bg-[var(--bg-secondary)] p-4 transition-colors ${selected ? 'border-[var(--workspace-accent)] shadow-[0_0_0_1px_rgba(var(--workspace-accent-rgb),.15)]' : 'border-[var(--border-color)] hover:border-[var(--workspace-accent)]/45'}`}>
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h3 className="font-mono text-sm font-semibold text-white">片段 {String(segmentIndex + 1).padStart(2, '0')}</h3><span className="text-[11px] text-[var(--text-secondary)]">{group.length} 个节拍 · {duration}s</span><span className="text-[10px] text-emerald-300">AI 推荐</span></div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h3 className="font-mono text-sm font-semibold text-white">片段 {String(segmentIndex + 1).padStart(2, '0')}</h3><span className="text-[11px] text-[var(--text-secondary)]">{group.length} 个节拍 · {duration}s</span><span className="text-[10px] text-emerald-300">{usesManualPlan ? '导演编排 · 已保存' : 'AI 推荐'}</span></div>
                     <StatusLabel status={status} />
                   </div>
                   <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1">
@@ -270,7 +275,7 @@ export default function Step5({
         </aside>
       </div>
 
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-color)] pt-4"><button onClick={onBack} className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-5 py-2 text-sm"><ArrowLeft size={14} />返回图片</button><div className="text-[10px] text-[var(--text-muted)]">分组会自动判断；只有需要改变节奏时才调整边界</div><button onClick={onNext} disabled={!completedCount || cachingCount > 0} className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent-green)] px-5 py-2 text-sm font-semibold text-black disabled:opacity-35">{cachingCount ? `正在缓存 ${cachingCount} 个片段` : '下一步：合并导出'}<ArrowRight size={14} /></button></footer>
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-color)] pt-4"><button onClick={onBack} className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-5 py-2 text-sm"><ArrowLeft size={14} />返回图片</button><div className="text-[10px] text-[var(--text-muted)]">{usesManualPlan ? '导演编排已写入项目；刷新和一键成片都会保留' : 'AI 会按时长、对白和动作因果自动归类；可手动锁定边界'}</div><button onClick={onNext} disabled={!completedCount || cachingCount > 0} className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent-green)] px-5 py-2 text-sm font-semibold text-black disabled:opacity-35">{cachingCount ? `正在缓存 ${cachingCount} 个片段` : '下一步：合并导出'}<ArrowRight size={14} /></button></footer>
     </div>
   );
 }

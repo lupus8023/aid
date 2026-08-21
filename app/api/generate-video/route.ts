@@ -50,9 +50,17 @@ export async function POST(request: NextRequest) {
       // H3 的所有参考音频总计不能超过 15 秒。只传本镜头真正开口的角色，
       // 避免把画面中未说话角色的声音也计入额度。后续还会在 Companion 端统一裁剪总长。
       const speakingCharacters = [...new Set<string>(videoStoryboards.flatMap(speakingCharacterNames))];
+      const exactAudioByCharacter = new Map<string, string>(
+        (Array.isArray(characterAudios) ? characterAudios : [])
+          .filter((audio: any) => audio?.character && audio?.audioUrl)
+          .map((audio: any) => [String(audio.character), String(audio.audioUrl)]),
+      );
       const referenceAudioNames: string[] = [];
       const referenceAudios = speakingCharacters
-        .map((name) => ({ name, url: voiceReferences[name] }))
+        // Exact segment dialogue is safer than a generic timbre sample: even
+        // if Ref2VA retains source semantics, it cannot introduce unrelated
+        // sample words before or after the scheduled <d> line.
+        .map((name) => ({ name, url: exactAudioByCharacter.get(name) || voiceReferences[name] }))
         .filter((x): x is { name: string; url: string } => Boolean(x.url))
         .slice(0, 3)
         .map((x) => { referenceAudioNames.push(x.name); return x.url; });

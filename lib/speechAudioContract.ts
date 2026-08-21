@@ -120,6 +120,16 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
     .slice(0, 1);
 }
 
+export function segmentSpeechSignature(storyboards: Storyboard[]): string {
+  return JSON.stringify(storyboards.flatMap(storyboard => storyboardSpeech(storyboard).map(line => ({
+    sceneNumber: storyboard.sceneNumber,
+    speakerId: line.speakerId,
+    character: line.character,
+    exactLine: line.exactLine,
+    voiceId: line.voiceId || '',
+  }))));
+}
+
 export function storyboardAudioPlan(storyboard: Storyboard): StoryAudioPlan {
   const plan = storyboard.audioPlan;
   if (!plan) return DEFAULT_AUDIO;

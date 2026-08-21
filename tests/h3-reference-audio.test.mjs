@@ -17,7 +17,7 @@ function assertValidAllocation(sourceDurations, expectedDurations) {
   assert.equal(actual.length, sourceDurations.length);
   actual.forEach((duration, index) => {
     assert.ok(duration >= MINIMUM_DURATION, `audio ${index + 1} fell below the H3 minimum`);
-    assert.ok(duration <= sourceDurations[index], `audio ${index + 1} exceeded its source duration`);
+    assert.ok(duration <= Math.max(sourceDurations[index], MINIMUM_DURATION), `audio ${index + 1} exceeded its padded source duration`);
   });
   assert.ok(actual.reduce((total, duration) => total + duration, 0) <= TOTAL_BUDGET + 0.0001);
   if (expectedDurations) {
@@ -45,8 +45,8 @@ test('preserves a short valid reference while distributing the remaining budget'
   assertValidAllocation([2.2, 12, 12], [2.2, 6.25, 6.25]);
 });
 
-test('rejects a reference shorter than the H3 minimum', () => {
-  assert.throws(() => fitH3ReferenceAudioDurations([1.9]), /至少 2 秒/);
+test('pads an exact short dialogue reference to the H3 minimum', () => {
+  assert.deepEqual(fitH3ReferenceAudioDurations([0.9]), [2]);
 });
 
 test('keeps voice references in native mode without requiring drive audio', () => {

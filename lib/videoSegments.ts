@@ -4,6 +4,18 @@ import { speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechCon
 export const MAX_H3_SEGMENT_SECONDS = 15;
 export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
 
+export interface VideoSegmentPlan {
+  version: 1;
+  source: 'auto' | 'manual';
+  groups: string[][];
+  storyboardSignature: string;
+  updatedAt: string;
+}
+
+function storyboardSignature(storyboards: Storyboard[]): string {
+  return storyboards.map(storyboard => storyboard.id).join('|');
+}
+
 export function estimateStoryboardBeatSeconds(storyboard: Storyboard): number {
   const line = storyboardSpeech(storyboard)[0];
   const plan = storyboardAudioPlan(storyboard);
@@ -40,6 +52,8 @@ export function validateVideoSegment(storyboards: Storyboard[], language?: 'zh' 
   if (speechError) return speechError;
   const languageError = validateSpeechLanguage(storyboards, language);
   if (languageError) return languageError;
+  const projectedSeconds = storyboards.reduce((sum, storyboard) => sum + estimateStoryboardBeatSeconds(storyboard), 0);
+  if (projectedSeconds > MAX_H3_SEGMENT_SECONDS) return `该片段预计 ${Math.round(projectedSeconds)} 秒，超过 H3 的 ${MAX_H3_SEGMENT_SECONDS} 秒上限`;
   return undefined;
 }
 
@@ -56,30 +70,83 @@ export function suggestVideoSegments(storyboards: Storyboard[]): Storyboard[][] 
 
   for (const storyboard of storyboards) {
     const seconds = estimateStoryboardBeatSeconds(storyboard);
-    const previous = current.at(-1);
-    const locationChanged = Boolean(previous && storyboard.locationId && previous.locationId && storyboard.locationId !== previous.locationId);
-    const sequenceChanged = Boolean(previous && storyboard.sequenceId && previous.sequenceId && storyboard.sequenceId !== previous.sequenceId);
     const projectedSpeech = [...current, storyboard].flatMap(storyboardSpeech);
     const speechLimitExceeded = projectedSpeech.length > 3
       || new Set(projectedSpeech.map(line => line.character)).size > 3;
-    const dramaticBreak = Boolean(previous && (
-      previous.consequence && storyboard.cause && previous.consequence !== storyboard.cause
-      && (previous.transition === 'fade' || storyboard.clipType === 'establishing')
-    ));
     const wouldOverflow = currentSeconds + seconds > MAX_H3_SEGMENT_SECONDS;
-    if (current.length >= MAX_H3_STORYBOARDS_PER_SEGMENT || locationChanged || sequenceChanged || speechLimitExceeded || dramaticBreak || wouldOverflow) flush();
+
+    // H3 can perform several causal shots — including motivated location
+    // changes — inside one 15-second clip. Location/sequence labels and
+    // model-written fade/dissolve hints are therefore soft directing signals,
+    // not mandatory generation boundaries. Hard-split only when the model's
+    // real input/timeline limits would be exceeded.
+    if (current.length >= MAX_H3_STORYBOARDS_PER_SEGMENT || speechLimitExceeded || wouldOverflow) flush();
 
     current.push(storyboard);
     currentSeconds += seconds;
-    if (storyboard.transition === 'fade' || storyboard.transition === 'dissolve') flush();
   }
   flush();
   return groups;
 }
 
+export function createVideoSegmentPlan(
+  storyboards: Storyboard[],
+  groups: Storyboard[][],
+  source: VideoSegmentPlan['source'] = 'auto',
+): VideoSegmentPlan {
+  return {
+    version: 1,
+    source,
+    groups: groups.filter(group => group.length).map(group => group.map(storyboard => storyboard.id)),
+    storyboardSignature: storyboardSignature(storyboards),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function isValidVideoSegmentPlan(
+  plan: VideoSegmentPlan | undefined,
+  storyboards: Storyboard[],
+  language?: 'zh' | 'en',
+): plan is VideoSegmentPlan {
+  if (!plan || plan.version !== 1 || !Array.isArray(plan.groups) || !plan.groups.length) return false;
+  if (plan.storyboardSignature !== storyboardSignature(storyboards)) return false;
+  const ids = plan.groups.flat();
+  if (ids.join('|') !== storyboardSignature(storyboards)) return false;
+  if (new Set(ids).size !== ids.length) return false;
+  const byId = new Map(storyboards.map(storyboard => [storyboard.id, storyboard]));
+  return plan.groups.every(groupIds => {
+    const group = groupIds.map(id => byId.get(id)).filter((item): item is Storyboard => Boolean(item));
+    return group.length === groupIds.length
+      && estimateVideoSegmentSeconds(group) <= MAX_H3_SEGMENT_SECONDS
+      && !validateVideoSegment(group, language);
+  });
+}
+
+export function resolveVideoSegmentGroups(
+  storyboards: Storyboard[],
+  plan?: VideoSegmentPlan,
+  language?: 'zh' | 'en',
+): Storyboard[][] {
+  if (!isValidVideoSegmentPlan(plan, storyboards, language)) return suggestVideoSegments(storyboards);
+  const byId = new Map(storyboards.map(storyboard => [storyboard.id, storyboard]));
+  return plan.groups.map(group => group.map(id => byId.get(id)!));
+}
+
 export function isCompletedVideoSegment(storyboards: Storyboard[]): boolean {
   const leader = storyboards[0];
   if (!leader || !leader.videoUrl || !leader.videoSegmentId) return false;
+  const expectedIds = storyboards.map(storyboard => storyboard.id);
+  const savedIds = leader.videoSegmentStoryboardIds || [];
+  if (savedIds.length !== expectedIds.length || savedIds.some((id, index) => id !== expectedIds[index])) return false;
+  return storyboards.every(storyboard => (
+    storyboard.videoStatus === 'completed'
+    && storyboard.videoSegmentId === leader.videoSegmentId
+  ));
+}
+
+function isPersistedVideoSegment(storyboards: Storyboard[]): boolean {
+  const leader = storyboards[0];
+  if (!leader || !leader.videoSegmentId || !hasPersistedVideoArtifact(leader)) return false;
   const expectedIds = storyboards.map(storyboard => storyboard.id);
   const savedIds = leader.videoSegmentStoryboardIds || [];
   if (savedIds.length !== expectedIds.length || savedIds.some((id, index) => id !== expectedIds[index])) return false;
@@ -110,10 +177,10 @@ export function persistedVideoClipCount(storyboards: Storyboard[], cachedOnly = 
   }).length;
 }
 
-export function restoredStoryStep(storyboards: Storyboard[]): 4 | 5 | 6 {
+export function restoredStoryStep(storyboards: Storyboard[], plan?: VideoSegmentPlan): 4 | 5 | 6 {
   if (!storyboards.length || storyboards.some(storyboard => !storyboard.imageUrl)) return 4;
-  const groups = suggestVideoSegments(storyboards);
-  return groups.length > 0 && persistedVideoClipCount(storyboards) >= groups.length ? 6 : 5;
+  const groups = resolveVideoSegmentGroups(storyboards, plan);
+  return groups.length > 0 && groups.every(isPersistedVideoSegment) ? 6 : 5;
 }
 
 export function allocateSegmentTimeline(storyboards: Storyboard[], totalSeconds: number): Array<{ start: number; end: number }> {

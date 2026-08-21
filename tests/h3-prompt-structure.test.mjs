@@ -128,6 +128,30 @@ test('keeps performance directions non-spoken and emits only exact dialogue insi
   assert.equal((prompt.match(/女娲娘娘，请借我力量！/g) || []).length, 1);
 });
 
+test('removes inline quoted dialogue and vocal directions from visual channels', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      action: 'Lin braces the closing ice wall and pulls the yellow stone free.',
+      prompt: 'Lin rushes forward, 咬紧牙关喘息着喊：“不能停！”随后拉出黄色石头。',
+      description: 'Lin rushes forward, 咬紧牙关喘息着喊：“不能停！”随后拉出黄色石头。',
+      speech: [{
+        speakerId: 'S01',
+        character: 'Lin',
+        exactLine: '不能停！',
+        emotion: 'determined',
+        delivery: 'urgent',
+        volume: 'raised',
+        lipSync: true,
+        source: 'story_required',
+      }],
+    }),
+  ], [], { duration: 6, language: 'zh' });
+
+  assert.equal((prompt.match(/不能停！/g) || []).length, 1);
+  assert.doesNotMatch(prompt, /喘息着喊|咬紧牙关喘息/);
+  assert.match(prompt, /SPOKEN_WORDS_ONLY=<d>\[Chinese\] 不能停！<\/d>/);
+});
+
 test('preserves every grouped storyboard as a complete timed action-camera-dialogue unit', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1, { action: 'Lin snatches the red envelope from the moving bicycle.', cameraMove: '跟拍', dialogueLines: [] }),

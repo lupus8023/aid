@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.26 - 2026-08-22
+
+### Improved
+
+- Story's automatic segment editor now groups contiguous shots by their real action/dialogue budget, four-shot limit, three-line speech limit, and H3's 15-second ceiling. Location/sequence changes or model-written fade/dissolve hints no longer force every storyboard into a separate clip.
+- Each storyboard inside a merged clip still retains its own time window, action, camera move, dialogue state and causal handoff; only the H3 generation batch changes.
+
+### Fixed
+
+- Manual splits, merges and boundary moves are now stored as an immediately persisted project-level director plan. Reloading, reopening, Canvas mode and One-click Film all reuse the same grouping instead of reverting to automatic single-shot segments.
+- H3 visual-action, storyboard-description and override channels strip embedded quoted speech and vocal directions such as “shouts while panting”; the authoritative `<d>` block is the only place where real dialogue may appear.
+- With Fish Audio configured, Story creates per-segment character references containing only the exact authorized lines and caches them by a dialogue signature. Editing dialogue invalidates and rebuilds the reference instead of leaking words from a generic timbre sample.
+- Companion pads exact dialogue references shorter than two seconds with silence while preserving the 14.7-second total budget, preventing short lines from failing or falling back to an unrelated voice sample.
+
+### Tests
+
+- Added regression coverage for automatic cross-scene grouping, the 15-second budget, serialized manual director plans, visual-channel dialogue stripping, and short exact-dialogue padding. The full test suite and production build pass.
+
 ## 0.1.25 - 2026-08-22
 
 ### Improved

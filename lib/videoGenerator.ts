@@ -3,7 +3,7 @@ import type { Storyboard } from '@/types';
 import { buildVideoContinuityRules, getProductionStylePreset } from './promptArchitecture';
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds } from './videoSegments';
 import { NO_SUBTITLE_POLICY } from './videoTextPolicy';
-import { buildAudioManifest, buildNonDiegeticMusic, compileTimedSpeech, storyboardAudioPlan, validateSpeechLanguage } from './speechAudioContract';
+import { buildAudioManifest, buildNonDiegeticMusic, compileTimedSpeech, storyboardAudioPlan, storyboardSpeech, validateSpeechLanguage } from './speechAudioContract';
 
 function h3Timestamp(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -19,17 +19,34 @@ function compactText(value: unknown, limit = 220): string {
   return `${text.slice(0, cut > limit * 0.65 ? cut : limit).trim()}.`;
 }
 
-export function sanitizeVisualDirection(value: unknown): string {
+function regexpEscape(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function sanitizeVisualDirection(value: unknown, exactSpokenLines: string[] = []): string {
   const withoutDialogueTags = String(value || '').replace(/<d>[\s\S]*?<\/d>/gi, ' ');
   const visualLines = withoutDialogueTags.split(/\r?\n/).filter(line => !(
     /(?:overall_soundscape|non_diegetic_music|speech contract|foreground speech|background human|audio manifest|voice[- ]?timbre)/i.test(line)
     || /(?:台词|对白|配音|旁白|画外音|说话内容)\s*[:：]/.test(line)
   ));
-  const withoutSpeechDirectives = visualLines.join(' ')
+  let withoutSpeechDirectives = visualLines.join(' ')
+    // Director/image descriptions frequently repeat a line as part of a
+    // visible-action sentence (e.g. 喘息着喊：“不能停！”). H3 treats that as
+    // another vocal event even when the authoritative line also appears in
+    // <d>. Remove quoted speech and its speech verb from every visual channel.
+    .replace(/(?:喘息(?:着)?|停顿后|迟疑后|低声|轻声|大声|坚定地|急促地|缓慢地|平静地|愤怒地|哭着|笑着)?\s*(?:说|说道|喊|喊道|叫|叫道|问|问道|回答|答道|低语|耳语|喃喃|念|吼|吼道|尖叫|开口)\s*[:：,，]?\s*[“"'](?:[^”"'\n]|'(?!\s))*[”"']/gi, ' ')
+    .replace(/(?:says?|speaks?|shouts?|yells?|asks?|replies?|answers?|whispers?|murmurs?|utters?|exclaims?)\s*(?:in\s+an?\s+[\w -]+\s+(?:tone|voice))?\s*[:：,，]?\s*[“"'](?:[^”"'\n]|'(?!\s))*[”"']/gi, ' ')
+    .replace(/[“"]\s*[^”"\n]{1,240}\s*[”"]/g, ' ')
     .replace(/(?:无|没有)(?:任何)?其他(?:角色|人物)(?:在场|出现)?[。.!！]?/gi, ' ')
     .replace(/(?:其他|其余|所有|全部)(?:可见)?(?:角色|人物)(?:保持)?(?:沉默|无声|不说话|不发声|闭嘴|闭口)[。.!！]?/gi, ' ')
     .replace(/no\s+other\s+(?:character|characters|person|people)(?:\s+(?:is|are))?\s*(?:present|visible|speaking)?[.!]?/gi, ' ')
     .replace(/(?:other|remaining|all)\s+(?:visible\s+)?(?:characters|people)\s+(?:remain|stay|are)\s+(?:silent|quiet)[.!]?/gi, ' ');
+  for (const line of exactSpokenLines.map(text => String(text || '').trim()).filter(Boolean)) {
+    withoutSpeechDirectives = withoutSpeechDirectives.replace(new RegExp(regexpEscape(line), 'gi'), ' ');
+  }
+  withoutSpeechDirectives = withoutSpeechDirectives
+    .replace(/(?:喘息(?:着)?|停顿后|迟疑后|低声|轻声|大声|坚定地|急促地|缓慢地|平静地|愤怒地|哭着|笑着)?\s*(?:说|说道|喊|喊道|叫|叫道|问|问道|回答|答道|低语|耳语|喃喃|念|吼|吼道|尖叫|开口)(?=\s|[，,。.!！]|$)/gi, ' ')
+    .replace(/(?:says?|speaks?|shouts?|yells?|asks?|replies?|answers?|whispers?|murmurs?|utters?|exclaims?)(?=\s|[,.!]|$)/gi, ' ');
   return compactText(withoutSpeechDirectives, 900);
 }
 
@@ -81,8 +98,9 @@ function officialCameraMotion(storyboard: Storyboard, index: number): string {
 }
 
 function authoritativeShotAction(storyboard: Storyboard): string {
+  const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
   return compactText(
-    sanitizeVisualDirection(storyboard.action || storyboard.description || storyboard.prompt),
+    sanitizeVisualDirection(storyboard.action || storyboard.description || storyboard.prompt, spokenLines),
     260,
   );
 }
@@ -208,7 +226,8 @@ export function buildVideoSegmentPrompt(
         ? `<Picture 2> is final composition only. Finish primary action by ${h3Timestamp(range.start + shotSeconds * 0.84)}; use final 16% to resolve into it; do not uniformly interpolate or slow one gesture.`
         : ''
       : `<Picture ${referenceNumber}> starts this shot.`;
-    const visualDirection = sanitizeVisualDirection(storyboard.prompt || storyboard.description);
+    const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
+    const visualDirection = sanitizeVisualDirection(storyboard.prompt || storyboard.description, spokenLines);
     const actionDirection = authoritativeShotAction(storyboard);
     const visualAnchor = visualDirection && visualDirection !== actionDirection
       ? ` LOOK: ${compactText(visualDirection, 140)}`
@@ -219,7 +238,7 @@ export function buildVideoSegmentPrompt(
     return `[Shot ${index + 1} | ${h3Timestamp(range.start)}–${h3Timestamp(range.end)} | ${shotSeconds.toFixed(1)}s] ${entry} ${pictureAnchor} ${cast}${(storyboard.objects || []).length ? ` PROPS={${(storyboard.objects || []).join(', ')}}.` : ''} FRAME: ${storyboard.shotSize || 'story-motivated size'}, ${storyboard.angle || 'story-motivated angle'}.${visualAnchor} ${shotActionSchedule(storyboard, range)} CAMERA: ${officialCameraMotion(storyboard, index)} ${dialogue ? `DIALOGUE: ${dialogue}` : 'DIALOGUE: none; mouths non-speaking.'} ${shotSoundCue(storyboard)} ${handoff}`;
   });
 
-  const visualOverride = sanitizeVisualDirection(options.visualOverride);
+  const visualOverride = sanitizeVisualDirection(options.visualOverride, timedSpeech.map(line => line.exactLine));
   const speechGate = timedSpeech.length
     ? 'SPEECH GATE: vocalize only text inside <d>; never speak timing/performance/camera/sound controls.'
     : 'SPEECH GATE: no spoken words or human vocalization.';

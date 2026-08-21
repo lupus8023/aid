@@ -34,7 +34,7 @@ import {
   X,
 } from 'lucide-react';
 import { Storyboard } from '@/types';
-import { estimateVideoSegmentSeconds, suggestVideoSegments } from '@/lib/videoSegments';
+import { estimateVideoSegmentSeconds, resolveVideoSegmentGroups, type VideoSegmentPlan } from '@/lib/videoSegments';
 
 type CanvasNodeKind = 'story' | 'grid' | 'scene' | 'video' | 'segment' | 'output';
 
@@ -65,6 +65,7 @@ type CanvasNode = Node<CanvasNodeData>;
 interface CanvasModeProps {
   storyContent?: string;
   storyboards: Storyboard[];
+  videoSegmentPlan?: VideoSegmentPlan;
   onExit?: () => void;
   onUpdate?: (storyboard: Storyboard) => void;
   onGenerateImage?: (storyboard: Storyboard) => void | Promise<void>;
@@ -167,7 +168,7 @@ function OutputNode({ data, selected }: NodeProps<CanvasNodeData>) {
   );
 }
 
-function CanvasModeContent({ storyContent, storyboards, onExit, onUpdate, onGenerateImage, onGenerateVideoPrompt, onGenerateVideo, onGenerateGrid }: CanvasModeProps) {
+function CanvasModeContent({ storyContent, storyboards, videoSegmentPlan, onExit, onUpdate, onGenerateImage, onGenerateVideoPrompt, onGenerateVideo, onGenerateGrid }: CanvasModeProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -183,7 +184,10 @@ function CanvasModeContent({ storyContent, storyboards, onExit, onUpdate, onGene
     for (let index = 0; index < storyboards.length; index += 9) result.push(storyboards.slice(index, index + 9));
     return result;
   }, [storyboards]);
-  const segments = useMemo(() => suggestVideoSegments(storyboards.filter(item => item.imageUrl)), [storyboards]);
+  const segments = useMemo(
+    () => resolveVideoSegmentGroups(storyboards.filter(item => item.imageUrl), videoSegmentPlan),
+    [storyboards, videoSegmentPlan],
+  );
   const storyboardById = useMemo(() => new Map(storyboards.map(item => [item.id, item])), [storyboards]);
   const selectedNode = nodes.find(node => node.id === selectedNodeId);
   const selectedStoryboard = selectedNode?.data.storyboardId ? storyboardById.get(selectedNode.data.storyboardId) : undefined;
