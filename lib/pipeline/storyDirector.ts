@@ -193,9 +193,49 @@ export function buildDirectorBatches(storyPlan: StoryPlan, maxBatchSize = 9): Be
   return batches;
 }
 
-function parsedDirectorShots(value: any): any[] {
+function isDirectorShot(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const shot = value as Record<string, unknown>;
+  return typeof shot.description === 'string' || typeof shot.prompt === 'string';
+}
+
+// Providers do not always preserve the requested top-level wrapper. Normalize
+// their common response shapes before validating the authoritative shot count.
+export function normalizeDirectorShots(value: any, expectedCount: number): any[] {
   if (Array.isArray(value)) return value;
-  return Array.isArray(value?.shots) ? value.shots : [];
+  if (!value || typeof value !== 'object') return [];
+
+  for (const key of ['shots', 'storyboards', 'items', 'data']) {
+    if (Array.isArray(value[key])) return value[key];
+  }
+  for (const key of ['shot', 'storyboard', 'result', 'output', 'data']) {
+    if (!value[key] || typeof value[key] !== 'object') continue;
+    const nested = normalizeDirectorShots(value[key], expectedCount);
+    if (nested.length) return nested;
+  }
+
+  return expectedCount === 1 && isDirectorShot(value) ? [value] : [];
+}
+
+function directorResponseShape(value: any): string {
+  if (Array.isArray(value)) return `array(${value.length})`;
+  if (!value || typeof value !== 'object') return typeof value;
+  return `object(${Object.keys(value).slice(0, 8).join(',') || 'no keys'})`;
+}
+
+function validateDirectorShots(shots: any[], beats: Beat[], sourceShape: string): void {
+  if (shots.length !== beats.length) {
+    throw new Error(`返回 ${shots.length} 镜，要求 ${beats.length} 镜（响应结构：${sourceShape}）`);
+  }
+  shots.forEach((shot, index) => {
+    if (!shot || typeof shot !== 'object' || Array.isArray(shot)) {
+      throw new Error(`第 ${beats[index]?.index || index + 1} 镜不是有效对象`);
+    }
+    const missing = ['description', 'prompt'].filter(key => typeof shot[key] !== 'string' || !shot[key].trim());
+    if (missing.length) {
+      throw new Error(`第 ${beats[index]?.index || index + 1} 镜缺少 ${missing.join('、')}`);
+    }
+  });
 }
 
 export async function directStoryboard(input: {
@@ -254,8 +294,9 @@ export async function directStoryboard(input: {
           maxOutputTokens: 7_000,
           timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000,
         });
-        const parsed = parsedDirectorShots(extractJson(response));
-        if (parsed.length !== beats.length) throw new Error(`返回 ${parsed.length} 镜，要求 ${beats.length} 镜`);
+        const extracted = extractJson(response);
+        const parsed = normalizeDirectorShots(extracted, beats.length);
+        validateDirectorShots(parsed, beats, directorResponseShape(extracted));
         batchShots = parsed.map((shot, index) => ({
           ...shot,
           index: beats[index].index,

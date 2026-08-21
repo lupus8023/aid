@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.22 - 2026-08-21
+
+### Fixed
+
+- One-shot director batches no longer turn a valid one-item JSON array into a single object and then report `returned 0 shots, expected 1`.
+- Storyboard direction now normalizes direct shot objects and common `shots`, `storyboards`, `items`, and `data` provider wrappers before enforcing the exact shot count.
+- Structured-response extraction now preserves the true outer JSON shape, understands fenced or explanatory responses, and safely handles nested brackets and braces inside strings.
+
+### Tests
+
+- Added regression coverage for one-item arrays, direct one-shot objects, nested JSON punctuation, and common provider response wrappers.
+
 ## 0.1.21 - 2026-08-20
 
 ### Improved

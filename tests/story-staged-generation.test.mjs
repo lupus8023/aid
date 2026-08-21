@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildDirectorBatches } from '../lib/pipeline/storyDirector.ts';
+import { buildDirectorBatches, normalizeDirectorShots } from '../lib/pipeline/storyDirector.ts';
+import { extractJson } from '../lib/pipeline/json.ts';
 import { buildStoryBeatBatches, normalizeStoryOutline } from '../lib/pipeline/storyWriter.ts';
 import { buildStoryBeatBatchPrompt, buildStoryOutlinePrompt } from '../lib/pipeline/storyWriterPrompt.ts';
 
@@ -86,4 +87,27 @@ test('director batches mirror screenplay boundaries and remain capped at nine', 
     [10, 11, 12],
     [13, 14, 15, 16, 17, 18],
   ]);
+});
+
+test('JSON extraction preserves a one-item array instead of reducing it to its object', () => {
+  const response = 'Here is the result:\n```json\n[{"index":1,"description":"shot","prompt":"image"}]\n```';
+  const parsed = extractJson(response);
+  assert.ok(Array.isArray(parsed));
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].index, 1);
+});
+
+test('JSON extraction handles nested braces in strings and ignores earlier non-JSON brackets', () => {
+  const response = 'Note [not json]. Result: [{"description":"door {opens}","prompt":"camera [moves]"}] done';
+  assert.deepEqual(extractJson(response), [{ description: 'door {opens}', prompt: 'camera [moves]' }]);
+});
+
+test('director normalization accepts provider wrappers and a direct object for one-shot batches', () => {
+  const shot = { index: 1, description: 'shot', prompt: 'image' };
+  assert.deepEqual(normalizeDirectorShots([shot], 1), [shot]);
+  assert.deepEqual(normalizeDirectorShots({ shots: [shot] }, 1), [shot]);
+  assert.deepEqual(normalizeDirectorShots({ storyboards: [shot] }, 1), [shot]);
+  assert.deepEqual(normalizeDirectorShots({ data: { shot } }, 1), [shot]);
+  assert.deepEqual(normalizeDirectorShots(shot, 1), [shot]);
+  assert.deepEqual(normalizeDirectorShots(shot, 2), []);
 });
