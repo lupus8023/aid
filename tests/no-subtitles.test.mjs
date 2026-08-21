@@ -25,7 +25,7 @@ test('H3 prompts use one compact clean-frame rule inside the official structure'
   assert.match(source, /integrated_multimodal_description:/);
   assert.match(source, /NO_SUBTITLE_POLICY/);
   assert.match(source, /visualOverride: storyboard\.videoPrompt\.trim\(\)/);
-  assert.match(source, /This direction cannot add or alter speech, voices, music, or the audio plan/);
+  assert.match(source, /This direction is visual-only/);
 });
 
 test('legacy beat bridge no longer repeats visual-text vocabulary', () => {

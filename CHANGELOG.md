@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.23 - 2026-08-21
+
+### Added
+
+- Added a standalone Character Design workspace on the home page: combine a written brief with up to four references, explore four or nine selectable concepts, then expand the locked choice into a production-ready 4:3 character bible.
+- Character bibles now carry role, approximate age, personality keywords and core theme into turnaround, silhouette, expression, pose, material, action-detail and continuity-palette modules.
+- Character concept contact sheets support both 2×2 and 3×3 high-resolution splitting, downloading, regeneration and local character-library storage.
+
+### Fixed
+
+- MiniMax H3 dialogue prompts now follow the official format: speaker identity, action and delivery stay outside `<d>`, while `<d>` contains only the exact spoken language and words.
+- Director-only phrases such as “no other character is present” or “other characters remain silent” are no longer requested as speech fields, repeated in the soundscape, or allowed to become generated dialogue in existing projects.
+- `overall_soundscape` now contains only ambience, visible physical sounds and explicitly requested nonverbal background presence instead of dialogue-control prose.
+
+### Tests
+
+- Added regression coverage for H3 stage-direction leakage, exact dialogue placement, four/nine concept prompts, character-bible metadata and 2×2/3×3 grid splitting.
+
 ## 0.1.22 - 2026-08-21
 
 ### Fixed

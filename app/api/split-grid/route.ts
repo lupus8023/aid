@@ -22,7 +22,8 @@ async function compressMotherGrid(sourceBuffer: Buffer): Promise<Buffer> {
 
 export async function POST(request: NextRequest) {
   try {
-    const { imageUrl } = await request.json();
+    const { imageUrl, gridSize: requestedGridSize } = await request.json();
+    const gridSize: 2 | 3 = Number(requestedGridSize) === 2 ? 2 : 3;
     if (typeof imageUrl !== 'string' || !/^https:\/\//i.test(imageUrl)) {
       return NextResponse.json({ error: 'A valid HTTPS grid image URL is required' }, { status: 400 });
     }
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
     }
     const width = Number(grid.width || 0);
     const height = Number(grid.height || 0);
-    const cells = buildCloudinaryGridCellUrls(grid.secure_url, width, height);
+    const cells = buildCloudinaryGridCellUrls(grid.secure_url, width, height, gridSize);
 
     return NextResponse.json({
       gridUrl: grid.secure_url,
@@ -71,6 +72,7 @@ export async function POST(request: NextRequest) {
         sourceWidth: width,
         sourceHeight: height,
         maxCellEdge: 1600,
+        gridSize,
         delivery: 'quality-first-auto-compressed',
       },
     });

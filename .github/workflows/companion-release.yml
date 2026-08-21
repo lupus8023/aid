@@ -62,6 +62,7 @@ jobs:
       - run: npm run test:h3-prompt
       - run: npm run test:no-subtitles
       - run: npm run test:grid-preprocess
+      - run: npm run test:character-design
       - run: npm run test:shot-count
       - run: npm run test:video-segments
       - run: npm run test:project-isolation

@@ -20,6 +20,27 @@ function clean(value: unknown): string {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+const DIRECTING_LINE_PATTERNS = [
+  /^(?:无|没有)(?:任何)?(?:其他)?(?:角色|人物|人)(?:在场|出现)?[。.!！]?$/i,
+  /^(?:无人|没有人)(?:说话|发声|开口)[。.!！]?$/i,
+  /^(?:其他|其余|所有|全部|全体)?(?:可见)?(?:角色|人物|人)(?:保持)?(?:沉默|安静|无声|不说话|不发声|闭嘴|闭口|没有台词|无台词)(?:反应|聆听)?[。.!！]?$/i,
+  /^(?:无|没有)(?:对白|台词|旁白|人声|语音|说话声)[。.!！]?$/i,
+  /^(?:所有|全部|其他|其余)?(?:可见)?(?:角色|人物)?(?:嘴巴|嘴|口型)(?:保持)?(?:闭合|关闭|不动)[。.!！]?$/i,
+  /^(?:no|without)\s+(?:other\s+)?(?:character|characters|person|people|one)(?:\s+(?:is|are))?\s*(?:present|visible|speaking)?[.!]?$/i,
+  /^(?:no one|nobody)\s+(?:speaks|talks|vocalizes)[.!]?$/i,
+  /^(?:other|all|remaining)\s+(?:visible\s+)?(?:characters|people|persons)\s+(?:remain|stay|are)\s+(?:silent|quiet)[.!]?$/i,
+  /^(?:no|without)\s+(?:dialogue|speech|narration|voice|voices|vocalization)[.!]?$/i,
+  /^(?:all|other|remaining)\s+(?:visible\s+)?mouths?\s+(?:remain|stay|are)\s+closed[.!]?$/i,
+];
+
+/** Prevent stage directions from being performed as native H3 dialogue. */
+export function isDirectingInstructionDialogue(value: unknown): boolean {
+  const text = clean(value)
+    .replace(/^[\[【（(]\s*(?:台词|对白|语音|speech|dialogue)\s*[\]】）)]\s*[:：-]?\s*/i, '')
+    .trim();
+  return Boolean(text) && DIRECTING_LINE_PATTERNS.some(pattern => pattern.test(text));
+}
+
 function stableSpeakerId(name: string): string {
   let hash = 0;
   for (const character of name) hash = (hash * 31 + character.codePointAt(0)!) % 97;
@@ -49,7 +70,6 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
         delivery: 'natural, concise, no theatrical emphasis',
         volume: 'normal' as const,
         lipSync: true,
-        listenerState: 'Other visible characters listen silently with closed mouths.',
         source: 'story_required' as const,
       }));
 
@@ -63,10 +83,13 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
       delivery: clean(line.delivery) || 'natural, concise, no theatrical emphasis',
       volume: line.volume || 'normal',
       lipSync: line.lipSync !== false,
-      listenerState: clean(line.listenerState) || 'Other visible characters listen silently with closed mouths.',
+      listenerState: undefined,
       source: line.source === 'user_exact' ? 'user_exact' as const : 'story_required' as const,
     }))
-    .filter(line => line.character && line.exactLine && visible.has(line.character))
+    .filter(line => line.character
+      && line.exactLine
+      && visible.has(line.character)
+      && (line.source === 'user_exact' || !isDirectingInstructionDialogue(line.exactLine)))
     .slice(0, 1);
 }
 
@@ -100,9 +123,14 @@ export function validateSpeechLanguage(storyboards: Storyboard[], language?: 'zh
 
 export function validateSpeechContract(storyboards: Storyboard[]): string | undefined {
   const lines = storyboards.flatMap(storyboardSpeech);
-  const rawCount = storyboards.reduce((total, storyboard) => total + (
-    storyboard.speech?.length || storyboard.dialogueLines?.length || Object.keys(storyboard.dialogue || {}).length
-  ), 0);
+  const rawCount = storyboards.reduce((total, storyboard) => {
+    const rawLines = storyboard.speech?.length
+      ? storyboard.speech
+      : storyboard.dialogueLines?.length
+        ? storyboard.dialogueLines.map(line => ({ exactLine: line.text, source: 'story_required' as const }))
+        : Object.values(storyboard.dialogue || {}).map(exactLine => ({ exactLine, source: 'story_required' as const }));
+    return total + rawLines.filter(line => line.source === 'user_exact' || !isDirectingInstructionDialogue(line.exactLine)).length;
+  }, 0);
   if (rawCount > lines.length) return '台词中存在未出场角色、空台词或同一镜头多人说话，请先修正剧本';
   if (lines.length > 3) return '一个 H3 片段最多安排 3 条顺序台词，请拆成独立片段';
   if (new Set(lines.map(line => line.character)).size > 3) return '一个 H3 片段最多绑定 3 个说话角色，请拆成独立片段';
@@ -136,24 +164,21 @@ export function compileTimedSpeech(
   return timed;
 }
 
-export function buildAudioManifest(storyboards: Storyboard[], timedSpeech: TimedSpeechLine[]): string {
+export function buildAudioManifest(storyboards: Storyboard[]): string {
   const plans = storyboards.map(storyboardAudioPlan);
   const environment = [...new Set(plans.flatMap(plan => plan.environment))];
   const foley = [...new Set(plans.flatMap(plan => plan.foley))];
   const allowBackgroundPresence = plans.some(plan => plan.backgroundHuman === 'indistinct_nonverbal');
   return [
     environment.length
-      ? `The location ambience consists only of ${environment.join('; ')}.`
+      ? `The location ambience consists of ${environment.join('; ')}.`
       : 'A quiet, perspective-correct location room tone continues underneath the visible action.',
     foley.length
-      ? `Physical action sounds are limited to ${foley.join('; ')}, synchronized to their visible causes.`
-      : 'Only contacts visibly caused on screen produce restrained physical sound; there are no decorative hits or whooshes.',
+      ? `Physical action sounds include ${foley.join('; ')}, synchronized to their visible causes.`
+      : 'Restrained physical sounds follow only contacts visibly caused on screen.',
     allowBackgroundPresence
-      ? 'Background people create only indistinct nonverbal presence with no intelligible words, whispers, calls, laughter, humming, or singing.'
-      : 'No background or unlisted person produces any voice, whisper, call, laugh, hum, song, or unexplained breath.',
-    timedSpeech.length
-      ? 'The tagged dialogue in the shot timeline is exhaustive: only one scheduled speaker vocalizes at a time, with no added, repeated, paraphrased, overlapping, or reassigned speech.'
-      : 'No human vocalization occurs anywhere in the clip.',
+      ? 'Background people contribute a low, indistinct nonverbal presence.'
+      : '',
   ].join(' ');
 }
 

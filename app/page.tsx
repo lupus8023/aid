@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowUpRight, Film, Image, Layers3, Sparkles, Smartphone, UserRoundCog, Zap } from 'lucide-react';
+import { ArrowUpRight, Film, Image, Layers3, Palette, Sparkles, Smartphone, UserRoundCog, Zap } from 'lucide-react';
 import CompanionInstaller from '@/components/CompanionInstaller';
 
 const creationModes = [
@@ -31,6 +31,15 @@ const creationModes = [
     description: '从角色与故事开始，完成分镜、图像、视频和成片导出。',
     meta: '六步完整创作流程',
     accent: 'teal',
+  },
+  {
+    href: '/character-design',
+    icon: Palette,
+    label: '角色设计',
+    english: 'Character Design',
+    description: '从文字与参考图探索角色方向，锁定后生成完整生产角色卡。',
+    meta: '4 / 9 款草稿 · 角色卡',
+    accent: 'pink',
   },
   {
     href: '/batch',
@@ -113,9 +122,9 @@ export default function HomePage() {
               <p className="aid-eyebrow">Creation modes</p>
               <h2 id="creation-modes-heading" className="mt-2 text-xl font-semibold text-white">开始创作</h2>
             </div>
-            <span className="font-mono text-xs text-[var(--text-muted)]">05 WORKSPACES</span>
+            <span className="font-mono text-xs text-[var(--text-muted)]">{String(creationModes.length).padStart(2, '0')} WORKSPACES</span>
           </div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {creationModes.map((mode, index) => {
               const Icon = mode.icon;
               return (

@@ -35,10 +35,9 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   });
   assert.match(prompt, /<d>\[Chinese\] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /alone speaks once/);
-  assert.match(prompt, /tagged dialogue in the shot timeline is exhaustive/);
-  assert.match(prompt, /No background or unlisted person produces any voice/);
-  assert.match(prompt, /no added, repeated, paraphrased, overlapping, or reassigned speech/);
+  assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S63\)/);
+  const soundscape = prompt.split('overall_soundscape:')[1].split('non_diegetic_music:')[0];
+  assert.doesNotMatch(soundscape, /<d>|线索就在这里|dialogue|speech/i);
   assert.match(prompt, /camera .* with small amplitude at moderate speed/i);
   assert.equal((prompt.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
@@ -53,9 +52,8 @@ test('keeps silent clips free of all human vocalization and cannot be bypassed b
   });
   assert.match(prompt, /user-specified visual action and camera direction is: Camera pushes in/);
   assert.doesNotMatch(prompt, /临时加一句|Mei whispers/);
-  assert.match(prompt, /No person speaks or produces human vocal sound/);
-  assert.match(prompt, /No human vocalization occurs anywhere in the clip/);
-  assert.match(prompt, /No background or unlisted person produces any voice/);
+  assert.doesNotMatch(prompt, /<d>|SPEECH_EVENT|SPEECH_WHITELIST/);
+  assert.match(prompt, /overall_soundscape:\s+A quiet, perspective-correct location room tone/);
 });
 
 test('locks H3 speech to the project language and rejects mismatched generated dialogue', () => {
@@ -63,8 +61,7 @@ test('locks H3 speech to the project language and rejects mismatched generated d
     shot(1, { dialogueLines: [{ character: 'Lin', text: 'The answer is already here.' }] }),
   ], [], { duration: 7, language: 'en' });
   assert.match(prompt, /<d>\[English\] The answer is already here\.<\/d>/);
-  assert.match(prompt, /Spoken-language lock: the project dialogue language is English/);
-  assert.match(prompt, /Never translate, localize, replace, or add dialogue/);
+  assert.equal((prompt.match(/The answer is already here\./g) || []).length, 1);
 
   assert.throws(() => buildVideoSegmentPrompt([
     shot(2, { dialogueLines: [{ character: 'Lin', text: '答案就在这里。' }] }),
@@ -80,11 +77,33 @@ test('binds multiple sequential dialogue lines to their matching H3 voice refere
   assert.equal((prompt.match(/就在门后。/g) || []).length, 1);
   assert.match(prompt, /<Audio 1> is the voice-timbre reference exclusively for <Subject 1>/);
   assert.match(prompt, /<Audio 2> is the voice-timbre reference exclusively for <Subject 2>/);
-  assert.match(prompt, /<Subject 1> \(S01\) alone speaks once/);
-  assert.match(prompt, /<Subject 2> \(S02\) alone speaks once/);
-  assert.match(prompt, /only one scheduled speaker vocalizes at a time/);
+  assert.match(prompt, /<Subject 1> \(S01\), with alert/);
+  assert.match(prompt, /<Subject 2> \(S02\), with certain/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
   assert.ok(prompt.length <= 7000);
+});
+
+test('drops model-written stage directions before they can become H3 dialogue', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      prompt: 'Lin crosses the doorway. 无其他角色在场。其他角色保持沉默。',
+      speech: [{
+        speakerId: 'S01',
+        character: 'Lin',
+        exactLine: '无其他角色在场',
+        emotion: 'neutral',
+        delivery: 'plainly',
+        volume: 'normal',
+        lipSync: true,
+        listenerState: '其他角色保持沉默',
+        source: 'story_required',
+      }],
+    }),
+  ], [], { duration: 6, language: 'zh' });
+
+  assert.doesNotMatch(prompt, /无其他角色在场|其他角色保持沉默|<d>/);
+  assert.doesNotMatch(prompt, /<d>/);
+  assert.match(prompt, /CAST=\{<Subject 1> \(Lin\)\}/);
 });
 
 test('writes first/last-frame H3 prompts in the official base-mode structure', () => {
@@ -109,9 +128,7 @@ test('applies distinct directing and sound rules for each production style', () 
   assert.match(natural, /Authentic direct-camera live action/);
   assert.match(natural, /Subtext-first micro-performance/i);
   assert.match(documentary, /phone, mirrorless or shoulder-camera observation/i);
-  assert.match(documentary, /Location sound dominates/);
   assert.match(anime, /anticipation → key pose → impact → recovery/);
-  assert.match(anime, /Precise cloth, wind and impact cues/);
   assert.notEqual(natural, documentary);
   assert.notEqual(documentary, anime);
   assert.ok(natural.length <= 7000);

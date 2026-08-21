@@ -25,7 +25,12 @@ export function sanitizeVisualDirection(value: unknown): string {
     /(?:overall_soundscape|non_diegetic_music|speech contract|foreground speech|background human|audio manifest|voice[- ]?timbre)/i.test(line)
     || /(?:台词|对白|配音|旁白|画外音|说话内容)\s*[:：]/.test(line)
   ));
-  return compactText(visualLines.join(' '), 900);
+  const withoutSpeechDirectives = visualLines.join(' ')
+    .replace(/(?:无|没有)(?:任何)?其他(?:角色|人物)(?:在场|出现)?[。.!！]?/gi, ' ')
+    .replace(/(?:其他|其余|所有|全部)(?:可见)?(?:角色|人物)(?:保持)?(?:沉默|无声|不说话|不发声|闭嘴|闭口)[。.!！]?/gi, ' ')
+    .replace(/no\s+other\s+(?:character|characters|person|people)(?:\s+(?:is|are))?\s*(?:present|visible|speaking)?[.!]?/gi, ' ')
+    .replace(/(?:other|remaining|all)\s+(?:visible\s+)?(?:characters|people)\s+(?:remain|stay|are)\s+(?:silent|quiet)[.!]?/gi, ' ');
+  return compactText(withoutSpeechDirectives, 900);
 }
 
 function dialogueLanguage(text: string): string {
@@ -91,8 +96,9 @@ export function buildVideoSegmentPrompt(
       const id = line.speakerId;
       const subject = subjectId.get(name);
       const source = subject ? `<Subject ${subject}> (${id})` : `${name || 'The on-screen speaker'} (${id})`;
-      const listeners = (storyboard.characters || []).filter(character => character !== name);
-      return `Between ${h3Timestamp(line.start)} and ${h3Timestamp(line.end)}, ${source} alone speaks once with ${line.emotion}, ${line.delivery}, at ${line.volume} volume: <d>[${dialogueLanguage(text)}] ${text}</d> The wording and punctuation remain exact, with no paraphrase, repetition, overlap, or added syllables. ${line.lipSync ? 'Only this subject lip-syncs during the interval and closes the mouth when the line ends.' : 'This is off-screen speech and every visible mouth remains closed.'} ${listeners.length ? `${listeners.join(', ')} remain silent with closed mouths and react nonverbally.` : ''} ${line.listenerState}`;
+      return line.lipSync
+        ? `At ${h3Timestamp(line.start)}, ${source}, with ${line.emotion}, delivers the line ${line.delivery} at ${line.volume} volume: <d>[${dialogueLanguage(text)}] ${text}</d> The spoken line ends by ${h3Timestamp(line.end)}.`
+        : `At ${h3Timestamp(line.start)}, ${source} says in an off-screen voiceover, with ${line.emotion}, ${line.delivery}, at ${line.volume} volume: <d>[${dialogueLanguage(text)}] ${text}</d> while every on-screen character's lips remain completely closed. The voiceover ends by ${h3Timestamp(line.end)}.`;
     }).join(' ');
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
@@ -100,8 +106,8 @@ export function buildVideoSegmentPrompt(
     const referenceNumber = index + referenceOffset;
     const beatCharacters = [...new Set(storyboard.characters || [])];
     const cast = beatCharacters.length
-      ? `Only ${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}> (${name})` : name).join(', ')} are visible, each appearing exactly once.`
-      : 'The location remains visually unoccupied.';
+      ? `CAST={${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}> (${name})` : name).join(', ')}}; MULTIPLICITY=one_each.`
+      : 'CAST={};';
     const transition = index === 0
       ? options.firstFrameUrl
         ? 'The opening frame is already in motion; body momentum, camera inertia, eyeline and secondary motion continue immediately.'
@@ -113,23 +119,19 @@ export function buildVideoSegmentPrompt(
         ? `The action progressively converges on <Picture 2> as the exact final frame at ${duration.toFixed(2)} seconds.`
         : ''
       : `<Picture ${referenceNumber}> anchors this shot's identity, wardrobe, location, lighting, and composition.`;
-    const visualDirection = compactText(storyboard.prompt || storyboard.description, 420);
-    return `${index === 0 ? `[Shot 1]` : `[Shot ${index + 1}]`} ${transition} ${pictureAnchor} ${cast}${objects.length ? ` Visible props: ${objects.join(', ')}.` : ''} ${visualDirection} ${officialCameraMotion(storyboard, index)} The dominant action changes the visible state and lands on a reaction or reveal by ${h3Timestamp(range.end)}. ${dialogue || 'No person speaks or produces human vocal sound; all visible mouths remain closed.'}`;
+    const visualDirection = sanitizeVisualDirection(storyboard.prompt || storyboard.description);
+    return `${index === 0 ? `[Shot 1]` : `[Shot ${index + 1}]`} ${transition} ${pictureAnchor} ${cast}${objects.length ? ` PROPS={${objects.join(', ')}}.` : ''} ${compactText(visualDirection, 420)} ${officialCameraMotion(storyboard, index)} The dominant action changes the visible state and lands on a reaction or reveal by ${h3Timestamp(range.end)}.${dialogue ? ` ${dialogue}` : ''}`;
   });
 
   const visualOverride = sanitizeVisualDirection(options.visualOverride);
-  const styleOpening = `${style.h3Direction}${visualOverride ? ` The user-specified visual action and camera direction is: ${visualOverride} This direction cannot add or alter speech, voices, music, or the audio plan.` : ''} ${NO_SUBTITLE_POLICY}`;
+  const styleOpening = `${style.h3Direction}${visualOverride ? ` The user-specified visual action and camera direction is: ${visualOverride} This direction is visual-only.` : ''} ${NO_SUBTITLE_POLICY}`;
   const physics = buildVideoContinuityRules(hasVoiceReferences)
     .replace(/\n+/g, ' ')
     .replace(/PHYSICS:|CONSTRAINTS:/g, '')
     .trim();
-  const soundscape = `${style.sound} ${buildAudioManifest(storyboards, timedSpeech)}`;
-  const projectLanguage = options.language === 'en' ? 'English' : options.language === 'zh' ? 'Mandarin Chinese' : undefined;
-  const spokenLanguageContract = projectLanguage
-    ? timedSpeech.length
-      ? `Spoken-language lock: the project dialogue language is ${projectLanguage}. Every story-generated line must remain in ${projectLanguage}; an explicit user-authored exact quotation keeps its written source language. Pronounce each <d> line exactly as tagged. Never translate, localize, replace, or add dialogue.`
-      : `Spoken-language lock: the project language is ${projectLanguage}, but this clip contains no scheduled speech; do not generate any intelligible words in any language.`
-    : '';
+  // Official H3 format keeps dialogue exclusively inside detailed_description.
+  // overall_soundscape contains ambience, Foley and non-verbal human sound only.
+  const soundscape = buildAudioManifest(storyboards);
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
 
   if (isFirstLastMode) {
@@ -137,7 +139,7 @@ export function buildVideoSegmentPrompt(
 
 integrated_multimodal_description: ${styleOpening} ${shotDescriptions.join(' ')} ${physics}
 
-overall_soundscape: ${soundscape} ${spokenLanguageContract}
+overall_soundscape: ${soundscape}
 
 non_diegetic_music: ${nonDiegeticMusic}`;
   }
@@ -177,7 +179,7 @@ ${shotDescriptions.join('\n')}
 ${physics}
 
 overall_soundscape:
-${soundscape} ${spokenLanguageContract}
+${soundscape}
 
 non_diegetic_music:
 ${nonDiegeticMusic}`;

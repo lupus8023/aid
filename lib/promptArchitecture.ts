@@ -183,6 +183,10 @@ export function buildCharacterBiblePrompt(input: {
   name?: string;
   description?: string;
   costumeDesc?: string;
+  role?: string;
+  age?: string;
+  personality?: string;
+  coreTheme?: string;
   hasIdentityReference?: boolean;
   visualStyle?: VisualStyle;
 }) {
@@ -196,6 +200,10 @@ IDENTITY SOURCE
 ${identityRule}
 Character description: ${clean(input.description)}.
 Locked wardrobe and grooming: ${clean(input.costumeDesc)}.
+Role / identity: ${clean(input.role)}.
+Approximate age: ${clean(input.age)}.
+Personality keywords: ${clean(input.personality)}.
+Core theme: ${clean(input.coreTheme)}.
 
 DESIGN METADATA STRIP
 - Add a clean top information strip with readable English labels only: character name, role/identity, approximate age when known, 3–5 personality keywords, and one short core theme sentence.
@@ -231,6 +239,46 @@ CHARACTER DESCRIPTION RULES (Visual Specificity)
 ${buildMediumLock(input.visualStyle)}`;
 }
 
+export function buildCharacterConceptGridPrompt(input: {
+  name?: string;
+  description?: string;
+  costumeDesc?: string;
+  role?: string;
+  age?: string;
+  personality?: string;
+  coreTheme?: string;
+  candidateCount: 4 | 9;
+  hasReferences?: boolean;
+  visualStyle?: VisualStyle;
+}) {
+  const grid = input.candidateCount === 4 ? '2 by 2' : '3 by 3';
+  const referenceRule = input.hasReferences
+    ? 'Use the supplied images as authoritative visual references for identity traits, medium, material language and design intent. Do not copy their background or layout.'
+    : 'Develop the identity entirely from the written brief while keeping one coherent visual medium across all candidates.';
+
+  return `Create one square character concept contact sheet containing exactly ${input.candidateCount} distinct candidates in a clean ${grid} grid.
+
+CHARACTER BRIEF
+Name: ${clean(input.name)}.
+Role / identity: ${clean(input.role)}.
+Approximate age: ${clean(input.age)}.
+Personality: ${clean(input.personality)}.
+Core theme: ${clean(input.coreTheme)}.
+Appearance: ${clean(input.description)}.
+Wardrobe and grooming direction: ${clean(input.costumeDesc)}.
+${referenceRule}
+
+CONCEPT EXPLORATION
+Every cell shows one full-body concept of the same story role, facing mostly forward in a neutral readable pose. Explore meaningful alternatives in silhouette, proportion, hairstyle or head shape, costume cut, material balance and one signature detail. Keep the requested age, identity cues, personality, role and visual medium stable. Candidates must feel intentionally different, not recolors or tiny variations.
+
+GRID RULES
+Exactly ${input.candidateCount} equal cells, ${grid}, read left-to-right and top-to-bottom. One character per cell, centered, fully visible from head to feet, consistent scale, simple warm-white studio background, thin neutral gutters, no overlap between cells. No titles, numbers, captions, logos, watermark, scenery, props that hide the silhouette, duplicate character inside a cell, extra people, extra limbs, cropped feet, mixed media or unreadable text.
+
+The sheet is a selection board, not the final turnaround. Prioritize clear identity, silhouette and production-ready design differences.
+
+${buildMediumLock(input.visualStyle)}`;
+}
+
 export function buildSceneReferencePrompt(sceneStyle?: string, style?: VisualStyle, aspectRatio: '16:9' | '9:16' | '1:1' = '16:9') {
   const composition = aspectRatio === '9:16' ? 'vertical portrait composition' : aspectRatio === '1:1' ? 'square composition' : 'horizontal landscape composition';
   return `Create a professional ${aspectRatio} environment continuity bible with ${composition} for: ${clean(sceneStyle)}.
@@ -241,7 +289,7 @@ ${buildMediumLock(style)}`;
 
 export function buildVideoContinuityRules(hasAudioReference: boolean) {
   const audioSync = hasAudioReference
-    ? '\nFor scripted dialogue, mouth shapes and performance synchronize naturally to the matching character timbre reference. The written dialogue in the timed shot is the sole spoken content.'
+    ? '\nFor scripted dialogue, mouth shapes and performance synchronize naturally to the matching character timbre reference.'
     : '';
 
   return `

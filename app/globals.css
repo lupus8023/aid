@@ -223,6 +223,25 @@ textarea::placeholder {
   font-weight: 500;
 }
 
+.aid-input {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  background: var(--bg-primary);
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.aid-input:hover {
+  border-color: var(--border-strong);
+}
+
+.aid-input:focus {
+  border-color: var(--workspace-accent);
+  outline: none;
+}
+
 :is(.aid-theme-pink, .aid-theme-orange, .aid-theme-teal, .aid-theme-purple, .aid-theme-blue) :is(.rounded, .rounded-lg, .rounded-xl, .rounded-2xl) {
   border-radius: var(--radius-panel) !important;
 }
