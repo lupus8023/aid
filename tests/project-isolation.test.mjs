@@ -57,3 +57,10 @@ test('isolates identical storyboard ids between projects', () => {
   );
   assert.notEqual(scopedVideoCacheKey(firstProject, 'scene-1'), 'storyboard-video:scene-1');
 });
+
+test('isolates different creative revisions inside the same project', () => {
+  assert.notEqual(
+    scopedVideoCacheKey('project-1', 'scene-1', 'h3-v2-first'),
+    scopedVideoCacheKey('project-1', 'scene-1', 'h3-v2-second'),
+  );
+});

@@ -31,8 +31,8 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export function videoCacheKeyForStoryboard(projectId: string, storyboardId: string): string {
-  return scopedVideoCacheKey(projectId, storyboardId);
+export function videoCacheKeyForStoryboard(projectId: string, storyboardId: string, generationSignature?: string): string {
+  return scopedVideoCacheKey(projectId, storyboardId, generationSignature);
 }
 
 export async function requestPersistentVideoStorage(): Promise<boolean> {

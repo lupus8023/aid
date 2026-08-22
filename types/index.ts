@@ -74,6 +74,7 @@ export interface Storyboard {
   videoCachedAt?: string;
   videoSegmentId?: string; // 多个连续分镜共用一个生成片段
   videoSegmentStoryboardIds?: string[]; // 仅片段首分镜保存完整成员列表
+  videoGenerationSignature?: string; // 生成时的分镜/图片/台词指纹；防止内容修改后误用旧缓存
   videoStatus?: 'pending' | 'generating' | 'completed' | 'failed'; // 视频生成状态
   videoTaskId?: string; // 视频任务 ID
   aspectRatio?: '16:9' | '9:16' | '1:1'; // 宽高比

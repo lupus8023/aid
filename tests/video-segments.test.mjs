@@ -11,6 +11,7 @@ import {
   restoredStoryStep,
   suggestVideoSegments,
   validateVideoSegment,
+  videoSegmentGenerationSignature,
 } from '../lib/videoSegments.ts';
 import {
   CONTINUITY_HANDOFF_LEAD_SECONDS,
@@ -102,6 +103,27 @@ test('does not mistake legacy per-shot videos for a completed grouped segment', 
     videoSegmentStoryboardIds: index === 0 ? ['scene-1', 'scene-2'] : undefined,
   }));
   assert.equal(isCompletedVideoSegment(current), true);
+});
+
+test('invalidates a generated segment when its image, action or dialogue changes', () => {
+  const segment = [shot(1), shot(2)];
+  const signature = videoSegmentGenerationSignature(segment);
+  const generated = segment.map((item, index) => ({
+    ...item,
+    videoStatus: 'completed',
+    videoUrl: index === 0 ? 'blob:segment' : undefined,
+    videoSegmentId: 'segment-1',
+    videoSegmentStoryboardIds: index === 0 ? segment.map(shot => shot.id) : undefined,
+    videoGenerationSignature: index === 0 ? signature : undefined,
+  }));
+
+  assert.equal(isCompletedVideoSegment(generated), true);
+  assert.equal(isCompletedVideoSegment(generated.map((item, index) => index
+    ? item
+    : { ...item, imageUrl: 'https://example.com/revised.jpg' })), false);
+  assert.equal(isCompletedVideoSegment(generated.map((item, index) => index
+    ? item
+    : { ...item, speech: [{ character: 'A', exactLine: '新的台词。' }] })), false);
 });
 
 test('restores a saved H3 project directly to export after refresh', () => {

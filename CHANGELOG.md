@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.28 - 2026-08-22
+
+### Fixed
+
+- Story video clips now carry a deterministic creative-input signature covering their storyboard images, actions, camera directions, dialogue, timing, continuity, aspect ratio and visual style. Editing or regenerating any of those inputs invalidates the affected segment instead of silently reusing an older local video and audio track.
+- Persistent video cache keys now include the generation signature as well as project and storyboard identity, preventing an earlier clip from the same project from leaking obsolete narration into a newly edited film.
+- 4K 3×3 storyboard generation now polls for up to nine minutes instead of reporting a false timeout after 4.5 minutes while the paid APIMart task is still healthy.
+
+### Tests
+
+- Added regression coverage for creative-revision cache isolation and automatic segment invalidation after image or dialogue changes. Production build, H3 audio/prompt, local export, grid recovery, segment planning and project isolation tests pass.
+
 ## 0.1.27 - 2026-08-22
 
 ### Improved

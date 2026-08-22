@@ -23,7 +23,7 @@ import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
-import { estimateVideoSegmentSeconds, isCompletedVideoSegment, resolveVideoSegmentGroups, restoredStoryStep, validateVideoSegment, type VideoSegmentPlan } from '@/lib/videoSegments';
+import { estimateVideoSegmentSeconds, isCompletedVideoSegment, resolveVideoSegmentGroups, restoredStoryStep, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
 import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
@@ -126,6 +126,37 @@ class TerminalVideoTaskError extends Error {
   }
 }
 
+function clearGeneratedVideo(storyboard: Storyboard): Storyboard {
+  return {
+    ...storyboard,
+    videoUrl: undefined,
+    videoSourceUrl: undefined,
+    videoCacheKey: undefined,
+    videoCacheStatus: undefined,
+    videoCachedAt: undefined,
+    videoTaskId: undefined,
+    videoStatus: 'pending',
+    videoSegmentId: undefined,
+    videoSegmentStoryboardIds: undefined,
+    videoGenerationSignature: undefined,
+  };
+}
+
+function replaceStoryboardAndInvalidateChangedVideo(current: Storyboard[], updated: Storyboard): Storyboard[] {
+  const previous = current.find(item => item.id === updated.id);
+  if (!previous) return current;
+  if (videoSegmentGenerationSignature([previous]) === videoSegmentGenerationSignature([updated])) {
+    return current.map(item => item.id === updated.id ? updated : item);
+  }
+
+  const previousSegmentId = previous.videoSegmentId;
+  return current.map(item => {
+    if (item.id === updated.id) return clearGeneratedVideo(updated);
+    if (previousSegmentId && item.videoSegmentId === previousSegmentId) return clearGeneratedVideo(item);
+    return item;
+  });
+}
+
 export default function StoryPage() {
   const { projectId, projectName, setProjectName, saveProject, loadProject, exportProject, adoptProjectId, newProject } = useProject();
   const { settings, saveSettings } = useSettings();
@@ -160,8 +191,14 @@ export default function StoryPage() {
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
 
-  const cacheCompletedVideo = async (storyboardId: string, sourceUrl: string, segmentStoryboardIds: string[] = [storyboardId], cacheProjectId = projectId): Promise<string> => {
-    const cacheKey = videoCacheKeyForStoryboard(cacheProjectId, storyboardId);
+  const cacheCompletedVideo = async (
+    storyboardId: string,
+    sourceUrl: string,
+    segmentStoryboardIds: string[] = [storyboardId],
+    cacheProjectId = projectId,
+    generationSignature?: string,
+  ): Promise<string> => {
+    const cacheKey = videoCacheKeyForStoryboard(cacheProjectId, storyboardId, generationSignature);
     if (cacheProjectId !== projectIdRef.current) return sourceUrl;
     commitStoryboards(prev => prev.map(sb => segmentStoryboardIds.includes(sb.id) ? {
       ...sb,
@@ -170,6 +207,7 @@ export default function StoryPage() {
         videoUrl: sourceUrl,
         videoSourceUrl: sourceUrl.startsWith('http') ? sourceUrl : sb.videoSourceUrl,
         videoCacheKey: cacheKey,
+        videoGenerationSignature: generationSignature || sb.videoGenerationSignature,
         videoCacheStatus: 'caching' as const,
       } : {}),
     } : sb));
@@ -186,6 +224,7 @@ export default function StoryPage() {
           videoUrl: cached.objectUrl,
           videoSourceUrl: sourceUrl.startsWith('http') ? sourceUrl : sb.videoSourceUrl,
           videoCacheKey: cacheKey,
+          videoGenerationSignature: generationSignature || sb.videoGenerationSignature,
           videoCacheStatus: 'completed' as const,
           videoCachedAt: cachedAt,
         } : {}),
@@ -219,7 +258,8 @@ export default function StoryPage() {
       // Never probe the old `storyboard-video:scene-N` keys here. Those keys
       // had no project namespace, so a fresh project could restore another
       // project's clip simply because both contain `scene-1`.
-      const cacheKey = videoCacheKeyForStoryboard(cacheProjectId, storyboard.id);
+      const generationSignature = storyboard.videoGenerationSignature;
+      const cacheKey = videoCacheKeyForStoryboard(cacheProjectId, storyboard.id, generationSignature);
       try {
         const cachedUrl = await cachedVideoObjectUrl(cacheKey);
         if (cachedUrl) {
@@ -230,6 +270,7 @@ export default function StoryPage() {
             ...(sb.id === storyboard.id ? {
               videoUrl: cachedUrl,
               videoCacheKey: cacheKey,
+              videoGenerationSignature: generationSignature,
               videoCacheStatus: 'completed' as const,
             } : {}),
           } : sb));
@@ -239,7 +280,7 @@ export default function StoryPage() {
         const remoteUrl = storyboard.videoSourceUrl
           || (storyboard.videoUrl?.startsWith('http') ? storyboard.videoUrl : undefined);
         if (remoteUrl) {
-          await cacheCompletedVideo(storyboard.id, remoteUrl, segmentIds, cacheProjectId);
+          await cacheCompletedVideo(storyboard.id, remoteUrl, segmentIds, cacheProjectId, generationSignature);
           continue;
         }
 
@@ -261,7 +302,7 @@ export default function StoryPage() {
           // Attach every saved task at once. Waiting for the first remote job
           // before watching the next one makes later completed segments look
           // stuck for minutes even though their files are already available.
-          void pollVideoStatus(storyboard.id, storyboard.videoTaskId, segmentIds, cacheProjectId).catch(error => {
+          void pollVideoStatus(storyboard.id, storyboard.videoTaskId, segmentIds, cacheProjectId, generationSignature).catch(error => {
             console.warn(`场景 ${storyboard.sceneNumber} 视频恢复失败:`, error);
             if (cacheProjectId !== projectIdRef.current) return;
             setStoryboards(prev => {
@@ -580,13 +621,23 @@ export default function StoryPage() {
   };
 
   const handleUpdateStoryboard = (updated: Storyboard) => {
-    setStoryboards(prev => prev.map(sb => sb.id === updated.id ? updated : sb));
+    setStoryboards(prev => {
+      const next = replaceStoryboardAndInvalidateChangedVideo(prev, updated);
+      storyboardsRef.current = next;
+      return next;
+    });
   };
 
   const handleVisualStyleChange = (style: VisualStyle) => {
     const normalized = normalizeVisualStyle(style);
     setVisualStyle(normalized);
-    setStoryboards(prev => prev.map(storyboard => ({ ...storyboard, visualStyle: normalized })));
+    setStoryboards(prev => {
+      const next = prev.map(storyboard => storyboard.visualStyle === normalized
+        ? storyboard
+        : clearGeneratedVideo({ ...storyboard, visualStyle: normalized }));
+      storyboardsRef.current = next;
+      return next;
+    });
   };
 
   const handleAspectRatioChange = (aspectRatio: StoryAspectRatio): boolean => {
@@ -849,7 +900,10 @@ export default function StoryPage() {
               ));
             }
 
-            for (let j = 0; j < 90; j++) {
+            // 4K nine-panel jobs regularly need more than 4.5 minutes during
+            // provider congestion. Keep polling for nine minutes so the UI
+            // does not report a false timeout while the paid task is healthy.
+            for (let j = 0; j < 180; j++) {
               await new Promise(r => setTimeout(r, 3000));
               if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
               const statusRes = await fetch('/api/check-image-status', {
@@ -896,23 +950,22 @@ export default function StoryPage() {
         if (!Array.isArray(uploadedCells) || uploadedCells.length < group.length) {
           throw new Error(`九宫格拆分数量不足：需要 ${group.length}，实际 ${uploadedCells?.length || 0}`);
         }
-        updateGridStoryboards(items => items.map(sb => {
-          const idx = group.findIndex(g => g.id === sb.id);
-          if (idx === -1) return sb;
+        updateGridStoryboards(items => group.reduce((current, groupStoryboard, idx) => {
+          const previous = current.find(item => item.id === groupStoryboard.id);
           const newImageUrl = uploadedCells[idx];
-          if (!newImageUrl) {
-            console.warn(`No image URL for ${sb.id} at index ${idx}`);
-            return sb;
+          if (!previous || !newImageUrl) {
+            if (!newImageUrl) console.warn(`No image URL for ${groupStoryboard.id} at index ${idx}`);
+            return current;
           }
-          console.log(`Setting imageUrl for ${sb.id}:`, newImageUrl);
-          return {
-            ...sb,
+          console.log(`Setting imageUrl for ${groupStoryboard.id}:`, newImageUrl);
+          return replaceStoryboardAndInvalidateChangedVideo(current, {
+            ...previous,
             imageUrl: newImageUrl,
-            gridSourceUrl: persistedGridUrl || sb.gridSourceUrl,
+            gridSourceUrl: persistedGridUrl || previous.gridSourceUrl,
             status: 'completed' as const,
             imageFailureReason: undefined,
-          };
-        }));
+          });
+        }, items));
         } catch (error) {
           console.error('Grid generation failed:', error);
           updateGridStoryboards(items => items.map(sb => group.some(g => g.id === sb.id) ? {
@@ -1014,8 +1067,14 @@ export default function StoryPage() {
               }
             } catch (e) { console.error('Upload image to Cloudinary failed:', e); }
           }
-          setStoryboards(prev => prev.map(sb => sb.id === storyboardId ? { ...sb, status: 'completed', imageUrl, taskId, imageFailureReason: undefined } : sb));
-          storyboardsRef.current = storyboardsRef.current.map(sb => sb.id === storyboardId ? { ...sb, status: 'completed', imageUrl, taskId, imageFailureReason: undefined } : sb);
+          setStoryboards(prev => {
+            const previous = prev.find(sb => sb.id === storyboardId);
+            if (!previous) return prev;
+            const updated = { ...previous, status: 'completed' as const, imageUrl, taskId, imageFailureReason: undefined };
+            const next = replaceStoryboardAndInvalidateChangedVideo(prev, updated);
+            storyboardsRef.current = next;
+            return next;
+          });
           return;
       }
       if (data.status === 'failed') throw new Error(data.error || 'Image generation failed');
@@ -1243,6 +1302,9 @@ export default function StoryPage() {
       && immediatePrevious.sequenceId === leader.sequenceId
       && immediatePrevious.locationId === leader.locationId
       && immediatePrevious.transition !== 'fade'));
+    const generationSignature = videoSegmentGenerationSignature(segment.map(item => item.id === leader.id
+      ? { ...item, continuousFromPrev: shouldContinuePreviousSegment }
+      : item));
     commitStoryboards(prev => {
       const oldSegmentIds = new Set(prev.filter(item => segmentIds.includes(item.id)).map(item => item.videoSegmentId).filter(Boolean));
       return prev.map(item => {
@@ -1252,6 +1314,7 @@ export default function StoryPage() {
             ...item,
             videoSegmentId: undefined,
             videoSegmentStoryboardIds: undefined,
+            videoGenerationSignature: undefined,
             videoStatus: 'pending' as const,
             videoUrl: undefined,
             videoSourceUrl: undefined,
@@ -1273,6 +1336,7 @@ export default function StoryPage() {
           videoTaskId: undefined,
           videoSegmentId: segmentId,
           videoSegmentStoryboardIds: item.id === leader.id ? segmentIds : undefined,
+          videoGenerationSignature: item.id === leader.id ? generationSignature : undefined,
           videoDuration: duration,
           continuousFromPrev: item.id === leader.id ? shouldContinuePreviousSegment : item.continuousFromPrev,
         };
@@ -1404,7 +1468,7 @@ export default function StoryPage() {
         videoSegmentPlan: videoSegmentPlanRef.current,
         createdAt: new Date().toISOString(),
       });
-      await pollVideoStatus(leader.id, data.taskId, segmentIds, generationProjectId);
+      await pollVideoStatus(leader.id, data.taskId, segmentIds, generationProjectId, generationSignature);
     } catch (error) {
       console.error('Video generation failed:', error);
       if (generationProjectId !== projectIdRef.current) return;
@@ -1414,7 +1478,13 @@ export default function StoryPage() {
     }
   };
 
-  const pollVideoStatus = (storyboardId: string, taskId: string, segmentStoryboardIds: string[] = [storyboardId], generationProjectId = projectIdRef.current): Promise<void> => {
+  const pollVideoStatus = (
+    storyboardId: string,
+    taskId: string,
+    segmentStoryboardIds: string[] = [storyboardId],
+    generationProjectId = projectIdRef.current,
+    generationSignature?: string,
+  ): Promise<void> => {
     const existingPoll = activeVideoPollsRef.current.get(taskId);
     if (existingPoll) return existingPoll;
 
@@ -1448,11 +1518,11 @@ export default function StoryPage() {
 
           if (isComfyTask && data.status === 'completed' && data.readyForDownload) {
             const localVideoUrl = await downloadComfyUIVideo(taskId, currentSettings.comfyui);
-            await cacheCompletedVideo(storyboardId, localVideoUrl, segmentStoryboardIds, generationProjectId);
+            await cacheCompletedVideo(storyboardId, localVideoUrl, segmentStoryboardIds, generationProjectId, generationSignature);
             return;
           }
           if (data.status === 'completed' && data.videoUrl) {
-            await cacheCompletedVideo(storyboardId, data.videoUrl, segmentStoryboardIds, generationProjectId);
+            await cacheCompletedVideo(storyboardId, data.videoUrl, segmentStoryboardIds, generationProjectId, generationSignature);
             return;
           }
           if (data.status === 'failed') throw new TerminalVideoTaskError(data.error || '仙宫云视频任务执行失败');
@@ -1545,7 +1615,13 @@ export default function StoryPage() {
         const savedTaskId = latestLeader?.videoTaskId;
         if (savedTaskId && isComfyUIClientTask(savedTaskId)) {
           try {
-            await pollVideoStatus(group[0].id, savedTaskId, group.map(item => item.id), projectIdRef.current);
+            await pollVideoStatus(
+              group[0].id,
+              savedTaskId,
+              group.map(item => item.id),
+              projectIdRef.current,
+              latestLeader?.videoGenerationSignature,
+            );
             if (isCompletedVideoSegment(group.map(item => storyboardsRef.current.find(current => current.id === item.id) || item))) {
               continue;
             }

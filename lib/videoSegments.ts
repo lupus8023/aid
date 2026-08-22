@@ -12,6 +12,45 @@ export interface VideoSegmentPlan {
   updatedAt: string;
 }
 
+function generationHash(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/**
+ * Identifies the exact creative input represented by a generated H3 clip.
+ * Runtime/cache fields are intentionally excluded so the value stays stable
+ * after polling, downloading and restoring the same paid generation.
+ */
+export function videoSegmentGenerationSignature(storyboards: Storyboard[]): string {
+  const payload = storyboards.map(storyboard => ({
+    id: storyboard.id,
+    sceneNumber: storyboard.sceneNumber,
+    imageUrl: storyboard.imageUrl || '',
+    description: storyboard.description,
+    prompt: storyboard.prompt,
+    action: storyboard.action || '',
+    videoPrompt: storyboard.videoPromptOverride ? storyboard.videoPrompt || '' : '',
+    speech: storyboard.speech || storyboard.dialogueLines || storyboard.dialogue || null,
+    audioPlan: storyboard.audioPlan || null,
+    shotSize: storyboard.shotSize || '',
+    cameraMove: storyboard.cameraMove || '',
+    angle: storyboard.angle || '',
+    clipType: storyboard.clipType || '',
+    durationHint: storyboard.durationHint || 0,
+    transition: storyboard.transition || '',
+    continuousFromPrev: Boolean(storyboard.continuousFromPrev),
+    continuityFrom: storyboard.continuityFrom || '',
+    aspectRatio: storyboard.aspectRatio || '',
+    visualStyle: storyboard.visualStyle || '',
+  }));
+  return `h3-v2-${generationHash(JSON.stringify(payload))}`;
+}
+
 function storyboardSignature(storyboards: Storyboard[]): string {
   return storyboards.map(storyboard => storyboard.id).join('|');
 }
@@ -135,6 +174,8 @@ export function resolveVideoSegmentGroups(
 export function isCompletedVideoSegment(storyboards: Storyboard[]): boolean {
   const leader = storyboards[0];
   if (!leader || !leader.videoUrl || !leader.videoSegmentId) return false;
+  if (leader.videoGenerationSignature
+    && leader.videoGenerationSignature !== videoSegmentGenerationSignature(storyboards)) return false;
   const expectedIds = storyboards.map(storyboard => storyboard.id);
   const savedIds = leader.videoSegmentStoryboardIds || [];
   if (savedIds.length !== expectedIds.length || savedIds.some((id, index) => id !== expectedIds[index])) return false;
@@ -147,6 +188,8 @@ export function isCompletedVideoSegment(storyboards: Storyboard[]): boolean {
 function isPersistedVideoSegment(storyboards: Storyboard[]): boolean {
   const leader = storyboards[0];
   if (!leader || !leader.videoSegmentId || !hasPersistedVideoArtifact(leader)) return false;
+  if (leader.videoGenerationSignature
+    && leader.videoGenerationSignature !== videoSegmentGenerationSignature(storyboards)) return false;
   const expectedIds = storyboards.map(storyboard => storyboard.id);
   const savedIds = leader.videoSegmentStoryboardIds || [];
   if (savedIds.length !== expectedIds.length || savedIds.some((id, index) => id !== expectedIds[index])) return false;
