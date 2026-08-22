@@ -10,6 +10,11 @@ const outlineSequence = (id, start, count) => ({
   id,
   locationId: `${id}_location`,
   sceneGoal: `complete ${id}`,
+  dramaticQuestion: `will ${id} change the situation?`,
+  turningPoint: `${id} decisive choice`,
+  exitHook: `${id} unresolved consequence`,
+  audienceEntry: `${id} prior knowledge`,
+  audienceExit: `${id} changed understanding`,
   entryState: `enter ${id}`,
   exitState: `exit ${id}`,
   shotCount: count,
@@ -19,18 +24,31 @@ const outlineSequence = (id, start, count) => ({
     cause: `${id} cause ${offset + 1}`,
     consequence: `${id} consequence ${offset + 1}`,
     emotionalTurn: `${id} turn ${offset + 1}`,
+    informationGain: `${id} information ${offset + 1}`,
+    dialoguePurpose: offset % 3 === 0 ? 'question' : 'visual_only',
+    montageRole: offset === count - 1 ? 'consequence' : 'development',
+    audienceQuestion: `${id} question ${offset + 1}`,
     requiredLine: '',
   })),
 });
 
+const outlineDocument = (sequences, extra = {}) => ({
+  title: 'Long film',
+  centralDramaticQuestion: 'Will the protagonist succeed without losing what matters?',
+  audiencePromise: 'A causal journey with an emotional payoff.',
+  dialogueArc: 'question → challenge → decision → payoff',
+  montageStrategy: 'causal compression with motivated contrast',
+  sequences,
+  ...extra,
+});
+
 test('normalizes the global map to exact continuous indexes and rejects a wrong quota', () => {
-  const outline = normalizeStoryOutline({
-    title: 'Long film',
-    sequences: [outlineSequence('seq-1', 20, 12), outlineSequence('seq-2', 50, 6)],
-  }, 18);
+  const outline = normalizeStoryOutline(outlineDocument([
+    outlineSequence('seq-1', 20, 12), outlineSequence('seq-2', 50, 6),
+  ]), 18);
 
   assert.deepEqual(outline.sequences.flatMap(sequence => sequence.beatMap.map(beat => beat.index)), Array.from({ length: 18 }, (_, index) => index + 1));
-  assert.throws(() => normalizeStoryOutline({ sequences: [outlineSequence('seq-1', 1, 8)] }, 9), /返回了 8 个镜头地图/);
+  assert.throws(() => normalizeStoryOutline(outlineDocument([outlineSequence('seq-1', 1, 8)]), 9), /返回了 8 个镜头地图/);
 });
 
 test('requires every outline dialogue line to retain a valid uploaded speaker', () => {
@@ -38,19 +56,19 @@ test('requires every outline dialogue line to retain a valid uploaded speaker', 
   invalid.beatMap[0].requiredLine = '我妹妹还在里面。';
   invalid.beatMap[0].requiredSpeaker = '临时少年';
   assert.throws(
-    () => normalizeStoryOutline({ sequences: [invalid] }, 9, ['人鱼公主']),
+    () => normalizeStoryOutline(outlineDocument([invalid]), 9, ['人鱼公主']),
     /没有有效 requiredSpeaker/,
   );
 
   invalid.beatMap[0].requiredSpeaker = '人鱼公主';
-  const outline = normalizeStoryOutline({ sequences: [invalid] }, 9, ['人鱼公主']);
+  const outline = normalizeStoryOutline(outlineDocument([invalid]), 9, ['人鱼公主']);
   assert.equal(outline.sequences[0].beatMap[0].requiredSpeaker, '人鱼公主');
 });
 
 test('screenplay batches never exceed nine shots and never cross a sequence boundary', () => {
-  const outline = normalizeStoryOutline({
-    sequences: [outlineSequence('seq-1', 1, 12), outlineSequence('seq-2', 13, 6)],
-  }, 18);
+  const outline = normalizeStoryOutline(outlineDocument([
+    outlineSequence('seq-1', 1, 12), outlineSequence('seq-2', 13, 6),
+  ]), 18);
   const batches = buildStoryBeatBatches(outline);
 
   assert.deepEqual(batches.map(batch => batch.beatMap.length), [9, 3, 6]);
@@ -66,10 +84,9 @@ test('outline and screenplay prompts keep story architecture separate from visua
     language: 'en',
     targetShotCount: 18,
   });
-  const outline = normalizeStoryOutline({
-    title: 'Before Dawn',
-    sequences: [outlineSequence('seq-1', 1, 9), outlineSequence('seq-2', 10, 9)],
-  }, 18);
+  const outline = normalizeStoryOutline(outlineDocument([
+    outlineSequence('seq-1', 1, 9), outlineSequence('seq-2', 10, 9),
+  ], { title: 'Before Dawn' }), 18);
   const batchPrompt = buildStoryBeatBatchPrompt({
     synopsis: 'A must cross the city before dawn.',
     outline,
@@ -82,8 +99,11 @@ test('outline and screenplay prompts keep story architecture separate from visua
 
   assert.match(outlinePrompt, /只做【全片故事骨架与镜头地图】/);
   assert.match(outlinePrompt, /不要写详细分镜、摄影 prompt/);
+  assert.match(outlinePrompt, /informationGain/);
+  assert.match(outlinePrompt, /dialogueArc/);
   assert.match(batchPrompt, /不生成摄影内容/);
   assert.match(batchPrompt, /严格输出 9 个 beats/);
+  assert.match(batchPrompt, /一镜可有 0–2 条有序台词/);
 });
 
 test('director batches mirror screenplay boundaries and remain capped at nine', () => {

@@ -35,7 +35,15 @@ ${objectDetails}
 
 制作规格：全片严格 ${targetShots} 镜，目标约 ${targetSeconds} 秒。
 
-先锁定全片因果链、人物弧线、高潮选择、结局、伏笔回收，再分配 sequences。每个 sequence 的 beatMap 只写一句极简镜头地图；所有 beatMap 合计必须严格 ${targetShots} 条，全片 index 从 1 连续到 ${targetShots}。
+先锁定全片因果链、人物弧线、核心观众问题、高潮选择、结局、伏笔回收与对白弧线，再分配 sequences。每个 sequence 的 beatMap 只写极简镜头地图；所有 beatMap 合计必须严格 ${targetShots} 条，全片 index 从 1 连续到 ${targetShots}。
+
+叙事设计规则：
+- 故事不是事件清单。每个 sequence 都要提出一个 dramaticQuestion，并在 turningPoint 用角色行动改变答案；exitHook 让下一场成为必然。
+- 每镜必须产生 informationGain：观众新知道一个事实、误解被修正、关系/目标/风险发生变化，或一个伏笔得到推进；不能只重复“很危险/很伤心”。
+- audienceQuestion 记录观众此刻追问什么。镜头可以回答旧问题，但必须同时提出更具体的新问题，直到高潮回收 centralDramaticQuestion。
+- dialoguePurpose 规划台词的叙事功能：question、answer、reveal、conceal、challenge、refusal、decision、promise、callback、payoff 或 visual_only。不要把“台词克制”误解为默认禁言；当私人目标、关系变化、选择、承诺或回收无法仅靠画面准确表达时，必须规划有效台词。
+- 对白要形成跨镜呼应：问题必须得到回答或故意延迟；承诺/谎言/关键词必须在后面产生变化或回收。台词不能复述画面动作，也不能是脱离上下文的口号。
+- montageRole 决定剪辑语义：setup、development、escalation、parallel、contrast、decision、consequence、bridge、payoff、resolution。并置必须产生新的理解，不是旅游式画面罗列。
 
 连续性规则：
 - 前一条 consequence 必须成为后一条 cause，或明确推动下一场。
@@ -64,11 +72,20 @@ ${objectDetails}
   "storyAnchor": "故事锚点",
   "visualMotif": "视觉母题",
   "emotionalArc": "全片情绪弧线",
+  "centralDramaticQuestion": "开场提出、高潮回答的核心观众问题",
+  "audiencePromise": "影片向观众承诺的类型体验与情感回报",
+  "dialogueArc": "问题/承诺/冲突台词如何跨场推进并在结尾回收",
+  "montageStrategy": "哪些过程省略、平行、对照或用因果剪辑压缩",
   "characters": [{ "name": "已上传角色名", "want": "欲望", "obstacle": "阻碍", "arc": "弧线", "subtext": "潜台词" }],
   "sequences": [{
     "id": "seq-1",
     "locationId": "english_location_key",
     "sceneGoal": "本场必须完成的剧情目标",
+    "dramaticQuestion": "本场让观众追问的问题",
+    "turningPoint": "本场改变局势或理解的决定性动作",
+    "exitHook": "迫使故事进入下一场的未解决后果",
+    "audienceEntry": "入场时观众已知/误以为的内容",
+    "audienceExit": "离场时观众新增或修正的理解",
     "entryState": "人物/关系/道具/情绪入场状态",
     "exitState": "本场结束状态，供下一场继承",
     "shotCount": 9,
@@ -78,6 +95,10 @@ ${objectDetails}
       "cause": "直接前因",
       "consequence": "直接后果",
       "emotionalTurn": "情绪或认知变化",
+      "informationGain": "本镜让观众新增/修正的唯一关键信息",
+      "dialoguePurpose": "question|answer|reveal|conceal|challenge|refusal|decision|promise|callback|payoff|visual_only",
+      "montageRole": "setup|development|escalation|parallel|contrast|decision|consequence|bridge|payoff|resolution",
+      "audienceQuestion": "本镜结束时观众继续追问的问题",
       "requiredSpeaker": "已上传角色精确名称；无台词则空字符串",
       "requiredLine": "用户指定台词或空字符串"
     }]
@@ -121,6 +142,10 @@ export function buildStoryBeatBatchPrompt(input: {
     storyAnchor: outlineRecord.storyAnchor,
     visualMotif: outlineRecord.visualMotif,
     emotionalArc: outlineRecord.emotionalArc,
+    centralDramaticQuestion: outlineRecord.centralDramaticQuestion,
+    audiencePromise: outlineRecord.audiencePromise,
+    dialogueArc: outlineRecord.dialogueArc,
+    montageStrategy: outlineRecord.montageStrategy,
   };
 
   return `你是执行编剧。全片骨架已经锁定，只展开镜头 ${firstIndex}–${lastIndex} 的【详细剧本】，不得重写故事、改变镜头数量或提前/延后结局。
@@ -158,11 +183,15 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - 严格输出 ${beatMap.length} 个 beats，对应 index ${firstIndex}–${lastIndex}；每个 beat 只展开对应 beatMap，不得合并、拆分、增删或调序。
 - characters / objects 只能使用允许列表中的精确名称；临时环境元素只写在 action。
 - cause → conflict → choice → consequence → nextCause 必须形成可见因果；前一镜 stateAfter 必须等于后一镜 stateBefore。
+- 每镜必须落实 beatMap.informationGain 和 audienceQuestion。dramaticPurpose 说明局面为何改变，informationGain 说明观众因此理解了什么，两者不能互相复制。
+- 每个 action 都要包含“触发→表演/动作→可见结果”，让后续导演能拍出因果，而不是只有人物走、看、停顿和气氛。
 - 第一镜 stateBefore 必须按照上述交接类型承接上一批；最后一镜 nextCause 要准确铺向后续路线。
-- 台词克制。beatMap.requiredLine 非空时逐字写入 speech；否则只有画面无法表达的关键信息才允许一名当前角色说一句。禁止旁白、画外音、路人台词、笑声、哼唱和无来源人声。
+- 台词服务叙事，而不是一律从少。beatMap.requiredLine 非空时逐字写入 speech；否则按 dialoguePurpose 判断：私人目标、问题/回答、关系转折、谎言/揭示、承诺/回收或明确选择若仅靠画面会含混，就写必要台词；visual_only 才保持 speech=[]。禁止旁白、画外音、路人台词、笑声、哼唱和无来源人声。
+- 台词必须承接上下文：用 storyFunction 标明 question/answer/reveal/refusal/decision/promise/callback/payoff；用 respondsTo 指向它回应的前一句信息或伏笔。不得写重复画面、孤立口号、通用感叹或没有对象的短句。
+- 一镜可有 0–2 条有序台词；两条时必须是清晰的发起→回应或揭示→决定，逐条绑定已出场角色，不能重叠。总台词时长加留白必须装入 durationHint。不要为了凑数量写台词。
 - beatMap.requiredLine 非空时，speech.character 必须逐字等于 beatMap.requiredSpeaker，speech.exactLine 必须逐字等于 requiredLine，绝不能把临时人物的话转嫁给主角。
 - 自行创作 story_required 台词时，必须在 action 中用精确角色名明确写出该角色正在开口；若 action 只写临时人物、路人或泛称，则 speech 必须为 []。
-- speech 每镜最多一条；audioPlan 是唯一声音源。backgroundHuman 默认 none；环境声和拟音必须由地点或可见动作引起；未要求音乐时 music 为 none。
+- audioPlan 是唯一声音源。backgroundHuman 默认 none；环境声和拟音必须由地点或可见动作引起；未要求音乐时 music 为 none。
 - 不生成摄影内容：不要输出 promptDraft、sceneStyle、shotSize、cameraMove、angle 或图像 prompt。
 
 只输出：
@@ -180,7 +209,11 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
     "consequence": "可见结果",
     "characterChange": "情绪/认知变化",
     "nextCause": "下一镜直接原因",
-    "speech": [{ "character": "当前角色", "exactLine": "只填写角色真正说出口的逐字台词；导演指令必须留在 speech 之外", "emotion": "克制情绪", "delivery": "语速停顿重音", "volume": "whisper|soft|normal|raised", "lipSync": true, "source": "user_exact|story_required" }],
+    "informationGain": "观众在本镜新增或修正的唯一理解",
+    "dialoguePurpose": "沿用并具体落实 beatMap 的对白功能",
+    "montageRole": "沿用 beatMap 的剪辑语义",
+    "audienceQuestion": "本镜结束后观众追问的问题",
+    "speech": [{ "character": "当前角色", "exactLine": "只填写角色真正说出口的逐字台词；导演指令必须留在 speech 之外", "emotion": "克制情绪", "delivery": "语速停顿重音", "volume": "whisper|soft|normal|raised", "lipSync": true, "storyFunction": "question|answer|reveal|refusal|decision|promise|callback|payoff", "respondsTo": "回应的前句/信息/伏笔；无则空", "source": "user_exact|story_required" }],
     "audioPlan": { "backgroundHuman": "none|indistinct_nonverbal", "environment": ["sound"], "foley": ["sound"], "music": "none", "silenceBefore": 0.0, "silenceAfter": 0.4 },
     "stateBefore": { "characters": "位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "关系状态", "emotion": "情绪状态" },
     "stateAfter": { "characters": "位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "关系状态", "emotion": "情绪状态" },
@@ -236,9 +269,9 @@ export function buildStoryPlanPrompt(input: {
 - 每个 beat 必须有一个可见、可表演的 dramaticPurpose。禁止只写“人物站着、看着、慢慢走、镜头缓缓移动”而没有局面变化。
 - 情绪弧线：起点情绪必须不同于终点情绪（如从压抑→释然，从疏离→靠近）。
 - 台词必须有潜台词（subtext）：嘴上说的 ≠ 心里想的，不直说。
-- 台词必须克制：用户没有明确要求对白、旁白或口播时，默认用动作和表情讲故事，speech 写 []。只有信息无法用画面表达或用户明确提供台词时才写台词。
+- 台词必须有叙事功能：能由动作清楚表达的内容不用重复说；但目标、关系、选择、承诺、谎言与回收若仅靠画面会含混，必须写必要台词。speech=[] 只代表这一镜确实适合纯视觉叙事，不能把“克制”执行成全片禁言。
 - 不得为了“电影感”添加旁白、画外音、路人说话、感叹词、笑声、哼唱或无来源的人声。用户给出的指定台词必须逐字保留，不改写、不扩写。
-- speech 是全片唯一权威台词源。每个 beat 最多一条；speaker 必须在当前 characters 中；exactLine 只能包含角色真正说出口的逐字内容，绝不能填写“无人说话”“无其他角色在场”“其他角色沉默/闭嘴/无声反应”“先短暂停顿，再以坚定语气说”等导演或表演指令。停顿写入 audioPlan.silenceBefore，情绪写入 emotion，说话方式写入 delivery，其他角色状态写进 action 或 state；这些字段都不是可朗读台词。
+- speech 是全片唯一权威台词源。每个 beat 最多两条有序台词且必须能装入时长；speaker 必须在当前 characters 中；exactLine 只能包含角色真正说出口的逐字内容，绝不能填写“无人说话”“无其他角色在场”“其他角色沉默/闭嘴/无声反应”“先短暂停顿，再以坚定语气说”等导演或表演指令。停顿写入 audioPlan.silenceBefore，情绪写入 emotion，说话方式写入 delivery，其他角色状态写进 action 或 state；这些字段都不是可朗读台词。
 - audioPlan 是唯一权威声音源。backgroundHuman 默认 none；只有剧情明确需要人群存在感时才可用 indistinct_nonverbal，且绝不能产生可辨识词语。环境、拟音、音乐必须分层，未要求音乐时 music 写 none。
 - 视觉母题（visualMotif）：一个反复出现的意象/道具，承载主题，首尾呼应（如一把伞、一盏灯、一封信）。
 
@@ -279,7 +312,7 @@ ${synopsis}
 - 目标总片长约 ${targetSeconds} 秒。各镜头 durationHint 仍按内容推导，但全片 durationHint 总和应尽量接近该片长。
 - beats 是【因果链】，不是并列画面：前一个 beat 导致后一个 beat。
 - 每个 beat 只描述一个明确动作单元。
-- 大多数 beat 应无台词；有台词的 beat 每镜最多一句、只允许当前 characters 中的一个已命名角色说话。禁止多人同时说、重复上一镜台词或添加临时说话者。
+- 按叙事需要分配纯视觉镜与对白镜，不预设“大多数必须无台词”。有台词的 beat 最多两句、有明确先后，只允许当前 characters 中的已命名角色说话。禁止多人同时说、重复上一镜台词或添加临时说话者。
 - 景别要多样（远景建场 → 中景 → 近景/特写），相邻镜头景别要有变化。
 - 宁可按「动作链」合理分配，也不要一个镜头堆多个动作；同时不得超出或少于 ${targetShots} 镜。
 

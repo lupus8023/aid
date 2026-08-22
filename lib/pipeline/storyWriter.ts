@@ -17,6 +17,10 @@ export interface StoryOutlineBeat {
   cause: string;
   consequence: string;
   emotionalTurn: string;
+  informationGain: string;
+  dialoguePurpose: string;
+  montageRole: string;
+  audienceQuestion: string;
   requiredSpeaker: string;
   requiredLine: string;
 }
@@ -25,6 +29,11 @@ export interface StoryOutlineSequence {
   id: string;
   locationId: string;
   sceneGoal: string;
+  dramaticQuestion: string;
+  turningPoint: string;
+  exitHook: string;
+  audienceEntry: string;
+  audienceExit: string;
   entryState: string;
   exitState: string;
   shotCount: number;
@@ -102,6 +111,10 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
             cause: asString(beat?.cause).trim(),
             consequence: asString(beat?.consequence).trim(),
             emotionalTurn: asString(beat?.emotionalTurn).trim(),
+            informationGain: asString(beat?.informationGain).trim(),
+            dialoguePurpose: asString(beat?.dialoguePurpose, 'visual_only').trim(),
+            montageRole: asString(beat?.montageRole, 'development').trim(),
+            audienceQuestion: asString(beat?.audienceQuestion).trim(),
             requiredSpeaker,
             requiredLine,
           };
@@ -110,6 +123,11 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
         id: asString(sequence?.id, `seq-${sequenceIndex + 1}`),
         locationId: asString(sequence?.locationId, `loc-${sequenceIndex + 1}`).replace(/[^a-zA-Z0-9_-]/g, '_'),
         sceneGoal: asString(sequence?.sceneGoal).trim(),
+        dramaticQuestion: asString(sequence?.dramaticQuestion).trim(),
+        turningPoint: asString(sequence?.turningPoint).trim(),
+        exitHook: asString(sequence?.exitHook).trim(),
+        audienceEntry: asString(sequence?.audienceEntry).trim(),
+        audienceExit: asString(sequence?.audienceExit).trim(),
         entryState: asString(sequence?.entryState).trim(),
         exitState: asString(sequence?.exitState).trim(),
         shotCount: beatMap.length,
@@ -121,8 +139,15 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
   if (nextIndex !== targetShotCount) {
     throw new Error(`故事骨架返回了 ${nextIndex} 个镜头地图，但制作规格要求 ${targetShotCount} 个`);
   }
-  if (sequences.some(sequence => !sequence.sceneGoal || sequence.beatMap.some(beat => !beat.actionGoal))) {
-    throw new Error('故事骨架缺少场次目标或镜头动作目标');
+  const requiredSpine = ['centralDramaticQuestion', 'audiencePromise', 'dialogueArc', 'montageStrategy']
+    .filter(key => !asString(raw?.[key]).trim());
+  if (requiredSpine.length) {
+    throw new Error(`故事骨架缺少全片叙事字段：${requiredSpine.join('、')}`);
+  }
+  if (sequences.some(sequence => !sequence.sceneGoal || !sequence.dramaticQuestion || !sequence.turningPoint
+    || !sequence.exitHook || !sequence.audienceEntry || !sequence.audienceExit
+    || sequence.beatMap.some(beat => !beat.actionGoal || !beat.cause || !beat.consequence || !beat.informationGain || !beat.audienceQuestion))) {
+    throw new Error('故事骨架缺少场次问题/转折/钩子/观众认知，或镜头缺少动作、因果、信息增量与观众问题');
   }
   return { ...raw, sequences } as StoryOutline;
 }
@@ -200,7 +225,7 @@ export function sanitizeStoryPlan(
   })).filter((c: PlannedCharacter) => c.name && allowedCharacters.includes(c.name));
 
   let globalBeatIndex = 0;
-  let previousBeatSpeechSignature = '';
+  let previousBeatSpeechSignatures = new Set<string>();
   const sequences: StoryPlan['sequences'] = (Array.isArray(raw?.sequences) ? raw.sequences : []).map((seq: any, si: number) => {
     const seqId = asString(seq?.id, `seq-${si + 1}`);
     const locationId = asString(seq?.locationId, `loc-${si + 1}`).replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -217,6 +242,7 @@ export function sanitizeStoryPlan(
             source: 'story_required',
           }));
       const visibleAction = asString(b?.action);
+      const currentBeatSpeechSignatures = new Set<string>();
       const speech: StorySpeechLine[] = rawSpeech.map((line: any): StorySpeechLine | undefined => {
         const character = asString(line?.character || line?.speaker).trim();
         const source = line?.source === 'user_exact' ? 'user_exact' : 'story_required';
@@ -230,7 +256,8 @@ export function sanitizeStoryPlan(
         // belonging to an unnamed passer-by from being reassigned to the lead.
         if (source !== 'user_exact' && !visibleAction.includes(character)) return undefined;
         const signature = `${character}\u0000${exactLine}`;
-        if (signature === previousBeatSpeechSignature) return undefined;
+        if (previousBeatSpeechSignatures.has(signature) || currentBeatSpeechSignatures.has(signature)) return undefined;
+        currentBeatSpeechSignatures.add(signature);
         return {
           speakerId: `S${allowedCharacters.indexOf(character) + 1}`,
           character,
@@ -240,10 +267,12 @@ export function sanitizeStoryPlan(
           delivery: asString(line?.delivery, 'natural, concise, no theatrical emphasis'),
           volume: VOLUMES.includes(line?.volume) ? line.volume : 'normal',
           lipSync: line?.lipSync !== false,
+          storyFunction: asString(line?.storyFunction, asString(b?.dialoguePurpose)).trim(),
+          respondsTo: asString(line?.respondsTo).trim(),
           source,
         };
-      }).filter((line: StorySpeechLine | undefined): line is StorySpeechLine => Boolean(line)).slice(0, 1);
-      previousBeatSpeechSignature = speech.length ? `${speech[0].character}\u0000${speech[0].exactLine}` : '';
+      }).filter((line: StorySpeechLine | undefined): line is StorySpeechLine => Boolean(line)).slice(0, 2);
+      previousBeatSpeechSignatures = new Set(speech.map(line => `${line.character}\u0000${line.exactLine}`));
       const rawAudio = b?.audioPlan && typeof b.audioPlan === 'object' ? b.audioPlan : {};
       const audioPlan: StoryAudioPlan = {
         backgroundHuman: rawAudio.backgroundHuman === 'indistinct_nonverbal' ? 'indistinct_nonverbal' : 'none',
@@ -275,6 +304,10 @@ export function sanitizeStoryPlan(
         consequence: asString(b?.consequence),
         characterChange: asString(b?.characterChange),
         nextCause: asString(b?.nextCause),
+        informationGain: asString(b?.informationGain),
+        dialoguePurpose: asString(b?.dialoguePurpose, speech.length ? 'story_progression' : 'visual_only'),
+        montageRole: asString(b?.montageRole, 'development'),
+        audienceQuestion: asString(b?.audienceQuestion),
         stateBefore: narrativeState(b?.stateBefore),
         stateAfter: narrativeState(b?.stateAfter),
         durationHint: clampDuration(b?.durationHint),
@@ -285,7 +318,18 @@ export function sanitizeStoryPlan(
       };
     });
 
-    return { id: seqId, locationId, sceneStyle, beats };
+    return {
+      id: seqId,
+      locationId,
+      sceneStyle,
+      sceneGoal: asString(seq?.sceneGoal),
+      dramaticQuestion: asString(seq?.dramaticQuestion),
+      turningPoint: asString(seq?.turningPoint),
+      exitHook: asString(seq?.exitHook),
+      audienceEntry: asString(seq?.audienceEntry),
+      audienceExit: asString(seq?.audienceExit),
+      beats,
+    };
   });
 
   const validBeatIndexes = new Set(sequences.flatMap(sequence => sequence.beats.map(beat => beat.index)));
@@ -333,6 +377,10 @@ export function sanitizeStoryPlan(
     storyAnchor: asString(raw?.storyAnchor, raw?.visualMotif),
     visualMotif: asString(raw?.visualMotif),
     emotionalArc: asString(raw?.emotionalArc),
+    centralDramaticQuestion: asString(raw?.centralDramaticQuestion),
+    audiencePromise: asString(raw?.audiencePromise),
+    dialogueArc: asString(raw?.dialogueArc),
+    montageStrategy: asString(raw?.montageStrategy),
     characters,
     sequences,
   };
@@ -395,6 +443,41 @@ export async function generateStoryPlan(input: {
         if (batchBeats.length !== batch.beatMap.length) {
           throw new Error(`返回 ${batchBeats.length} 镜，要求 ${batch.beatMap.length} 镜`);
         }
+        batchBeats.forEach((beat, index) => {
+          const authority = batch.beatMap[index];
+          const required = {
+            action: asString(beat?.action, authority.actionGoal),
+            cause: asString(beat?.cause, authority.cause),
+            conflict: asString(beat?.conflict),
+            consequence: asString(beat?.consequence, authority.consequence),
+            nextCause: asString(beat?.nextCause),
+            informationGain: asString(beat?.informationGain, authority.informationGain),
+            dialoguePurpose: asString(beat?.dialoguePurpose, authority.dialoguePurpose),
+            montageRole: asString(beat?.montageRole, authority.montageRole),
+            audienceQuestion: asString(beat?.audienceQuestion, authority.audienceQuestion),
+          };
+          const missing = Object.entries(required).filter(([, value]) => !value.trim()).map(([key]) => key);
+          if (missing.length) throw new Error(`镜头 ${authority.index} 缺少叙事字段：${missing.join('、')}`);
+          const purpose = required.dialoguePurpose.toLowerCase();
+          const rawSpeech = Array.isArray(beat?.speech) ? beat.speech : [];
+          if (!/(?:visual_only|纯视觉|无对白)/.test(purpose) && rawSpeech.length === 0) {
+            throw new Error(`镜头 ${authority.index} 规划了 ${required.dialoguePurpose} 台词功能，但没有生成 speech`);
+          }
+          if (rawSpeech.length > 2) throw new Error(`镜头 ${authority.index} 返回超过 2 条台词`);
+          rawSpeech.forEach((line: any, lineIndex: number) => {
+            const character = asString(line?.character || line?.speaker).trim();
+            const exactLine = sanitizeGeneratedSpeechText(line?.exactLine || line?.text);
+            if (!character || !characters.some(item => item.name === character) || !Array.isArray(beat?.characters) || !beat.characters.includes(character)) {
+              throw new Error(`镜头 ${authority.index} 第 ${lineIndex + 1} 条台词没有绑定当前出场角色`);
+            }
+            if (!exactLine || !asString(line?.storyFunction).trim()) {
+              throw new Error(`镜头 ${authority.index} 第 ${lineIndex + 1} 条台词缺少可朗读原文或 storyFunction`);
+            }
+            if (!asString(beat?.action).includes(character)) {
+              throw new Error(`镜头 ${authority.index} 的 action 未明确点名说话者 ${character}`);
+            }
+          });
+        });
         return batchBeats.map((beat, index) => {
           const authority = batch.beatMap[index];
           return {
@@ -407,6 +490,10 @@ export async function generateStoryPlan(input: {
             cause: asString(beat?.cause, authority.cause),
             consequence: asString(beat?.consequence, authority.consequence),
             characterChange: asString(beat?.characterChange, authority.emotionalTurn),
+            informationGain: asString(beat?.informationGain, authority.informationGain),
+            dialoguePurpose: asString(beat?.dialoguePurpose, authority.dialoguePurpose),
+            montageRole: asString(beat?.montageRole, authority.montageRole),
+            audienceQuestion: asString(beat?.audienceQuestion, authority.audienceQuestion),
             speech: authority.requiredLine && authority.requiredSpeaker
               ? [{
                   ...(Array.isArray(beat?.speech)
@@ -456,6 +543,12 @@ export async function generateStoryPlan(input: {
     sequences: outline.sequences.map(sequence => ({
       id: sequence.id,
       locationId: sequence.locationId,
+      sceneGoal: sequence.sceneGoal,
+      dramaticQuestion: sequence.dramaticQuestion,
+      turningPoint: sequence.turningPoint,
+      exitHook: sequence.exitHook,
+      audienceEntry: sequence.audienceEntry,
+      audienceExit: sequence.audienceExit,
       sceneStyle: '',
       beats: detailedBySequence.get(sequence.id) || [],
     })),

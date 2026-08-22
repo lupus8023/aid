@@ -46,6 +46,10 @@ function buildDirectorPrompt(input: {
     storyAnchor: storyPlan.storyAnchor,
     visualMotif: storyPlan.visualMotif,
     emotionalArc: storyPlan.emotionalArc,
+    centralDramaticQuestion: storyPlan.centralDramaticQuestion,
+    audiencePromise: storyPlan.audiencePromise,
+    dialogueArc: storyPlan.dialogueArc,
+    montageStrategy: storyPlan.montageStrategy,
   };
 
   return `你是一位电影导演兼分镜师。全片剧本已经锁定。现在只处理导演批次 ${batchNumber}/${totalBatches}（镜头 ${firstIndex}–${lastIndex}），把本批 beats 可视化为可拍摄分镜。
@@ -60,6 +64,8 @@ ${storyPlan.sourceBrief || '（旧项目未保存原始输入，请以 StoryPlan
 - 本批分镜数量必须等于 ${beats.length}，顺序与 index ${firstIndex}–${lastIndex} 完全一致，不得增删或重排。
 - 台词、动作、时长、转场和连续关系来自 beat；你负责设计景别、运镜、机位、场景成像基线与正式图片 prompt。
 - 必须让 dramaticPurpose、cause、conflict、choice、consequence 和 stateBefore/stateAfter 在画面中可见；镜头必须改变信息、关系、决定或物理状态，不能只制造氛围。
+- informationGain 是本镜必须交付给观众的理解；用人物阻挡、视线、反应、道具状态与结果构图让它可读。audienceQuestion 决定镜尾要保留什么悬念，montageRole 决定它与相邻镜的语义关系。
+- speech 是权威对白，不能改写、删减或写进图像 prompt。对白发生时，description 要安排清楚说话者与聆听者的可见表演；无对白时不要虚构开口动作。
 - 不得添加 beat 中没有的情节、台词、旁白、画外音、声音或角色行为。
 - 如果用户原始输入含有 beat 未重复写出的明确视觉、服装、场景或语气要求，必须落实到 description/prompt，但不得改变剧情与镜头数量。
 
@@ -90,6 +96,7 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
 
 🎬 分镜可视化要求：
 1. description：必须以「[景别，机位角度]」开头，包含动作主体、环境、情绪氛围、运镜方式、物理细节（布料/水流/光影）。
+   - 先写触发，再写角色的选择/反应，最后写可见后果；镜尾构图必须把 informationGain 或 audienceQuestion 落到一个能看懂的状态上。
 2. prompt（英文图像提示词）：
    - 已上传角色/物体用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。
    - 不要写成关键词堆砌。使用紧凑的摄影因果链，顺序固定为：SUBJECT/ACTION → CAMERA POSITION & DISTANCE → LENS PERSPECTIVE → COMPOSITION & OCCLUSION → FOCUS PLANE & DEPTH LAYERS → MOTIVATED LIGHT → EXPOSURE/COLOR/MATERIAL RESPONSE。
@@ -168,6 +175,10 @@ function mergeBeats(
       consequence: beat.consequence,
       characterChange: beat.characterChange,
       nextCause: beat.nextCause,
+      informationGain: beat.informationGain,
+      dialoguePurpose: beat.dialoguePurpose,
+      montageRole: beat.montageRole,
+      audienceQuestion: beat.audienceQuestion,
       stateBefore: beat.stateBefore,
       stateAfter: beat.stateAfter,
       durationHint: beat.durationHint,

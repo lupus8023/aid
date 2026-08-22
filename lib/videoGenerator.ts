@@ -51,6 +51,18 @@ export function sanitizeVisualDirection(value: unknown, exactSpokenLines: string
   return compactText(withoutSpeechDirectives, 900);
 }
 
+function sanitizeNarrativeDirection(value: unknown, exactSpokenLines: string[] = []): string {
+  let text = String(value || '')
+    .replace(/<d>[\s\S]*?<\/d>/gi, ' ')
+    .replace(/[“"]\s*[^”"\n]{1,240}\s*[”"]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  for (const line of exactSpokenLines.map(item => String(item || '').trim()).filter(Boolean)) {
+    text = text.replace(new RegExp(regexpEscape(line), 'gi'), ' ');
+  }
+  return compactText(text.replace(/\s+/g, ' ').trim(), 900);
+}
+
 function dialogueLanguage(text: string): string {
   if (/[\u3040-\u30ff]/.test(text)) return 'Japanese';
   if (/[\uac00-\ud7af]/.test(text)) return 'Korean';
@@ -101,11 +113,29 @@ function officialCameraMotion(storyboard: Storyboard, index: number): string {
 function authoritativeShotAction(storyboard: Storyboard): string {
   const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
   return compactText(
-    // Director prompts are deliberately authored in English for H3. The
-    // screenplay action remains the fallback for legacy projects.
-    sanitizeVisualDirection(storyboard.prompt || storyboard.action || storyboard.description, spokenLines),
+    // The screenplay action owns what happens. The image prompt is only a
+    // static visual anchor and must never replace causal action.
+    sanitizeVisualDirection(storyboard.action || storyboard.prompt || storyboard.description, spokenLines),
     260,
   );
+}
+
+function narrativeBeatDirection(storyboard: Storyboard): string {
+  const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
+  const clean = (value: unknown, limit: number) => compactText(sanitizeNarrativeDirection(value, spokenLines), limit);
+  const trigger = clean(storyboard.cause, 90);
+  const pressure = clean(storyboard.conflict, 90);
+  const choice = clean(storyboard.choice, 90);
+  const result = clean(storyboard.consequence, 110);
+  const information = clean(storyboard.informationGain, 160);
+  const pieces = [
+    trigger ? `Stage the trigger clearly: ${trigger}.` : '',
+    pressure ? `Make the immediate pressure readable: ${pressure}.` : '',
+    choice ? `Show the choice through blocking and performance: ${choice}.` : '',
+    result ? `Land on the changed state: ${result}.` : '',
+    information ? `The audience must understand ${information} from visible action, reaction and prop state, never from added words or text.` : '',
+  ].filter(Boolean);
+  return compactText(pieces.join(' '), 480);
 }
 
 function officialShotFraming(storyboard: Storyboard): string {
@@ -167,6 +197,16 @@ function cinematicTransition(previous: Storyboard, next: Storyboard): string {
   if (explicitContinuity) {
     return 'cutting mid-motion while preserving vector, speed, screen direction and physical state';
   }
+  const role = String(next.montageRole || '').toLowerCase();
+  if (/(?:contrast|对照)/.test(role)) {
+    return 'using a contrast cut whose changed action, scale or value creates a new meaning while the story question remains continuous';
+  }
+  if (/(?:parallel|平行)/.test(role)) {
+    return 'matching simultaneous action, direction or caused sound so the two situations read as one parallel dramatic idea';
+  }
+  if ((previous.consequence || previous.nextCause) && next.cause) {
+    return 'using a causal cut: hold the visible consequence just long enough for it to become the immediate trigger of the next action';
+  }
   if (sharedObjects.length) {
     return `matching the motion or contact of ${sharedObjects[0]} to its changed state`;
   }
@@ -183,7 +223,7 @@ function shotActionSchedule(storyboard: Storyboard, range: { start: number; end:
   const span = Math.max(0.1, range.end - range.start);
   const commitment = range.start + span * 0.62;
   const consequence = range.start + span * 0.84;
-  return `${authoritativeShotAction(storyboard)} The action begins immediately at ${h3Timestamp(range.start)}; its decisive move or contact lands by ${h3Timestamp(commitment)}, the visible consequence arrives by ${h3Timestamp(consequence)}, and secondary motion remains alive through ${h3Timestamp(range.end)}. The cadence is ${shotMotionCadence(storyboard)}`;
+  return `${authoritativeShotAction(storyboard)} ${narrativeBeatDirection(storyboard)} The action begins immediately at ${h3Timestamp(range.start)}; its decisive move or contact lands by ${h3Timestamp(commitment)}, the visible consequence arrives by ${h3Timestamp(consequence)}, and secondary motion remains alive through ${h3Timestamp(range.end)}. The cadence is ${shotMotionCadence(storyboard)}`;
 }
 
 export function buildVideoSegmentPrompt(

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.30 - 2026-08-23
+
+### Improved
+
+- Story planning now carries a central dramatic question, audience promise, dialogue arc and montage strategy into every sequence. Each shot must add a concrete piece of audience knowledge and preserve the question that motivates the next shot.
+- Screenplay beats now distinguish visible action, dramatic change, information gain, dialogue purpose and montage role. Questions, revelations, choices, promises and callbacks are planned across shots instead of producing isolated slogans or a list of attractive events.
+- Purposeful dialogue is no longer suppressed by a blanket one-line rule. A shot may contain two ordered, voice-bound lines when the action and 15-second budget support a clear initiation/response or reveal/decision exchange.
+- Director and MiniMax H3 prompts now compile the screenplay's trigger, pressure, visible choice, consequence and audience information into each timed shot. Causal, parallel and contrast montage relationships drive physical transitions without fades or added exposition.
+
+### Fixed
+
+- The static storyboard image prompt no longer overrides the screenplay's authoritative moving action when building an H3 clip.
+- Multi-line dialogue in one storyboard is scheduled sequentially with explicit lead, response gap and reaction tail; exact lines remain the only text allowed inside H3 dialogue tags.
+- Narrative dialogue plans that omit a speaker, readable line, story function or visible character now fail validation and receive a structured correction retry instead of becoming silent or disconnected downstream.
+- H3 cache signatures now include causal story, information, dialogue-purpose and montage fields, so narrative revisions cannot reuse an obsolete clip.
+
+### Tests
+
+- Added regression coverage for story/audience contracts, two-line dialogue scheduling, causal H3 compilation and narrative-aware clip invalidation. All 103 tests, TypeScript validation and the production build pass.
+
 ## 0.1.29 - 2026-08-23
 
 ### Added

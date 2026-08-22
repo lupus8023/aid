@@ -21,8 +21,8 @@ export interface Beat {
   action: string; // 动作描述（一个明确动作单元，含情绪氛围）
   characters: string[]; // 本镜头出现的角色（精确匹配上传角色名）
   objects: string[]; // 本镜头出现的道具（精确匹配上传物件名）
-  dialogueLines: { character: string; text: string }[]; // 台词（≤1 句/镜，带潜台词）
-  speech: StorySpeechLine[]; // 唯一权威台词源；每 beat 最多一个在 action 中明确点名的已出场角色说话
+  dialogueLines: { character: string; text: string }[]; // 有序台词；总时长必须装入本镜
+  speech: StorySpeechLine[]; // 唯一权威台词源；只允许 action 中明确点名的已出场角色说话
   audioPlan: StoryAudioPlan; // 人声/环境/拟音/音乐/留白分层，不允许模型自由补人声
   clipType: StoryClipType;
   dramaticPurpose: string;
@@ -32,6 +32,10 @@ export interface Beat {
   consequence: string;
   characterChange: string;
   nextCause: string;
+  informationGain: string; // 本镜给观众新增/修正的剧情信息
+  dialoguePurpose: string; // question/reveal/refusal/decision/callback/visual_only
+  montageRole: string; // setup/development/escalation/contrast/decision/consequence/payoff/bridge
+  audienceQuestion: string; // 本镜维持或回答的悬念
   stateBefore?: NarrativeState;
   stateAfter?: NarrativeState;
   durationHint: number; // 建议时长（秒），由台词字数 + 动作权重 + 情绪停顿推导
@@ -45,6 +49,12 @@ export interface Sequence {
   id: string;
   locationId: string;
   sceneStyle: string;
+  sceneGoal?: string;
+  dramaticQuestion?: string;
+  turningPoint?: string;
+  exitHook?: string;
+  audienceEntry?: string;
+  audienceExit?: string;
   beats: Beat[];
 }
 
@@ -78,6 +88,10 @@ export interface StoryPlan {
   storyAnchor: string;
   visualMotif: string; // 视觉母题：一个反复出现的意象/道具承载主题
   emotionalArc: string; // 全片情绪弧线（起点 → 转折 → 终点）
+  centralDramaticQuestion?: string; // 观众从开场追到结尾的核心问题
+  audiencePromise?: string; // 影片承诺给观众的情感/类型体验
+  dialogueArc?: string; // 台词如何从提出问题推进到选择与回收
+  montageStrategy?: string; // 省略、并置、平行和因果剪辑的全片策略
   characters: PlannedCharacter[];
   sequences: Sequence[];
 }

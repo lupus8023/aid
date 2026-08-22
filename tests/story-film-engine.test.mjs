@@ -14,7 +14,7 @@ test('speech sanitizer removes performance prose but keeps the quoted spoken wor
   assert.equal(sanitizeGeneratedSpeechText('（坚定）我们现在出发。'), '我们现在出发。');
 });
 
-test('sanitizer creates one authoritative, visible and voice-bound speech line per beat', () => {
+test('sanitizer keeps up to two authoritative, visible and voice-bound speech lines per beat', () => {
   const raw = {
     title: '门外',
     protagonist: 'A',
@@ -43,11 +43,11 @@ test('sanitizer creates one authoritative, visible and voice-bound speech line p
   };
   const plan = sanitizeStoryPlan(raw, ['A', 'B'], [], 'A 说：“你来试。”', 9, { A: 'voice-a', B: 'voice-b' });
   const [first, second] = plan.sequences[0].beats;
-  assert.equal(first.speech.length, 1);
+  assert.equal(first.speech.length, 2);
   assert.equal(first.speech[0].character, 'A');
   assert.equal(first.speech[0].speakerId, 'S1');
   assert.equal(first.speech[0].voiceId, 'voice-a');
-  assert.deepEqual(first.dialogueLines, [{ character: 'A', text: '你来试。' }]);
+  assert.deepEqual(first.dialogueLines, [{ character: 'A', text: '你来试。' }, { character: 'B', text: '好。' }]);
   assert.equal(first.audioPlan.backgroundHuman, 'none');
   assert.equal(second.speech.length, 0);
   assert.deepEqual(second.dialogueLines, []);
@@ -58,13 +58,16 @@ test('sanitizer preserves the story spine and causal beat fields', () => {
     title: '选择', protagonist: 'A', externalWant: '赢', internalNeed: '承认错误', stakes: '失去伙伴',
     obstacle: '自尊', finalChoice: '道歉', consequence: '伙伴留下', change: '从独断到合作', storyAnchor: '裂开的奖杯',
     characters: [{ name: 'A', want: '赢', obstacle: '自尊', arc: '独断到合作', subtext: '害怕失败' }],
-    sequences: [{ id: 's', locationId: 'room', beats: [{ characters: ['A'], objects: [], action: 'A 放下奖杯', dramaticPurpose: '让 A 首次放弃胜负', cause: '伙伴要离开', conflict: '道歉等于承认失败', choice: 'A 放下奖杯', consequence: '伙伴停步', characterChange: 'A 开始选择关系', nextCause: '伙伴回头' }] }],
+    centralDramaticQuestion: 'A 会选择胜利还是伙伴？', audiencePromise: '一次关系修复', dialogueArc: '拒绝→道歉→回应', montageStrategy: '因果剪辑',
+    sequences: [{ id: 's', locationId: 'room', sceneGoal: '阻止伙伴离开', dramaticQuestion: 'A 会不会道歉？', turningPoint: 'A 放下奖杯', exitHook: '伙伴回头', audienceEntry: 'A 只在乎输赢', audienceExit: 'A 开始重视关系', beats: [{ characters: ['A'], objects: [], action: 'A 放下奖杯', dramaticPurpose: '让 A 首次放弃胜负', cause: '伙伴要离开', conflict: '道歉等于承认失败', choice: 'A 放下奖杯', consequence: '伙伴停步', characterChange: 'A 开始选择关系', nextCause: '伙伴回头', informationGain: 'A 愿意放弃胜负', dialoguePurpose: 'decision', montageRole: 'decision', audienceQuestion: '伙伴会留下吗？' }] }],
   };
   const plan = sanitizeStoryPlan(raw, ['A'], [], '', 9);
   assert.equal(plan.internalNeed, '承认错误');
   assert.equal(plan.finalChoice, '道歉');
   assert.equal(plan.sequences[0].beats[0].nextCause, '伙伴回头');
   assert.equal(plan.sequences[0].beats[0].dramaticPurpose, '让 A 首次放弃胜负');
+  assert.equal(plan.centralDramaticQuestion, 'A 会选择胜利还是伙伴？');
+  assert.equal(plan.sequences[0].beats[0].informationGain, 'A 愿意放弃胜负');
 });
 
 test('video speech validation catches a generated Chinese line in an English project', () => {

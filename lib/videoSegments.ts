@@ -41,6 +41,16 @@ export function videoSegmentGenerationSignature(storyboards: Storyboard[]): stri
     cameraMove: storyboard.cameraMove || '',
     angle: storyboard.angle || '',
     clipType: storyboard.clipType || '',
+    dramaticPurpose: storyboard.dramaticPurpose || '',
+    cause: storyboard.cause || '',
+    conflict: storyboard.conflict || '',
+    choice: storyboard.choice || '',
+    consequence: storyboard.consequence || '',
+    nextCause: storyboard.nextCause || '',
+    informationGain: storyboard.informationGain || '',
+    dialoguePurpose: storyboard.dialoguePurpose || '',
+    montageRole: storyboard.montageRole || '',
+    audienceQuestion: storyboard.audienceQuestion || '',
     durationHint: storyboard.durationHint || 0,
     transition: storyboard.transition || '',
     continuousFromPrev: Boolean(storyboard.continuousFromPrev),
@@ -48,7 +58,7 @@ export function videoSegmentGenerationSignature(storyboards: Storyboard[]): stri
     aspectRatio: storyboard.aspectRatio || '',
     visualStyle: storyboard.visualStyle || '',
   }));
-  return `h3-v2-${generationHash(JSON.stringify(payload))}`;
+  return `h3-v3-${generationHash(JSON.stringify(payload))}`;
 }
 
 function storyboardSignature(storyboards: Storyboard[]): string {
@@ -56,7 +66,7 @@ function storyboardSignature(storyboards: Storyboard[]): string {
 }
 
 export function estimateStoryboardBeatSeconds(storyboard: Storyboard): number {
-  const line = storyboardSpeech(storyboard)[0];
+  const lines = storyboardSpeech(storyboard);
   const plan = storyboardAudioPlan(storyboard);
   const hint = Number(storyboard.durationHint || storyboard.videoDuration || 5);
   const typeFloor: Record<string, number> = {
@@ -67,9 +77,14 @@ export function estimateStoryboardBeatSeconds(storyboard: Storyboard): number {
     insert: 4, reaction: 5, establishing: 6, action: 7,
     dialogue: 8, performance: 8, montage: 4, long_take: 15,
   };
-  const clipType = storyboard.clipType || (line ? 'dialogue' : 'action');
+  const clipType = storyboard.clipType || (lines.length ? 'dialogue' : 'action');
   const visual = Math.min(typeCeiling[clipType] || 7, Math.max(typeFloor[clipType] || 3.5, hint * 0.7));
-  const spoken = line ? speechSeconds(line.exactLine) + plan.silenceBefore + plan.silenceAfter : 0;
+  const spoken = lines.length
+    ? lines.reduce((sum, line) => sum + speechSeconds(line.exactLine), 0)
+      + Math.max(0, lines.length - 1) * 0.35
+      + plan.silenceBefore
+      + plan.silenceAfter
+    : 0;
   return Math.min(MAX_H3_SEGMENT_SECONDS, Math.max(visual, spoken));
 }
 
@@ -113,13 +128,20 @@ export function suggestVideoSegments(storyboards: Storyboard[]): Storyboard[][] 
     const speechLimitExceeded = projectedSpeech.length > 3
       || new Set(projectedSpeech.map(line => line.character)).size > 3;
     const wouldOverflow = currentSeconds + seconds > MAX_H3_SEGMENT_SECONDS;
+    const previous = current[current.length - 1];
+    const previousRole = String(previous?.montageRole || '').toLowerCase();
+    const nextRole = String(storyboard.montageRole || '').toLowerCase();
+    const closesDramaticUnit = /(?:payoff|resolution|收束|回收)/.test(previousRole);
+    const opensDramaticUnit = /(?:setup|建立)/.test(nextRole);
+    const explicitBridge = /(?:bridge|parallel|contrast|consequence|桥接|平行|对照|后果)/.test(nextRole);
+    const newDramaticUnit = Boolean(previous && closesDramaticUnit && opensDramaticUnit && !explicitBridge);
 
     // H3 can perform several causal shots — including motivated location
     // changes — inside one 15-second clip. Location/sequence labels and
     // model-written fade/dissolve hints are therefore soft directing signals,
     // not mandatory generation boundaries. Hard-split only when the model's
     // real input/timeline limits would be exceeded.
-    if (current.length >= MAX_H3_STORYBOARDS_PER_SEGMENT || speechLimitExceeded || wouldOverflow) flush();
+    if (current.length >= MAX_H3_STORYBOARDS_PER_SEGMENT || speechLimitExceeded || wouldOverflow || newDramaticUnit) flush();
 
     current.push(storyboard);
     currentSeconds += seconds;

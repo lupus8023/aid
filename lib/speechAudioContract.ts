@@ -95,6 +95,7 @@ export function speechSeconds(text: string): number {
 
 export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
   const visible = new Set(storyboard.characters || []);
+  const seen = new Set<string>();
   const source = storyboard.speech?.length
     ? storyboard.speech
     : (storyboard.dialogueLines?.length
@@ -108,6 +109,8 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
         delivery: 'natural, concise, no theatrical emphasis',
         volume: 'normal' as const,
         lipSync: true,
+        storyFunction: '',
+        respondsTo: '',
         source: 'story_required' as const,
       }));
 
@@ -124,14 +127,18 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
       volume: line.volume || 'normal',
       lipSync: line.lipSync !== false,
       listenerState: undefined,
+      storyFunction: clean(line.storyFunction),
+      respondsTo: clean(line.respondsTo),
       source: line.source === 'user_exact' ? 'user_exact' as const : 'story_required' as const,
     }))
     .filter(line => line.character
       && line.exactLine
       && visible.has(line.character)
       && generatedSpeakerIsVisible(storyboard, line)
-      && (line.source === 'user_exact' || !isDirectingInstructionDialogue(line.exactLine)))
-    .slice(0, 1);
+      && (line.source === 'user_exact' || !isDirectingInstructionDialogue(line.exactLine))
+      && !seen.has(`${line.character}\u0000${line.exactLine}`)
+      && Boolean(seen.add(`${line.character}\u0000${line.exactLine}`)))
+    .slice(0, 2);
 }
 
 export function storyboardSpeechWarnings(storyboard: Storyboard): string[] {
@@ -210,19 +217,29 @@ export function compileTimedSpeech(
   if (error) throw new Error(error);
   const timed: TimedSpeechLine[] = [];
   storyboards.forEach((storyboard, index) => {
-    const line = storyboardSpeech(storyboard)[0];
-    if (!line) return;
+    const lines = storyboardSpeech(storyboard);
+    if (!lines.length) return;
     const range = timeline[index];
     const plan = storyboardAudioPlan(storyboard);
     const available = Math.max(0.8, range.end - range.start);
-    const lead = Math.min(Math.max(0.6, plan.silenceBefore), available * 0.25);
-    const tail = Math.min(Math.max(0.7, plan.silenceAfter), available * 0.25);
-    const start = range.start + lead;
-    const end = Math.min(range.end - tail, start + speechSeconds(line.exactLine));
-    if (end - start < Math.min(0.8, speechSeconds(line.exactLine) * 0.75)) {
+    const gap = lines.length > 1 ? 0.35 : 0;
+    const speechDurations = lines.map(line => speechSeconds(line.exactLine));
+    const totalSpeech = speechDurations.reduce((sum, seconds) => sum + seconds, 0) + gap * (lines.length - 1);
+    const lead = Math.min(Math.max(0.45, plan.silenceBefore), Math.max(0.45, (available - totalSpeech) * 0.55));
+    const tail = Math.min(Math.max(0.55, plan.silenceAfter), Math.max(0.4, available - lead - totalSpeech));
+    if (lead + totalSpeech + tail > available + 0.05) {
       throw new Error(`镜头 ${storyboard.sceneNumber} 的台词时长不足，请拆分台词或延长该片段`);
     }
-    timed.push({ ...line, storyboardIndex: index, sceneNumber: storyboard.sceneNumber, start, end });
+    let cursor = range.start + lead;
+    lines.forEach((line, lineIndex) => {
+      const start = cursor;
+      const end = Math.min(range.end - tail, start + speechDurations[lineIndex]);
+      if (end - start < Math.min(0.8, speechDurations[lineIndex] * 0.85)) {
+        throw new Error(`镜头 ${storyboard.sceneNumber} 的第 ${lineIndex + 1} 条台词时长不足，请拆分台词或延长该片段`);
+      }
+      timed.push({ ...line, storyboardIndex: index, sceneNumber: storyboard.sceneNumber, start, end });
+      cursor = end + gap;
+    });
   });
   return timed;
 }

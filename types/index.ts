@@ -31,6 +31,8 @@ export interface StorySpeechLine {
   volume: 'whisper' | 'soft' | 'normal' | 'raised';
   lipSync: boolean;
   listenerState?: string;
+  storyFunction?: string; // question/reveal/refusal/decision/callback 等；保证台词承担叙事任务
+  respondsTo?: string; // 与前一句或前一镜信息的关系，避免孤立短句
   source: 'user_exact' | 'story_required';
 }
 
@@ -98,6 +100,10 @@ export interface Storyboard {
   consequence?: string;
   characterChange?: string;
   nextCause?: string;
+  informationGain?: string; // 本镜结束后观众新理解了什么
+  dialoguePurpose?: string; // 本镜对白在全片中的功能；无对白时为 visual_only
+  montageRole?: string; // setup/development/contrast/decision/payoff/bridge 等剪辑语义
+  audienceQuestion?: string; // 此刻维持或回答的观众问题
   stateBefore?: NarrativeState;
   stateAfter?: NarrativeState;
   videoPrompt?: string; // 视频生成提示词

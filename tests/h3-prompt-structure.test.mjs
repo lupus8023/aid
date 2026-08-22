@@ -192,6 +192,45 @@ test('preserves every grouped storyboard as a complete timed action-camera-dialo
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
 });
 
+test('compiles causal story meaning into each H3 shot without inventing spoken exposition', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      action: 'Lin sees the forged seal, hides the letter, and turns away from Mei.',
+      cause: 'Mei asks to read the letter.',
+      conflict: 'Showing it would expose Lin\'s lie.',
+      choice: 'Lin hides the letter behind his back.',
+      consequence: 'Mei notices the concealment and stops trusting him.',
+      informationGain: 'Lin is protecting a lie and Mei now suspects him.',
+      dialoguePurpose: 'conceal',
+      montageRole: 'decision',
+      audienceQuestion: 'Will Mei confront him?',
+      speech: [{ speakerId: 'S01', character: 'Lin', exactLine: 'There is nothing inside.', emotion: 'guarded', delivery: 'too quickly', volume: 'normal', lipSync: true, storyFunction: 'conceal', respondsTo: 'Mei asks to read the letter', source: 'story_required' }],
+    }),
+  ], [], { duration: 7, language: 'en' });
+  assert.match(prompt, /Stage the trigger clearly: Mei asks to read the letter/);
+  assert.match(prompt, /Land on the changed state: Mei notices the concealment/);
+  assert.match(prompt, /The audience must understand Lin is protecting a lie/);
+  assert.equal((prompt.match(/There is nothing inside\./g) || []).length, 1);
+  assert.match(prompt, /<d>\[English\] There is nothing inside\.<\/d>/);
+});
+
+test('schedules two connected lines inside one storyboard in order', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      durationHint: 10,
+      characters: ['Lin', 'Mei'],
+      action: 'Lin offers the key to Mei; Mei studies him, accepts it, and unlocks the door.',
+      speech: [
+        { speakerId: 'S01', character: 'Lin', exactLine: 'You should open it.', emotion: 'uncertain', delivery: 'quietly', volume: 'soft', lipSync: true, storyFunction: 'decision', respondsTo: '', source: 'story_required' },
+        { speakerId: 'S02', character: 'Mei', exactLine: 'Then stay with me.', emotion: 'steady', delivery: 'without looking away', volume: 'normal', lipSync: true, storyFunction: 'answer', respondsTo: 'You should open it.', source: 'story_required' },
+      ],
+      audioPlan: { backgroundHuman: 'none', environment: ['room tone'], foley: ['key contact'], music: 'none', silenceBefore: 0.5, silenceAfter: 0.6 },
+    }),
+  ], [], { duration: 10, language: 'en', referenceAudioNames: ['Lin', 'Mei'], hasVoiceReferences: true });
+  assert.equal((prompt.match(/<d>/g) || []).length, 2);
+  assert.ok(prompt.indexOf('You should open it.') < prompt.indexOf('Then stay with me.'));
+});
+
 test('writes first/last-frame H3 prompts in the official base-mode structure', () => {
   const prompt = buildVideoSegmentPrompt([shot(1)], [], { duration: 8, firstFrameUrl: 'data:image/jpeg;base64,AA==' });
   assert.match(prompt, /^How the reference pictures align with the target video/);
