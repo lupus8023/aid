@@ -119,6 +119,13 @@ async function extractVideoTailFrame(source: string, label: string): Promise<str
   }
 }
 
+class TerminalVideoTaskError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TerminalVideoTaskError';
+  }
+}
+
 export default function StoryPage() {
   const { projectId, projectName, setProjectName, saveProject, loadProject, exportProject, adoptProjectId, newProject } = useProject();
   const { settings, saveSettings } = useSettings();
@@ -146,7 +153,9 @@ export default function StoryPage() {
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoStage, setAutoStage] = useState('');
   const autoAbortRef = useRef(false);
+  const autoRunLockRef = useRef(false);
   const videoRecoveryRef = useRef(new Set<string>());
+  const activeVideoPollsRef = useRef(new Map<string, Promise<void>>());
   const gridRecoveryRef = useRef(new Set<string>());
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
@@ -234,20 +243,51 @@ export default function StoryPage() {
           continue;
         }
 
-        // Compatibility recovery for projects created before local caching:
-        // a saved ComfyUI task id can still be downloaded again from 仙宫云.
+        // Resume the saved ComfyUI task instead of downloading immediately.
+        // A refresh can happen while ComfyUI is still processing; the old
+        // implementation treated "视频仍在生成中" as a recovery failure and
+        // permanently stranded the UI in the generating state even after the
+        // remote task subsequently completed.
         if (storyboard.videoTaskId && isComfyUIClientTask(storyboard.videoTaskId)) {
-          const recoveredUrl = await downloadComfyUIVideo(storyboard.videoTaskId, settingsRef.current.comfyui);
-          await cacheCompletedVideo(storyboard.id, recoveredUrl, segmentIds, cacheProjectId);
+          if (cacheProjectId !== projectIdRef.current) continue;
+          setStoryboards(prev => {
+            const next = prev.map(sb => segmentIds.includes(sb.id) ? {
+              ...sb,
+              videoStatus: 'generating' as const,
+            } : sb);
+            storyboardsRef.current = next;
+            return next;
+          });
+          // Attach every saved task at once. Waiting for the first remote job
+          // before watching the next one makes later completed segments look
+          // stuck for minutes even though their files are already available.
+          void pollVideoStatus(storyboard.id, storyboard.videoTaskId, segmentIds, cacheProjectId).catch(error => {
+            console.warn(`场景 ${storyboard.sceneNumber} 视频恢复失败:`, error);
+            if (cacheProjectId !== projectIdRef.current) return;
+            setStoryboards(prev => {
+              const next = prev.map(sb => segmentIds.includes(sb.id) ? {
+                ...sb,
+                videoStatus: 'failed' as const,
+                videoUrl: sb.videoUrl?.startsWith('blob:') ? undefined : sb.videoUrl,
+                videoCacheKey: cacheKey,
+                videoCacheStatus: 'failed' as const,
+              } : sb);
+              storyboardsRef.current = next;
+              return next;
+            });
+          });
+          continue;
         }
       } catch (error) {
         console.warn(`场景 ${storyboard.sceneNumber} 视频恢复失败:`, error);
         if (cacheProjectId !== projectIdRef.current) continue;
-        setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? {
+        const isTaskRecovery = Boolean(storyboard.videoTaskId && isComfyUIClientTask(storyboard.videoTaskId));
+        setStoryboards(prev => prev.map(sb => segmentIds.includes(sb.id) ? {
           ...sb,
           videoUrl: sb.videoUrl?.startsWith('blob:') ? undefined : sb.videoUrl,
           videoCacheKey: cacheKey,
           videoCacheStatus: 'failed',
+          ...(isTaskRecovery ? { videoStatus: 'failed' as const } : {}),
         } : sb));
       }
     }
@@ -1339,7 +1379,31 @@ export default function StoryPage() {
       });
       const data = await readApiJson<{ taskId: string }>(response, '视频任务创建失败');
       if (generationProjectId !== projectIdRef.current) return;
-      commitStoryboards(prev => prev.map(sb => segmentIds.includes(sb.id) ? { ...sb, videoTaskId: sb.id === leader.id ? data.taskId : undefined } : sb));
+      const submittedStoryboards = storyboardsRef.current.map(sb => segmentIds.includes(sb.id) ? {
+        ...sb,
+        videoTaskId: sb.id === leader.id ? data.taskId : undefined,
+      } : sb);
+      storyboardsRef.current = submittedStoryboards;
+      setStoryboards(submittedStoryboards);
+      // Persist the paid remote task immediately. A refresh in the first
+      // 30 seconds must not lose the only identifier that can recover it.
+      saveProject({
+        characters: charactersRef.current,
+        objects: objectsRef.current,
+        storyContent,
+        language: projectLanguageRef.current,
+        targetShotCount,
+        aspectRatio: projectAspectRatioRef.current,
+        visualStyle,
+        storyOutline: '',
+        storyboards: submittedStoryboards,
+        voiceReferences: voiceReferencesRef.current,
+        costumeImages: costumeImagesRef.current,
+        sceneImages: sceneImagesRef.current,
+        storyPlan,
+        videoSegmentPlan: videoSegmentPlanRef.current,
+        createdAt: new Date().toISOString(),
+      });
       await pollVideoStatus(leader.id, data.taskId, segmentIds, generationProjectId);
     } catch (error) {
       console.error('Video generation failed:', error);
@@ -1350,57 +1414,76 @@ export default function StoryPage() {
     }
   };
 
-  const pollVideoStatus = async (storyboardId: string, taskId: string, segmentStoryboardIds: string[] = [storyboardId], generationProjectId = projectIdRef.current) => {
-    const isComfyTask = isComfyUIClientTask(taskId);
-    let consecutiveErrors = 0;
-    for (let i = 0; i < 180; i++) {
-      await new Promise(resolve => setTimeout(resolve, 10000));
-      if (generationProjectId !== projectIdRef.current) return;
-      try {
-        const statusUrl = isComfyTask
-          ? comfyUIApiUrl('/api/check-video-status', settings.comfyui)
-          : '/api/check-video-status';
-        const response = await fetch(statusUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            taskId,
-            apiKey: settings.apiKey,
-            localDelivery: isComfyTask,
-            comfyui: localComfyUISettings(settings.comfyui),
-          })
-        });
-        if (!response.ok) throw new Error(await videoStatusResponseError(response));
+  const pollVideoStatus = (storyboardId: string, taskId: string, segmentStoryboardIds: string[] = [storyboardId], generationProjectId = projectIdRef.current): Promise<void> => {
+    const existingPoll = activeVideoPollsRef.current.get(taskId);
+    if (existingPoll) return existingPoll;
 
-        const data = await response.json();
+    const pollPromise = (async () => {
+      const isComfyTask = isComfyUIClientTask(taskId);
+      let consecutiveErrors = 0;
+      for (let i = 0; i < 180; i++) {
+        // Recovery checks immediately. Newly submitted jobs still settle into
+        // the regular ten-second cadence after this first inexpensive probe.
+        if (i > 0) await new Promise(resolve => setTimeout(resolve, 10000));
         if (generationProjectId !== projectIdRef.current) return;
+        try {
+          const currentSettings = settingsRef.current;
+          const statusUrl = isComfyTask
+            ? comfyUIApiUrl('/api/check-video-status', currentSettings.comfyui)
+            : '/api/check-video-status';
+          const response = await fetch(statusUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              taskId,
+              apiKey: currentSettings.apiKey,
+              localDelivery: isComfyTask,
+              comfyui: localComfyUISettings(currentSettings.comfyui),
+            })
+          });
+          if (!response.ok) throw new Error(await videoStatusResponseError(response));
 
-        if (isComfyTask && data.status === 'completed' && data.readyForDownload) {
-          const localVideoUrl = await downloadComfyUIVideo(taskId, settings.comfyui);
-          await cacheCompletedVideo(storyboardId, localVideoUrl, segmentStoryboardIds, generationProjectId);
-          return;
-        }
-        if (data.status === 'completed' && data.videoUrl) {
-          await cacheCompletedVideo(storyboardId, data.videoUrl, segmentStoryboardIds, generationProjectId);
-          return;
-        }
-        if (data.status === 'failed') throw new Error(data.error || '仙宫云视频任务执行失败');
-        consecutiveErrors = 0;
-      } catch (error) {
-        console.error('Video status polling error:', error);
-        consecutiveErrors += 1;
-        if (consecutiveErrors >= 3) {
-          throw new Error(`视频回传失败：${error instanceof Error ? error.message : '无法连接本地 Companion'}`);
+          const data = await response.json();
+          if (generationProjectId !== projectIdRef.current) return;
+
+          if (isComfyTask && data.status === 'completed' && data.readyForDownload) {
+            const localVideoUrl = await downloadComfyUIVideo(taskId, currentSettings.comfyui);
+            await cacheCompletedVideo(storyboardId, localVideoUrl, segmentStoryboardIds, generationProjectId);
+            return;
+          }
+          if (data.status === 'completed' && data.videoUrl) {
+            await cacheCompletedVideo(storyboardId, data.videoUrl, segmentStoryboardIds, generationProjectId);
+            return;
+          }
+          if (data.status === 'failed') throw new TerminalVideoTaskError(data.error || '仙宫云视频任务执行失败');
+          consecutiveErrors = 0;
+        } catch (error) {
+          console.error('Video status polling error:', error);
+          if (error instanceof TerminalVideoTaskError) throw error;
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= 3) {
+            throw new Error(`视频回传失败：${error instanceof Error ? error.message : '无法连接本地 Companion'}`);
+          }
         }
       }
-    }
-    if (generationProjectId !== projectIdRef.current) return;
-    throw new Error('视频生成超时（30 分钟内未完成）');
+      if (generationProjectId !== projectIdRef.current) return;
+      throw new Error('视频生成超时（30 分钟内未完成）');
+    })();
+
+    activeVideoPollsRef.current.set(taskId, pollPromise);
+    void pollPromise.finally(() => {
+      if (activeVideoPollsRef.current.get(taskId) === pollPromise) {
+        activeVideoPollsRef.current.delete(taskId);
+      }
+    }).catch(() => undefined);
+    return pollPromise;
   };
 
   // 一键成片：编剧 → 定妆/音色 → 图片 → 视频 → 成片，全自动顺序执行。
   const handleAutoGenerate = async () => {
+    if (autoRunLockRef.current) return;
     if (!settings.apiKey && !settings.dmxApiKey) { alert('Please configure API Key in settings'); return; }
+    autoRunLockRef.current = true;
     setAutoRunning(true);
     setAutoStage('编剧 + 分镜');
     autoAbortRef.current = false;
@@ -1454,6 +1537,22 @@ export default function StoryPage() {
           : group.every(item => item.videoStatus === 'completed');
         if (groupAlreadyCompleted) continue;
         let lastError: unknown;
+
+        // A refresh/re-entry must reattach to the paid task that already
+        // exists. Submitting a replacement here creates duplicate ComfyUI jobs
+        // and leaves several segment cards apparently generating at once.
+        const latestLeader = storyboardsRef.current.find(item => item.id === group[0].id);
+        const savedTaskId = latestLeader?.videoTaskId;
+        if (savedTaskId && isComfyUIClientTask(savedTaskId)) {
+          try {
+            await pollVideoStatus(group[0].id, savedTaskId, group.map(item => item.id), projectIdRef.current);
+            if (isCompletedVideoSegment(group.map(item => storyboardsRef.current.find(current => current.id === item.id) || item))) {
+              continue;
+            }
+          } catch (error) {
+            lastError = error;
+          }
+        }
         for (let attempt = 1; attempt <= 3; attempt += 1) {
           if (autoAbortRef.current) return;
           try {
@@ -1477,6 +1576,7 @@ export default function StoryPage() {
       if (autoAbortRef.current) return;
       alert(`自动生成中断：${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
+      autoRunLockRef.current = false;
       setAutoRunning(false);
       setAutoStage('');
     }
