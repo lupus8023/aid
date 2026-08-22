@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.29 - 2026-08-23
+
+### Added
+
+- One-click Film is now a resumable unattended production runner covering screenplay/storyboards, production references, images, grouped H3 clips, local caching, Companion FFmpeg merge and final download.
+- The One-click Film control now supports real pause/continue semantics. Pausing preserves all completed artifacts and already-submitted provider task IDs; continuing resumes at the first genuinely unfinished item.
+
+### Fixed
+
+- One-click Film no longer exits silently after a transient image, video, Companion or export failure. Recoverable stages retry with bounded 3/8/15/30/60-second backoff until completion or an explicit pause.
+- Existing storyboard image URLs are authoritative even when an older saved status still says pending or generating, so completed references are not regenerated after refresh or resume.
+- Interrupted paid 3×3 image tasks reconnect to the same APIMart task and re-split its result. A partially completed batch without a recoverable mother-grid task repairs only the missing shots instead of replacing finished images.
+- Submitted single-image repair tasks and grid tasks are persisted and distinguished, preventing refresh recovery from treating a single-image job as a nine-panel grid.
+- Saved ComfyUI video task IDs are re-polled after network timeouts; only an explicit terminal provider failure permits a replacement submission. Completed clips are skipped and final native export retries automatically.
+
+### Tests
+
+- Added regression coverage for artifact-first resume, paid-grid reattachment, partial single-shot repair, task-kind isolation and bounded unattended retry timing. Grid recovery, native local export and the production build pass.
+
 ## 0.1.28 - 2026-08-22
 
 ### Fixed

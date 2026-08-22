@@ -19,6 +19,9 @@ interface VideoEditorProps {
   projectName?: string;
   companionSettings?: Partial<NonNullable<AppSettings['comfyui']>>;
   aspectRatio?: StoryAspectRatio;
+  autoExportRequestId?: number;
+  onAutoExportComplete?: () => void;
+  onAutoExportError?: (error: unknown) => void;
 }
 
 type ExportStatus = { progress: number; stage: string };
@@ -40,6 +43,9 @@ export default function VideoEditor({
   projectName,
   companionSettings,
   aspectRatio = '16:9',
+  autoExportRequestId = 0,
+  onAutoExportComplete,
+  onAutoExportError,
 }: VideoEditorProps) {
   const continuityFlags = continuousFromPrevious ?? EMPTY_CONTINUITY_FLAGS;
   const [clips, setClips] = useState<VideoClip[]>([]);
@@ -51,6 +57,7 @@ export default function VideoEditor({
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const recoveryStartedRef = useRef(false);
+  const automaticRequestStartedRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,6 +186,7 @@ export default function VideoEditor({
       console.error('Export failed:', error);
       if (!automaticRecovery) alert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`);
       else setExportStatus({ progress: 0, stage: `自动恢复失败：${error instanceof Error ? error.message : '未知错误'}` });
+      throw error;
     } finally {
       setIsExporting(false);
       if (!automaticRecovery) setExportStatus({ progress: 0, stage: '' });
@@ -187,13 +195,35 @@ export default function VideoEditor({
 
   useEffect(() => {
     if (isLoading || clips.length === 0 || recoveryStartedRef.current || !projectId) return;
+    if (autoExportRequestId > 0) return;
     if (!hasPendingNativeExport(projectId)) return;
     recoveryStartedRef.current = true;
-    void handleExport(true);
+    void handleExport(true).catch(() => undefined);
     // Recovery is intentionally evaluated only when this project's clips have
     // finished loading. The persistent marker is cleared only after success.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, clips.length, projectId]);
+  }, [isLoading, clips.length, projectId, autoExportRequestId]);
+
+  useEffect(() => {
+    if (isLoading || !loadError || autoExportRequestId <= 0) return;
+    if (automaticRequestStartedRef.current === autoExportRequestId) return;
+    automaticRequestStartedRef.current = autoExportRequestId;
+    onAutoExportError?.(new Error(loadError));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, loadError, autoExportRequestId]);
+
+  useEffect(() => {
+    if (isLoading || clips.length === 0 || autoExportRequestId <= 0) return;
+    if (automaticRequestStartedRef.current === autoExportRequestId) return;
+    automaticRequestStartedRef.current = autoExportRequestId;
+    void handleExport(true).then(
+      () => onAutoExportComplete?.(),
+      error => onAutoExportError?.(error),
+    );
+    // The request id is the explicit retry token. Callback identity changes
+    // must not start a second export for the same token.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, clips.length, autoExportRequestId]);
 
   if (isLoading) {
     return <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)] font-mono text-sm">Loading videos...</div>;
@@ -229,7 +259,7 @@ export default function VideoEditor({
               {isPlaying ? 'Pause' : 'Play'}
             </button>
             <button
-              onClick={() => void handleExport(false)}
+              onClick={() => void handleExport(false).catch(() => undefined)}
               disabled={isExporting || clips.length === 0}
               className="flex items-center gap-2 px-4 py-2 text-xs font-mono bg-[var(--accent-green)] hover:bg-[#5dd18d] text-white rounded disabled:opacity-50"
             >

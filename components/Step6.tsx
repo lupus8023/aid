@@ -11,9 +11,22 @@ interface Step6Props {
   projectName?: string;
   companionSettings?: Partial<NonNullable<AppSettings['comfyui']>>;
   aspectRatio?: StoryAspectRatio;
+  autoExportRequestId?: number;
+  onAutoExportComplete?: () => void;
+  onAutoExportError?: (error: unknown) => void;
 }
 
-export default function Step6({ storyboards, onBack, projectId, projectName, companionSettings, aspectRatio = '16:9' }: Step6Props) {
+export default function Step6({
+  storyboards,
+  onBack,
+  projectId,
+  projectName,
+  companionSettings,
+  aspectRatio = '16:9',
+  autoExportRequestId,
+  onAutoExportComplete,
+  onAutoExportError,
+}: Step6Props) {
   const seenSegments = new Set<string>();
   const completedShots = storyboards
     .map((storyboard, originalIndex) => ({ storyboard, originalIndex }))
@@ -55,6 +68,9 @@ export default function Step6({ storyboards, onBack, projectId, projectName, com
             projectName={projectName}
             companionSettings={companionSettings}
             aspectRatio={aspectRatio}
+            autoExportRequestId={autoExportRequestId}
+            onAutoExportComplete={onAutoExportComplete}
+            onAutoExportError={onAutoExportError}
           />
         </div>
       ) : (

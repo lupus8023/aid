@@ -64,6 +64,7 @@ export interface Storyboard {
   gridSourceUrl?: string; // 高分辨率九宫格母图；用于恢复或重新拆分
   status: 'pending' | 'generating' | 'completed' | 'failed';
   taskId?: string; // APIMart 任务 ID
+  imageTaskMode?: 'grid' | 'single'; // 断点恢复时区分九宫格母图与单张补图任务
   imagePromptOverride?: string; // 内容安全自动修订后的生图专用提示词，不改写原始分镜
   imageFailureReason?: string; // 最近一次生图失败或自动修订原因
   imageRetryCount?: number; // 内容安全自动重试次数
