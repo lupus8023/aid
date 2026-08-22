@@ -27,7 +27,7 @@ import {
   type VideoSegmentPlan,
   validateVideoSegment,
 } from '@/lib/videoSegments';
-import { storyboardAudioPlan, storyboardSpeech } from '@/lib/speechAudioContract';
+import { storyboardAudioPlan, storyboardSpeech, storyboardSpeechWarnings } from '@/lib/speechAudioContract';
 import { storyAspectClass, storyAspectRatioFromDimensions, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 
 interface Step5Props {
@@ -117,6 +117,7 @@ export default function Step5({
   const activeLeader = activeGroup[0];
   const activeStatus = segmentStatus(activeGroup);
   const activeSpeech = activeGroup.flatMap(storyboardSpeech);
+  const activeSpeechWarnings = activeGroup.flatMap(storyboardSpeechWarnings);
   const activeValidationError = activeGroup.length ? validateVideoSegment(activeGroup, language) : undefined;
   const activeEnvironment = [...new Set(activeGroup.flatMap(item => storyboardAudioPlan(item).environment))];
   const activeFoley = [...new Set(activeGroup.flatMap(item => storyboardAudioPlan(item).foley))];
@@ -262,7 +263,8 @@ export default function Step5({
 
               <div className="mt-4 rounded-lg border border-[var(--border-color)] bg-black/10 p-3 text-[10px]">
                 <p className="font-semibold text-white">台词与声音白名单</p>
-                {activeSpeech.length ? activeSpeech.map(line => { const hasVoice = Boolean(line.voiceId || voiceReferences[line.character]); return <div key={`${line.speakerId}-${line.exactLine}`} className="mt-2 rounded border border-white/5 p-2"><div className="flex justify-between gap-2"><span className="text-[var(--workspace-accent)]">{line.speakerId} · {line.character}</span><span className={hasVoice ? 'text-emerald-300' : 'text-amber-300'}>{hasVoice ? '音色已绑定' : '未绑定角色音色'}</span></div><p className="mt-1 leading-5 text-white">“{line.exactLine}”</p><p className="mt-1 text-[var(--text-muted)]">只说一次 · 其余人物闭嘴无声反应</p></div>; }) : <p className="mt-2 text-[var(--text-secondary)]">无人声；所有可见人物保持无声表演。</p>}
+                {activeSpeech.length ? activeSpeech.map(line => { const hasVoice = Boolean(line.voiceId || voiceReferences[line.character]); return <div key={`${line.speakerId}-${line.exactLine}`} className="mt-2 rounded border border-white/5 p-2"><div className="flex justify-between gap-2"><span className="text-[var(--workspace-accent)]">{line.speakerId} · {line.character}</span><span className={hasVoice ? 'text-emerald-300' : 'text-amber-300'}>{hasVoice ? '音色已绑定' : '未绑定角色音色'}</span></div><p className="mt-1 leading-5 text-white">“{line.exactLine}”</p><p className="mt-1 text-[var(--text-muted)]">仅该角色按上方文字发声一次</p></div>; }) : <p className="mt-2 text-[var(--text-secondary)]">本片段没有授权台词。</p>}
+                {activeSpeechWarnings.length > 0 && <div className="mt-2 rounded border border-amber-300/20 bg-amber-300/5 px-2 py-1.5 text-amber-200">{[...new Set(activeSpeechWarnings)].join('；')}</div>}
                 <div className="mt-3 space-y-1 text-[var(--text-secondary)]"><p>背景人声：{allowsBackgroundHuman ? '仅不可辨识的非语言存在感' : '禁止'}</p><p>环境声：{activeEnvironment.length ? activeEnvironment.join('、') : '仅安静场底'}</p><p>拟音：{activeFoley.length ? activeFoley.join('、') : '仅画面可见接触声'}</p><p>音乐：{activeGroup.some(item => storyboardAudioPlan(item).music !== 'none') ? '按剧本指定' : '禁止'}</p></div>
               </div>
 

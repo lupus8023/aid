@@ -22,7 +22,7 @@ export interface Beat {
   characters: string[]; // 本镜头出现的角色（精确匹配上传角色名）
   objects: string[]; // 本镜头出现的道具（精确匹配上传物件名）
   dialogueLines: { character: string; text: string }[]; // 台词（≤1 句/镜，带潜台词）
-  speech: StorySpeechLine[]; // 唯一权威台词源；每 beat 最多一个已出场角色说话
+  speech: StorySpeechLine[]; // 唯一权威台词源；每 beat 最多一个在 action 中明确点名的已出场角色说话
   audioPlan: StoryAudioPlan; // 人声/环境/拟音/音乐/留白分层，不允许模型自由补人声
   clipType: StoryClipType;
   dramaticPurpose: string;

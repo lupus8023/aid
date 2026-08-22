@@ -33,6 +33,20 @@ test('normalizes the global map to exact continuous indexes and rejects a wrong 
   assert.throws(() => normalizeStoryOutline({ sequences: [outlineSequence('seq-1', 1, 8)] }, 9), /返回了 8 个镜头地图/);
 });
 
+test('requires every outline dialogue line to retain a valid uploaded speaker', () => {
+  const invalid = outlineSequence('seq-1', 1, 9);
+  invalid.beatMap[0].requiredLine = '我妹妹还在里面。';
+  invalid.beatMap[0].requiredSpeaker = '临时少年';
+  assert.throws(
+    () => normalizeStoryOutline({ sequences: [invalid] }, 9, ['人鱼公主']),
+    /没有有效 requiredSpeaker/,
+  );
+
+  invalid.beatMap[0].requiredSpeaker = '人鱼公主';
+  const outline = normalizeStoryOutline({ sequences: [invalid] }, 9, ['人鱼公主']);
+  assert.equal(outline.sequences[0].beatMap[0].requiredSpeaker, '人鱼公主');
+});
+
 test('screenplay batches never exceed nine shots and never cross a sequence boundary', () => {
   const outline = normalizeStoryOutline({
     sequences: [outlineSequence('seq-1', 1, 12), outlineSequence('seq-2', 13, 6)],

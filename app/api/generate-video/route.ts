@@ -9,10 +9,7 @@ export const maxDuration = 300;
 
 function dialogueLineList(storyboard: any): any[] {
   const speech = storyboardSpeech(storyboard);
-  if (speech.length) return speech.map(line => ({ character: line.character, text: line.exactLine }));
-  return Array.isArray(storyboard?.dialogueLines) && storyboard.dialogueLines.length
-    ? storyboard.dialogueLines
-    : Object.entries(storyboard?.dialogue || {}).map(([character, text]) => ({ character, text }));
+  return speech.map(line => ({ character: line.character, text: line.exactLine }));
 }
 
 function speakingCharacterNames(storyboard: any): string[] {

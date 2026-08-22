@@ -26,8 +26,9 @@ function regexpEscape(value: string): string {
 export function sanitizeVisualDirection(value: unknown, exactSpokenLines: string[] = []): string {
   const withoutDialogueTags = String(value || '').replace(/<d>[\s\S]*?<\/d>/gi, ' ');
   const visualLines = withoutDialogueTags.split(/\r?\n/).filter(line => !(
-    /(?:overall_soundscape|non_diegetic_music|speech contract|foreground speech|background human|audio manifest|voice[- ]?timbre)/i.test(line)
+    /(?:overall_soundscape|non_diegetic_music|speech contract|speech gate|spoken_words_only|non_spoken_performance|foreground speech|background human|audio manifest|voice[- ]?timbre)/i.test(line)
     || /(?:台词|对白|配音|旁白|画外音|说话内容)\s*[:：]/.test(line)
+    || /^\s*(?:dialogue|subject_definitions|retention_analysis)\s*:/i.test(line)
   ));
   let withoutSpeechDirectives = visualLines.join(' ')
     // Director/image descriptions frequently repeat a line as part of a
@@ -59,24 +60,24 @@ function dialogueLanguage(text: string): string {
 
 function nonSpokenPerformanceControl(emotion: string, delivery: string): string {
   const source = `${emotion || ''} ${delivery || ''}`.toLowerCase();
-  const emotionCode = /坚定|果断|决心|determined|firm|resolute/.test(source)
-    ? 'controlled_determination'
+  const emotionPhrase = /坚定|果断|决心|determined|firm|resolute/.test(source)
+    ? 'restrained determination'
     : /害怕|恐惧|紧张|fear|afraid|tense|anxious/.test(source)
-      ? 'contained_tension'
+      ? 'contained tension'
       : /悲|难过|伤心|sad|grief|sorrow/.test(source)
-        ? 'restrained_sadness'
+        ? 'restrained sadness'
         : /愤怒|生气|angry|anger|furious/.test(source)
-          ? 'contained_anger'
+          ? 'contained anger'
           : /喜悦|开心|温柔|happy|warm|gentle|joy/.test(source)
-            ? 'subtle_warmth'
-            : 'restrained_scene_emotion';
-  const onsetCode = /停顿|沉默|pause|hesitat/.test(source) ? 'brief_pre_line_pause' : 'direct_onset';
-  const paceCode = /快速|急促|fast|quick|urgent/.test(source)
-    ? 'brisk_natural_pace'
+            ? 'subtle warmth'
+            : 'restrained scene emotion';
+  const onsetPhrase = /停顿|沉默|pause|hesitat/.test(source) ? 'after one brief natural pause' : 'with a direct natural onset';
+  const pacePhrase = /快速|急促|fast|quick|urgent/.test(source)
+    ? 'at a brisk conversational pace'
     : /缓慢|慢速|slow|measured/.test(source)
-      ? 'measured_natural_pace'
-      : 'natural_pace';
-  return `NON_SPOKEN_PERFORMANCE={emotion:${emotionCode},onset:${onsetCode},pace:${paceCode}}`;
+      ? 'at a measured conversational pace'
+      : 'at a natural conversational pace';
+  return `${emotionPhrase}, ${onsetPhrase}, ${pacePhrase}`;
 }
 
 function officialCameraMotion(storyboard: Storyboard, index: number): string {
@@ -100,9 +101,28 @@ function officialCameraMotion(storyboard: Storyboard, index: number): string {
 function authoritativeShotAction(storyboard: Storyboard): string {
   const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
   return compactText(
-    sanitizeVisualDirection(storyboard.action || storyboard.description || storyboard.prompt, spokenLines),
+    // Director prompts are deliberately authored in English for H3. The
+    // screenplay action remains the fallback for legacy projects.
+    sanitizeVisualDirection(storyboard.prompt || storyboard.action || storyboard.description, spokenLines),
     260,
   );
+}
+
+function officialShotFraming(storyboard: Storyboard): string {
+  const framing = `${storyboard.shotSize || ''} ${storyboard.angle || ''}`.toLowerCase();
+  const size = /大特写|extreme close/.test(framing) ? 'extreme close-up'
+    : /特写|close/.test(framing) ? 'close-up'
+      : /近景|medium close/.test(framing) ? 'medium close-up'
+        : /中景|medium/.test(framing) ? 'medium shot'
+          : /全景|full shot/.test(framing) ? 'full shot'
+            : /远景|wide|long shot/.test(framing) ? 'wide shot'
+              : 'story-motivated framing';
+  const angle = /仰|low angle/.test(framing) ? 'from a low angle'
+    : /俯|top|high angle/.test(framing) ? 'from a high angle'
+      : /过肩|over.?shoulder/.test(framing) ? 'over the shoulder'
+        : /fpv|主观/.test(framing) ? 'from the character point of view'
+          : 'at a natural eye-level angle';
+  return `${size} ${angle}`;
 }
 
 function shotMotionCadence(storyboard: Storyboard): string {
@@ -128,7 +148,10 @@ function shotSoundCue(storyboard: Storyboard): string {
   const plan = storyboardAudioPlan(storyboard);
   const environment = plan.environment.length ? plan.environment.join(', ') : 'location room tone';
   const foley = plan.foley.length ? plan.foley.join(', ') : 'only sounds caused by the visible action';
-  return `SOUND: env={${environment}}; Foley={${foley}}; people=${plan.backgroundHuman}.`;
+  const humanLayer = plan.backgroundHuman === 'indistinct_nonverbal'
+    ? 'Background people contribute only an indistinct nonverbal presence.'
+    : '';
+  return `The audible layer is ${environment}, with ${foley} synchronized to visible causes. ${humanLayer}`.trim();
 }
 
 function cinematicTransition(previous: Storyboard, next: Storyboard): string {
@@ -142,25 +165,25 @@ function cinematicTransition(previous: Storyboard, next: Storyboard): string {
     || (next.continuityFrom && next.continuityFrom === `scene-${previous.sceneNumber}`),
   );
   if (explicitContinuity) {
-    return 'ACTION-MATCH CUT: cut mid-motion; resume vector, speed, screen direction and physical state';
+    return 'cutting mid-motion while preserving vector, speed, screen direction and physical state';
   }
   if (sharedObjects.length) {
-    return `PROP-MATCH CUT on ${sharedObjects[0]}: end on motion/contact; resume its cause or changed state`;
+    return `matching the motion or contact of ${sharedObjects[0]} to its changed state`;
   }
   if (sharedCharacters.length) {
-    return `EYELINE/REACTION BRIDGE via ${sharedCharacters[0]}: directed look/gesture motivates next view`;
+    return `letting ${sharedCharacters[0]}'s eyeline or gesture motivate the next view`;
   }
   if (previous.sequenceId === next.sequenceId && previous.locationId === next.locationId) {
-    return 'CUT ON MOTION: foreground crossing hides cut; preserve geography/screen direction';
+    return 'hiding the cut behind foreground motion while preserving geography and screen direction';
   }
-  return 'MOTIVATED MATCH CUT: shared vector/shape/light/sound cause enters new geography';
+  return 'matching a shared vector, shape, light change or caused sound into the new geography';
 }
 
 function shotActionSchedule(storyboard: Storyboard, range: { start: number; end: number }): string {
   const span = Math.max(0.1, range.end - range.start);
   const commitment = range.start + span * 0.62;
   const consequence = range.start + span * 0.84;
-  return `ACTION: ${authoritativeShotAction(storyboard)} CADENCE: ${shotMotionCadence(storyboard)} TIMING: initiate ${h3Timestamp(range.start)}; decisive move/contact by ${h3Timestamp(commitment)}; consequence/reaction by ${h3Timestamp(consequence)}; live secondary motion to ${h3Timestamp(range.end)}, never stretch one gesture.`;
+  return `${authoritativeShotAction(storyboard)} The action begins immediately at ${h3Timestamp(range.start)}; its decisive move or contact lands by ${h3Timestamp(commitment)}, the visible consequence arrives by ${h3Timestamp(consequence)}, and secondary motion remains alive through ${h3Timestamp(range.end)}. The cadence is ${shotMotionCadence(storyboard)}`;
 }
 
 export function buildVideoSegmentPrompt(
@@ -202,9 +225,13 @@ export function buildVideoSegmentPrompt(
       const subject = subjectId.get(name);
       const source = subject ? `<Subject ${subject}> (${id})` : `${name || 'The on-screen speaker'} (${id})`;
       const performance = nonSpokenPerformanceControl(line.emotion, line.delivery);
+      const volume = line.volume === 'raised' ? 'at a raised but controlled volume'
+        : line.volume === 'soft' ? 'softly'
+          : line.volume === 'whisper' ? 'in a restrained whisper'
+            : 'at a natural speaking volume';
       return line.lipSync
-        ? `${h3Timestamp(line.start)}–${h3Timestamp(line.end)} ${source}; ${performance}; volume=${line.volume}; SPOKEN_WORDS_ONLY=<d>[${dialogueLanguage(text)}] ${text}</d>.`
-        : `${h3Timestamp(line.start)}–${h3Timestamp(line.end)} off-screen ${source}; ${performance}; volume=${line.volume}; SPOKEN_WORDS_ONLY=<d>[${dialogueLanguage(text)}] ${text}</d>; all on-screen mouths closed.`;
+        ? `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, ${source} delivers one synchronized line with ${performance}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>.`
+        : `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, the off-screen voice of ${source} delivers one line with ${performance}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>.`;
     }).join(' ');
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
@@ -213,13 +240,13 @@ export function buildVideoSegmentPrompt(
     const referenceNumber = index + referenceOffset;
     const beatCharacters = [...new Set(storyboard.characters || [])];
     const cast = beatCharacters.length
-      ? `CAST={${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}> (${name})` : name).join(', ')}}; MULTIPLICITY=one_each.`
-      : 'CAST={};';
+      ? `${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}> (${name})` : name).join(' and ')} are the only visible story identities in this shot, each appearing once.`
+      : 'No story character is visible in this shot.';
     const entry = index === 0
       ? options.firstFrameUrl
-        ? 'ENTRY: inherited frame already moving; continue momentum, eyeline and camera inertia.'
-        : 'ENTRY: start on action; establish geography within one second.'
-      : `ENTRY ${h3Timestamp(range.start)}: continue [Shot ${index}] via its motivated cut.`;
+        ? 'The inherited opening frame is already moving; continue its momentum, eyeline and camera inertia.'
+        : 'Start directly on visible action and establish the necessary geography within one second.'
+      : `Continue from [Shot ${index}] through its motivated physical transition.`;
     const dialogue = renderDialogue(storyboard, index);
     const pictureAnchor = isFirstLastMode
       ? index === storyboards.length - 1
@@ -233,16 +260,17 @@ export function buildVideoSegmentPrompt(
       ? ` LOOK: ${compactText(visualDirection, 140)}`
       : '';
     const handoff = index < storyboards.length - 1
-      ? `TO [Shot ${index + 2}] ${h3Timestamp(range.end)}: ${cinematicTransition(storyboard, storyboards[index + 1])}.`
-      : `END ${h3Timestamp(range.end)}: leave motivated motion/eyeline/consequence, never a dead hold.`;
-    return `[Shot ${index + 1} | ${h3Timestamp(range.start)}–${h3Timestamp(range.end)} | ${shotSeconds.toFixed(1)}s] ${entry} ${pictureAnchor} ${cast}${(storyboard.objects || []).length ? ` PROPS={${(storyboard.objects || []).join(', ')}}.` : ''} FRAME: ${storyboard.shotSize || 'story-motivated size'}, ${storyboard.angle || 'story-motivated angle'}.${visualAnchor} ${shotActionSchedule(storyboard, range)} CAMERA: ${officialCameraMotion(storyboard, index)} ${dialogue ? `DIALOGUE: ${dialogue}` : 'DIALOGUE: none; mouths non-speaking.'} ${shotSoundCue(storyboard)} ${handoff}`;
+      ? `At ${h3Timestamp(range.end)}, move into [Shot ${index + 2}] by ${cinematicTransition(storyboard, storyboards[index + 1])}.`
+      : `By ${h3Timestamp(range.end)}, leave a motivated motion, eyeline or consequence rather than a dead hold.`;
+    const shotHeader = index === 0 ? '[Shot 1]' : `[Shot ${index + 1}] At ${h3Timestamp(range.start)},`;
+    const props = (storyboard.objects || []).length
+      ? `The visible story props are ${(storyboard.objects || []).join(', ')}.`
+      : '';
+    return `${shotHeader} ${entry} ${pictureAnchor} ${cast} ${props} Use ${officialShotFraming(storyboard)}.${visualAnchor} ${shotActionSchedule(storyboard, range)} The camera uses ${officialCameraMotion(storyboard, index)}. ${dialogue} ${shotSoundCue(storyboard)} ${handoff}`;
   });
 
   const visualOverride = sanitizeVisualDirection(options.visualOverride, timedSpeech.map(line => line.exactLine));
-  const speechGate = timedSpeech.length
-    ? 'SPEECH GATE: vocalize only text inside <d>; never speak timing/performance/camera/sound controls.'
-    : 'SPEECH GATE: no spoken words or human vocalization.';
-  const styleOpening = `${style.h3Direction}${visualOverride ? ` Visual-only override: ${visualOverride} This direction is visual-only.` : ''} ${NO_SUBTITLE_POLICY} ${speechGate} Cuts are physical/cinematic, never fades or dissolves.`;
+  const styleOpening = `${style.h3Direction}${visualOverride ? ` Visual-only override: ${visualOverride} This direction is visual-only.` : ''} ${NO_SUBTITLE_POLICY} Cuts are physical and motivated, never fades or dissolves.`;
   const physics = buildVideoContinuityRules(hasVoiceReferences)
     .replace(/\n+/g, ' ')
     .replace(/PHYSICS:|CONSTRAINTS:/g, '')

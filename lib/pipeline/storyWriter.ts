@@ -17,6 +17,7 @@ export interface StoryOutlineBeat {
   cause: string;
   consequence: string;
   emotionalTurn: string;
+  requiredSpeaker: string;
   requiredLine: string;
 }
 
@@ -83,19 +84,28 @@ function clampSilence(value: unknown, fallback: number): number {
   return Number.isFinite(n) ? Math.min(3, Math.max(0, Math.round(n * 10) / 10)) : fallback;
 }
 
-export function normalizeStoryOutline(raw: any, targetShotCount: number): StoryOutline {
+export function normalizeStoryOutline(raw: any, targetShotCount: number, allowedCharacters: string[] = []): StoryOutline {
   let nextIndex = 0;
   const sequences: StoryOutlineSequence[] = (Array.isArray(raw?.sequences) ? raw.sequences : [])
     .map((sequence: any, sequenceIndex: number) => {
       const beatMap: StoryOutlineBeat[] = (Array.isArray(sequence?.beatMap) ? sequence.beatMap : [])
-        .map((beat: any) => ({
-          index: ++nextIndex,
-          actionGoal: asString(beat?.actionGoal, asString(beat?.action)).trim(),
-          cause: asString(beat?.cause).trim(),
-          consequence: asString(beat?.consequence).trim(),
-          emotionalTurn: asString(beat?.emotionalTurn).trim(),
-          requiredLine: asString(beat?.requiredLine).replace(/\s+/g, ' ').trim(),
-        }));
+        .map((beat: any) => {
+          const requiredLine = asString(beat?.requiredLine).replace(/\s+/g, ' ').trim();
+          const requestedSpeaker = asString(beat?.requiredSpeaker).trim();
+          const requiredSpeaker = allowedCharacters.includes(requestedSpeaker) ? requestedSpeaker : '';
+          if (requiredLine && !requiredSpeaker) {
+            throw new Error(`镜头 ${nextIndex + 1} 有指定台词但没有有效 requiredSpeaker；临时或未上传角色不得发声`);
+          }
+          return {
+            index: ++nextIndex,
+            actionGoal: asString(beat?.actionGoal, asString(beat?.action)).trim(),
+            cause: asString(beat?.cause).trim(),
+            consequence: asString(beat?.consequence).trim(),
+            emotionalTurn: asString(beat?.emotionalTurn).trim(),
+            requiredSpeaker,
+            requiredLine,
+          };
+        });
       return {
         id: asString(sequence?.id, `seq-${sequenceIndex + 1}`),
         locationId: asString(sequence?.locationId, `loc-${sequenceIndex + 1}`).replace(/[^a-zA-Z0-9_-]/g, '_'),
@@ -206,6 +216,7 @@ export function sanitizeStoryPlan(
             exactLine: line?.text,
             source: 'story_required',
           }));
+      const visibleAction = asString(b?.action);
       const speech: StorySpeechLine[] = rawSpeech.map((line: any): StorySpeechLine | undefined => {
         const character = asString(line?.character || line?.speaker).trim();
         const source = line?.source === 'user_exact' ? 'user_exact' : 'story_required';
@@ -214,10 +225,14 @@ export function sanitizeStoryPlan(
         if (!character || !exactLine || !allowedCharacters.includes(character) || !beatCharacters.includes(character)) return undefined;
         if (source === 'user_exact' && !sourceBrief.includes(exactLine)) return undefined;
         if (source !== 'user_exact' && isDirectingInstructionDialogue(exactLine)) return undefined;
+        // A generated line is valid only when the visible action explicitly
+        // names the same uploaded identity as the speaker. This blocks a line
+        // belonging to an unnamed passer-by from being reassigned to the lead.
+        if (source !== 'user_exact' && !visibleAction.includes(character)) return undefined;
         const signature = `${character}\u0000${exactLine}`;
         if (signature === previousBeatSpeechSignature) return undefined;
         return {
-          speakerId: `S${String(allowedCharacters.indexOf(character) + 1).padStart(2, '0')}`,
+          speakerId: `S${allowedCharacters.indexOf(character) + 1}`,
           character,
           voiceId: voiceIds[character],
           exactLine,
@@ -342,7 +357,7 @@ export async function generateStoryPlan(input: {
   const outline = await requestStructuredJson<StoryOutline>({
     prompt: outlinePrompt,
     label: '故事骨架',
-    validate: raw => normalizeStoryOutline(raw, targetShotCount),
+    validate: raw => normalizeStoryOutline(raw, targetShotCount, characters.map(character => character.name)),
     apiKey,
     dmxApiKey,
     provider: scriptProvider,
@@ -392,6 +407,16 @@ export async function generateStoryPlan(input: {
             cause: asString(beat?.cause, authority.cause),
             consequence: asString(beat?.consequence, authority.consequence),
             characterChange: asString(beat?.characterChange, authority.emotionalTurn),
+            speech: authority.requiredLine && authority.requiredSpeaker
+              ? [{
+                  ...(Array.isArray(beat?.speech)
+                    ? beat.speech.find((line: any) => asString(line?.character || line?.speaker).trim() === authority.requiredSpeaker)
+                    : undefined),
+                  character: authority.requiredSpeaker,
+                  exactLine: authority.requiredLine,
+                  source: synopsis.includes(authority.requiredLine) ? 'user_exact' : 'story_required',
+                }]
+              : beat?.speech,
             promptDraft: '',
             sceneStyle: '',
           };

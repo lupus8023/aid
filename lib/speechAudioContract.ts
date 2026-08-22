@@ -72,6 +72,19 @@ function stableSpeakerId(name: string): string {
   return `S${String(hash + 1).padStart(2, '0')}`;
 }
 
+function officialSpeakerId(value: unknown, character: string): string {
+  const raw = clean(value) || stableSpeakerId(character);
+  const match = raw.match(/^S0*(\d+)$/i);
+  return match ? `S${Number(match[1])}` : raw;
+}
+
+function generatedSpeakerIsVisible(storyboard: Storyboard, line: StorySpeechLine): boolean {
+  if (line.source === 'user_exact') return true;
+  const action = clean(storyboard.action);
+  if (!action) return true; // Legacy projects may not have preserved an action field.
+  return action.toLocaleLowerCase().includes(clean(line.character).toLocaleLowerCase());
+}
+
 export function speechSeconds(text: string): number {
   const value = clean(text);
   const han = (value.match(/[\u3400-\u9fff]/g) || []).length;
@@ -101,7 +114,7 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
   return source
     .map(line => ({
       ...line,
-      speakerId: clean(line.speakerId) || stableSpeakerId(clean(line.character)),
+      speakerId: officialSpeakerId(line.speakerId, clean(line.character)),
       character: clean(line.character),
       exactLine: line.source === 'user_exact'
         ? clean(line.exactLine)
@@ -116,8 +129,30 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
     .filter(line => line.character
       && line.exactLine
       && visible.has(line.character)
+      && generatedSpeakerIsVisible(storyboard, line)
       && (line.source === 'user_exact' || !isDirectingInstructionDialogue(line.exactLine)))
     .slice(0, 1);
+}
+
+export function storyboardSpeechWarnings(storyboard: Storyboard): string[] {
+  const rawLines = storyboard.speech?.length
+    ? storyboard.speech
+    : (storyboard.dialogueLines || []).map(line => ({
+        speakerId: stableSpeakerId(clean(line.character)),
+        character: clean(line.character),
+        exactLine: clean(line.text),
+        emotion: '', delivery: '', volume: 'normal' as const, lipSync: true,
+        source: 'story_required' as const,
+      }));
+  const visible = new Set(storyboard.characters || []);
+  return rawLines.flatMap(line => {
+    const exactLine = line.source === 'user_exact' ? clean(line.exactLine) : sanitizeGeneratedSpeechText(line.exactLine);
+    if (!exactLine || isDirectingInstructionDialogue(exactLine)) return ['已拦截被误写成台词的导演/表演说明'];
+    if (!visible.has(clean(line.character))) return [`已拦截未出场角色“${clean(line.character) || '未知'}”的台词`];
+    const normalized = { ...line, character: clean(line.character), exactLine } as StorySpeechLine;
+    if (!generatedSpeakerIsVisible(storyboard, normalized)) return [`已拦截与画面动作不匹配的“${normalized.character}”台词`];
+    return [];
+  });
 }
 
 export function segmentSpeechSignature(storyboards: Storyboard[]): string {
@@ -160,15 +195,6 @@ export function validateSpeechLanguage(storyboards: Storyboard[], language?: 'zh
 
 export function validateSpeechContract(storyboards: Storyboard[]): string | undefined {
   const lines = storyboards.flatMap(storyboardSpeech);
-  const rawCount = storyboards.reduce((total, storyboard) => {
-    const rawLines = storyboard.speech?.length
-      ? storyboard.speech
-      : storyboard.dialogueLines?.length
-        ? storyboard.dialogueLines.map(line => ({ exactLine: line.text, source: 'story_required' as const }))
-        : Object.values(storyboard.dialogue || {}).map(exactLine => ({ exactLine, source: 'story_required' as const }));
-    return total + rawLines.filter(line => line.source === 'user_exact' || !isDirectingInstructionDialogue(line.exactLine)).length;
-  }, 0);
-  if (rawCount > lines.length) return '台词中存在未出场角色、空台词或同一镜头多人说话，请先修正剧本';
   if (lines.length > 3) return '一个 H3 片段最多安排 3 条顺序台词，请拆成独立片段';
   if (new Set(lines.map(line => line.character)).size > 3) return '一个 H3 片段最多绑定 3 个说话角色，请拆成独立片段';
   const overlong = lines.find(line => speechSeconds(line.exactLine) > 11.5);

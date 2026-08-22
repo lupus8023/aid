@@ -35,10 +35,11 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   });
   assert.match(prompt, /<d>\[Chinese\] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /00:\d{2}\.\d{3}–00:\d{2}\.\d{3} <Subject 1> \(S63\)/);
+  assert.match(prompt, /From 00:\d{2}\.\d{3} to 00:\d{2}\.\d{3}, <Subject 1> \(S63\)/);
   const soundscape = prompt.split('overall_soundscape:')[1].split('non_diegetic_music:')[0];
   assert.doesNotMatch(soundscape, /<d>|线索就在这里|dialogue|speech/i);
-  assert.match(prompt, /CAMERA: .*moderate/i);
+  assert.match(prompt, /The camera uses .*moderate/i);
+  assert.doesNotMatch(prompt, /SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE|DIALOGUE:/);
   assert.equal((prompt.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
 });
@@ -75,10 +76,10 @@ test('binds multiple sequential dialogue lines to their matching H3 voice refere
   ], [], { duration: 12, referenceAudioNames: ['Lin', 'Mei'], hasVoiceReferences: true });
   assert.equal((prompt.match(/你看见了吗？/g) || []).length, 1);
   assert.equal((prompt.match(/就在门后。/g) || []).length, 1);
-  assert.match(prompt, /<Audio 1> = timbre only for <Subject 1> \(S01\)/);
-  assert.match(prompt, /<Audio 2> = timbre only for <Subject 2> \(S02\)/);
-  assert.match(prompt, /<Subject 1> \(S01\); NON_SPOKEN_PERFORMANCE=/);
-  assert.match(prompt, /<Subject 2> \(S02\); NON_SPOKEN_PERFORMANCE=/);
+  assert.match(prompt, /<Audio 1> = timbre only for <Subject 1> \(S1\)/);
+  assert.match(prompt, /<Audio 2> = timbre only for <Subject 2> \(S2\)/);
+  assert.match(prompt, /<Subject 1> \(S1\) delivers one synchronized line with/);
+  assert.match(prompt, /<Subject 2> \(S2\) delivers one synchronized line with/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
   assert.ok(prompt.length <= 7000);
 });
@@ -103,7 +104,23 @@ test('drops model-written stage directions before they can become H3 dialogue', 
 
   assert.doesNotMatch(prompt, /无其他角色在场|其他角色保持沉默|<d>/);
   assert.doesNotMatch(prompt, /<d>/);
-  assert.match(prompt, /CAST=\{<Subject 1> \(Lin\)\}/);
+  assert.match(prompt, /<Subject 1> \(Lin\) are the only visible story identities/);
+});
+
+test('does not send a line whose assigned character is absent from the visible action', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(2, {
+      action: 'A teenage boy breaks away from the crowd and runs back into the burning village to find his sister.',
+      prompt: 'A teenage boy runs toward the burning village while the mermaid remains behind him.',
+      characters: ['Lin'],
+      speech: [{
+        speakerId: 'S01', character: 'Lin', exactLine: '我妹妹还在里面。', emotion: 'urgent',
+        delivery: 'fast', volume: 'raised', lipSync: true, source: 'story_required',
+      }],
+    }),
+  ], [], { duration: 6, language: 'zh' });
+
+  assert.doesNotMatch(prompt, /我妹妹还在里面|<d>/);
 });
 
 test('keeps performance directions non-spoken and emits only exact dialogue inside H3 dialogue tags', () => {
@@ -122,8 +139,9 @@ test('keeps performance directions non-spoken and emits only exact dialogue insi
     }),
   ], [], { duration: 7, language: 'zh' });
 
-  assert.match(prompt, /SPOKEN_WORDS_ONLY=<d>\[Chinese\] 女娲娘娘，请借我力量！<\/d>/);
-  assert.match(prompt, /NON_SPOKEN_PERFORMANCE=\{emotion:controlled_determination,onset:brief_pre_line_pause,pace:natural_pace\}/);
+  assert.match(prompt, /with restrained determination, after one brief natural pause, at a natural conversational pace/);
+  assert.match(prompt, /<d>\[Chinese\] 女娲娘娘，请借我力量！<\/d>/);
+  assert.doesNotMatch(prompt, /SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE/);
   assert.equal((prompt.match(/先短暂停顿，再以坚定语气说/g) || []).length, 0);
   assert.equal((prompt.match(/女娲娘娘，请借我力量！/g) || []).length, 1);
 });
@@ -149,7 +167,7 @@ test('removes inline quoted dialogue and vocal directions from visual channels',
 
   assert.equal((prompt.match(/不能停！/g) || []).length, 1);
   assert.doesNotMatch(prompt, /喘息着喊|咬紧牙关喘息/);
-  assert.match(prompt, /SPOKEN_WORDS_ONLY=<d>\[Chinese\] 不能停！<\/d>/);
+  assert.match(prompt, /<d>\[Chinese\] 不能停！<\/d>/);
 });
 
 test('preserves every grouped storyboard as a complete timed action-camera-dialogue unit', () => {
@@ -159,17 +177,17 @@ test('preserves every grouped storyboard as a complete timed action-camera-dialo
     shot(3, { action: 'Lin pivots toward the station clock and breaks into a run.', cameraMove: '横移', dialogueLines: [] }),
   ], [], { duration: 15, language: 'zh' });
 
-  assert.match(prompt, /\[Shot 1 \| 00:00\.000–00:\d{2}\.\d{3} \| \d+\.\ds\]/);
-  assert.match(prompt, /\[Shot 2 \| 00:\d{2}\.\d{3}–00:\d{2}\.\d{3} \| \d+\.\ds\]/);
-  assert.match(prompt, /\[Shot 3 \| 00:\d{2}\.\d{3}–00:15\.000 \| \d+\.\ds\]/);
+  assert.match(prompt, /\[Shot 1\]/);
+  assert.match(prompt, /\[Shot 2\] At 00:\d{2}\.\d{3},/);
+  assert.match(prompt, /\[Shot 3\] At 00:\d{2}\.\d{3},/);
   for (const action of [
     'Lin snatches the red envelope from the moving bicycle.',
     'Lin tears the seal and recoils from the photograph.',
     'Lin pivots toward the station clock and breaks into a run.',
   ]) assert.equal((prompt.match(new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 1);
-  assert.equal((prompt.match(/CAMERA:/g) || []).length, 3);
-  assert.equal((prompt.match(/DIALOGUE:/g) || []).length, 3);
-  assert.equal((prompt.match(/TO \[Shot/g) || []).length, 2);
+  assert.equal((prompt.match(/The camera uses/g) || []).length, 3);
+  assert.equal((prompt.match(/move into \[Shot/g) || []).length, 2);
+  assert.doesNotMatch(prompt, /DIALOGUE:|SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE/);
   assert.doesNotMatch(prompt, /cross-dissolve|fade from|fade into/i);
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
 });

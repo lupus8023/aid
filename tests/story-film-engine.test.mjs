@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { sanitizeStoryPlan } from '../lib/pipeline/storyWriter.ts';
-import { validateSpeechLanguage } from '../lib/speechAudioContract.ts';
+import { storyboardSpeech, storyboardSpeechWarnings, validateSpeechLanguage } from '../lib/speechAudioContract.ts';
 import { sanitizeGeneratedSpeechText } from '../lib/speechAudioContract.ts';
 
 test('speech sanitizer removes performance prose but keeps the quoted spoken words', () => {
@@ -45,7 +45,7 @@ test('sanitizer creates one authoritative, visible and voice-bound speech line p
   const [first, second] = plan.sequences[0].beats;
   assert.equal(first.speech.length, 1);
   assert.equal(first.speech[0].character, 'A');
-  assert.equal(first.speech[0].speakerId, 'S01');
+  assert.equal(first.speech[0].speakerId, 'S1');
   assert.equal(first.speech[0].voiceId, 'voice-a');
   assert.deepEqual(first.dialogueLines, [{ character: 'A', text: '你来试。' }]);
   assert.equal(first.audioPlan.backgroundHuman, 'none');
@@ -74,4 +74,15 @@ test('video speech validation catches a generated Chinese line in an English pro
   }];
   assert.match(validateSpeechLanguage(storyboards, 'en'), /镜头 1/);
   assert.equal(validateSpeechLanguage(storyboards, 'zh'), undefined);
+});
+
+test('quarantines dialogue reassigned from an unnamed visible actor to an uploaded lead', () => {
+  const storyboard = {
+    id: 'shot-2', sceneNumber: 2, characters: ['人鱼公主'], objects: [], status: 'completed',
+    action: '一名少年挣脱人群，转身冲回燃烧的村庄寻找妹妹。',
+    description: '少年冲向村庄。', prompt: 'A teenage boy runs back into the burning village.',
+    speech: [{ speakerId: 'S01', character: '人鱼公主', exactLine: '我妹妹还在里面。', emotion: 'urgent', delivery: 'fast', volume: 'raised', lipSync: true, source: 'story_required' }],
+  };
+  assert.deepEqual(storyboardSpeech(storyboard), []);
+  assert.match(storyboardSpeechWarnings(storyboard)[0], /画面动作不匹配/);
 });

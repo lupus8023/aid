@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.27 - 2026-08-22
+
+### Improved
+
+- Story now assigns every generated line to an explicit uploaded character before storyboard expansion. Lines from temporary or unnamed story actors stay visual-only instead of being reassigned to the lead.
+- MiniMax H3 segment prompts now follow the official six-section Ref2VA contract and official shot/timestamp syntax. Each storyboard retains its own action, camera, timing, transition and authorized dialogue while avoiding custom pseudo-control fields that H3 could vocalize.
+- The XianGong cloud MiniMax H3 T8 node was upgraded from v1.3.2 to v1.43.0; all three AID H3 workflows retain compatible core node types and the previous node version remains available as an external backup.
+
+### Fixed
+
+- Generated dialogue is quarantined when its named speaker is not visibly present in that storyboard. The frontend explains the blocked line, and the backend refuses to place it in `<d>` or build a voice reference from it.
+- Story outline validation now retries malformed model output when a required line has no valid speaker, preventing dialogue ownership errors from propagating into image, video and native-audio generation.
+- Video prompt overrides strip legacy `SPEECH GATE`, `DIALOGUE`, `SPOKEN_WORDS_ONLY` and `NON_SPOKEN_PERFORMANCE` fields so old projects cannot reintroduce spoken director instructions.
+
+### Tests
+
+- Added regression coverage for absent-speaker dialogue quarantine, outline speaker validation, official H3 shot formatting and legacy pseudo-control removal.
+
 ## 0.1.26 - 2026-08-22
 
 ### Improved

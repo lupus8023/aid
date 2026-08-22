@@ -41,7 +41,8 @@ ${objectDetails}
 - 前一条 consequence 必须成为后一条 cause，或明确推动下一场。
 - actionGoal 是该镜头唯一可见动作/局面变化，不是摄影描述。
 - emotionalTurn 写镜头前后变化；没有变化也要写“保持X但新增Y信息”。
-- 用户指定台词在 beatMap 的 requiredLine 中逐字保留；未指定则留空，禁止新增旁白或无来源人声。
+- 用户指定台词只有在说话人是已上传角色时，才在 requiredSpeaker 写该角色精确名称，并在 requiredLine 中逐字保留；两者必须同时有值或同时为空。
+- 用户原文中的临时角色、路人、未上传人物即使有说话内容，也不得把台词转交给已上传角色。把信息改成可见动作，requiredSpeaker 和 requiredLine 都留空。
 - sequence 的 entryState / exitState 必须能交接人物位置、关系、关键道具与情绪。
 - 不要输出 shotSize、cameraMove、angle、sceneStyle、promptDraft、audioPlan、stateBefore 或 stateAfter；这些由后续阶段分批完成。
 
@@ -77,6 +78,7 @@ ${objectDetails}
       "cause": "直接前因",
       "consequence": "直接后果",
       "emotionalTurn": "情绪或认知变化",
+      "requiredSpeaker": "已上传角色精确名称；无台词则空字符串",
       "requiredLine": "用户指定台词或空字符串"
     }]
   }]
@@ -158,6 +160,8 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - cause → conflict → choice → consequence → nextCause 必须形成可见因果；前一镜 stateAfter 必须等于后一镜 stateBefore。
 - 第一镜 stateBefore 必须按照上述交接类型承接上一批；最后一镜 nextCause 要准确铺向后续路线。
 - 台词克制。beatMap.requiredLine 非空时逐字写入 speech；否则只有画面无法表达的关键信息才允许一名当前角色说一句。禁止旁白、画外音、路人台词、笑声、哼唱和无来源人声。
+- beatMap.requiredLine 非空时，speech.character 必须逐字等于 beatMap.requiredSpeaker，speech.exactLine 必须逐字等于 requiredLine，绝不能把临时人物的话转嫁给主角。
+- 自行创作 story_required 台词时，必须在 action 中用精确角色名明确写出该角色正在开口；若 action 只写临时人物、路人或泛称，则 speech 必须为 []。
 - speech 每镜最多一条；audioPlan 是唯一声音源。backgroundHuman 默认 none；环境声和拟音必须由地点或可见动作引起；未要求音乐时 music 为 none。
 - 不生成摄影内容：不要输出 promptDraft、sceneStyle、shotSize、cameraMove、angle 或图像 prompt。
 

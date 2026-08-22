@@ -1,8 +1,8 @@
 import type { AppSettings } from '@/types';
 
 export const DEFAULT_COMFYUI_COMPANION_URL = 'http://127.0.0.1:3018';
-export const STORY_COMPANION_MIN_VERSION = [0, 1, 21] as const;
-export const SEGMENT_VIDEO_COMPANION_MIN_VERSION = [0, 1, 26] as const;
+export const STORY_COMPANION_MIN_VERSION = [0, 1, 27] as const;
+export const SEGMENT_VIDEO_COMPANION_MIN_VERSION = [0, 1, 27] as const;
 export const LOCAL_EXPORT_COMPANION_MIN_VERSION = [0, 1, 19] as const;
 
 type ComfyUISettings = NonNullable<AppSettings['comfyui']>;
