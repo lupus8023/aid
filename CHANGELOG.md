@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.35 - 2026-08-23
+
+### Fixed
+
+- The Companion now grants the production site's CORS/private-network preflight for `/api/generate-audio`. The browser can submit exact dialogue timelines after confirming Companion health instead of failing with `Failed to fetch` before H3 starts.
+- Story and grouped H3 generation now require Companion v0.1.35 so the web UI cannot pair the locked-audio workflow with an older Companion whose route allowlist is incomplete.
+
+### Tests
+
+- Added Companion route-allowlist regression coverage. All 113 tests, TypeScript validation and both production and Companion builds pass.
+
 ## 0.1.34 - 2026-08-23
 
 ### Fixed

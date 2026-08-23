@@ -1,6 +1,6 @@
 {
   "name": "aid",
-  "version": "0.1.34",
+  "version": "0.1.35",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -29,6 +29,7 @@
     "test:character-library": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/character-library.test.mjs",
     "test:local-export": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/local-video-export.test.mjs",
     "test:auto-production": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/auto-production.test.mjs",
+    "test:companion-cors": "node --test tests/companion-cors.test.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
