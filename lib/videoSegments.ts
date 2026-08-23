@@ -3,6 +3,10 @@ import { speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechCon
 
 export const MAX_H3_SEGMENT_SECONDS = 15;
 export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
+// Bump this whenever the compiled H3 direction/audio contract changes. Paid
+// clips generated under an older contract must not be mistaken for valid cache
+// hits after a prompt-engine fix.
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v4';
 
 export interface VideoSegmentPlan {
   version: 1;
@@ -58,7 +62,7 @@ export function videoSegmentGenerationSignature(storyboards: Storyboard[]): stri
     aspectRatio: storyboard.aspectRatio || '',
     visualStyle: storyboard.visualStyle || '',
   }));
-  return `h3-v3-${generationHash(JSON.stringify(payload))}`;
+  return `${H3_PROMPT_CONTRACT_VERSION}-${generationHash(JSON.stringify(payload))}`;
 }
 
 function storyboardSignature(storyboards: Storyboard[]): string {

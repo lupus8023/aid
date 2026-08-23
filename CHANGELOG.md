@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.32 - 2026-08-23
+
+### Improved
+
+- Story screenplay and director stages now apply selected `video-shotcraft` directing principles: one primary action arc per shot, acceleration into a decisive contact, a short readable settle, emotion-motivated camera movement and one physical handoff grammar per seam.
+- H3 segment direction now assigns every grouped storyboard a complete timed action, camera, dialogue and physical-transition beat while preserving motion vector, speed and screen direction instead of relying on dissolves or decorative drift.
+
+### Fixed
+
+- Abstract screenplay explanations such as trigger, pressure, choice and audience interpretation are no longer repeated inside H3's audiovisual description, preventing Ref2VA from vocalizing silent director prose as invented narration.
+- H3 prompts explicitly declare the exact number of authorized vocal events. Only text inside scheduled dialogue tags may be spoken; narration, ad-libs, singing, source-audio wording and background intelligible speech are forbidden.
+- H3 prompt-contract changes now invalidate clips produced by an older prompt engine, so a resumed project cannot silently reuse a cached segment with obsolete dialogue or motion rules.
+- Story and grouped H3 generation now require Companion v0.1.32, ensuring the hosted UI and local generation API use the same directing and speech contract.
+
+### Tests
+
+- Added regression coverage for silent explanatory prose, exact H3 vocal-event counts, ShotCraft-inspired action/transition rules and prompt-contract cache invalidation. All 109 tests, TypeScript validation and the production build pass.
+
 ## 0.1.31 - 2026-08-23
 
 ### Fixed

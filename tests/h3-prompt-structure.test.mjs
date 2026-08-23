@@ -76,12 +76,32 @@ test('binds multiple sequential dialogue lines to their matching H3 voice refere
   ], [], { duration: 12, referenceAudioNames: ['Lin', 'Mei'], hasVoiceReferences: true });
   assert.equal((prompt.match(/你看见了吗？/g) || []).length, 1);
   assert.equal((prompt.match(/就在门后。/g) || []).length, 1);
-  assert.match(prompt, /<Audio 1> = timbre only for <Subject 1> \(S1\)/);
-  assert.match(prompt, /<Audio 2> = timbre only for <Subject 2> \(S2\)/);
+  assert.match(prompt, /<Audio 1> is a voice-timbre reference for <Subject 1> \(S1\)/);
+  assert.match(prompt, /<Audio 2> is a voice-timbre reference for <Subject 2> \(S2\)/);
   assert.match(prompt, /<Subject 1> \(S1\) delivers one synchronized line with/);
   assert.match(prompt, /<Subject 2> \(S2\) delivers one synchronized line with/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
   assert.ok(prompt.length <= 7000);
+});
+
+test('keeps explanatory screenplay fields out of the H3 audiovisual description', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      action: 'Lin catches the falling report, turns toward the door, and runs before the guard can follow.',
+      cause: 'The prior success causes the council to send another urgent request.',
+      conflict: 'The new workload is more than Lin can finish before nightfall.',
+      choice: 'Lin chooses duty instead of asking for help.',
+      consequence: 'The council assumes Lin can handle every request alone.',
+      informationGain: 'The audience understands that praise is becoming a trap.',
+      dialogueLines: [{ character: 'Lin', text: 'I cannot stop now.' }],
+    }),
+  ], [], { duration: 7, language: 'en', referenceAudioNames: ['Lin'] });
+
+  assert.match(prompt, /Lin catches the falling report/);
+  assert.doesNotMatch(prompt, /prior success causes|workload is more|praise is becoming a trap/);
+  assert.match(prompt, /No narrator or ad-lib exists/);
+  assert.match(prompt, /Exactly 1 intelligible vocal event/);
+  assert.match(prompt, /No narration, ad-lib, singing, or unscripted intelligible words/);
 });
 
 test('drops model-written stage directions before they can become H3 dialogue', () => {
@@ -104,7 +124,7 @@ test('drops model-written stage directions before they can become H3 dialogue', 
 
   assert.doesNotMatch(prompt, /无其他角色在场|其他角色保持沉默|<d>/);
   assert.doesNotMatch(prompt, /<d>/);
-  assert.match(prompt, /<Subject 1> \(Lin\) are the only visible story identities/);
+  assert.match(prompt, /Visible cast, each exactly once: <Subject 1> \(Lin\)/);
 });
 
 test('does not send a line whose assigned character is absent from the visible action', () => {
@@ -192,7 +212,7 @@ test('preserves every grouped storyboard as a complete timed action-camera-dialo
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
 });
 
-test('compiles causal story meaning into each H3 shot without inventing spoken exposition', () => {
+test('keeps causal story meaning in observable action without explanatory exposition', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1, {
       action: 'Lin sees the forged seal, hides the letter, and turns away from Mei.',
@@ -207,9 +227,8 @@ test('compiles causal story meaning into each H3 shot without inventing spoken e
       speech: [{ speakerId: 'S01', character: 'Lin', exactLine: 'There is nothing inside.', emotion: 'guarded', delivery: 'too quickly', volume: 'normal', lipSync: true, storyFunction: 'conceal', respondsTo: 'Mei asks to read the letter', source: 'story_required' }],
     }),
   ], [], { duration: 7, language: 'en' });
-  assert.match(prompt, /Stage the trigger clearly: Mei asks to read the letter/);
-  assert.match(prompt, /Land on the changed state: Mei notices the concealment/);
-  assert.match(prompt, /The audience must understand Lin is protecting a lie/);
+  assert.match(prompt, /Lin sees the forged seal, hides the letter, and turns away from Mei/);
+  assert.doesNotMatch(prompt, /Mei asks to read the letter|Showing it would expose|Mei now suspects/);
   assert.equal((prompt.match(/There is nothing inside\./g) || []).length, 1);
   assert.match(prompt, /<d>\[English\] There is nothing inside\.<\/d>/);
 });

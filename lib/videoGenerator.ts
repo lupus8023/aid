@@ -105,9 +105,27 @@ function officialCameraMotion(storyboard: Storyboard, index: number): string {
   if (/(?:跟|tracking|follow)/i.test(source)) return 'small moderate subject track, settling on consequence';
   if (/(?:升|pedestal up|crane up|tilt up)/i.test(source)) return 'small moderate rise revealing changed vertical relation';
   if (/(?:降|pedestal down|crane down|tilt down)/i.test(source)) return 'small moderate lower move landing on action detail';
-  return index === 0
-    ? 'small moderate push-in entering on first action, no wait'
-    : 'short action-motivated moderate track, then settle on new state';
+  switch (storyboard.clipType) {
+    case 'establishing':
+      return 'one purposeful lateral or vertical reveal that establishes geography within one second, then settles';
+    case 'insert':
+      return 'a stable detail view with one brief reframing or focus landing, no floating drift';
+    case 'reaction':
+      return 'one short restrained push-in landing on the changed expression, then stable';
+    case 'dialogue':
+    case 'performance':
+      return 'a mostly stable relational frame with one slight action-motivated arc or push, never continuous drift';
+    case 'action':
+      return 'a moderate subject track that preserves speed and screen direction through the decisive contact';
+    case 'montage':
+      return 'one brief decisive pan or reframe that lands with the action beat';
+    case 'long_take':
+      return 'one continuous blocking-led track with clear geography and steady real-time progress';
+    default:
+      return index === 0
+        ? 'a moderate action-led track; start in motion and settle on the result'
+        : 'one short action-led track, settling on the changed state';
+  }
 }
 
 function authoritativeShotAction(storyboard: Storyboard): string {
@@ -118,24 +136,6 @@ function authoritativeShotAction(storyboard: Storyboard): string {
     sanitizeVisualDirection(storyboard.action || storyboard.prompt || storyboard.description, spokenLines),
     260,
   );
-}
-
-function narrativeBeatDirection(storyboard: Storyboard): string {
-  const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
-  const clean = (value: unknown, limit: number) => compactText(sanitizeNarrativeDirection(value, spokenLines), limit);
-  const trigger = clean(storyboard.cause, 90);
-  const pressure = clean(storyboard.conflict, 90);
-  const choice = clean(storyboard.choice, 90);
-  const result = clean(storyboard.consequence, 110);
-  const information = clean(storyboard.informationGain, 160);
-  const pieces = [
-    trigger ? `Stage the trigger clearly: ${trigger}.` : '',
-    pressure ? `Make the immediate pressure readable: ${pressure}.` : '',
-    choice ? `Show the choice through blocking and performance: ${choice}.` : '',
-    result ? `Land on the changed state: ${result}.` : '',
-    information ? `The audience must understand ${information} from visible action, reaction and prop state, never from added words or text.` : '',
-  ].filter(Boolean);
-  return compactText(pieces.join(' '), 480);
 }
 
 function officialShotFraming(storyboard: Storyboard): string {
@@ -159,18 +159,18 @@ function shotMotionCadence(storyboard: Storyboard): string {
   switch (storyboard.clipType) {
     case 'insert':
     case 'montage':
-      return 'brisk real time; immediate change; no hold';
+      return 'brisk real time; enter on action, accelerate into one clear hit, then a short readable settle; no slow motion';
     case 'reaction':
-      return 'real-time trigger/reaction; one brief punctuation; no slow motion';
+      return 'real-time trigger and reaction; one brief readable punctuation, then move on; no slow motion';
     case 'dialogue':
     case 'performance':
-      return 'natural conversational speed; gestures support rather than stretch the line';
+      return 'natural conversational speed; gestures support rather than stretch the line; no empty pause';
     case 'long_take':
-      return 'sustained real-time blocking; continuous progress; no slow motion';
+      return 'sustained real-time blocking with changing pressure and continuous progress; no slow motion';
     case 'establishing':
-      return 'active real-time geography reveal; no empty drift';
+      return 'active real-time geography reveal that lands on the story subject; no empty drift';
     default:
-      return 'decisive real time; visible acceleration/contact/direction change; no slow motion';
+      return 'decisive real time; accelerate into impact or decision, briefly settle; no slow motion';
   }
 }
 
@@ -181,6 +181,9 @@ function shotSoundCue(storyboard: Storyboard): string {
   const humanLayer = plan.backgroundHuman === 'indistinct_nonverbal'
     ? 'Background people contribute only an indistinct nonverbal presence.'
     : '';
+  if (!plan.environment.length && !plan.foley.length && !humanLayer) {
+    return 'Only visibly caused contacts produce restrained synchronized Foley.';
+  }
   return `The audible layer is ${environment}, with ${foley} synchronized to visible causes. ${humanLayer}`.trim();
 }
 
@@ -195,7 +198,7 @@ function cinematicTransition(previous: Storyboard, next: Storyboard): string {
     || (next.continuityFrom && next.continuityFrom === `scene-${previous.sceneNumber}`),
   );
   if (explicitContinuity) {
-    return 'cutting mid-motion while preserving vector, speed, screen direction and physical state';
+    return 'an action-match cut inside the movement, preserving vector, speed, screen direction and physical state';
   }
   const role = String(next.montageRole || '').toLowerCase();
   if (/(?:contrast|对照)/.test(role)) {
@@ -205,25 +208,32 @@ function cinematicTransition(previous: Storyboard, next: Storyboard): string {
     return 'matching simultaneous action, direction or caused sound so the two situations read as one parallel dramatic idea';
   }
   if ((previous.consequence || previous.nextCause) && next.cause) {
-    return 'using a causal cut: hold the visible consequence just long enough for it to become the immediate trigger of the next action';
+    return 'a causal cut from the visible consequence directly into the next physical trigger';
   }
   if (sharedObjects.length) {
     return `matching the motion or contact of ${sharedObjects[0]} to its changed state`;
   }
   if (sharedCharacters.length) {
-    return `letting ${sharedCharacters[0]}'s eyeline or gesture motivate the next view`;
+    return `an eyeline or gesture match led by ${sharedCharacters[0]}, preserving screen direction`;
   }
   if (previous.sequenceId === next.sequenceId && previous.locationId === next.locationId) {
-    return 'hiding the cut behind foreground motion while preserving geography and screen direction';
+    return previous.sceneNumber % 2 === 0
+      ? 'a foreground-occlusion cut hidden inside one crossing body or prop, preserving geography and speed'
+      : 'a focus-relay cut: the outgoing subject leaves the focus plane as the next subject becomes sharp in matching geography';
   }
-  return 'matching a shared vector, shape, light change or caused sound into the new geography';
+  return 'one match cut carried by a shared vector, shape, motivated light change, or visibly caused sound into the new geography';
 }
 
 function shotActionSchedule(storyboard: Storyboard, range: { start: number; end: number }): string {
   const span = Math.max(0.1, range.end - range.start);
   const commitment = range.start + span * 0.62;
   const consequence = range.start + span * 0.84;
-  return `${authoritativeShotAction(storyboard)} ${narrativeBeatDirection(storyboard)} The action begins immediately at ${h3Timestamp(range.start)}; its decisive move or contact lands by ${h3Timestamp(commitment)}, the visible consequence arrives by ${h3Timestamp(consequence)}, and secondary motion remains alive through ${h3Timestamp(range.end)}. The cadence is ${shotMotionCadence(storyboard)}`;
+  // Keep detailed_description observable and playable. Abstract cause/pressure/
+  // choice prose used to repeat the screenplay in several explanatory
+  // sentences; Ref2VA occasionally vocalized those sentences as narration.
+  // The authoritative action already contains the causal beat, so only send
+  // the physical performance and its timing here.
+  return `${authoritativeShotAction(storyboard)} The action begins immediately at ${h3Timestamp(range.start)}; its decisive move or contact lands by ${h3Timestamp(commitment)}, the visible consequence arrives by ${h3Timestamp(consequence)}, and secondary motion remains alive through ${h3Timestamp(range.end)}. The cadence is ${shotMotionCadence(storyboard)}`;
 }
 
 export function buildVideoSegmentPrompt(
@@ -255,6 +265,10 @@ export function buildVideoSegmentPrompt(
     : characterAudios.map(audio => audio.character)).filter(Boolean).slice(0, 3);
   const hasVoiceReferences = options.hasVoiceReferences || referenceAudioNames.length > 0;
   const subjectId = new Map(characters.map((name, index) => [name, index + 1]));
+  const speechEventCount = timedSpeech.length;
+  const speechControl = speechEventCount
+    ? `No narrator or ad-lib exists. Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} occur: only the tagged dialogue line${speechEventCount === 1 ? '' : 's'} below, once each. Other prose is silent direction; never vocalize or mouth it.`
+    : 'No narrator, dialogue, singing, ad-lib, or intelligible human vocalization exists. All prose below is silent visual direction.';
 
   const renderDialogue = (storyboard: Storyboard, storyboardIndex: number) => timedSpeech
     .filter(line => line.storyboardIndex === storyboardIndex)
@@ -280,7 +294,7 @@ export function buildVideoSegmentPrompt(
     const referenceNumber = index + referenceOffset;
     const beatCharacters = [...new Set(storyboard.characters || [])];
     const cast = beatCharacters.length
-      ? `${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}> (${name})` : name).join(' and ')} are the only visible story identities in this shot, each appearing once.`
+      ? `Visible cast, each exactly once: ${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}> (${name})` : name).join(', ')}; no other story identity.`
       : 'No story character is visible in this shot.';
     const entry = index === 0
       ? options.firstFrameUrl
@@ -323,7 +337,7 @@ export function buildVideoSegmentPrompt(
   if (isFirstLastMode) {
     return `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.
 
-integrated_multimodal_description: ${styleOpening} ${shotDescriptions.join(' ')} ${physics}
+integrated_multimodal_description: ${styleOpening} ${speechControl} ${shotDescriptions.join(' ')} ${physics}
 
 overall_soundscape: ${soundscape}
 
@@ -332,7 +346,7 @@ non_diegetic_music: ${nonDiegeticMusic}`;
 
   const pictureDefinitions = [
     ...(options.firstFrameUrl ? ['<Picture 1> is the opening continuity frame inherited from the preceding generated clip and defines the exact state at 0.00 seconds.'] : []),
-    ...storyboards.map((storyboard, index) => `<Picture ${index + referenceOffset}> opens [Shot ${index + 1}]: lock identity/wardrobe/location/light; allow action-driven pose/blocking/viewpoint change.`),
+    ...storyboards.map((storyboard, index) => `<Picture ${index + referenceOffset}> starts [Shot ${index + 1}]; preserve identity/wardrobe/location/light, not pose or viewpoint.`),
   ];
   const subjectDefinitions = characters.map((name, index) => {
     const pictures = storyboards.flatMap((storyboard, storyboardIndex) => storyboard.characters?.includes(name) ? [`<Picture ${storyboardIndex + referenceOffset}>`] : []);
@@ -341,12 +355,12 @@ non_diegetic_music: ${nonDiegeticMusic}`;
   const audioDefinitions = referenceAudioNames.map((name, index) => {
     const subject = subjectId.get(name);
     const speaker = timedSpeech.find(line => line.character === name)?.speakerId;
-    return `<Audio ${index + 1}> = timbre only for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (${speaker})` : ''}, usable only in that scheduled line.`;
+    return `<Audio ${index + 1}> is a voice-timbre reference for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (${speaker})` : ''}; it is not copied as a soundtrack and cannot add words, narration, or continuous speech.`;
   });
   const retention = [
     ...subjectDefinitions.map((_, index) => `<Subject ${index + 1}>: fully_preserved identity/wardrobe across ${storyboards.flatMap((storyboard, shotIndex) => storyboard.characters?.includes(characters[index]) ? [`[Shot ${shotIndex + 1}]`] : []).join(',')}.`),
     ...pictureDefinitions.map((_, index) => `<Picture ${index + 1}>: reference; lock identity/world, not pose/viewpoint.`),
-    ...audioDefinitions.map((_, index) => `<Audio ${index + 1}>: timbre reference for its bound speaker only.`),
+    ...audioDefinitions.map((_, index) => `<Audio ${index + 1}>: reference - voice timbre for its bound scheduled speaker only; no source wording or continuous vocal track is copied.`),
   ];
   const summaryPictures = storyboards.map((_, index) => `<Picture ${index + referenceOffset}>`).join(', ');
 
@@ -354,13 +368,14 @@ non_diegetic_music: ${nonDiegeticMusic}`;
 ${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}
 
 summary:
-[${options.firstFrameUrl ? 'keyframe + ' : ''}references${referenceAudioNames.length ? ' + audio' : ''}] ${summaryPictures}; ${storyboards.length} causal shots / ${duration}s / one production world.
+[${options.firstFrameUrl ? 'keyframe + ' : ''}references${referenceAudioNames.length ? ' + audio' : ''}] ${summaryPictures}; ${storyboards.length} causal shots / ${duration}s / one production world; ${speechEventCount ? `${speechEventCount} scheduled dialogue event${speechEventCount === 1 ? '' : 's'} and no other voice` : 'no human voice'}.
 
 retention_analysis:
 ${retention.join('\n')}
 
 detailed_description:
 ${styleOpening}
+${speechControl}
 ${shotDescriptions.join('\n')}
 ${physics}
 

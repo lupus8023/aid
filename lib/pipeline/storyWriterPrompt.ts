@@ -185,6 +185,9 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - cause → conflict → choice → consequence → nextCause 必须形成可见因果；前一镜 stateAfter 必须等于后一镜 stateBefore。
 - 每镜必须落实 beatMap.informationGain 和 audienceQuestion。dramaticPurpose 说明局面为何改变，informationGain 说明观众因此理解了什么，两者不能互相复制。
 - 每个 action 都要包含“触发→表演/动作→可见结果”，让后续导演能拍出因果，而不是只有人物走、看、停顿和气氛。
+- 每镜只承担一个主动作弧：进入动作→加速/施力→明确触点或决定→0.25–0.6 秒可读结果。速度变化来自物理加速度和阻力，不得把整段动作默认写成匀速慢动作。
+- 相邻镜头的动作和能量要形成长短交替；关键信息落定后给短呼吸，普通动作不能用无意义停顿拖时长。除非剧情明确要求时间主观化，否则禁止 slow motion、长时间悬停和空镜漂移。
+- 每个镜尾必须留下一个可被下一镜接住的具体交棒：身体/道具运动方向、视线、前景遮挡、焦点变化、可见结果或由动作产生的声音；一个接缝只用一种交棒逻辑，并保持矢量、速度与银幕方向连续。
 - 第一镜 stateBefore 必须按照上述交接类型承接上一批；最后一镜 nextCause 要准确铺向后续路线。
 - 台词服务叙事，而不是一律从少。beatMap.requiredLine 非空时逐字写入 speech；否则按 dialoguePurpose 判断：私人目标、问题/回答、关系转折、谎言/揭示、承诺/回收或明确选择若仅靠画面会含混，就写必要台词；visual_only 才保持 speech=[]。禁止旁白、画外音、路人台词、笑声、哼唱和无来源人声。
 - 台词必须承接上下文：用 storyFunction 标明 question/answer/reveal/refusal/decision/promise/callback/payoff；用 respondsTo 指向它回应的前一句信息或伏笔。不得写重复画面、孤立口号、通用感叹或没有对象的短句。
@@ -193,6 +196,7 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - beatMap.requiredLine 非空时，speech.character 必须逐字等于 beatMap.requiredSpeaker，speech.exactLine 必须逐字等于 requiredLine，绝不能把临时人物的话转嫁给主角。
 - 自行创作 story_required 台词时，说话者必须在 characters 中以已上传精确名称出现；action 还要用当前输出语言清楚表现该可见角色正在开口。不要因为英文叙述使用自然称呼而改写 characters / speech.character 中的精确库名称。
 - audioPlan 是唯一声音源。backgroundHuman 默认 none；环境声和拟音必须由地点或可见动作引起；未要求音乐时 music 为 none。
+- transition 固定写 "cut"；时空和情绪变化通过动作、视线、物体、构图、焦点或声音桥完成，不使用 dissolve、fade 或 wipe 特效代替导演调度。
 - 不生成摄影内容：不要输出 promptDraft、sceneStyle、shotSize、cameraMove、angle 或图像 prompt。
 
 只输出：
@@ -219,7 +223,7 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
     "stateBefore": { "characters": "位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "关系状态", "emotion": "情绪状态" },
     "stateAfter": { "characters": "位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "关系状态", "emotion": "情绪状态" },
     "durationHint": 4.5,
-    "transition": "cut|dissolve|fade|wipe",
+    "transition": "cut",
     "continuityFrom": 0
   }]
 }`;
@@ -313,6 +317,9 @@ ${synopsis}
 - 目标总片长约 ${targetSeconds} 秒。各镜头 durationHint 仍按内容推导，但全片 durationHint 总和应尽量接近该片长。
 - beats 是【因果链】，不是并列画面：前一个 beat 导致后一个 beat。
 - 每个 beat 只描述一个明确动作单元。
+- 每镜只承担一个主动作弧：进入动作→加速/施力→明确触点或决定→0.25–0.6 秒可读结果。速度变化来自物理加速度和阻力，不得把整段动作默认写成匀速慢动作。
+- 相邻镜头的动作、景别与能量要形成长短交替；关键信息落定后给短呼吸，但普通动作不能用无意义停顿拖时长。除非剧情明确要求时间主观化，否则禁止 slow motion、长时间悬停和空镜漂移。
+- 每个镜尾必须留下一个可被下一镜接住的具体交棒：身体/道具运动方向、视线、前景遮挡、焦点变化、可见结果或由动作产生的声音。一个接缝只用一种交棒逻辑。
 - 按叙事需要分配纯视觉镜与对白镜，不预设“大多数必须无台词”。有台词的 beat 最多两句、有明确先后，只允许当前 characters 中的已命名角色说话。禁止多人同时说、重复上一镜台词或添加临时说话者。
 - 景别要多样（远景建场 → 中景 → 近景/特写），相邻镜头景别要有变化。
 - 宁可按「动作链」合理分配，也不要一个镜头堆多个动作；同时不得超出或少于 ${targetShots} 镜。
@@ -393,7 +400,7 @@ ${synopsis}
 - continuityFrom：需要与前一个镜头动作连贯时，写前一个 beat 的 index；否则写 0。
 - 除非发生明确时空跳转，前一 beat 的 stateAfter 必须与后一 beat 的 stateBefore 一致；不能让人物、道具、关系或情绪无原因复位。
 - source="user_exact" 时 exactLine 必须能在用户原始输入中逐字找到；否则只能写 story_required。绝不输出 narrator、voice-over、路人或当前 characters 之外的 speaker。
-- transition：默认 "cut"；情绪切换或时间跳转可用 "dissolve"/"fade"。
+- transition 固定写 "cut"。情绪切换和时空跳转也必须通过动作、视线、物体、构图、焦点或声音桥完成物理/语义匹配，不使用 dissolve、fade 或 wipe 特效代替导演调度。
 - characters/objects 数组为空时写 []。
 - sceneStyle：不要只写“cinematic lighting”或情绪形容词。用紧凑英文确定本 sequence 的拍摄基线：一种相机/镜头家族、主光来源与方向/软硬/色温、环境反射或负补光、有限曝光与高光滚降、阴影密度、色彩响应和主要材质。相邻 sequence 若时空连续必须继承同一成像系统。
 - promptDraft：已上传角色用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。动作之后简要写出独特机位距离、前中后景、焦点平面和光线入射关系；不要堆 cinematic、8K、masterpiece、photorealistic 等空泛词。

@@ -136,6 +136,10 @@ test('outline and screenplay prompts keep story architecture separate from visua
   assert.match(batchPrompt, /不生成摄影内容/);
   assert.match(batchPrompt, /严格输出 9 个 beats/);
   assert.match(batchPrompt, /一镜可有 0–2 条有序台词/);
+  assert.match(batchPrompt, /进入动作→加速\/施力→明确触点或决定→0\.25–0\.6 秒可读结果/);
+  assert.match(batchPrompt, /每个镜尾必须留下一个可被下一镜接住的具体交棒/);
+  assert.match(batchPrompt, /transition 固定写 "cut"/);
+  assert.match(batchPrompt, /不使用 dissolve、fade 或 wipe 特效/);
 });
 
 test('director batches mirror screenplay boundaries and remain capped at nine', () => {

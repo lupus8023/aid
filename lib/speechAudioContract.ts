@@ -257,8 +257,9 @@ export function buildAudioManifest(storyboards: Storyboard[]): string {
       ? `Physical action sounds include ${foley.join('; ')}, synchronized to their visible causes.`
       : 'Restrained physical sounds follow only contacts visibly caused on screen.',
     allowBackgroundPresence
-      ? 'Background people contribute a low, indistinct nonverbal presence.'
-      : '',
+      ? 'Background people contribute only a low, indistinct nonverbal presence with no recognizable words.'
+      : 'Background human voices are absent.',
+    'No narration, ad-lib, singing, or unscripted intelligible words are present.',
   ].join(' ');
 }
 

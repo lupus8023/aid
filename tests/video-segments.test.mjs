@@ -5,6 +5,7 @@ import {
   allocateSegmentTimeline,
   createVideoSegmentPlan,
   estimateVideoSegmentSeconds,
+  H3_PROMPT_CONTRACT_VERSION,
   isCompletedVideoSegment,
   persistedVideoClipCount,
   resolveVideoSegmentGroups,
@@ -108,6 +109,7 @@ test('does not mistake legacy per-shot videos for a completed grouped segment', 
 test('invalidates a generated segment when its image, action or dialogue changes', () => {
   const segment = [shot(1), shot(2)];
   const signature = videoSegmentGenerationSignature(segment);
+  assert.match(signature, new RegExp(`^${H3_PROMPT_CONTRACT_VERSION}-`));
   const generated = segment.map((item, index) => ({
     ...item,
     videoStatus: 'completed',
