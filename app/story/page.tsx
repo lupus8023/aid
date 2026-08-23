@@ -1521,7 +1521,7 @@ export default function StoryPage() {
       if (videoProvider === 'comfyui' && speechSignature !== '[]' && !exactDialogueTrack && !activeSettings.fishAudioKey) {
         throw new Error('有台词的 H3 片段需要 Fish Audio Key 生成可锁定的精确对白音轨');
       }
-      if (videoProvider === 'comfyui' && speechSignature !== '[]' && activeSettings.fishAudioKey && (!exactCharacterAudios.length || !exactDialogueTrack)) {
+      if (videoProvider === 'comfyui' && speechSignature !== '[]' && activeSettings.fishAudioKey && !exactDialogueTrack) {
         commitStoryboards(prev => prev.map(item => item.id === leader.id ? { ...item, audioStatus: 'generating' as const } : item));
         const timedSpeech = compileTimedSpeech(segment, allocateSegmentTimeline(segment, duration));
         const lines = timedSpeech.map(line => {

@@ -36,6 +36,7 @@ export const config = {
   matcher: [
     '/api/comfyui/test',
     '/api/companion/status',
+    '/api/companion/audio/:path*',
     '/api/companion/export/:path*',
     '/api/comfyui/download',
     '/api/comfyui/character-replace',

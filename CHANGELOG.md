@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.36 - 2026-08-23
+
+### Fixed
+
+- Companion-composed dialogue timelines are now persisted in its local media directory and served through a validated immutable audio endpoint. Exact H3 audio no longer depends on Cloudinary credentials being copied into the desktop app.
+- The locked-dialogue path skips obsolete per-character Cloudinary reference uploads. Story stores only the durable local track URL, while the generated WAV is fetched and embedded transiently when the ComfyUI task is submitted.
+- Story and grouped H3 generation now require Companion v0.1.36 so exact-audio persistence, CORS and ComfyUI lock-source injection are deployed as one compatible unit.
+
+### Tests
+
+- Extended Companion route-allowlist regression coverage. All 113 tests, TypeScript validation and both production and Companion builds pass.
+
 ## 0.1.35 - 2026-08-23
 
 ### Fixed

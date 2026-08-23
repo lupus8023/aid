@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -68,6 +69,16 @@ async function composeTimedDialogueTrack(
   }
 }
 
+async function persistCompanionDialogueTrack(buffer: Buffer, request: NextRequest): Promise<string> {
+  const root = String(process.env.AID_COMPANION_DATA_DIR || '').trim();
+  if (!root) throw new Error('Companion audio storage is not configured');
+  const id = createHash('sha256').update(buffer).digest('hex');
+  const directory = path.join(root, 'audio');
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, `${id}.wav`), buffer);
+  return new URL(`/api/companion/audio/${id}`, request.url).toString();
+}
+
 // lines: [{ text, voiceId, character }] in dialogue order
 // Returns per-character audio files (one per unique character, lines concatenated)
 export async function POST(request: NextRequest) {
@@ -83,6 +94,16 @@ export async function POST(request: NextRequest) {
     const generatedLines: { character: string; buffer: Buffer; startSeconds?: number }[] = [];
     for (const { character, text, voiceId, startSeconds } of normalizedLines) {
       generatedLines.push({ character, buffer: await generateTTS(text, voiceId, fishAudioKey), startSeconds });
+    }
+
+    const timedTrack = await composeTimedDialogueTrack(generatedLines, Number(duration));
+    if (process.env.AID_LOCAL_COMPANION === '1' && timedTrack) {
+      const audioUrl = await persistCompanionDialogueTrack(timedTrack, request);
+      return NextResponse.json({
+        characterAudios: [],
+        audioUrl,
+        audioDuration: Math.max(2, Math.min(15, Number(duration))),
+      });
     }
 
     // Group the same generated lines by character for providers that use voice references.
@@ -104,7 +125,6 @@ export async function POST(request: NextRequest) {
       characterAudios.push({ character, audioUrl, audioDuration });
     }
 
-    const timedTrack = await composeTimedDialogueTrack(generatedLines, Number(duration));
     const segmentAudio = timedTrack
       ? await uploadBuffer(timedTrack, 'audio/wav')
       : characterAudios.length === 1

@@ -6,6 +6,7 @@ test('allows every browser-to-Companion Story media route through CORS', async (
   const source = await readFile(new URL('../middleware.ts', import.meta.url), 'utf8');
   for (const route of [
     '/api/companion/status',
+    '/api/companion/audio/:path*',
     '/api/generate-audio',
     '/api/generate-video',
     '/api/check-video-status',
