@@ -31,6 +31,11 @@ test('Story uses Fish once per character as timbre reference and never as final 
     /speaks\s*&&\s*settingsRef\.current\.fishAudioKey\s*&&\s*!voiceReferencesRef\.current\?\.\[character\.name\]/,
     'one-click production must only create a Fish reference when this character has no persisted reference yet',
   );
+  assert.match(
+    storyPage,
+    /for \(const character of speakingCharacters\)[\s\S]*?!voiceReferencesRef\.current\?\.\[character\][\s\S]*?handleGenerateVoiceReference\(character, \{ throwOnError: true \}\)/,
+    'manual segment generation must lazily create the same one-time timbre reference for older projects',
+  );
   assert.doesNotMatch(storyPage, /\/api\/generate-audio/);
   assert.doesNotMatch(videoRoute, /lockDialogueAudio|driveAudio/);
   assert.doesNotMatch(comfy, /injectLockedDriveAudio|exact full-duration dialogue|MiniMaxH3AudioMixT8/);

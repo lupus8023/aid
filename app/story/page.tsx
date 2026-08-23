@@ -1490,6 +1490,7 @@ export default function StoryPage() {
       const nextVoiceReferences = { ...(voiceReferencesRef.current || {}), [characterName]: url };
       voiceReferencesRef.current = nextVoiceReferences;
       setVoiceReferences(nextVoiceReferences);
+      persistCurrentProject();
     } catch (err) {
       if (generationProjectId !== projectIdRef.current) return;
       if (options.throwOnError) throw err;
@@ -1631,6 +1632,19 @@ export default function StoryPage() {
           : item.imageUrl,
       })));
       const speakingCharacters = [...new Set(segment.flatMap(item => storyboardSpeech(item).map(line => line.character)))];
+      // Manual segment generation must be as self-sufficient as one-click
+      // production. A character's Fish voiceId locks casting, while this tiny
+      // reference file is generated once and reused only to teach H3 the
+      // timbre. Older projects may have the voiceId but no current timbre-v2
+      // artifact, so create it lazily instead of presenting an enabled button
+      // that fails after the user clicks it.
+      if (videoProvider === 'comfyui') {
+        for (const character of speakingCharacters) {
+          if (!voiceReferencesRef.current?.[character]) {
+            await handleGenerateVoiceReference(character, { throwOnError: true });
+          }
+        }
+      }
       const missingVoiceReference = videoProvider === 'comfyui'
         ? speakingCharacters.find(character => !voiceReferencesRef.current?.[character])
         : undefined;
