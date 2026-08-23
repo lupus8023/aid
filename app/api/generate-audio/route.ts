@@ -7,10 +7,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import ffmpegStatic from 'ffmpeg-static';
+import { fishS2ControlledText } from '@/lib/fishSpeechControl';
 
 const execFileAsync = promisify(execFile);
 
-async function generateTTS(text: string, voiceId: string | undefined, fishAudioKey: string): Promise<Buffer> {
+async function generateTTS(
+  text: string,
+  voiceId: string | undefined,
+  fishAudioKey: string,
+  emotion?: string,
+  delivery?: string,
+): Promise<Buffer> {
   if (!voiceId?.trim()) throw new Error('每条台词必须绑定明确的角色 voiceId，已禁止使用 Fish 默认音色');
   const res = await fetch('https://api.fish.audio/v1/tts', {
     method: 'POST',
@@ -20,7 +27,7 @@ async function generateTTS(text: string, voiceId: string | undefined, fishAudioK
       'model': 's2-pro',
     },
     body: JSON.stringify({
-      text,
+      text: fishS2ControlledText(text, emotion, delivery),
       format: 'mp3',
       reference_id: voiceId.trim(),
     }),
@@ -97,8 +104,12 @@ export async function POST(request: NextRequest) {
 
     // Generate once in dialogue order so ComfyUI can receive one exact segment track.
     const generatedLines: { character: string; buffer: Buffer; startSeconds?: number }[] = [];
-    for (const { character, text, voiceId, startSeconds } of normalizedLines) {
-      generatedLines.push({ character, buffer: await generateTTS(text, voiceId, fishAudioKey), startSeconds });
+    for (const { character, text, voiceId, startSeconds, emotion, delivery } of normalizedLines) {
+      generatedLines.push({
+        character,
+        buffer: await generateTTS(text, voiceId, fishAudioKey, emotion, delivery),
+        startSeconds,
+      });
     }
 
     const timedTrack = await composeTimedDialogueTrack(generatedLines, Number(duration));

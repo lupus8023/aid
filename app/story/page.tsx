@@ -1441,6 +1441,8 @@ export default function StoryPage() {
             character: line.character,
             text: line.exactLine,
             voiceId: line.voiceId || matched?.voiceId,
+            emotion: line.emotion,
+            delivery: line.delivery,
           };
         });
 
@@ -1586,6 +1588,8 @@ export default function StoryPage() {
             text: line.exactLine,
             voiceId: line.voiceId || matched?.voiceId,
             startSeconds: line.start,
+            emotion: line.emotion,
+            delivery: line.delivery,
           };
         });
         const audioResponse = await fetchStoryApi('/api/generate-audio', {

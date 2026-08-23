@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.43 - 2026-08-23
+
+### Improved
+
+- Ensemble voice casting now reserves a distinct deterministic Fish voice for each automatically cast speaker where an appropriate voice is available. Young leads, supporting women, mothers and elder or creature roles no longer collapse onto the same reference voice.
+- Exact dialogue is sent to Fish S2-Pro with at most one concise non-spoken delivery cue derived from the screenplay emotion field. The audible wording remains the exact authoritative line while urgency, restraint, grief, warmth and determination receive controlled vocal shape.
+- H3 v8 invalidates earlier voice-reference clips so resumed production regenerates remaining dialogue with the corrected cast and performance contract while preserving completed storyboard images.
+
+### Verification
+
+- Added ensemble uniqueness and exact-line isolation regressions alongside the existing Story, H3, segmentation and voice-binding suites.
+
 ## 0.1.42 - 2026-08-23
 
 ### Improved

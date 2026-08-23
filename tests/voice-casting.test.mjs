@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { castCharacterVoice, castStoryVoices, lockStoryboardVoiceIds } from '../lib/voiceCasting.ts';
 import { validateVoiceBindings } from '../lib/speechAudioContract.ts';
+import { fishS2ControlledText } from '../lib/fishSpeechControl.ts';
 
 test('automatically locks a young feminine voice for a mermaid princess', () => {
   const first = castCharacterVoice({ name: '人鱼公主', description: '18岁年轻女性，美人鱼公主' }, 'zh');
@@ -31,3 +32,24 @@ test('rejects any spoken segment that still has no explicit voice', () => {
   }]), /尚未锁定音色/);
 });
 
+test('casts distinct role-appropriate voices across an English ensemble', () => {
+  const cast = castStoryVoices([
+    { name: 'Mermaid Princess', description: 'young woman', voiceSource: 'auto' },
+    { name: 'Tide Officer', description: 'young female officer', voiceSource: 'auto' },
+    { name: 'A-Luo', description: 'young woman', voiceSource: 'auto' },
+    { name: 'Old Sea Turtle', description: 'elder turtle', voiceSource: 'auto' },
+    { name: 'Mother', description: 'middle-aged woman', voiceSource: 'auto' },
+  ], 'en');
+  assert.equal(new Set(cast.map(character => character.voiceId)).size, cast.length);
+  assert.match(cast.find(character => character.name === 'Old Sea Turtle').voiceProfile, /masculine/);
+  assert.match(cast.find(character => character.name === 'Mother').voiceProfile, /mature feminine/);
+});
+
+test('Fish delivery control never changes or absorbs the exact spoken line', () => {
+  const exactLine = 'Princess, the Southern Bay channel is blocked.';
+  const controlled = fishS2ControlledText(exactLine, 'urgent', 'fast but controlled');
+  assert.equal(controlled, `[urgent but controlled] ${exactLine}`);
+  assert.equal(fishS2ControlledText('I can do this.', 'determined', 'firm'), '[calm determination] I can do this.');
+  assert.equal(fishS2ControlledText(exactLine, 'neutral', 'plainly'), exactLine);
+  assert.doesNotMatch(controlled, /先短暂停顿|坚定语气|无其他角色/u);
+});
