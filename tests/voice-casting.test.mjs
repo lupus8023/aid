@@ -41,6 +41,8 @@ test('casts distinct role-appropriate voices across an English ensemble', () => 
     { name: 'Mother', description: 'middle-aged woman', voiceSource: 'auto' },
   ], 'en');
   assert.equal(new Set(cast.map(character => character.voiceId)).size, cast.length);
+  assert.equal(cast.find(character => character.name === 'Mermaid Princess').voiceId, '6d5d07dcc342440ba701aa36f7daf42f');
+  assert.notEqual(cast.find(character => character.name === 'Mermaid Princess').voiceId, '27254d2e219945c9896da5cc5e1e77f1');
   assert.match(cast.find(character => character.name === 'Old Sea Turtle').voiceProfile, /masculine/);
   assert.match(cast.find(character => character.name === 'Mother').voiceProfile, /mature feminine/);
 });

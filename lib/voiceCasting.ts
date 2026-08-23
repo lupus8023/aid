@@ -21,7 +21,7 @@ const VOICES = {
   youngFemaleZh: ['fdd3a82f118a4024a1c4059b4e4c2887', '48bc3ceafb0a4125a4c553d9b52b2fd9'],
   matureFemaleZh: ['da05afbbc5fa4c8b97d183f90e020427'],
   youngFemaleEn: [
-    '27254d2e219945c9896da5cc5e1e77f1',
+    '6d5d07dcc342440ba701aa36f7daf42f',
     '617167a94e49486f80d4c4047584d9ed',
     '8ef4a238714b45718ce04243307c57a7',
   ],

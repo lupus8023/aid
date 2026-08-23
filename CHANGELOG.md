@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.44 - 2026-08-23
+
+### Fixed
+
+- Removed a mislabeled legacy English reference whose measured delivery was masculine despite being stored in the young-feminine pool. Automatically cast young English heroines now use a verified public warm female reference instead.
+- H3 v9 invalidates every clip and exact dialogue track that could contain the former protagonist voice; completed storyboard images and the director's 16-segment plan remain reusable.
+
+### Verification
+
+- The first regenerated two-speaker clip was transcribed with exactly the two authorized English lines and no extra words. Voice-range diagnostics exposed the old heroine reference at roughly 133 Hz versus the verified female references at roughly 170–219 Hz, enabling deterministic correction before the remaining film was produced.
+
 ## 0.1.43 - 2026-08-23
 
 ### Improved
