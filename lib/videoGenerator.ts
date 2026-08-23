@@ -246,6 +246,7 @@ export function buildVideoSegmentPrompt(
     referenceAudioNames?: string[];
     visualOverride?: string;
     language?: 'zh' | 'en';
+    lockedDialogueTrack?: boolean;
   } = {},
 ): string {
   const first = storyboards[0];
@@ -266,9 +267,17 @@ export function buildVideoSegmentPrompt(
   const hasVoiceReferences = options.hasVoiceReferences || referenceAudioNames.length > 0;
   const subjectId = new Map(characters.map((name, index) => [name, index + 1]));
   const speechEventCount = timedSpeech.length;
-  const speechControl = speechEventCount
-    ? `No narrator or ad-lib exists. Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} occur: only the tagged dialogue line${speechEventCount === 1 ? '' : 's'} below, once each. Other prose is silent direction; never vocalize or mouth it.`
-    : 'No narrator, dialogue, singing, ad-lib, or intelligible human vocalization exists. All prose below is silent visual direction.';
+  const lockedDialogueTrack = Boolean(options.lockedDialogueTrack);
+  const lockedAudioDefinition = lockedDialogueTrack
+    ? `<Audio 1> is the authoritative full-duration final soundtrack. It already contains exactly ${speechEventCount} prerecorded dialogue event${speechEventCount === 1 ? '' : 's'} at the scheduled times and silence everywhere else. Preserve it sample-for-sample; generate, extend, replace, reinterpret or add no sound.`
+    : '';
+  const speechControl = lockedDialogueTrack
+    ? speechEventCount
+      ? `Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} exist only inside <Audio 1>. Generate no voice, narration, ad-lib, singing, breathing words or additional mouth movement; all prose is silent direction.`
+      : 'No narrator, dialogue, singing, ad-lib, breathy words or intelligible human vocalization exists. <Audio 1> is locked silence and all prose below is silent visual direction.'
+    : speechEventCount
+      ? `No narrator or ad-lib exists. Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} ${speechEventCount === 1 ? 'occurs' : 'occur'}: only the tagged dialogue line${speechEventCount === 1 ? '' : 's'} below, once each. Other prose is silent direction; never vocalize or mouth it.`
+      : 'No narrator, dialogue, singing, ad-lib, or intelligible human vocalization exists. All prose below is silent visual direction.';
 
   const renderDialogue = (storyboard: Storyboard, storyboardIndex: number) => timedSpeech
     .filter(line => line.storyboardIndex === storyboardIndex)
@@ -278,6 +287,12 @@ export function buildVideoSegmentPrompt(
       const id = line.speakerId;
       const subject = subjectId.get(name);
       const source = subject ? `<Subject ${subject}> (${id})` : `${name || 'The on-screen speaker'} (${id})`;
+      const eventNumber = timedSpeech.indexOf(line) + 1;
+      if (lockedDialogueTrack) {
+        return line.lipSync
+          ? `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, ${source} lip-syncs exactly to prerecorded dialogue event ${eventNumber} already present in <Audio 1>; the mouth starts and stops with that event, with no other vocalization.`
+          : `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, visible reactions synchronize to prerecorded off-screen dialogue event ${eventNumber} already present in <Audio 1>; no on-screen mouth speaks and no new vocal audio is generated.`;
+      }
       const performance = nonSpokenPerformanceControl(line.emotion, line.delivery);
       const volume = line.volume === 'raised' ? 'at a raised but controlled volume'
         : line.volume === 'soft' ? 'softly'
@@ -331,13 +346,15 @@ export function buildVideoSegmentPrompt(
     .trim();
   // Official H3 format keeps dialogue exclusively inside detailed_description.
   // overall_soundscape contains ambience, Foley and non-verbal human sound only.
-  const soundscape = buildAudioManifest(storyboards);
-  const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
+  const soundscape = lockedDialogueTrack
+    ? '<Audio 1> is the complete final soundtrack. Preserve its prerecorded dialogue timing and every silent interval exactly; generate no ambience, Foley, music or voice.'
+    : buildAudioManifest(storyboards);
+  const nonDiegeticMusic = lockedDialogueTrack ? 'N/A — final audio is locked to <Audio 1>.' : buildNonDiegeticMusic(storyboards);
 
   if (isFirstLastMode) {
     return `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.
 
-integrated_multimodal_description: ${styleOpening} ${speechControl} ${shotDescriptions.join(' ')} ${physics}
+integrated_multimodal_description: ${styleOpening} ${lockedAudioDefinition} ${speechControl} ${shotDescriptions.join(' ')} ${physics}
 
 overall_soundscape: ${soundscape}
 
@@ -352,15 +369,19 @@ non_diegetic_music: ${nonDiegeticMusic}`;
     const pictures = storyboards.flatMap((storyboard, storyboardIndex) => storyboard.characters?.includes(name) ? [`<Picture ${storyboardIndex + referenceOffset}>`] : []);
     return `<Subject ${index + 1}> = ${name} in ${pictures.join(', ') || 'references'}; preserve one face/body/hair/wardrobe/accessory identity.`;
   });
-  const audioDefinitions = referenceAudioNames.map((name, index) => {
-    const subject = subjectId.get(name);
-    const speaker = timedSpeech.find(line => line.character === name)?.speakerId;
-    return `<Audio ${index + 1}> is a voice-timbre reference for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (${speaker})` : ''}; it is not copied as a soundtrack and cannot add words, narration, or continuous speech.`;
-  });
+  const audioDefinitions = lockedDialogueTrack
+    ? [lockedAudioDefinition]
+    : referenceAudioNames.map((name, index) => {
+      const subject = subjectId.get(name);
+      const speaker = timedSpeech.find(line => line.character === name)?.speakerId;
+      return `<Audio ${index + 1}> is a voice-timbre reference for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (${speaker})` : ''}; it is not copied as a soundtrack and cannot add words, narration, or continuous speech.`;
+    });
   const retention = [
     ...subjectDefinitions.map((_, index) => `<Subject ${index + 1}>: fully_preserved identity/wardrobe across ${storyboards.flatMap((storyboard, shotIndex) => storyboard.characters?.includes(characters[index]) ? [`[Shot ${shotIndex + 1}]`] : []).join(',')}.`),
     ...pictureDefinitions.map((_, index) => `<Picture ${index + 1}>: reference; lock identity/world, not pose/viewpoint.`),
-    ...audioDefinitions.map((_, index) => `<Audio ${index + 1}>: reference - voice timbre for its bound scheduled speaker only; no source wording or continuous vocal track is copied.`),
+    ...audioDefinitions.map((_, index) => lockedDialogueTrack
+      ? `<Audio ${index + 1}>: fully_preserved final soundtrack; exact timing and silence; no generated audio.`
+      : `<Audio ${index + 1}>: reference - voice timbre for its bound scheduled speaker only; no source wording or continuous vocal track is copied.`),
   ];
   const summaryPictures = storyboards.map((_, index) => `<Picture ${index + referenceOffset}>`).join(', ');
 
@@ -368,7 +389,7 @@ non_diegetic_music: ${nonDiegeticMusic}`;
 ${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}
 
 summary:
-[${options.firstFrameUrl ? 'keyframe + ' : ''}references${referenceAudioNames.length ? ' + audio' : ''}] ${summaryPictures}; ${storyboards.length} causal shots / ${duration}s / one production world; ${speechEventCount ? `${speechEventCount} scheduled dialogue event${speechEventCount === 1 ? '' : 's'} and no other voice` : 'no human voice'}.
+[${options.firstFrameUrl ? 'keyframe + ' : ''}references${audioDefinitions.length ? ' + audio' : ''}] ${summaryPictures}; ${storyboards.length} causal shots / ${duration}s / one production world; ${speechEventCount ? `${speechEventCount} scheduled dialogue event${speechEventCount === 1 ? '' : 's'} and no other voice` : 'no human voice'}.
 
 retention_analysis:
 ${retention.join('\n')}

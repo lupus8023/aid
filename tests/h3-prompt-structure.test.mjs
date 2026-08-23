@@ -250,6 +250,35 @@ test('schedules two connected lines inside one storyboard in order', () => {
   assert.ok(prompt.indexOf('You should open it.') < prompt.indexOf('Then stay with me.'));
 });
 
+test('uses a locked full-duration dialogue track without asking H3 to synthesize words', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      speech: [{
+        speakerId: 'S01', character: 'Lin', exactLine: 'The Western Reef is still half a measure short.',
+        emotion: 'focused', delivery: 'plainly', volume: 'normal', lipSync: true, source: 'story_required',
+      }],
+    }),
+  ], [], { duration: 13, language: 'en', hasVoiceReferences: true, lockedDialogueTrack: true });
+
+  assert.match(prompt, /<Audio 1> is the authoritative full-duration final soundtrack/);
+  assert.match(prompt, /lip-syncs exactly to prerecorded dialogue event 1 already present in <Audio 1>/);
+  assert.match(prompt, /Preserve it sample-for-sample/);
+  assert.doesNotMatch(prompt, /<d>|The Western Reef is still half a measure short/);
+  assert.match(prompt, /generate no ambience, Foley, music or voice/i);
+});
+
+test('locks silent H3 segments to a full-duration silent source track', () => {
+  const prompt = buildVideoSegmentPrompt([shot(1)], [], {
+    duration: 6,
+    language: 'en',
+    hasVoiceReferences: true,
+    lockedDialogueTrack: true,
+  });
+  assert.match(prompt, /exactly 0 prerecorded dialogue events/);
+  assert.match(prompt, /<Audio 1> is locked silence/);
+  assert.doesNotMatch(prompt, /<d>/);
+});
+
 test('writes first/last-frame H3 prompts in the official base-mode structure', () => {
   const prompt = buildVideoSegmentPrompt([shot(1)], [], { duration: 8, firstFrameUrl: 'data:image/jpeg;base64,AA==' });
   assert.match(prompt, /^How the reference pictures align with the target video/);

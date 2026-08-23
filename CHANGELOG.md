@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.33 - 2026-08-23
+
+### Improved
+
+- Grouped H3 segments continue to carry every storyboard as a complete timed action, camera, dialogue-performance and physical-handoff unit; combining shots changes only the render container and no longer weakens the shot-level narrative.
+- Exact Fish Audio dialogue is now assembled into a full-duration segment timeline at the screenplay's scheduled positions. The same track drives lip synchronization and is preserved as the final MP4 soundtrack.
+
+### Fixed
+
+- MiniMax H3 can no longer reinterpret a short voice reference and append an unscripted second line. Locked dialogue prompts contain no generative `<d>` wording, and the ComfyUI workflow runs in `lock_source` mode with the exact source connected to both conditioning and final mux audio.
+- Dialogue-free segments receive an exact full-duration silent track, preventing incidental human speech, narration, breathy words or other unexplained voices.
+- Legacy audio references and H3 v4 video caches are invalidated before a resumed production, so an existing project regenerates with the exact-dialogue contract instead of reusing clips made by the older native-audio path.
+- Story and grouped H3 generation now require Companion v0.1.33, keeping the hosted UI, local timeline composer and cloud workflow injection in sync.
+
+### Tests
+
+- Added locked-audio prompt and ComfyUI graph-wiring regression coverage. All 112 tests, TypeScript validation and the production build pass.
+
 ## 0.1.32 - 2026-08-23
 
 ### Improved

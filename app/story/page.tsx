@@ -23,12 +23,12 @@ import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
-import { estimateVideoSegmentSeconds, isCompletedVideoSegment, resolveVideoSegmentGroups, restoredStoryStep, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
+import { allocateSegmentTimeline, estimateVideoSegmentSeconds, isCompletedVideoSegment, resolveVideoSegmentGroups, restoredStoryStep, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
 import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
 import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@/lib/gridRecovery';
-import { segmentSpeechSignature, storyboardSpeech } from '@/lib/speechAudioContract';
+import { compileTimedSpeech, segmentSpeechSignature, storyboardSpeech } from '@/lib/speechAudioContract';
 import { applyStoryAspectRatio, hasStoryMedia, projectStoryAspectRatio, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { getImageModelCapabilities } from '@/lib/imageModels';
 import { autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, normalizeStoryboardImageArtifact, planAutoImageBatch } from '@/lib/autoProduction';
@@ -1458,6 +1458,12 @@ export default function StoryPage() {
     let exactCharacterAudios = leader.audioSpeechSignature === speechSignature
       ? (leader.characterAudios || [])
       : [];
+    let exactDialogueTrack = leader.audioSpeechSignature === speechSignature && leader.audioTrackVersion === 'locked-v1'
+      ? leader.audioUrl
+      : undefined;
+    let exactDialogueTrackDuration = leader.audioSpeechSignature === speechSignature && leader.audioTrackVersion === 'locked-v1'
+      ? leader.audioDuration
+      : undefined;
     const segmentId = `segment-${Date.now()}-${leader.sceneNumber}`;
     const duration = estimateVideoSegmentSeconds(segment);
     const leaderIndex = currentShots.findIndex(item => item.id === leader.id);
@@ -1512,27 +1518,38 @@ export default function StoryPage() {
       // one clean reference per speaking character from this segment's exact
       // authoritative lines. If H3 follows either timbre or source content, it
       // can only hear words that are already allowed in the segment.
-      if (videoProvider === 'comfyui' && speechSignature !== '[]' && activeSettings.fishAudioKey && !exactCharacterAudios.length) {
+      if (videoProvider === 'comfyui' && speechSignature !== '[]' && !exactDialogueTrack && !activeSettings.fishAudioKey) {
+        throw new Error('有台词的 H3 片段需要 Fish Audio Key 生成可锁定的精确对白音轨');
+      }
+      if (videoProvider === 'comfyui' && speechSignature !== '[]' && activeSettings.fishAudioKey && (!exactCharacterAudios.length || !exactDialogueTrack)) {
         commitStoryboards(prev => prev.map(item => item.id === leader.id ? { ...item, audioStatus: 'generating' as const } : item));
-        const lines = segment.flatMap(item => storyboardSpeech(item)).map(line => {
+        const timedSpeech = compileTimedSpeech(segment, allocateSegmentTimeline(segment, duration));
+        const lines = timedSpeech.map(line => {
           const matched = charactersRef.current.find(character => character.name.trim().toLowerCase() === line.character.trim().toLowerCase());
           return {
             character: line.character,
             text: line.exactLine,
             voiceId: line.voiceId || matched?.voiceId,
+            startSeconds: line.start,
           };
         });
         const audioResponse = await fetch('/api/generate-audio', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lines, fishAudioKey: activeSettings.fishAudioKey }),
+          body: JSON.stringify({ lines, duration, fishAudioKey: activeSettings.fishAudioKey }),
         });
-        const audioData = await readApiJson<{ characterAudios: { character: string; audioUrl: string; audioDuration?: number }[] }>(audioResponse, '准确台词音频生成失败');
+        const audioData = await readApiJson<{ characterAudios: { character: string; audioUrl: string; audioDuration?: number }[]; audioUrl?: string; audioDuration?: number }>(audioResponse, '准确台词音频生成失败');
         exactCharacterAudios = audioData.characterAudios || [];
+        exactDialogueTrack = audioData.audioUrl;
+        exactDialogueTrackDuration = audioData.audioDuration;
+        if (!exactDialogueTrack) throw new Error('准确台词音频生成成功但没有返回锁定音轨');
         commitStoryboards(prev => prev.map(item => item.id === leader.id ? {
           ...item,
           audioStatus: 'completed' as const,
           characterAudios: exactCharacterAudios,
+          audioUrl: exactDialogueTrack,
+          audioDuration: exactDialogueTrackDuration,
+          audioTrackVersion: 'locked-v1',
           audioSpeechSignature: speechSignature,
         } : item));
       }
@@ -1568,6 +1585,9 @@ export default function StoryPage() {
             audioUrl: await makePortableMediaSource(audio.audioUrl, `${audio.character} 准确台词音频`, true),
           })))
         : exactCharacterAudios;
+      const portableDialogueTrack = videoProvider === 'comfyui' && exactDialogueTrack
+        ? await makePortableMediaSource(exactDialogueTrack, '准确台词锁定音轨', true)
+        : undefined;
       const storyboardForRequest = {
         ...portableSegment[0],
         videoDuration: duration,
@@ -1603,7 +1623,7 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, characterAudios: portableCharacterAudios, firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), videoProvider, comfyui: localComfyUISettings(activeSettings.comfyui) })
+        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, characterAudios: portableCharacterAudios, driveAudio: portableDialogueTrack, lockDialogueAudio: videoProvider === 'comfyui', firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), videoProvider, comfyui: localComfyUISettings(activeSettings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string }>(response, '视频任务创建失败');
       if (generationProjectId !== projectIdRef.current) return;

@@ -6,6 +6,7 @@ import {
   h3ConditioningTaskType,
   h3ReferenceAudioPolicy,
   h3VisualTaskType,
+  injectLockedDriveAudio,
   taggedPrompt,
 } from '../lib/comfyui.ts';
 
@@ -83,4 +84,37 @@ test('never turns native audio into permission to invent speech or music', () =>
 test('keeps an official structured H3 prompt free of a second appended contract', () => {
   const official = `subject_definitions:\n<Picture 1> is a shot reference.\n\nsummary:\n[reference generation] One shot.\n\nretention_analysis:\n<Picture 1>: fully_preserved - composition.\n\ndetailed_description:\n[Shot 1] A person walks.\n\noverall_soundscape:\nFootsteps.\n\nnon_diegetic_music:\nN/A`;
   assert.equal(taggedPrompt(official, 'aid_single_reference', 0, 0), official);
+});
+
+test('locks drive and final audio and wires the exact track into the MP4 mux', () => {
+  const prompt = {
+    6: {
+      class_type: 'MiniMaxH3AudioConditioningT8',
+      inputs: {
+        task_type: 'Ref2VA',
+        audio_mode: 'native',
+        'ref_audios.ref_audio_0': ['20', 0],
+      },
+    },
+    12: {
+      class_type: 'VHS_VideoCombine',
+      inputs: { images: ['11', 0], audio: ['11', 1] },
+    },
+  };
+
+  injectLockedDriveAudio(prompt, 'aid/exact-dialogue.wav');
+  const conditioning = prompt[6].inputs;
+  const loadEntry = Object.entries(prompt).find(([, node]) => node.class_type === 'LoadAudio');
+  assert.ok(loadEntry);
+  assert.equal(loadEntry[1].inputs.audio, 'aid/exact-dialogue.wav');
+  assert.deepEqual(conditioning.drive_audio, [loadEntry[0], 0]);
+  assert.deepEqual(conditioning.final_audio, [loadEntry[0], 0]);
+  assert.equal(conditioning.task_type, 'Hybrid');
+  assert.equal(conditioning.audio_mode, 'lock_source');
+  assert.equal(conditioning.audio_denoise_strength, 0);
+  assert.equal(conditioning.add_source_as_reference, true);
+  assert.equal(conditioning.prompt_primary_audio_ordinal, 1);
+  assert.equal(conditioning.strict_prompt_tags, true);
+  assert.equal('ref_audios.ref_audio_0' in conditioning, false);
+  assert.deepEqual(prompt[12].inputs.audio, ['6', 2]);
 });

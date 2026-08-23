@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   try {
     const {
       storyboard, segmentStoryboards = [], apiKey, videoModel, aspectRatio,
-      characterAudios = [], firstFrameUrl,
+      characterAudios = [], driveAudio, lockDialogueAudio = false, firstFrameUrl,
       voiceReferences = {},  // { 角色名: CloudinaryURL }
       videoProvider = 'apimart', comfyui = {},
       language = 'zh',
@@ -81,15 +81,21 @@ export async function POST(request: NextRequest) {
         // the multi-reference workflow so every checked storyboard remains a
         // visible editorial reference inside the same 15-second clip.
         endFrame: firstFrameUrl && !isMultiBeatSegment ? storyboard.imageUrl : undefined,
-        referenceAudios,
-        referenceAudioNames,
+        // A full-duration exact dialogue track is authoritative. Do not also
+        // pass the same words as a timbre reference: native Ref2VA can extend
+        // their semantics into an unscripted second line.
+        referenceAudios: lockDialogueAudio ? [] : referenceAudios,
+        referenceAudioNames: lockDialogueAudio ? [] : referenceAudioNames,
+        driveAudio: typeof driveAudio === 'string' ? driveAudio : undefined,
+        lockAudio: Boolean(lockDialogueAudio),
         // H3 generates the synchronized soundtrack natively. Voice samples are
         // optional references, so APIMart's URL-tag syntax must not enter the prompt.
         prompt: buildVideoSegmentPrompt(isMultiBeatSegment ? videoStoryboards : [storyboard], [], {
           firstFrameUrl,
           duration: Number(storyboard.videoDuration) || (isMultiBeatSegment ? 15 : 5),
-          hasVoiceReferences: referenceAudios.length > 0,
-          referenceAudioNames,
+          hasVoiceReferences: lockDialogueAudio || referenceAudios.length > 0,
+          referenceAudioNames: lockDialogueAudio ? [] : referenceAudioNames,
+          lockedDialogueTrack: Boolean(lockDialogueAudio),
           visualOverride: storyboard.videoPromptOverride && String(storyboard.videoPrompt || '').trim()
             ? String(storyboard.videoPrompt).trim()
             : undefined,
