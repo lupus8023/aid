@@ -138,7 +138,7 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
       && (line.source === 'user_exact' || !isDirectingInstructionDialogue(line.exactLine))
       && !seen.has(`${line.character}\u0000${line.exactLine}`)
       && Boolean(seen.add(`${line.character}\u0000${line.exactLine}`)))
-    .slice(0, 2);
+    .slice(0, 4);
 }
 
 export function storyboardSpeechWarnings(storyboard: Storyboard): string[] {

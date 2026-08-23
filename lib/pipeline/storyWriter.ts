@@ -84,6 +84,7 @@ export interface StoryOutlineBeat {
   audienceQuestion: string;
   requiredSpeaker: string;
   requiredLine: string;
+  requiredDialogueLines: Array<{ character: string; text: string }>;
 }
 
 export interface StoryOutlineSequence {
@@ -109,6 +110,52 @@ export interface StoryBeatBatch {
   sequence: StoryOutlineSequence;
   beatMap: StoryOutlineBeat[];
   batchNumber: number;
+}
+
+export function parseSourceDialogueByShot(
+  synopsis: string,
+  allowedCharacters: string[],
+): Map<number, Array<{ character: string; text: string }>> {
+  const result = new Map<number, Array<{ character: string; text: string }>>();
+  const speakerPattern = /([A-Za-z][A-Za-z'’.-]*(?:\s+[A-Za-z][A-Za-z'’.-]*){0,4}|[\p{Script=Han}]{1,12})\s*[:：]\s*[“"]([^”"]+)[”"]/gu;
+  for (const sourceLine of String(synopsis || '').split(/\r?\n/)) {
+    const shotMatch = sourceLine.match(/(?:SHOT|镜头)\s*0*(\d+)\b/iu);
+    const dialogueMarker = sourceLine.match(/(?:dialogue|台词)\s*[:：]/iu);
+    if (!shotMatch || !dialogueMarker) continue;
+    const shotIndex = Number(shotMatch[1]);
+    const dialogueText = sourceLine.slice((dialogueMarker.index || 0) + dialogueMarker[0].length);
+    const lines: Array<{ character: string; text: string }> = [];
+    for (const match of dialogueText.matchAll(speakerPattern)) {
+      const character = String(match[1] || '').trim();
+      const text = String(match[2] || '').replace(/\s+/g, ' ').trim();
+      if (!character || !text || NON_CHARACTER_SPEAKERS.has(character.toLocaleLowerCase())) continue;
+      if (!allowedCharacters.includes(character)) continue;
+      lines.push({ character, text });
+    }
+    if (lines.length) result.set(shotIndex, lines);
+  }
+  return result;
+}
+
+export function applySourceDialogueAuthority(
+  outline: StoryOutline,
+  synopsis: string,
+  allowedCharacters: string[],
+): StoryOutline {
+  const sourceDialogue = parseSourceDialogueByShot(synopsis, allowedCharacters);
+  outline.sequences.forEach(sequence => {
+    sequence.beatMap.forEach(beat => {
+      const lines = sourceDialogue.get(beat.index);
+      if (!lines) return;
+      beat.requiredDialogueLines = lines;
+      beat.requiredSpeaker = lines[0].character;
+      beat.requiredLine = lines[0].text;
+      if (/(?:visual_only|纯视觉|无对白)/i.test(beat.dialoguePurpose)) {
+        beat.dialoguePurpose = lines.length > 1 ? 'exchange' : 'story_progression';
+      }
+    });
+  });
+  return outline;
 }
 
 function unwrapStoryOutline(value: unknown, depth = 0): Record<string, unknown> {
@@ -180,6 +227,14 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
           const requiredLine = asString(beat?.requiredLine).replace(/\s+/g, ' ').trim();
           const requestedSpeaker = asString(beat?.requiredSpeaker).trim();
           const requiredSpeaker = allowedCharacters.includes(requestedSpeaker) ? requestedSpeaker : '';
+          const requiredDialogueLines = (Array.isArray(beat?.requiredDialogueLines) ? beat.requiredDialogueLines : [])
+            .map((line: any) => ({
+              character: asString(line?.character || line?.speaker).trim(),
+              text: asString(line?.text || line?.exactLine).replace(/\s+/g, ' ').trim(),
+            }))
+            .filter((line: { character: string; text: string }) => (
+              line.text && allowedCharacters.includes(line.character)
+            ));
           const requestedPurpose = asString(beat?.dialoguePurpose, 'visual_only').trim();
           if (requiredLine && !requiredSpeaker) {
             throw new Error(`镜头 ${nextIndex + 1} 有指定台词但没有有效 requiredSpeaker；临时或未上传角色不得发声`);
@@ -199,6 +254,9 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
             audienceQuestion: asString(beat?.audienceQuestion).trim(),
             requiredSpeaker,
             requiredLine,
+            requiredDialogueLines: requiredDialogueLines.length
+              ? requiredDialogueLines
+              : (requiredLine && requiredSpeaker ? [{ character: requiredSpeaker, text: requiredLine }] : []),
           };
         });
       return {
@@ -369,7 +427,7 @@ export function sanitizeStoryPlan(
           respondsTo: asString(line?.respondsTo).trim(),
           source,
         };
-      }).filter((line: StorySpeechLine | undefined): line is StorySpeechLine => Boolean(line)).slice(0, 2);
+      }).filter((line: StorySpeechLine | undefined): line is StorySpeechLine => Boolean(line)).slice(0, 4);
       previousBeatSpeechSignatures = new Set(speech.map(line => `${line.character}\u0000${line.exactLine}`));
       const rawAudio = b?.audioPlan && typeof b.audioPlan === 'object' ? b.audioPlan : {};
       const audioPlan: StoryAudioPlan = {
@@ -510,7 +568,7 @@ export async function generateStoryPlan(input: {
   const isLocalCompanion = process.env.AID_LOCAL_COMPANION === '1';
   const outlinePrompt = buildStoryOutlinePrompt({ synopsis, characters, objects, language, targetShotCount });
   console.log(`[story-writer] generating compact outline for ${targetShotCount} shots`);
-  const outline = await requestStructuredJson<StoryOutline>({
+  const outline = applySourceDialogueAuthority(await requestStructuredJson<StoryOutline>({
     prompt: outlinePrompt,
     label: '故事骨架',
     validate: raw => normalizeStoryOutline(raw, targetShotCount, characters.map(character => character.name)),
@@ -524,7 +582,7 @@ export async function generateStoryPlan(input: {
     // found an inner array and validation misleadingly reported zero shots.
     maxOutputTokens: Math.min(24_000, 5_000 + targetShotCount * 260),
     timeoutMs: isLocalCompanion ? 150_000 : 48_000,
-  });
+  }), synopsis, characters.map(character => character.name));
 
   const batches = buildStoryBeatBatches(outline);
   const detailedBySequence = new Map<string, any[]>();
@@ -571,7 +629,26 @@ export async function generateStoryPlan(input: {
           const missing = Object.entries(required).filter(([, value]) => !value.trim()).map(([key]) => key);
           if (missing.length) throw new Error(`镜头 ${authority.index} 缺少叙事字段：${missing.join('、')}`);
           let purpose = required.dialoguePurpose.toLowerCase();
-          const submittedSpeech = Array.isArray(beat?.speech) ? beat.speech : [];
+          const authoritativeDialogue = authority.requiredDialogueLines || [];
+          if (authoritativeDialogue.length) {
+            const submittedCharacters = Array.isArray(beat?.characters) ? beat.characters.map(String) : [];
+            beat.characters = [...new Set([...submittedCharacters, ...authoritativeDialogue.map(line => line.character)])];
+          }
+          const submittedSpeech = authoritativeDialogue.length
+            ? authoritativeDialogue.map(line => {
+                const generated = (Array.isArray(beat?.speech) ? beat.speech : []).find((candidate: any) => (
+                  asString(candidate?.character || candidate?.speaker).trim() === line.character
+                    && asString(candidate?.exactLine || candidate?.text).replace(/\s+/g, ' ').trim() === line.text
+                ));
+                return {
+                  ...generated,
+                  character: line.character,
+                  exactLine: line.text,
+                  source: 'user_exact',
+                  storyFunction: asString(generated?.storyFunction, required.dialoguePurpose).trim() || 'story_progression',
+                };
+              })
+            : (Array.isArray(beat?.speech) ? beat.speech : []);
           const rawSpeech = filterVisibleStorySpeech(
             submittedSpeech,
             beat?.characters,
@@ -579,14 +656,14 @@ export async function generateStoryPlan(input: {
           );
           beat.speech = rawSpeech;
           if (!/(?:visual_only|纯视觉|无对白)/.test(purpose) && rawSpeech.length === 0) {
-            if (authority.requiredLine) {
+            if (authority.requiredDialogueLines.length || authority.requiredLine) {
               throw new Error(`镜头 ${authority.index} 规划了 ${required.dialoguePurpose} 台词功能，但没有生成 speech`);
             }
             beat.dialoguePurpose = 'visual_only';
             required.dialoguePurpose = 'visual_only';
             purpose = 'visual_only';
           }
-          if (rawSpeech.length > 2) throw new Error(`镜头 ${authority.index} 返回超过 2 条台词`);
+          if (rawSpeech.length > 4) throw new Error(`镜头 ${authority.index} 返回超过 4 条台词`);
           rawSpeech.forEach((line: any, lineIndex: number) => {
             const character = asString(line?.character || line?.speaker).trim();
             const exactLine = sanitizeGeneratedSpeechText(line?.exactLine || line?.text);
@@ -617,16 +694,30 @@ export async function generateStoryPlan(input: {
             dialoguePurpose: asString(beat?.dialoguePurpose, authority.dialoguePurpose),
             montageRole: asString(beat?.montageRole, authority.montageRole),
             audienceQuestion: asString(beat?.audienceQuestion, authority.audienceQuestion),
-            speech: authority.requiredLine && authority.requiredSpeaker
-              ? [{
-                  ...(Array.isArray(beat?.speech)
-                    ? beat.speech.find((line: any) => asString(line?.character || line?.speaker).trim() === authority.requiredSpeaker)
-                    : undefined),
-                  character: authority.requiredSpeaker,
-                  exactLine: authority.requiredLine,
-                  source: synopsis.includes(authority.requiredLine) ? 'user_exact' : 'story_required',
-                }]
-              : beat?.speech,
+            speech: authority.requiredDialogueLines.length
+              ? authority.requiredDialogueLines.map(line => {
+                  const generated = (Array.isArray(beat?.speech) ? beat.speech : []).find((candidate: any) => (
+                    asString(candidate?.character || candidate?.speaker).trim() === line.character
+                      && asString(candidate?.exactLine || candidate?.text).replace(/\s+/g, ' ').trim() === line.text
+                  ));
+                  return {
+                    ...generated,
+                    character: line.character,
+                    exactLine: line.text,
+                    source: 'user_exact',
+                    storyFunction: asString(generated?.storyFunction, authority.dialoguePurpose).trim() || 'story_progression',
+                  };
+                })
+              : (authority.requiredLine && authority.requiredSpeaker
+                ? [{
+                    ...(Array.isArray(beat?.speech)
+                      ? beat.speech.find((line: any) => asString(line?.character || line?.speaker).trim() === authority.requiredSpeaker)
+                      : undefined),
+                    character: authority.requiredSpeaker,
+                    exactLine: authority.requiredLine,
+                    source: synopsis.includes(authority.requiredLine) ? 'user_exact' : 'story_required',
+                  }]
+                : beat?.speech),
             promptDraft: '',
             sceneStyle: '',
           };

@@ -236,6 +236,7 @@ export default function StoryPage() {
   const autoRunLockRef = useRef(false);
   const autoOwnsCrossTabLeaseRef = useRef(false);
   const autoLeaseRetryTimerRef = useRef<number>();
+  const autoResumeAfterPauseTimerRef = useRef<number>();
   const autoExportCompletionRef = useRef<{
     resolve: () => void;
     reject: (error: unknown) => void;
@@ -284,6 +285,7 @@ export default function StoryPage() {
           videoCachedAt: cachedAt,
         } : {}),
       } : sb));
+      persistCurrentProject();
       return cached.objectUrl;
     } catch (error) {
       console.error(`场景 ${storyboardId} 本地视频缓存失败:`, error);
@@ -693,8 +695,31 @@ export default function StoryPage() {
         setCostumeImages(importedCostumeImages);
         setSceneImages(importedSceneImages);
         setStoryPlan(data.storyPlan);
+        storyPlanRef.current = data.storyPlan;
         setVideoSegmentPlan(data.videoSegmentPlan);
         videoSegmentPlanRef.current = data.videoSegmentPlan;
+        // Import is an explicit project replacement. Persist it immediately so
+        // a refresh or a background tab cannot resurrect the project that was
+        // open before the file chooser completed.
+        saveProject({
+          id: importedProjectId,
+          name: data.name || 'Untitled Project',
+          characters: importedCharacters,
+          objects: importedObjects,
+          storyContent: data.storyContent || '',
+          language: importedLanguage,
+          targetShotCount: normalizeTargetShotCount(data.targetShotCount),
+          aspectRatio: importedAspectRatio,
+          visualStyle: normalizeVisualStyle(data.visualStyle || settingsRef.current.visualStyle),
+          storyOutline: '',
+          storyboards: importedStoryboards,
+          voiceReferences: data.voiceReferences,
+          costumeImages: importedCostumeImages,
+          sceneImages: importedSceneImages,
+          storyPlan: data.storyPlan,
+          videoSegmentPlan: data.videoSegmentPlan,
+          createdAt: data.createdAt || new Date().toISOString(),
+        });
         if (data.storyboards?.length > 0) setCurrentStep(4);
         else if (data.storyContent && data.characters?.length > 0) setCurrentStep(2);
         else setCurrentStep(1);
@@ -808,6 +833,7 @@ export default function StoryPage() {
     videoSegmentPlanRef.current = undefined;
     setStoryboards(styledStoryboards);
     storyboardsRef.current = styledStoryboards;
+    persistCurrentProject(styledStoryboards);
     return styledStoryboards;
   };
 
@@ -843,6 +869,7 @@ export default function StoryPage() {
       const next = updater(storyboardsRef.current);
       storyboardsRef.current = next;
       setStoryboards(next);
+      persistCurrentProject(next);
     };
     setIsGeneratingGrid(true);
     const failedBatches: string[] = [];
@@ -1747,15 +1774,26 @@ export default function StoryPage() {
   // 每个阶段会持续重试，直到成功、切换项目或用户主动暂停。
   const handleAutoGenerate = async (ownsCrossTabLease = false): Promise<void> => {
     if (autoRunLockRef.current) {
-      // A paid remote request may still be awaiting completion when the user
-      // pauses. Continuing must revive that same orchestration instead of
-      // silently ignoring the click or starting a second pipeline.
+      // Let the paused orchestration observe autoAbort=true and unwind before
+      // starting a replacement. Clearing the abort flag immediately can leave
+      // the old call parked inside a retry/poll while the UI claims it resumed.
       if (autoAbortRef.current || autoPaused) {
-        autoAbortRef.current = false;
         markAutoProduction(projectIdRef.current, 'running');
         setAutoPaused(false);
         setAutoRunning(true);
-        setAutoStage('等待当前已提交任务完成后继续');
+        setAutoStage('正在安全接管断点任务…');
+        const resumeWhenReleased = () => {
+          if (autoRunLockRef.current) {
+            autoResumeAfterPauseTimerRef.current = window.setTimeout(resumeWhenReleased, 250);
+            return;
+          }
+          autoResumeAfterPauseTimerRef.current = undefined;
+          autoAbortRef.current = false;
+          void handleAutoGenerate();
+        };
+        if (!autoResumeAfterPauseTimerRef.current) {
+          autoResumeAfterPauseTimerRef.current = window.setTimeout(resumeWhenReleased, 250);
+        }
       }
       return;
     }
@@ -1983,10 +2021,15 @@ export default function StoryPage() {
 
   const handleAutoStop = () => {
     autoAbortRef.current = true;
+    if (autoResumeAfterPauseTimerRef.current) {
+      window.clearTimeout(autoResumeAfterPauseTimerRef.current);
+      autoResumeAfterPauseTimerRef.current = undefined;
+    }
     if (autoLeaseRetryTimerRef.current) {
       window.clearTimeout(autoLeaseRetryTimerRef.current);
       autoLeaseRetryTimerRef.current = undefined;
     }
+    persistCurrentProject();
     markAutoProduction(projectIdRef.current, 'paused');
     setAutoPaused(true);
     setAutoRunning(false);

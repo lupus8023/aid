@@ -90,6 +90,23 @@ test('timeline fills the entire H3 duration without gaps', () => {
   timeline.slice(1).forEach((item, index) => assert.equal(item.start, timeline[index].end));
 });
 
+test('segment duration reserves compiler lead and tail silence instead of rounding speech down', () => {
+  const segment = [
+    shot(1, {
+      characters: ['A'], clipType: 'action', durationHint: 5,
+      speech: [{ speakerId: 'S1', character: 'A', exactLine: 'The Western Reef is still half a measure short.', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'user_exact' }],
+      audioPlan: { backgroundHuman: 'none', environment: [], foley: [], music: 'none', silenceBefore: 0.1, silenceAfter: 0.4 },
+    }),
+    shot(2, {
+      characters: ['B'], clipType: 'dialogue', durationHint: 4.5,
+      speech: [{ speakerId: 'S2', character: 'B', exactLine: 'Princess, the Southern Bay channel is blocked.', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'user_exact' }],
+      audioPlan: { backgroundHuman: 'none', environment: [], foley: [], music: 'none', silenceBefore: 0, silenceAfter: 0.3 },
+    }),
+  ];
+  assert.equal(estimateVideoSegmentSeconds(segment), 10);
+  assert.equal(validateVideoSegment(segment), undefined);
+});
+
 test('does not mistake legacy per-shot videos for a completed grouped segment', () => {
   const legacy = [
     shot(1, { videoStatus: 'completed', videoUrl: 'blob:legacy-1' }),

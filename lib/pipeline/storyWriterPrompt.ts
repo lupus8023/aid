@@ -99,8 +99,9 @@ ${objectDetails}
       "dialoguePurpose": "question|answer|reveal|conceal|challenge|refusal|decision|promise|callback|payoff|visual_only",
       "montageRole": "setup|development|escalation|parallel|contrast|decision|consequence|bridge|payoff|resolution",
       "audienceQuestion": "本镜结束时观众继续追问的问题",
-      "requiredSpeaker": "可用角色精确名称；无台词则空字符串",
-      "requiredLine": "用户指定台词或空字符串"
+      "requiredSpeaker": "第一条指定台词的可用角色精确名称；无台词则空字符串",
+      "requiredLine": "第一条用户指定台词或空字符串",
+      "requiredDialogueLines": [{ "character": "可用角色精确名称", "text": "同一镜头内按原顺序保留的逐字台词" }]
     }]
   }]
 }
@@ -191,9 +192,9 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - 第一镜 stateBefore 必须按照上述交接类型承接上一批；最后一镜 nextCause 要准确铺向后续路线。
 - 台词服务叙事，而不是一律从少。beatMap.requiredLine 非空时逐字写入 speech；否则按 dialoguePurpose 判断：私人目标、问题/回答、关系转折、谎言/揭示、承诺/回收或明确选择若仅靠画面会含混，就写必要台词；visual_only 才保持 speech=[]。禁止旁白、画外音、路人台词、笑声、哼唱和无来源人声。
 - 台词必须承接上下文：用 storyFunction 标明 question/answer/reveal/refusal/decision/promise/callback/payoff；用 respondsTo 指向它回应的前一句信息或伏笔。不得写重复画面、孤立口号、通用感叹或没有对象的短句。
-- 一镜可有 0–2 条有序台词；两条时必须是清晰的发起→回应或揭示→决定，逐条绑定已出场角色，不能重叠。总台词时长加留白必须装入 durationHint。不要为了凑数量写台词。
+- 一镜通常有 0–2 条有序台词；用户原文同镜明确给出三句或四句短对答时必须全部按 requiredDialogueLines 的原顺序保留。逐条绑定已出场角色，不能重叠，总台词时长加留白必须装入 durationHint。不要为了凑数量写台词。
 - 若 beatMap 只规划了 AI 自创台词功能、没有 requiredLine，而本镜信息已经能靠动作清楚交付，可以将 dialoguePurpose 明确改成 visual_only 并保持 speech=[]；绝不能为了满足字段而把一个角色的原话转嫁给另一个角色。requiredLine 非空时不得这样降级。
-- beatMap.requiredLine 非空时，speech.character 必须逐字等于 beatMap.requiredSpeaker，speech.exactLine 必须逐字等于 requiredLine，绝不能把临时人物的话转嫁给主角。
+- beatMap.requiredDialogueLines 非空时，speech 必须逐条、逐字、按顺序等于该数组；requiredLine/requiredSpeaker 是首句兼容字段。绝不能漏句、串角色、合并旁白或把临时人物的话转嫁给主角。
 - 自行创作 story_required 台词时，说话者必须在 characters 中以已上传精确名称出现；action 还要用当前输出语言清楚表现该可见角色正在开口。不要因为英文叙述使用自然称呼而改写 characters / speech.character 中的精确库名称。
 - audioPlan 是唯一声音源。backgroundHuman 默认 none；环境声和拟音必须由地点或可见动作引起；未要求音乐时 music 为 none。
 - transition 固定写 "cut"；时空和情绪变化通过动作、视线、物体、构图、焦点或声音桥完成，不使用 dissolve、fade 或 wipe 特效代替导演调度。

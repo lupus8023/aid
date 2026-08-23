@@ -86,15 +86,20 @@ export function estimateStoryboardBeatSeconds(storyboard: Storyboard): number {
   const spoken = lines.length
     ? lines.reduce((sum, line) => sum + speechSeconds(line.exactLine), 0)
       + Math.max(0, lines.length - 1) * 0.35
-      + plan.silenceBefore
-      + plan.silenceAfter
+      // compileTimedSpeech always reserves at least 0.45s before and 0.55s
+      // after speech. The estimator must use the same floor or proportional
+      // allocation can give a beat less time than the compiler will accept.
+      + Math.max(0.45, plan.silenceBefore)
+      + Math.max(0.55, plan.silenceAfter)
     : 0;
   return Math.min(MAX_H3_SEGMENT_SECONDS, Math.max(visual, spoken));
 }
 
 export function estimateVideoSegmentSeconds(storyboards: Storyboard[]): number {
   const total = storyboards.reduce((sum, storyboard) => sum + estimateStoryboardBeatSeconds(storyboard), 0);
-  return Math.min(MAX_H3_SEGMENT_SECONDS, Math.max(3, Math.round(total)));
+  // Never round a viable speech budget down. One tenth of a second lost here
+  // can make an otherwise valid locked-audio segment fail before submission.
+  return Math.min(MAX_H3_SEGMENT_SECONDS, Math.max(3, Math.ceil(total)));
 }
 
 export function areContiguousStoryboards(storyboards: Storyboard[]): boolean {

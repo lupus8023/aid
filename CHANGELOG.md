@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.39 - 2026-08-23
+
+### Improved
+
+- Explicit screenplay dialogue is now authoritative through planning, directing and grouped H3 production. Up to four ordered lines may remain in one shot when the source requires an exchange, while narrator labels and stage directions never become speakers.
+- H3 segment duration reserves the same speech lead-in and tail used by the exact-audio compiler, and rounds the required duration upward so grouped dialogue is never squeezed into an undersized clip.
+
+### Fixed
+
+- Story progress, generated grids, split storyboard images, screenplay updates, video-cache completions, imports and pause state are persisted immediately instead of waiting for the next periodic save.
+- Current projects now use a versioned storage authority. A stale tab from an older deployment may still update the legacy compatibility key, but can no longer overwrite the current storyboard grouping, video task IDs or completed timeline.
+- Pausing and immediately resuming one-click production now waits for the previous orchestration lock to unwind and then starts a replacement run from the first incomplete stage.
+- Importing a project updates both the live story-plan reference and durable project snapshot before unattended production resumes.
+
+### Verification
+
+- Re-ran the latest square Story project end to end: 27 storyboard images, 16 grouped MiniMax H3 clips, local caching and Companion FFmpeg merge completed successfully into a 158.21-second 960×960 film.
+- Whisper verification recovered every source-authoritative dialogue record with no added Chinese dialogue, stage directions or unexplained spoken lines. The targeted Story, segment, H3 prompt, unattended-production and project-isolation suites all pass, as does the production build.
+
 ## 0.1.36 - 2026-08-23
 
 ### Fixed

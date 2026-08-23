@@ -1,11 +1,14 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Character, Storyboard, ObjectItem, VisualStyle } from '@/types';
 import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { StoryPlan, PipelineState } from '@/lib/pipeline/types';
 import { createProjectId } from '@/lib/projectIdentity';
 import type { VideoSegmentPlan } from '@/lib/videoSegments';
+
+const CURRENT_PROJECT_V2_KEY = 'aid:current-project:v2';
+const LEGACY_CURRENT_PROJECT_KEY = 'currentProject';
 
 export interface ProjectData {
   id?: string;
@@ -71,12 +74,33 @@ function cleanStoryboard(storyboard: Storyboard): Storyboard {
 export function useProject() {
   const [projectId, setProjectId] = useState(createProjectId);
   const [projectName, setProjectName] = useState('未命名项目');
+  const lastKnownUpdatedAtRef = useRef<string>();
 
   // 保存项目到本地存储
   const saveProject = useCallback((data: Partial<ProjectData>) => {
+    const targetId = data.id || projectId;
+    try {
+      // New builds read from a private v2 slot. Tabs that still execute an
+      // older deployed bundle can keep writing the legacy key, but they can no
+      // longer replace the active project's script, paid task ids or caches.
+      const existingRaw = localStorage.getItem(CURRENT_PROJECT_V2_KEY);
+      const existing = existingRaw ? JSON.parse(existingRaw) as Partial<ProjectData> : undefined;
+      const existingTime = Date.parse(String(existing?.updatedAt || ''));
+      const knownTime = Date.parse(String(lastKnownUpdatedAtRef.current || ''));
+      if (existing?.id === targetId
+        && Number.isFinite(existingTime)
+        && Number.isFinite(knownTime)
+        && existingTime > knownTime) {
+        console.warn('跳过过期标签页的项目保存：检测到同项目已有更新版本');
+        return;
+      }
+    } catch {
+      // A malformed prior value is handled by the normal overwrite path.
+    }
+    const updatedAt = new Date().toISOString();
     const projectData: ProjectData = {
-      id: data.id || projectId,
-      name: projectName,
+      id: targetId,
+      name: data.name || projectName,
       characters: (data.characters || []).map(cleanCharacter),
       objects: (data.objects || []).map(cleanObject),
       storyContent: data.storyContent || '',
@@ -93,11 +117,16 @@ export function useProject() {
       videoSegmentPlan: data.videoSegmentPlan,
       pipelineState: data.pipelineState,
       createdAt: data.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt,
     };
 
     try {
-      localStorage.setItem('currentProject', JSON.stringify(projectData));
+      const serialized = JSON.stringify(projectData);
+      localStorage.setItem(CURRENT_PROJECT_V2_KEY, serialized);
+      // Keep the legacy slot readable by an older Companion, but never use it
+      // as the authority once v2 exists.
+      localStorage.setItem(LEGACY_CURRENT_PROJECT_KEY, serialized);
+      lastKnownUpdatedAtRef.current = updatedAt;
       console.log('项目已保存:', projectName);
     } catch (error) {
       console.error('保存项目失败:', error);
@@ -116,7 +145,10 @@ export function useProject() {
           createdAt: projectData.createdAt,
           updatedAt: projectData.updatedAt
         };
-        localStorage.setItem('currentProject', JSON.stringify(minimalData));
+        const serialized = JSON.stringify(minimalData);
+        localStorage.setItem(CURRENT_PROJECT_V2_KEY, serialized);
+        localStorage.setItem(LEGACY_CURRENT_PROJECT_KEY, serialized);
+        lastKnownUpdatedAtRef.current = updatedAt;
         console.log('已保存最小化项目数据');
       } catch (fallbackError) {
         console.error('无法保存项目，存储空间不足');
@@ -126,15 +158,18 @@ export function useProject() {
 
   // 从本地存储加载项目
   const loadProject = useCallback(() => {
-    const saved = localStorage.getItem('currentProject');
+    const saved = localStorage.getItem(CURRENT_PROJECT_V2_KEY)
+      || localStorage.getItem(LEGACY_CURRENT_PROJECT_KEY);
     if (saved) {
       try {
         const data = JSON.parse(saved) as ProjectData;
+        lastKnownUpdatedAtRef.current = data.updatedAt;
         const id = data.id || createProjectId();
         if (!data.id) {
           data.id = id;
-          localStorage.setItem('currentProject', JSON.stringify(data));
         }
+        // One-way migration makes future reads immune to legacy tabs.
+        localStorage.setItem(CURRENT_PROJECT_V2_KEY, JSON.stringify(data));
         setProjectId(id);
         setProjectName(data.name);
         return data;
@@ -159,14 +194,17 @@ export function useProject() {
 
   const adoptProjectId = useCallback((id?: string): string => {
     const nextId = id || createProjectId();
+    if (nextId !== projectId) lastKnownUpdatedAtRef.current = undefined;
     setProjectId(nextId);
     return nextId;
-  }, []);
+  }, [projectId]);
 
   // 创建新项目
   const newProject = useCallback(() => {
     if (confirm('创建新项目将清空当前数据，是否继续？')) {
-      localStorage.removeItem('currentProject');
+      localStorage.removeItem(CURRENT_PROJECT_V2_KEY);
+      localStorage.removeItem(LEGACY_CURRENT_PROJECT_KEY);
+      lastKnownUpdatedAtRef.current = undefined;
       setProjectName('未命名项目');
       window.location.reload();
     }

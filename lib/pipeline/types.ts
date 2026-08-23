@@ -21,7 +21,7 @@ export interface Beat {
   action: string; // 动作描述（一个明确动作单元，含情绪氛围）
   characters: string[]; // 本镜头出现的角色（上传角色或用户原文明确命名的文字角色）
   objects: string[]; // 本镜头出现的道具（精确匹配上传物件名）
-  dialogueLines: { character: string; text: string }[]; // 有序台词；总时长必须装入本镜
+  dialogueLines: { character: string; text: string }[]; // 有序台词；用户明确给出的同镜多轮短对答必须完整保留
   speech: StorySpeechLine[]; // 唯一权威台词源；只允许 action 中明确点名的已出场角色说话
   audioPlan: StoryAudioPlan; // 人声/环境/拟音/音乐/留白分层，不允许模型自由补人声
   clipType: StoryClipType;

@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { buildDirectorBatches, normalizeDirectorShots, stripExactDialogueFromDescription, validateDirectorShots } from '../lib/pipeline/storyDirector.ts';
 import { extractJson } from '../lib/pipeline/json.ts';
-import { buildStoryBeatBatches, expandStoryCharacters, filterVisibleStorySpeech, normalizeStoryOutline } from '../lib/pipeline/storyWriter.ts';
+import { applySourceDialogueAuthority, buildStoryBeatBatches, expandStoryCharacters, filterVisibleStorySpeech, normalizeStoryOutline, parseSourceDialogueByShot } from '../lib/pipeline/storyWriter.ts';
 import { buildStoryBeatBatchPrompt, buildStoryOutlinePrompt } from '../lib/pipeline/storyWriterPrompt.ts';
 
 const outlineSequence = (id, start, count) => ({
@@ -114,6 +114,27 @@ SHOT 03 | ending | dialogue: Narrator: “The tide returns.” Tide Officer: “
   ]);
 });
 
+test('source shot dialogue is authoritative, preserves ordered exchanges, and excludes narration', () => {
+  const source = `
+SHOT 05 | garden | dialogue: A-Luo: “Why?” Lanxi: “Someone has to.”
+SHOT 25 | reef | dialogue: Old Sea Turtle: “Is anyone looking for you?” Lanxi: “No.” Old Sea Turtle: “Then watch the sea.”
+SHOT 27 | sea | dialogue: Lanxi: “Let it come.” Narrator: “The tide returns.”
+`;
+  const expanded = expandStoryCharacters(source, [{ name: '人鱼公主', description: 'card' }]);
+  const parsed = parseSourceDialogueByShot(expanded.canonicalSynopsis, expanded.characters.map(character => character.name));
+  assert.deepEqual(parsed.get(25), [
+    { character: 'Old Sea Turtle', text: 'Is anyone looking for you?' },
+    { character: '人鱼公主', text: 'No.' },
+    { character: 'Old Sea Turtle', text: 'Then watch the sea.' },
+  ]);
+  assert.deepEqual(parsed.get(27), [{ character: '人鱼公主', text: 'Let it come.' }]);
+
+  const outline = normalizeStoryOutline(outlineDocument([outlineSequence('seq-1', 1, 27)]), 27, expanded.characters.map(character => character.name));
+  applySourceDialogueAuthority(outline, expanded.canonicalSynopsis, expanded.characters.map(character => character.name));
+  assert.deepEqual(outline.sequences[0].beatMap[24].requiredDialogueLines, parsed.get(25));
+  assert.deepEqual(outline.sequences[0].beatMap[26].requiredDialogueLines, parsed.get(27));
+});
+
 test('screenplay batches never exceed nine shots and never cross a sequence boundary', () => {
   const outline = normalizeStoryOutline(outlineDocument([
     outlineSequence('seq-1', 1, 12), outlineSequence('seq-2', 13, 6),
@@ -152,7 +173,8 @@ test('outline and screenplay prompts keep story architecture separate from visua
   assert.match(outlinePrompt, /dialogueArc/);
   assert.match(batchPrompt, /不生成摄影内容/);
   assert.match(batchPrompt, /严格输出 9 个 beats/);
-  assert.match(batchPrompt, /一镜可有 0–2 条有序台词/);
+  assert.match(batchPrompt, /一镜通常有 0–2 条有序台词/);
+  assert.match(batchPrompt, /requiredDialogueLines/);
   assert.match(batchPrompt, /进入动作→加速\/施力→明确触点或决定→0\.25–0\.6 秒可读结果/);
   assert.match(batchPrompt, /每个镜尾必须留下一个可被下一镜接住的具体交棒/);
   assert.match(batchPrompt, /transition 固定写 "cut"/);
