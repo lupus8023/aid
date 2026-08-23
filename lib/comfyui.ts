@@ -929,6 +929,229 @@ function injectReferenceAudios(prompt: JsonRecord, remoteAudios: string[]): void
   inputs.strict_prompt_tags = true;
 }
 
+export interface H3ExactSpeechTurn {
+  character: string;
+  exactLine: string;
+  emotion?: string;
+  delivery?: string;
+}
+
+function linkedNodeId(value: unknown): string | undefined {
+  return Array.isArray(value) && value.length >= 2 ? String(value[0]) : undefined;
+}
+
+function addPromptNode(prompt: JsonRecord, classType: string, inputs: JsonRecord, title: string): string {
+  const nodeId = nextNodeId(prompt);
+  prompt[nodeId] = { class_type: classType, inputs, _meta: { title } };
+  return nodeId;
+}
+
+function speechModelLink(prompt: JsonRecord): [string, number] {
+  const sampler = Object.values(prompt).find((node: any) => node.class_type === 'MiniMaxH3DualClockSamplerT8') as JsonRecord | undefined;
+  let modelId = linkedNodeId(sampler?.inputs?.model);
+  if (!modelId) throw new ComfyUIError('H3 工作流缺少可复用的语音模型');
+  const possibleLora = prompt[modelId];
+  if (possibleLora?.class_type === 'LoraLoaderBypassModelOnly' && linkedNodeId(possibleLora.inputs?.model)) {
+    modelId = linkedNodeId(possibleLora.inputs.model)!;
+  }
+  return [modelId, 0];
+}
+
+function rewritePromptForExactSpeechDrive(prompt: JsonRecord): void {
+  const promptNode = Object.values(prompt).find((node: any) => (
+    node.class_type === 'PrimitiveStringMultiline'
+    && String(node?._meta?.title || '').toLowerCase().includes('input text')
+  )) as JsonRecord | undefined;
+  if (!promptNode || typeof promptNode.inputs?.value !== 'string') return;
+  let value = promptNode.inputs.value;
+  value = value
+    .replace(/^<Audio \d+> is the reusable Fish Audio timbre identity[^\n]*\n?/gmi, '')
+    .replace(/^<Audio \d+>: timbre only; ignore source words\/timing\.\n?/gmi, '')
+    .replace(
+      /Audio references supply timbre only; ignore their words\/timing\./gi,
+      '<Audio 1> is the exact H3-generated dialogue performance. Preserve every spoken word, speaker change and timing; add no narration or ad-lib.',
+    );
+  const subjectAnchor = 'subject_definitions:\n';
+  if (value.includes(subjectAnchor)) {
+    value = value.replace(subjectAnchor, `${subjectAnchor}<Audio 1> is the exact H3-generated dialogue track for the scheduled speakers; preserve its words, timing, timbre and speaker changes exactly.\n`);
+  }
+  const retentionAnchor = 'retention_analysis:\n';
+  if (value.includes(retentionAnchor)) {
+    value = value.replace(retentionAnchor, `${retentionAnchor}<Audio 1>: fully_preserved exact dialogue, timing and speaker identity.\n`);
+  }
+  promptNode.inputs.value = value;
+}
+
+export function injectH3ExactSpeechDrive(
+  prompt: JsonRecord,
+  remoteAudios: string[],
+  referenceAudioNames: string[],
+  speechTurns: H3ExactSpeechTurn[],
+  duration: number,
+  language: 'zh' | 'en',
+  asrModelDirectory = '',
+): boolean {
+  const turns = speechTurns
+    .map(turn => ({ ...turn, character: String(turn.character || '').trim(), exactLine: String(turn.exactLine || '').trim() }))
+    .filter(turn => turn.character && turn.exactLine)
+    .slice(0, 3);
+  if (!turns.length || !remoteAudios.length || remoteAudios.length !== referenceAudioNames.length) return false;
+
+  const conditioning = conditioningNode(prompt);
+  const clip = conditioning.inputs.clip;
+  const videoVae = conditioning.inputs.video_vae;
+  const audioVae = conditioning.inputs.audio_vae;
+  if (!clip || !videoVae || !audioVae) throw new ComfyUIError('H3 工作流缺少语音编码器或 VAE');
+  const languageName = language === 'en' ? 'English' : 'Chinese';
+  const renderSeconds = Math.min(15.08, Math.max(5.17, Number(duration) || 5.17));
+  const profileIds = remoteAudios.map((remoteAudio, index) => {
+    const loadId = addPromptNode(prompt, 'LoadAudio', { audio: remoteAudio }, `AID timbre reference ${index + 1}`);
+    return addPromptNode(prompt, 'MiniMaxH3VoiceProfileT8', {
+      voice_mode: 'reference_voice',
+      speaker_id: `S${index + 1}`,
+      voice_description: 'the same authorized speaker as the connected reference, with natural clear diction',
+      language: languageName,
+      rights_confirmed: true,
+      reference_start_seconds: 0,
+      reference_duration_seconds: 0,
+      highpass_60hz: true,
+      peak_limit_minus_3_dbfs: true,
+      reference_audio: [loadId, 0],
+    }, `AID voice profile ${referenceAudioNames[index] || index + 1}`);
+  });
+  const guardId = addPromptNode(prompt, 'MiniMaxH3SpeechGuardT8', {
+    error_release_policy: 'unload_all_models',
+  }, 'AID exact-dialogue guard');
+
+  let speechConditioningId: string;
+  let expectedText: string;
+  if (profileIds.length === 1) {
+    expectedText = turns.map(turn => turn.exactLine).join(' ');
+    const planId = addPromptNode(prompt, 'MiniMaxH3SpeechPlanT8', {
+      voice_profile: [profileIds[0], 0],
+      text: expectedText,
+      language: languageName,
+      acting_direction: turns.map(turn => turn.delivery || turn.emotion).filter(Boolean).join('; ') || 'natural, emotionally connected, brisk and clearly articulated',
+      emotion: turns[0]?.emotion || 'neutral',
+      emotion_intensity: 0.6,
+      space: 'close',
+      chunking: 'single_segment',
+      target_units: 60,
+      max_units: 120,
+    }, 'AID exact speech plan');
+    speechConditioningId = addPromptNode(prompt, 'MiniMaxH3SpeechConditioningT8', {
+      clip,
+      video_vae: videoVae,
+      audio_vae: audioVae,
+      voice_profile: [profileIds[0], 0],
+      speech_plan: [planId, 0],
+      segment_index: 0,
+      render_seconds: renderSeconds,
+      resolution: 32,
+      speech_guard: [guardId, 0],
+    }, 'AID exact speech conditioning');
+  } else {
+    const speakerByCharacter = new Map(referenceAudioNames.map((name, index) => [name, `S${index + 1}`]));
+    const usableTurns = turns.filter(turn => speakerByCharacter.has(turn.character));
+    expectedText = usableTurns.map(turn => turn.exactLine).join(' ');
+    if (usableTurns.length < 2) return false;
+    const dialogueInputs: JsonRecord = {
+      script: usableTurns.map(turn => `${speakerByCharacter.get(turn.character)}: ${turn.exactLine}`).join('\n'),
+      script_format: 'speaker_lines',
+      default_language: languageName,
+      default_space: 'close',
+    };
+    profileIds.forEach((profileId, index) => {
+      dialogueInputs[`voice_profiles.voice_profile_${index}`] = [profileId, 0];
+    });
+    const dialogueId = addPromptNode(prompt, 'MiniMaxH3DialogueScriptT8', dialogueInputs, 'AID exact dialogue script');
+    speechConditioningId = addPromptNode(prompt, 'MiniMaxH3JointDialogueConditioningT8', {
+      clip,
+      video_vae: videoVae,
+      audio_vae: audioVae,
+      dialogue_plan: [dialogueId, 0],
+      start_turn: 0,
+      turn_count: Math.min(3, usableTurns.length),
+      render_seconds: renderSeconds,
+      resolution: 32,
+      speech_guard: [guardId, 0],
+    }, 'AID joint exact-dialogue conditioning');
+  }
+
+  const sampleSetupId = addPromptNode(prompt, 'MiniMaxH3DualClockSamplerT8', {
+    model: speechModelLink(prompt),
+    av_latent: [speechConditioningId, 1],
+    steps: 20,
+    shift_video: 12,
+    shift_audio: 3,
+    sampler_name: 'dual_clock_euler',
+    scheduler: 'native_flow',
+  }, 'AID exact-dialogue sampler');
+  const guiderId = addPromptNode(prompt, 'BasicGuider', {
+    model: [sampleSetupId, 0],
+    conditioning: [speechConditioningId, 0],
+  }, 'AID exact-dialogue guider');
+  const noiseId = addPromptNode(prompt, 'RandomNoise', {
+    noise_seed: Number(BigInt(`0x${randomBytes(7).toString('hex')}`)),
+  }, 'AID exact-dialogue noise');
+  const samplerId = addPromptNode(prompt, 'SamplerCustomAdvanced', {
+    noise: [noiseId, 0],
+    guider: [guiderId, 0],
+    sampler: [sampleSetupId, 1],
+    sigmas: [sampleSetupId, 2],
+    latent_image: [speechConditioningId, 1],
+  }, 'AID exact-dialogue generation');
+  const decodeId = addPromptNode(prompt, 'MiniMaxH3SpeechDecodeT8', {
+    av_latent: [samplerId, 0],
+    audio_vae: audioVae,
+    trim_mode: 'conservative_energy',
+    energy_threshold_dbfs: -50,
+    trim_padding_seconds: 0.1,
+  }, 'AID exact-dialogue decode');
+  const expectedId = addPromptNode(prompt, 'PrimitiveStringMultiline', { value: expectedText }, 'AID expected dialogue');
+  const verifyId = addPromptNode(prompt, 'MiniMaxH3SpeechVerifyT8', {
+    audio: [decodeId, 0],
+    expected_text: [expectedId, 0],
+    verify_mode: asrModelDirectory ? 'trim_exact_target' : 'off',
+    asr_model_directory: asrModelDirectory,
+    language: languageName,
+    min_similarity: 0.8,
+    beam_size: 5,
+    cpu_threads: 8,
+    unload_after_verify: true,
+    strict: false,
+    pre_padding_seconds: 0.08,
+    post_padding_seconds: 0.2,
+    speaker_check_mode: 'off',
+    speaker_model_directory: '',
+    min_speaker_similarity: 0.86,
+    unload_speaker_after_verify: true,
+    peak_limit_dbfs: -1,
+  }, 'AID exact-dialogue ASR trim');
+  const finalizeId = addPromptNode(prompt, 'MiniMaxH3SpeechFinalizeT8', {
+    audio: [verifyId, 0],
+    release_policy: 'keep_loaded',
+    upstream_report: [verifyId, 5],
+    speech_guard: [guardId, 0],
+  }, 'AID exact-dialogue final');
+
+  for (const key of Object.keys(conditioning.inputs)) {
+    if (key.startsWith('ref_audios.ref_audio_')) delete conditioning.inputs[key];
+  }
+  // The Story workflows inject their opening image through ref_images rather
+  // than first_frame, so the correct image+audio task remains Ref2VA. Hybrid
+  // is reserved by the T8 node for an actual first/last-frame connection.
+  conditioning.inputs.task_type = 'Ref2VA';
+  conditioning.inputs.audio_mode = 'remix_source';
+  conditioning.inputs.audio_denoise_strength = 0.15;
+  conditioning.inputs.add_source_as_reference = true;
+  conditioning.inputs.prompt_primary_audio_ordinal = 1;
+  conditioning.inputs.drive_audio = [finalizeId, 0];
+  conditioning.inputs.strict_prompt_tags = true;
+  rewritePromptForExactSpeechDrive(prompt);
+  return true;
+}
+
 function validatePrompt(prompt: JsonRecord, definitions: JsonRecord): void {
   const missing = [...new Set(Object.values(prompt).map((node: any) => String(node.class_type || '')).filter(type => !definitions[type]))].sort();
   if (missing.length) throw new ComfyUIError(`云端缺少工作流节点：${missing.join(', ')}`);
@@ -1469,6 +1692,8 @@ export async function createComfyUIVideoTask(input: {
   endFrame?: string;
   referenceAudios?: string[];
   referenceAudioNames?: string[];
+  speechTurns?: H3ExactSpeechTurn[];
+  language?: 'zh' | 'en';
   settings?: ComfyUIClientSettings;
 }): Promise<{ taskId: string; promptId: string; workflow: ComfyUIWorkflow; workflowPath: string }> {
   const config = getComfyUIConfig(input.settings);
@@ -1523,7 +1748,20 @@ export async function createComfyUIVideoTask(input: {
       });
       const apiPrompt = compileFrontendWorkflow(workflow);
       injectReferenceImages(apiPrompt, variant, remoteImages);
-      injectReferenceAudios(apiPrompt, remoteAudios);
+      const asrModelDirectory = (await runSsh(
+        config,
+        `test -f ${shellQuote(`${config.workflowRoot.replace(/\/$/, '')}/models/TTS/faster-whisper-small/model.bin`)} && printf '%s' ${shellQuote(`${config.workflowRoot.replace(/\/$/, '')}/models/TTS/faster-whisper-small`)} || true`,
+      )).trim();
+      const usesExactSpeechDrive = injectH3ExactSpeechDrive(
+        apiPrompt,
+        remoteAudios,
+        input.referenceAudioNames || [],
+        input.speechTurns || [],
+        renderDuration,
+        input.language === 'en' ? 'en' : 'zh',
+        asrModelDirectory,
+      );
+      if (!usesExactSpeechDrive) injectReferenceAudios(apiPrompt, remoteAudios);
 
       const promptId = await withTunnel(config, async baseUrl => {
         const definitions = await readRemoteDefinitions(config);

@@ -24,6 +24,7 @@ import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotC
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
 import { estimateVideoSegmentSeconds, isCompletedVideoSegment, resolveVideoSegmentGroups, restoredStoryStep, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
+import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
@@ -484,7 +485,8 @@ export default function StoryPage() {
       charactersRef.current = savedCharacters;
       objectsRef.current = savedObjects;
       costumeImagesRef.current = savedCostumeImages;
-      voiceReferencesRef.current = savedProject.voiceReferences;
+      const savedVoiceReferences = currentVoiceReferences(savedProject.voiceReferences);
+      voiceReferencesRef.current = savedVoiceReferences;
       sceneImagesRef.current = savedSceneImages;
       setCharacters(savedCharacters);
       setObjects(savedObjects);
@@ -596,7 +598,7 @@ export default function StoryPage() {
           }
         }
       }
-      setVoiceReferences(savedProject.voiceReferences);
+      setVoiceReferences(savedVoiceReferences);
       setCostumeImages(savedCostumeImages);
       setSceneImages(savedSceneImages);
       setStoryPlan(savedStoryPlan);
@@ -758,10 +760,11 @@ export default function StoryPage() {
         const importedObjects = data.objects || [];
         const importedCostumeImages = data.costumeImages || {};
         const importedSceneImages = data.sceneImages || [];
+        const importedVoiceReferences = currentVoiceReferences(data.voiceReferences);
         charactersRef.current = importedCharacters;
         objectsRef.current = importedObjects;
         costumeImagesRef.current = importedCostumeImages;
-        voiceReferencesRef.current = data.voiceReferences;
+        voiceReferencesRef.current = importedVoiceReferences;
         sceneImagesRef.current = importedSceneImages;
         setCharacters(importedCharacters);
         setObjects(importedObjects);
@@ -790,7 +793,7 @@ export default function StoryPage() {
         storyboardsRef.current = importedStoryboards;
         setStoryboards(importedStoryboards);
         void recoverProjectVideos(importedStoryboards, importedProjectId);
-        setVoiceReferences(data.voiceReferences);
+        setVoiceReferences(importedVoiceReferences);
         setCostumeImages(importedCostumeImages);
         setSceneImages(importedSceneImages);
         setStoryPlan(importedStoryPlan);
@@ -812,7 +815,7 @@ export default function StoryPage() {
           visualStyle: normalizeVisualStyle(data.visualStyle || settingsRef.current.visualStyle),
           storyOutline: '',
           storyboards: importedStoryboards,
-          voiceReferences: data.voiceReferences,
+          voiceReferences: importedVoiceReferences,
           costumeImages: importedCostumeImages,
           sceneImages: importedSceneImages,
           storyPlan: importedStoryPlan,
@@ -1471,17 +1474,12 @@ export default function StoryPage() {
     if (!character) return;
     setVoiceGenerating(prev => ({ ...prev, [characterName]: true }));
     try {
-      // Description text can leak wardrobe/appearance words into H3's native
-      // soundtrack. Keep the voice sample short, neutral, and unrelated to plot.
-      const sampleText = projectLanguageRef.current === 'en'
-        ? 'Morning light moves softly across the quiet room. I speak clearly, calmly, and naturally.'
-        : '清晨的光线缓缓穿过安静房间，我用自然、清晰、平稳的语气说话。';
       const res = await fetch('/api/generate-voice-reference', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           characterName,
-          sampleText,
+          language: projectLanguageRef.current,
           voiceId: character.voiceId,
           fishAudioKey: activeSettings.fishAudioKey,
         }),

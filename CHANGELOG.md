@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.50 - 2026-08-24
+
+### Fixed
+
+- Character voice references now use a versioned non-lexical Fish Audio timbre probe, so ordinary sample words can no longer leak into the beginning of MiniMax H3 dialogue. Saved and imported legacy lexical references are invalidated and regenerated once per speaking character.
+- Story dialogue now uses a two-stage native H3 path: H3 first synthesizes the exact screenplay text in the locked character timbre, faster-whisper verifies and trims that speech, and the verified H3 track then drives the final Ref2VA performance and lip sync while H3 remixes the environmental soundscape.
+- The final video prompt treats the verified audio as authoritative dialogue instead of a loose voice reference. Direction prose, reference phonemes, narration and ad-lib are excluded from the vocal layer while visible-action ambience and Foley remain available.
+
+### Verification
+
+- A real 13.67-second 1:1 Story clip was regenerated from the existing storyboard. Whisper transcribed exactly the two scheduled Tide Officer lines, with no leading reference word, action narration or extra speech; the post-dialogue tail retained non-silent environmental audio.
+- TypeScript, the focused Story/H3/voice/segmentation regression suite and the Companion production build pass with the H3 v13 cache contract.
+
 ## 0.1.49 - 2026-08-24
 
 ### Improved

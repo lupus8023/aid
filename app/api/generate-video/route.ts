@@ -47,6 +47,12 @@ export async function POST(request: NextRequest) {
       // H3 的所有参考音频总计不能超过 15 秒。只传本镜头真正开口的角色，
       // 避免把画面中未说话角色的声音也计入额度。后续还会在 Companion 端统一裁剪总长。
       const speakingCharacters = [...new Set<string>(videoStoryboards.flatMap(speakingCharacterNames))];
+      const speechTurns = videoStoryboards.flatMap((shot: any) => storyboardSpeech(shot)).map(line => ({
+        character: line.character,
+        exactLine: line.exactLine,
+        emotion: line.emotion,
+        delivery: line.delivery,
+      }));
       const referenceAudioNames: string[] = [];
       const referenceAudios = speakingCharacters
         // Fish Audio is a one-time character timbre reference only. H3 remains
@@ -78,6 +84,8 @@ export async function POST(request: NextRequest) {
         endFrame: firstFrameUrl && !isMultiBeatSegment ? storyboard.imageUrl : undefined,
         referenceAudios,
         referenceAudioNames,
+        speechTurns,
+        language: language === 'en' ? 'en' : 'zh',
         // H3 generates the synchronized soundtrack natively. Voice samples are
         // optional references, so APIMart's URL-tag syntax must not enter the prompt.
         prompt: buildVideoSegmentPrompt(isMultiBeatSegment ? videoStoryboards : [storyboard], [], {
