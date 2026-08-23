@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.51 - 2026-08-24
+
+### Release baseline
+
+- Published the verified Story/H3 exact-dialogue pipeline as a dedicated rollback point before the next screenplay, storyboard and montage-narrative revision.
+- This release intentionally contains no production-behavior change from v0.1.50.
+
+### Verification
+
+- The existing exact-dialogue, Story delivery, H3 prompt and Companion production checks remain the release gate for this baseline.
+
 ## 0.1.50 - 2026-08-24
 
 ### Fixed
