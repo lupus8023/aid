@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.42 - 2026-08-23
+
+### Improved
+
+- H3 v7 dialogue direction now turns each line into a compact visible performance arc: breath and eyeline establish pressure, facial tension changes on the key phrase, and the emotional result passes to the listener instead of becoming uniform shouting or theatrical gesture.
+- Dialogue coverage preserves the established eyeline axis and each character's screen side across close-ups and over-shoulder reverses, while allowing an axis change only after a visible neutral crossing.
+- The new performance language remains inside each sub-15-second segment and keeps the official H3 prompt below its 7,000-character ceiling.
+
+### Fixed
+
+- Cached clips made with the previous, flatter H3 direction are invalidated so resumed unattended production regenerates them with the new timing and performance contract.
+
 ## 0.1.41 - 2026-08-23
 
 ### Fixed

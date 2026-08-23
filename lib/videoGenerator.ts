@@ -89,7 +89,16 @@ function nonSpokenPerformanceControl(emotion: string, delivery: string): string 
     : /缓慢|慢速|slow|measured/.test(source)
       ? 'at a measured conversational pace'
       : 'at a natural conversational pace';
-  return `${emotionPhrase}, ${onsetPhrase}, ${pacePhrase}`;
+  const microArc = /愤怒|生气|angry|anger|furious|confront/.test(source)
+    ? 'brow, eyelids and jaw tighten toward the key phrase, then yield to the listener reaction'
+    : /害怕|恐惧|紧张|fear|afraid|tense|anxious|uncertain/.test(source)
+      ? 'breath and eyeline tighten, the mouth loses certainty, then the gaze tests the listener'
+      : /悲|难过|伤心|哭|sad|grief|sorrow|broken/.test(source)
+        ? 'held breath, wet lower eyelids and lip tension deepen without theatrical crying'
+        : /坚定|果断|决心|determined|firm|resolute|decisive/.test(source)
+          ? 'eyeline locks and posture settles on the decision, then excess tension releases'
+          : 'breath, eyeline and facial tension change once, then hand the result to the listener';
+  return `${emotionPhrase}, ${onsetPhrase}, ${pacePhrase}; ${microArc}`;
 }
 
 function officialCameraMotion(storyboard: Storyboard, index: number): string {
@@ -134,7 +143,7 @@ function authoritativeShotAction(storyboard: Storyboard): string {
     // The screenplay action owns what happens. The image prompt is only a
     // static visual anchor and must never replace causal action.
     sanitizeVisualDirection(storyboard.action || storyboard.prompt || storyboard.description, spokenLines),
-    260,
+    220,
   );
 }
 
@@ -248,7 +257,7 @@ function shotActionSchedule(storyboard: Storyboard, range: { start: number; end:
   // The authoritative action already contains the causal beat, so only send
   // the physical performance and its timing here.
   const narrative = silentNarrativePerformance(storyboard);
-  return `${authoritativeShotAction(storyboard)} ${narrative ? `Silent dramatic performance: ${narrative}` : ''} The action begins immediately at ${h3Timestamp(range.start)}; its decisive move or contact lands by ${h3Timestamp(commitment)}, the visible consequence arrives by ${h3Timestamp(consequence)}, and secondary motion remains alive through ${h3Timestamp(range.end)}. The cadence is ${shotMotionCadence(storyboard)}`;
+  return `${authoritativeShotAction(storyboard)} ${narrative ? `Silent performance: ${narrative}` : ''} Begin at ${h3Timestamp(range.start)}; decisive contact by ${h3Timestamp(commitment)}; visible consequence by ${h3Timestamp(consequence)}; secondary motion through ${h3Timestamp(range.end)}. Cadence: ${shotMotionCadence(storyboard)}`;
 }
 
 export function buildVideoSegmentPrompt(
@@ -341,7 +350,7 @@ export function buildVideoSegmentPrompt(
     const visualDirection = sanitizeVisualDirection(storyboard.prompt || storyboard.description, spokenLines);
     const actionDirection = authoritativeShotAction(storyboard);
     const visualAnchor = visualDirection && visualDirection !== actionDirection
-      ? ` LOOK: ${compactText(visualDirection, 100)}`
+      ? ` LOOK: ${compactText(visualDirection, 70)}`
       : '';
     const handoff = index < storyboards.length - 1
       ? `At ${h3Timestamp(range.end)}, move into [Shot ${index + 2}] by ${cinematicTransition(storyboard, storyboards[index + 1])}.`

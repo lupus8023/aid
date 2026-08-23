@@ -293,8 +293,8 @@ export function buildVideoContinuityRules(hasAudioReference: boolean) {
     : '';
 
   return `
-PHYSICS: Continuous causality and believable weight/inertia for bodies, hair, fabric, props, contact, shadows and reflections. Preserve screen direction, geography, spatial/light continuity and visual medium.${audioSync}
-CONSTRAINTS: Each listed identity appears exactly once with stable face/body/hair/wardrobe/accessories. Timed action, camera, dialogue and sound fields are authoritative.`;
+PHYSICS: Continuous causality and believable body, cloth and prop weight. Preserve geography, light, screen direction and the dialogue eyeline axis/screen sides; cross it only through visible neutral movement.${audioSync}
+CONSTRAINTS: Each identity appears once with stable face/body/hair/wardrobe. Timed fields are authoritative. Performance changes through breath, gaze, facial tension and weight shift; no stage acting or continuous shouting.`;
 }
 
 export function getStoryboardDuration(storyboard: Pick<Storyboard, 'videoDuration'>) {

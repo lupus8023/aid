@@ -80,6 +80,8 @@ test('binds multiple sequential dialogue lines to their matching H3 voice refere
   assert.match(prompt, /<Audio 2> is a voice-timbre reference for <Subject 2> \(S2\)/);
   assert.match(prompt, /<Subject 1> \(S1\) delivers one synchronized line with/);
   assert.match(prompt, /<Subject 2> \(S2\) delivers one synchronized line with/);
+  assert.match(prompt, /breath, eyeline and facial tension change once/);
+  assert.match(prompt, /dialogue eyeline axis\/screen sides/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
   assert.ok(prompt.length <= 7000);
 });
