@@ -47,6 +47,8 @@ function cleanCharacter(char: Character): Character {
     description: char.description,
     imageUrl: char.imageUrl || '',
     voiceId: char.voiceId,
+    voiceProfile: char.voiceProfile,
+    voiceSource: char.voiceSource,
     ...(hasPublicUrl(char.imageUrl) ? {} : { imageBase64: char.imageBase64 }),
   };
 }

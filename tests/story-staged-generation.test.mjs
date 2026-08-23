@@ -106,6 +106,8 @@ SHOT 03 | ending | dialogue: Narrator: “The tide returns.” Tide Officer: “
 
   assert.equal(expanded.aliases.Lanxi, '人鱼公主');
   assert.match(expanded.canonicalSynopsis, /人鱼公主: “Almost\.”/);
+  assert.match(expanded.canonicalSynopsis, /“I can't\.”/);
+  assert.doesNotMatch(expanded.canonicalSynopsis, /“[^”]*人鱼公主[^”]*”/);
   assert.deepEqual(expanded.characters.map(character => character.name), ['人鱼公主', 'A-Luo', 'Tide Officer']);
   assert.deepEqual(filterVisibleStorySpeech([
     { character: 'A-Luo', exactLine: 'Rest.' },
@@ -133,6 +135,24 @@ SHOT 27 | sea | dialogue: Lanxi: “Let it come.” Narrator: “The tide return
   applySourceDialogueAuthority(outline, expanded.canonicalSynopsis, expanded.characters.map(character => character.name));
   assert.deepEqual(outline.sequences[0].beatMap[24].requiredDialogueLines, parsed.get(25));
   assert.deepEqual(outline.sequences[0].beatMap[26].requiredDialogueLines, parsed.get(27));
+});
+
+test('protagonist aliases never mutate names spoken inside exact dialogue', () => {
+  const source = `
+SHOT 01 | wheel | dialogue: Lanxi: “I will hold it.”
+SHOT 02 | chamber | dialogue: Tide Officer: “Princess Lanxi, the gates are buckling.”
+SHOT 03 | channel | dialogue: Lanxi: “Open the gate.”
+SHOT 11 | console | dialogue: A-Luo: “Lanxi!”
+SHOT 23 | reef | dialogue: Lanxi: “Do I matter?” Old Sea Turtle: “You matter because you are Lanxi.”
+`;
+  const expanded = expandStoryCharacters(source, [{ name: '人鱼公主', description: 'card' }], 'en');
+  const parsed = parseSourceDialogueByShot(expanded.canonicalSynopsis, expanded.characters.map(character => character.name));
+  assert.deepEqual(parsed.get(2), [{ character: 'Tide Officer', text: 'Princess Lanxi, the gates are buckling.' }]);
+  assert.deepEqual(parsed.get(11), [{ character: 'A-Luo', text: 'Lanxi!' }]);
+  assert.deepEqual(parsed.get(23), [
+    { character: '人鱼公主', text: 'Do I matter?' },
+    { character: 'Old Sea Turtle', text: 'You matter because you are Lanxi.' },
+  ]);
 });
 
 test('screenplay batches never exceed nine shots and never cross a sequence boundary', () => {

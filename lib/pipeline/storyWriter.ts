@@ -57,7 +57,16 @@ export function expandStoryCharacters(
 
   let canonicalSynopsis = String(synopsis || '');
   for (const [alias, canonical] of Object.entries(aliases)) {
-    canonicalSynopsis = canonicalSynopsis.replace(new RegExp(`\\b${escapeRegExp(alias)}\\b`, 'giu'), canonical);
+    // Canonicalize identity references and speaker labels, but never rewrite
+    // the words inside quoted dialogue.  A global replacement used to turn
+    // e.g. `“Princess Lanxi…”` into `“Princess 人鱼公主…”`; the later exact-line
+    // guard correctly rejected that mutated quote, silently deleting the
+    // corresponding speech line from the finished storyboard.
+    const aliasPattern = new RegExp(`\\b${escapeRegExp(alias)}\\b`, 'giu');
+    canonicalSynopsis = canonicalSynopsis
+      .split(/([“"][^”"]*[”"])/gu)
+      .map((part, index) => index % 2 === 1 ? part : part.replace(aliasPattern, canonical))
+      .join('');
   }
 
   const textDefinedCharacters: WriterCharacter[] = remaining
@@ -813,6 +822,12 @@ export async function generateStoryPlan(input: {
   const actualShotCount = storyPlanBeatCount(plan);
   if (actualShotCount !== targetShotCount) {
     throw new Error(`剧本模型返回了 ${actualShotCount} 个镜头，但制作规格要求 ${targetShotCount} 个；请重试生成`);
+  }
+  const missingRequiredDialogue = plan.sequences
+    .flatMap(sequence => sequence.beats)
+    .filter(beat => beat.dialogueObligation === 'required' && (!beat.speech || beat.speech.length === 0));
+  if (missingRequiredDialogue.length) {
+    throw new Error(`必要对白在结构化校验后丢失：镜头 ${missingRequiredDialogue.map(beat => beat.index).join('、')}；请重试生成`);
   }
   return plan;
 }

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.41 - 2026-08-23
+
+### Fixed
+
+- Protagonist aliases are now canonicalized only in screenplay identity fields and action prose, never inside quoted dialogue. Exact lines such as “Princess Lanxi…” and “Lanxi!” can no longer be mutated and silently removed during final StoryPlan validation.
+- Required dialogue is checked again after the complete structured screenplay is sanitized; generation now fails with the exact missing shot numbers instead of producing a visually complete film with missing speech.
+- The browser reapplies the StoryPlan voice cast after directing, including automatically discovered supporting roles, and project saves retain automatic voice profiles and their source.
+
+### Verification
+
+- Added regression coverage for protagonist names spoken inside another character's line, direct address, and two-speaker exchanges. Story planning, film speech, voice casting, H3 audio, segment grouping and the production build all pass.
+
 ## 0.1.40 - 2026-08-23
 
 ### Improved

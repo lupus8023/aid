@@ -834,7 +834,19 @@ export default function StoryPage() {
       body: JSON.stringify({ storyPlan, characters: writerCharacters, objects: writerObjects, apiKey: activeSettings.apiKey, aspectRatio: projectAspectRatioRef.current, language, visualStyle, scriptProvider: activeSettings.scriptProvider || 'auto', scriptModel: activeSettings.scriptModel || 'gpt-4o', dmxApiKey: activeSettings.dmxApiKey })
     }, activeSettings.comfyui);
     const { storyboards } = await readApiJson<{ storyboards: Storyboard[] }>(dirRes, '分镜导演失败');
-    const styledStoryboards = storyboards.map(storyboard => ({ ...storyboard, visualStyle }));
+    // The StoryPlan also contains automatically discovered speaking roles.
+    // Reapply its authoritative voice map at the client boundary so an older
+    // director response can never reach H3 with a missing/default voice.
+    const effectiveVoiceCast = [
+      ...voiceLockedCharacters,
+      ...(storyPlan.characters || []).filter(planned => (
+        !voiceLockedCharacters.some(character => character.name === planned.name)
+      )),
+    ];
+    const styledStoryboards = lockStoryboardVoiceIds(
+      storyboards.map(storyboard => ({ ...storyboard, visualStyle })),
+      effectiveVoiceCast,
+    );
     setVideoSegmentPlan(undefined);
     videoSegmentPlanRef.current = undefined;
     setStoryboards(styledStoryboards);
