@@ -190,6 +190,7 @@ function mergeBeats(
       dialogueUnitId: beat.dialogueUnitId,
       dialogueObligation: beat.dialogueObligation,
       dialogueContext: beat.dialogueContext,
+      dialogueTurns: beat.dialogueTurns,
       montageRole: beat.montageRole,
       audienceQuestion: beat.audienceQuestion,
       stateBefore: beat.stateBefore,

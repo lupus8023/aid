@@ -6,7 +6,7 @@ export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v13';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v14';
 
 export interface VideoSegmentPlan {
   version: 1;
@@ -56,6 +56,7 @@ export function videoSegmentGenerationSignature(storyboards: Storyboard[]): stri
     dialogueUnitId: storyboard.dialogueUnitId || '',
     dialogueObligation: storyboard.dialogueObligation || '',
     dialogueContext: storyboard.dialogueContext || '',
+    dialogueTurns: storyboard.dialogueTurns || [],
     montageRole: storyboard.montageRole || '',
     audienceQuestion: storyboard.audienceQuestion || '',
     durationHint: storyboard.durationHint || 0,
@@ -136,8 +137,25 @@ export function suggestVideoSegments(storyboards: Storyboard[]): Storyboard[][] 
     currentSeconds = 0;
   };
 
-  for (const storyboard of storyboards) {
+  for (let storyboardIndex = 0; storyboardIndex < storyboards.length; storyboardIndex += 1) {
+    const storyboard = storyboards[storyboardIndex];
     const seconds = estimateStoryboardBeatSeconds(storyboard);
+    const unitId = String(storyboard.dialogueUnitId || '').trim();
+    const currentAlreadyInUnit = Boolean(unitId && current.some(item => item.dialogueUnitId === unitId));
+    const upcomingUnit = unitId
+      ? storyboards.slice(storyboardIndex).filter((item, offset, tail) => (
+          offset < MAX_H3_STORYBOARDS_PER_SEGMENT
+          && item.dialogueUnitId === unitId
+          && (offset === 0 || tail[offset - 1]?.sceneNumber + 1 === item.sceneNumber)
+        ))
+      : [];
+    const upcomingUnitSeconds = upcomingUnit.reduce((total, item) => total + estimateStoryboardBeatSeconds(item), 0);
+    if (current.length && !currentAlreadyInUnit && upcomingUnit.length > 1
+      && upcomingUnitSeconds <= MAX_H3_SEGMENT_SECONDS
+      && (currentSeconds + upcomingUnitSeconds > MAX_H3_SEGMENT_SECONDS
+        || current.length + upcomingUnit.length > MAX_H3_STORYBOARDS_PER_SEGMENT)) {
+      flush();
+    }
     const projectedSpeech = [...current, storyboard].flatMap(storyboardSpeech);
     const speechLimitExceeded = projectedSpeech.length > 3
       || new Set(projectedSpeech.map(line => line.character)).size > 3;

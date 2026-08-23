@@ -39,6 +39,15 @@ test('suggests compact groups without exceeding four storyboards', () => {
   assert.ok(groups.every(group => estimateVideoSegmentSeconds(group) <= 15));
 });
 
+test('reserves one segment for an adjacent question and answer when they fit together', () => {
+  const groups = suggestVideoSegments([
+    shot(1, { durationHint: 10 }),
+    shot(2, { durationHint: 5, characters: ['A'], dialogueUnitId: 'dlg-1', speech: [{ character: 'A', exactLine: 'Who opened the gate?', source: 'story_required' }] }),
+    shot(3, { durationHint: 5, characters: ['B'], dialogueUnitId: 'dlg-1', speech: [{ character: 'B', exactLine: 'I opened it before the flood.', source: 'story_required' }] }),
+  ]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2, 3]]);
+});
+
 test('keeps causal shots grouped across motivated sequence or location changes', () => {
   const groups = suggestVideoSegments([
     shot(1, { durationHint: 3 }),

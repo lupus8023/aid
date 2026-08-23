@@ -93,3 +93,18 @@ test('blocks segment plans that omit or duplicate a storyboard', () => {
   const groups = [storyboards.slice(0, 9), storyboards.slice(10), [storyboards[10]]];
   assert.match(auditStoryDelivery(plan, storyboards, groups).errors.join('\n'), /没有按原顺序完整覆盖|重复分配/);
 });
+
+test('blocks dialogue that loses its planned semantic content goal', () => {
+  const { plan, storyboards } = coherentFixture();
+  const beat = plan.sequences[0].beats[1];
+  beat.dialogueTurns = [{ speaker: 'Officer', function: 'reveal', contentGoal: 'report that the southern gate is buckling', respondsTo: '' }];
+  beat.speech[0].storyFunction = 'reveal';
+  beat.speech[0].contentGoal = beat.dialogueTurns[0].contentGoal;
+  beat.speech[0].listenerState = 'Lanxi redirects her attention toward the southern gate.';
+  storyboards[1] = {
+    ...storyboards[1],
+    dialogueTurns: beat.dialogueTurns,
+    speech: [{ ...beat.speech[0], contentGoal: '' }],
+  };
+  assert.match(auditStoryDelivery(plan, storyboards).errors.join('\n'), /丢失“report that the southern gate is buckling”语义任务/);
+});

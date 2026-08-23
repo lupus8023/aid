@@ -1,4 +1,4 @@
-import type { Character, NarrativeState, ObjectItem, StoryAudioPlan, Storyboard, StoryClipType, StorySpeechLine, VoiceAgeGroup, VoiceGender } from '@/types';
+import type { Character, NarrativeState, ObjectItem, StoryAudioPlan, Storyboard, StoryClipType, StoryDialogueTurn, StorySpeechLine, VoiceAgeGroup, VoiceGender } from '@/types';
 
 // 编剧阶段：把「一句话梗概」变成「有欲望/冲突/转折/潜台词/母题」的结构化故事。
 // 这是「全自动」的关键契约——阶段之间传结构化 JSON，而非自由文本。
@@ -44,6 +44,7 @@ export interface Beat {
   dialogueUnitId?: string;
   dialogueObligation?: 'required' | 'optional' | 'visual';
   dialogueContext?: string;
+  dialogueTurns: StoryDialogueTurn[];
   montageRole: string; // setup/development/escalation/contrast/decision/consequence/payoff/bridge
   audienceQuestion: string; // 本镜维持或回答的悬念
   stateBefore?: NarrativeState;

@@ -9,6 +9,8 @@ export interface StoryDeliveryAudit {
     plannedShots: number;
     storyboardShots: number;
     dialogueLines: number;
+    dialogueContracts: number;
+    dialogueContractsDelivered: number;
     dialogueUnits: number;
     groupedSegments: number;
     multiShotSegments: number;
@@ -59,6 +61,28 @@ export function auditStoryDelivery(
     if (String(storyboard.dialogueUnitId || '') !== String(beat.dialogueUnitId || '')) {
       errors.push(`镜头 ${storyboard.sceneNumber} 的对白单元标识丢失`);
     }
+    const expectedTurns = beat.dialogueTurns || [];
+    const deliveredTurns = storyboard.dialogueTurns || [];
+    if (JSON.stringify(deliveredTurns) !== JSON.stringify(expectedTurns)) {
+      errors.push(`镜头 ${storyboard.sceneNumber} 的逐轮台词语义合同在导演阶段丢失或被改写`);
+    }
+    const deliveredLines = storyboardSpeech(storyboard);
+    expectedTurns.forEach((turn, turnIndex) => {
+      const line = deliveredLines[turnIndex];
+      if (!line) {
+        errors.push(`镜头 ${storyboard.sceneNumber} 缺少第 ${turnIndex + 1} 轮语义合同对应的逐字台词`);
+        return;
+      }
+      if (line.character !== turn.speaker || String(line.storyFunction || '') !== turn.function) {
+        errors.push(`镜头 ${storyboard.sceneNumber} 第 ${turnIndex + 1} 轮的说话者或叙事功能偏离故事骨架`);
+      }
+      if (String(line.contentGoal || '') !== turn.contentGoal) {
+        errors.push(`镜头 ${storyboard.sceneNumber} 第 ${turnIndex + 1} 轮丢失“${turn.contentGoal}”语义任务`);
+      }
+      if (!String(line.listenerState || '').trim()) {
+        warnings.push(`镜头 ${storyboard.sceneNumber} 第 ${turnIndex + 1} 轮没有可见的听者反应，台词可能无法推动下一镜`);
+      }
+    });
   });
 
   if (storyPlan) {
@@ -82,6 +106,19 @@ export function auditStoryDelivery(
     warnings.push('旧项目没有结构化 StoryPlan，只能校验分镜与视频分段覆盖关系');
   }
 
+  const dialogueUnits = new Map<string, typeof beats>();
+  beats.forEach(beat => {
+    if (!beat.dialogueUnitId) return;
+    dialogueUnits.set(beat.dialogueUnitId, [...(dialogueUnits.get(beat.dialogueUnitId) || []), beat]);
+  });
+  dialogueUnits.forEach((unitBeats, unitId) => {
+    const functions = unitBeats.flatMap(beat => beat.dialogueTurns || []).map(turn => turn.function.toLowerCase());
+    if (functions.some(value => /^(?:question|challenge)$/.test(value))
+      && !functions.some(value => /^(?:answer|refusal|decision)$/.test(value))) {
+      warnings.push(`对白单元 ${unitId} 提出了问题/挑战，但没有在同一单元交付回答、拒绝或决定`);
+    }
+  });
+
   if (groups.length) {
     const expectedIds = storyboards.map(storyboard => storyboard.id);
     const deliveredIds = groups.flatMap(group => group.map(storyboard => storyboard.id));
@@ -98,6 +135,8 @@ export function auditStoryDelivery(
       plannedShots: beats.length,
       storyboardShots: storyboards.length,
       dialogueLines: storyboards.flatMap(storyboardSpeech).length,
+      dialogueContracts: beats.reduce((total, beat) => total + (beat.dialogueTurns || []).length, 0),
+      dialogueContractsDelivered: storyboards.reduce((total, storyboard) => total + (storyboard.dialogueTurns || []).length, 0),
       dialogueUnits: new Set(beats.map(beat => beat.dialogueUnitId).filter(Boolean)).size,
       groupedSegments: groups.length,
       multiShotSegments: groups.filter(group => group.length > 1).length,

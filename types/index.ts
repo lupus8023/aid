@@ -28,6 +28,13 @@ export interface ObjectItem {
 
 export type StoryClipType = 'insert' | 'reaction' | 'establishing' | 'action' | 'dialogue' | 'performance' | 'montage' | 'long_take';
 
+export interface StoryDialogueTurn {
+  speaker: string;
+  function: string;
+  contentGoal: string; // 本轮必须让观众听懂的新事实、立场或选择
+  respondsTo: string;
+}
+
 export interface StorySpeechLine {
   speakerId: string; // 全片稳定的说话者编号，不随视频片段重新编号
   character: string;
@@ -40,6 +47,7 @@ export interface StorySpeechLine {
   listenerState?: string;
   storyFunction?: string; // question/reveal/refusal/decision/callback 等；保证台词承担叙事任务
   respondsTo?: string; // 与前一句或前一镜信息的关系，避免孤立短句
+  contentGoal?: string; // 来自故事骨架的语义合同；逐字台词必须完整交付它
   source: 'user_exact' | 'story_required';
 }
 
@@ -114,6 +122,7 @@ export interface Storyboard {
   dialogueUnitId?: string; // 跨镜问题/回答/承诺/回收所属的连续对白单元
   dialogueObligation?: 'required' | 'optional' | 'visual';
   dialogueContext?: string; // 台词前提与说后必须改变的关系/认知
+  dialogueTurns?: StoryDialogueTurn[]; // 骨架阶段锁定的逐轮语义任务，不能在导演/视频阶段丢失
   montageRole?: string; // setup/development/contrast/decision/payoff/bridge 等剪辑语义
   audienceQuestion?: string; // 此刻维持或回答的观众问题
   stateBefore?: NarrativeState;

@@ -121,6 +121,7 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
         listenerState: '',
         storyFunction: '',
         respondsTo: '',
+        contentGoal: '',
         source: 'story_required' as const,
       }));
 
@@ -139,6 +140,7 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
       listenerState: clean(line.listenerState),
       storyFunction: clean(line.storyFunction),
       respondsTo: clean(line.respondsTo),
+      contentGoal: clean(line.contentGoal),
       source: line.source === 'user_exact' ? 'user_exact' as const : 'story_required' as const,
     }))
     .filter(line => line.character

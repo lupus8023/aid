@@ -119,6 +119,20 @@ test('dialogue turns recover their speaker and purpose instead of being silently
   assert.equal(beat.dialogueTurns[0].contentGoal, '说明潮门失控会淹没育婴区');
 });
 
+test('adjacent answer beats inherit the question dialogue unit', () => {
+  const sequence = outlineSequence('seq-1', 1, 9);
+  sequence.beatMap[0].dialoguePurpose = 'question';
+  sequence.beatMap[0].dialogueObligation = 'required';
+  sequence.beatMap[0].dialogueUnitId = 'dlg-question';
+  sequence.beatMap[0].dialogueTurns = [{ speaker: 'A', function: 'question', contentGoal: 'ask who opened the gate', respondsTo: '' }];
+  sequence.beatMap[1].dialoguePurpose = 'answer';
+  sequence.beatMap[1].dialogueObligation = 'required';
+  sequence.beatMap[1].dialogueUnitId = 'dlg-model-invented-new-id';
+  sequence.beatMap[1].dialogueTurns = [{ speaker: 'B', function: 'answer', contentGoal: 'admit opening the gate', respondsTo: 'ask who opened the gate' }];
+  const outline = normalizeStoryOutline(outlineDocument([sequence]), 9, ['A', 'B']);
+  assert.equal(outline.sequences[0].beatMap[1].dialogueUnitId, 'dlg-question');
+});
+
 test('screenplay speech keeps visible uploaded voices and drops temporary-character additions', () => {
   assert.deepEqual(filterVisibleStorySpeech([
     { character: '人鱼公主', exactLine: 'Who controls the tide?' },

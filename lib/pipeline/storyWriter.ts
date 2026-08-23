@@ -3,7 +3,7 @@ import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryOutl
 import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
 import { normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from './shotCount';
-import type { NarrativeState, StoryAudioPlan, Storyboard, StoryClipType, StorySpeechLine } from '@/types';
+import type { NarrativeState, StoryAudioPlan, Storyboard, StoryClipType, StoryDialogueTurn, StorySpeechLine } from '@/types';
 import { generatedSpeakerMatchesVisibleAction, isDirectingInstructionDialogue, sanitizeGeneratedSpeechText, speechSeconds } from '@/lib/speechAudioContract';
 import { castStoryVoices, resolveGeneratedStoryIdentity } from '@/lib/voiceCasting';
 import type { VoiceAgeGroup, VoiceGender } from '@/types';
@@ -109,6 +109,15 @@ export interface StoryOutlineDialogueTurn {
   function: string;
   contentGoal: string;
   respondsTo: string;
+}
+
+function normalizedDialogueTurns(value: unknown, allowedCharacters: string[]): StoryDialogueTurn[] {
+  return (Array.isArray(value) ? value : []).map((turn: any) => ({
+    speaker: asString(turn?.speaker || turn?.character).trim(),
+    function: asString(turn?.function || turn?.storyFunction).trim(),
+    contentGoal: asString(turn?.contentGoal || turn?.intent).trim(),
+    respondsTo: asString(turn?.respondsTo).trim(),
+  })).filter(turn => allowedCharacters.includes(turn.speaker) && turn.function && turn.contentGoal);
 }
 
 export interface StoryOutlineSequence {
@@ -466,6 +475,23 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
     })
     .filter((sequence: StoryOutlineSequence) => sequence.beatMap.length > 0);
 
+  // Providers often invent a fresh dialogueUnitId for every shot even when
+  // the next shot is explicitly an answer/refusal to the preceding shot. That
+  // destroys the exchange before segment planning sees it. Repair only the
+  // unambiguous adjacent response case; distant callbacks/payoffs remain
+  // separate dramatic units.
+  for (const sequence of sequences) {
+    sequence.beatMap.forEach((beat, index) => {
+      if (index === 0 || !beat.dialogueTurns.length) return;
+      const firstTurn = beat.dialogueTurns[0];
+      if (!/^(?:answer|refusal)$/i.test(firstTurn.function) || !firstTurn.respondsTo.trim()) return;
+      const previous = sequence.beatMap[index - 1];
+      if (!previous.dialogueTurns.length) return;
+      previous.dialogueUnitId = previous.dialogueUnitId || `dlg-${previous.index}`;
+      beat.dialogueUnitId = previous.dialogueUnitId;
+    });
+  }
+
   if (nextIndex !== targetShotCount) {
     throw new Error(`故事骨架返回了 ${nextIndex} 个镜头地图，但制作规格要求 ${targetShotCount} 个`);
   }
@@ -633,8 +659,9 @@ export function sanitizeStoryPlan(
         ...requiredSpeechCharacters,
       ])];
       const visibleAction = asString(b?.action);
+      const dialogueTurns = normalizedDialogueTurns(b?.dialogueTurns, allowedCharacters).slice(0, 4);
       const currentBeatSpeechSignatures = new Set<string>();
-      const speech: StorySpeechLine[] = rawSpeech.map((line: any): StorySpeechLine | undefined => {
+      const speech: StorySpeechLine[] = rawSpeech.map((line: any, lineIndex: number): StorySpeechLine | undefined => {
         const character = asString(line?.character || line?.speaker).trim();
         const source = line?.source === 'user_exact' ? 'user_exact' : 'story_required';
         const rawExactLine = asString(line?.exactLine || line?.text).replace(/\s+/g, ' ').trim();
@@ -665,6 +692,7 @@ export function sanitizeStoryPlan(
           listenerState: asString(line?.listenerState).trim(),
           storyFunction: asString(line?.storyFunction, asString(b?.dialoguePurpose)).trim(),
           respondsTo: asString(line?.respondsTo).trim(),
+          contentGoal: asString(line?.contentGoal, dialogueTurns[lineIndex]?.contentGoal).trim(),
           source,
         };
       }).filter((line: StorySpeechLine | undefined): line is StorySpeechLine => Boolean(line)).slice(0, 4);
@@ -709,6 +737,7 @@ export function sanitizeStoryPlan(
           ? b.dialogueObligation
           : 'visual',
         dialogueContext: asString(b?.dialogueContext),
+        dialogueTurns,
         montageRole: asString(b?.montageRole, 'development'),
         audienceQuestion: asString(b?.audienceQuestion),
         stateBefore: narrativeState(b?.stateBefore),
@@ -970,6 +999,7 @@ export async function generateStoryPlan(input: {
                 character: turn.speaker,
                 storyFunction: turn.function,
                 respondsTo: asString(line?.respondsTo, turn.respondsTo).trim() || turn.respondsTo,
+                contentGoal: turn.contentGoal,
               };
             });
           }
@@ -1039,6 +1069,7 @@ export async function generateStoryPlan(input: {
             dialogueUnitId: authority.dialogueUnitId,
             dialogueObligation: authority.dialogueObligation,
             dialogueContext: authority.dialogueContext,
+            dialogueTurns: authority.dialogueTurns,
             montageRole: asString(beat?.montageRole, authority.montageRole),
             audienceQuestion: asString(beat?.audienceQuestion, authority.audienceQuestion),
             speech: authority.requiredDialogueLines.length
@@ -1053,6 +1084,7 @@ export async function generateStoryPlan(input: {
                     exactLine: line.text,
                     source: 'user_exact',
                     storyFunction: asString(generated?.storyFunction, authority.dialoguePurpose).trim() || 'story_progression',
+                    contentGoal: asString(generated?.contentGoal, line.text).trim() || line.text,
                   };
                 })
               : (authority.requiredLine && authority.requiredSpeaker
@@ -1063,6 +1095,7 @@ export async function generateStoryPlan(input: {
                     character: authority.requiredSpeaker,
                     exactLine: authority.requiredLine,
                     source: synopsis.includes(authority.requiredLine) ? 'user_exact' : 'story_required',
+                    contentGoal: authority.dialogueTurns[0]?.contentGoal || authority.requiredLine,
                   }]
                 : beat?.speech),
             promptDraft: '',

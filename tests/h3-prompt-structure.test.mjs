@@ -280,6 +280,17 @@ test('keeps causal story meaning in observable action without explanatory exposi
   assert.match(prompt, /<d>\[English\] There is nothing inside\.<\/d>/);
 });
 
+test('delivers the screenplay visible consequence instead of ending on an empty pose', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      action: 'Lin turns the valve with both hands.',
+      consequence: 'The red pressure lamp switches to green and Mei lowers her raised alarm hand.',
+    }),
+  ], [], { duration: 6 });
+  assert.match(prompt, /Visible result: The red pressure lamp switches to green and Mei lowers her raised alarm hand/);
+  assert.equal((prompt.match(/Lin turns the valve with both hands\./g) || []).length, 1);
+});
+
 test('schedules two connected lines inside one storyboard in order', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1, {

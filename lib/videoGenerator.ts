@@ -188,11 +188,16 @@ function officialCameraMotion(storyboard: Storyboard, index: number): string {
 
 function authoritativeShotAction(storyboard: Storyboard): string {
   const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
+  const action = sanitizeVisualDirection(storyboard.action || storyboard.prompt || storyboard.description, spokenLines);
+  const visibleResult = sanitizeVisualDirection(storyboard.consequence || '', spokenLines);
+  const includesResult = visibleResult && action.toLocaleLowerCase().includes(visibleResult.toLocaleLowerCase());
   return compactActionArc(
     // The screenplay action owns what happens. The image prompt is only a
-    // static visual anchor and must never replace causal action.
-    sanitizeVisualDirection(storyboard.action || storyboard.prompt || storyboard.description, spokenLines),
-    240,
+    // static visual anchor and must never replace causal action. Preserve the
+    // separately locked visible consequence too: this is what makes a shot
+    // advance the story instead of ending on an attractive but empty pose.
+    `${action}${visibleResult && !includesResult ? ` Visible result: ${visibleResult}` : ''}`,
+    320,
   );
 }
 
