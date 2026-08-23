@@ -70,7 +70,6 @@ interface CanvasModeProps {
   onUpdate?: (storyboard: Storyboard) => void;
   onGenerateImage?: (storyboard: Storyboard) => void | Promise<void>;
   onGenerateVideoPrompt?: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void | Promise<void>;
-  onGenerateAudio?: (storyboard: Storyboard) => void | Promise<void>;
   onGenerateVideo?: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void | Promise<void>;
   onGenerateGrid?: (storyboards: Storyboard[]) => void | Promise<void>;
 }

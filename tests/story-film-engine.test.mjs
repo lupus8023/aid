@@ -89,3 +89,13 @@ test('quarantines dialogue reassigned from an unnamed visible actor to an upload
   assert.deepEqual(storyboardSpeech(storyboard), []);
   assert.match(storyboardSpeechWarnings(storyboard)[0], /画面动作不匹配/);
 });
+
+test('keeps dialogue when action uses a natural-language role alias for the structured cast', () => {
+  const storyboard = {
+    id: 'shot-3', sceneNumber: 3, characters: ['人鱼公主'], objects: [], status: 'completed',
+    action: 'The mermaid princess blocks the gate, faces the officer, and states the cost of reopening it.',
+    description: '', prompt: '',
+    speech: [{ speakerId: 'S01', character: '人鱼公主', exactLine: 'Reopening it now will flood the nursery.', emotion: 'controlled', delivery: 'plainly', volume: 'normal', lipSync: true, source: 'story_required' }],
+  };
+  assert.equal(storyboardSpeech(storyboard)[0]?.exactLine, 'Reopening it now will flood the nursery.');
+});

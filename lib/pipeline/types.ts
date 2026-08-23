@@ -1,10 +1,13 @@
-import type { Character, NarrativeState, ObjectItem, StoryAudioPlan, Storyboard, StoryClipType, StorySpeechLine } from '@/types';
+import type { Character, NarrativeState, ObjectItem, StoryAudioPlan, Storyboard, StoryClipType, StorySpeechLine, VoiceAgeGroup, VoiceGender } from '@/types';
 
 // 编剧阶段：把「一句话梗概」变成「有欲望/冲突/转折/潜台词/母题」的结构化故事。
 // 这是「全自动」的关键契约——阶段之间传结构化 JSON，而非自由文本。
 
 export interface PlannedCharacter {
   name: string; // 绑定上传角色，或绑定用户原始剧本中明确命名的文字角色
+  role?: string; // 剧情身份；同时帮助声音选角，不参与可朗读台词
+  gender?: VoiceGender;
+  ageGroup?: VoiceAgeGroup;
   want: string; // 欲望：这个角色真正想要什么
   obstacle: string; // 阻碍：什么挡着他
   arc: string; // 弧线：起点情绪 → 终点情绪
@@ -16,6 +19,7 @@ export interface PlannedCharacter {
 
 export interface Beat {
   index: number; // 全片顺序号（从 1 开始）
+  sourceShotRefs?: number[]; // 改编编号原稿时，本镜合并的原始镜号
   sequenceId: string; // 所属场/段落
   locationId: string; // 地点标识（英文小写下划线），同地点共享场景参考
   shotSize: string; // 景别：远景/全景/中景/近景/特写/大特写等
@@ -135,5 +139,5 @@ export interface PipelineState {
 }
 
 // 参与编剧阶段的角色/物件输入（从 UI 状态规约而来）
-export type WriterCharacter = Pick<Character, 'name' | 'description' | 'voiceId' | 'voiceProfile' | 'voiceSource'>;
+export type WriterCharacter = Pick<Character, 'name' | 'description' | 'voiceId' | 'voiceProfile' | 'voiceSource' | 'gender' | 'ageGroup'>;
 export type WriterObject = Pick<ObjectItem, 'name' | 'description'>;

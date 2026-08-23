@@ -1,9 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Storyboard, Character, ObjectItem } from '@/types';
-import type { StoryPlan } from '@/lib/pipeline/types';
-import { Loader2, RefreshCw, ZoomIn, X, Mic, MicOff } from 'lucide-react';
+import { Storyboard, Character, ObjectItem, type VoiceAgeGroup, type VoiceGender } from '@/types';
+import type { PlannedCharacter, StoryPlan } from '@/lib/pipeline/types';
+import { Loader2, RefreshCw, ZoomIn, X, Mic, MicOff, RotateCcw } from 'lucide-react';
+import { effectiveStoryCast } from '@/lib/storyCast';
+
+export type VoiceCastPatch = Partial<Pick<PlannedCharacter, 'gender' | 'ageGroup' | 'voiceId' | 'voiceProfile' | 'voiceSource'>>;
 
 interface Step3Props {
   storyPlan?: StoryPlan;
@@ -25,6 +28,7 @@ interface Step3Props {
   onClearSceneImage?: (idx: number) => void;
   onGenerateVoiceReference?: (characterName: string) => void;
   onClearVoiceReference?: (characterName: string) => void;
+  onVoiceCastChange?: (characterName: string, patch: VoiceCastPatch) => void;
 }
 
 function ImageThumb({ src, label, generating, onGenerate, onClear }: {
@@ -64,7 +68,7 @@ function ImageThumb({ src, label, generating, onGenerate, onClear }: {
   );
 }
 
-export default function Step3({ storyPlan, storyboards, characters, objects, costumeImages, costumeGenerating, sceneImages, sceneGenerating, voiceReferences, voiceGenerating, onBack, onNext, onUpdate, onGenerateCostume, onClearCostumeImage, onClearSceneImage, onGenerateVoiceReference, onClearVoiceReference }: Step3Props) {
+export default function Step3({ storyPlan, storyboards, characters, objects, costumeImages, costumeGenerating, sceneImages, sceneGenerating, voiceReferences, voiceGenerating, onBack, onNext, onUpdate, onGenerateCostume, onClearCostumeImage, onClearSceneImage, onGenerateVoiceReference, onClearVoiceReference, onVoiceCastChange }: Step3Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedPrompt, setEditedPrompt] = useState('');
   const [draggingScene, setDraggingScene] = useState<string | null>(null);
@@ -73,6 +77,24 @@ export default function Step3({ storyPlan, storyboards, characters, objects, cos
   const startEdit = (sb: Storyboard) => { setEditingId(sb.id); setEditedPrompt(sb.prompt); };
   const saveEdit = (sb: Storyboard) => { onUpdate?.({ ...sb, prompt: editedPrompt }); setEditingId(null); };
   const getObject = (name: string) => objects.find(o => o.name === name);
+  const plannedByName = new Map((storyPlan?.characters || []).map(character => [character.name, character]));
+  const referenceCast = effectiveStoryCast(characters, storyPlan?.characters);
+  const voiceCast = [
+    ...(storyPlan?.characters || []),
+    ...characters.filter(character => !plannedByName.has(character.name)).map(character => ({
+      name: character.name,
+      role: '上传角色',
+      want: '', obstacle: '', arc: '', subtext: '',
+      gender: character.gender,
+      ageGroup: character.ageGroup,
+      voiceId: character.voiceId,
+      voiceProfile: character.voiceProfile,
+      voiceSource: character.voiceSource,
+    })),
+  ];
+  const speakingNames = new Set(storyboards.flatMap(storyboard => (storyboard.speech || []).map(line => line.character)));
+  const unresolvedSpeakingVoices = voiceCast.filter(character => speakingNames.has(character.name)
+    && (!character.voiceId || !character.gender || character.gender === 'unknown'));
 
   return (
     <div className="space-y-6">
@@ -107,7 +129,7 @@ export default function Step3({ storyPlan, storyboards, characters, objects, cos
         <p className="text-xs font-mono text-[var(--text-secondary)] mb-1">Global References — generated once, applied to all shots</p>
         <p className="text-[10px] font-mono text-[var(--text-secondary)] mb-3 opacity-60">Character bibles are 4:3 high-density sheets with turnarounds, expressions, micro-expressions, head/hand studies, silhouettes, and medium preservation for live action, CG, anime, or illustration.</p>
         <div className="flex gap-3 flex-wrap">
-          {characters.map(char => (
+          {referenceCast.map(char => (
             <div key={char.name} className="w-20">
               <ImageThumb
                 src={costumeImages[char.name]}
@@ -157,41 +179,40 @@ export default function Step3({ storyPlan, storyboards, characters, objects, cos
         </div>
       </div>
 
-      {/* Voice reference panel — one sample per character, reused across all shots */}
-      {characters.length > 0 && (
+      {/* Full-film voice casting — includes text-defined supporting roles. */}
+      {voiceCast.length > 0 && (
         <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-4">
-          <p className="text-xs font-mono text-[var(--text-secondary)] mb-1">Voice References — generate once to lock character voice timbre</p>
-          <p className="text-[10px] font-mono text-[var(--text-secondary)] mb-3 opacity-60">Used as optional audio reference for Seedance 2.0 and ComfyUI MiniMax H3 to maintain consistent voice across shots</p>
-          <div className="flex gap-3 flex-wrap">
-            {characters.map(char => {
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div><p className="text-xs font-mono text-[var(--text-secondary)]">全片音色选角</p><p className="mt-1 text-[10px] text-[var(--text-secondary)] opacity-70">主角、剧本新增配角均在分镜生成前锁定；自定义 Fish ID 永远优先，自动选声按性别、年龄和身份匹配。</p></div>
+            <span className={`rounded border px-2 py-1 text-[9px] font-mono ${unresolvedSpeakingVoices.length ? 'border-amber-400/40 text-amber-300' : 'border-emerald-400/30 text-emerald-300'}`}>{unresolvedSpeakingVoices.length ? `${unresolvedSpeakingVoices.length} 个发声角色待确认` : '全部发声角色已锁定'}</span>
+          </div>
+          <div className="mt-3 overflow-x-auto rounded-lg border border-white/5">
+            <div className="min-w-[920px] divide-y divide-white/5">
+            {voiceCast.map(char => {
               const hasRef = !!voiceReferences[char.name];
               const isGenerating = !!voiceGenerating[char.name];
+              const isSpeaking = speakingNames.has(char.name);
               return (
-                <div key={char.name} className="flex flex-col gap-1 items-center w-20">
-                  <div className={`relative group w-full aspect-square rounded border overflow-hidden flex items-center justify-center
-                    ${hasRef ? 'border-[var(--accent-green)] bg-[var(--accent-green)]/10' : 'border-[var(--border-color)] bg-[var(--bg-tertiary)]'}`}>
-                    {isGenerating ? (
-                      <Loader2 size={20} className="animate-spin text-[var(--accent-blue)]" />
-                    ) : hasRef ? (
-                      <>
-                        <Mic size={20} className="text-[var(--accent-green)]" />
-                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
-                          <button onClick={() => onGenerateVoiceReference?.(char.name)} title="Regenerate" className="p-1 bg-white/20 rounded hover:bg-white/40"><RefreshCw size={10} /></button>
-                          <button onClick={() => onClearVoiceReference?.(char.name)} title="Remove" className="p-1 bg-white/20 rounded hover:bg-white/40"><X size={10} /></button>
-                        </div>
-                      </>
-                    ) : (
-                      <button onClick={() => onGenerateVoiceReference?.(char.name)} className="w-full h-full flex flex-col items-center justify-center gap-1 text-[var(--text-secondary)] hover:text-[var(--accent-green)] transition-colors">
-                        <MicOff size={16} />
-                        <span className="text-[8px]">Generate</span>
-                      </button>
-                    )}
+                <div key={char.name} className="grid grid-cols-[150px_120px_130px_minmax(280px,1fr)_150px] items-center gap-3 px-3 py-3">
+                  <div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate text-xs text-white">{char.name}</span>{isSpeaking && <span className="rounded bg-[var(--accent-green)]/10 px-1.5 py-0.5 text-[8px] text-[var(--accent-green)]">有台词</span>}</div><p className="mt-1 truncate text-[9px] text-[var(--text-muted)]">{char.role || char.voiceProfile || '故事角色'}</p></div>
+                  <select value={(char.gender || 'unknown') as VoiceGender} onChange={event => onVoiceCastChange?.(char.name, { gender: event.target.value as VoiceGender, voiceId: undefined, voiceSource: 'auto' })} className="rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-2 text-[10px] text-white">
+                    <option value="unknown">性别待确认</option><option value="female">女性</option><option value="male">男性</option><option value="nonbinary">中性/非二元</option>
+                  </select>
+                  <select value={(char.ageGroup || 'unknown') as VoiceAgeGroup} onChange={event => onVoiceCastChange?.(char.name, { ageGroup: event.target.value as VoiceAgeGroup, voiceId: undefined, voiceSource: 'auto' })} className="rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-2 text-[10px] text-white">
+                    <option value="unknown">年龄待确认</option><option value="child">儿童</option><option value="young_adult">青年</option><option value="adult">成年</option><option value="senior">老年</option>
+                  </select>
+                  <div><div className="flex gap-2"><input value={char.voiceId || ''} onChange={event => onVoiceCastChange?.(char.name, { voiceId: event.target.value, voiceSource: 'user', voiceProfile: '用户指定音色' })} placeholder="Fish Audio reference_id" className={`min-w-0 flex-1 rounded border bg-[var(--bg-primary)] px-2 py-2 font-mono text-[10px] text-white ${isSpeaking && !char.voiceId ? 'border-amber-400/60' : 'border-[var(--border-color)]'}`} /><button onClick={() => onVoiceCastChange?.(char.name, { voiceId: undefined, voiceSource: 'auto' })} title="按角色资料重新自动选声" className="rounded border border-[var(--border-color)] px-2 text-[var(--text-secondary)] hover:text-white"><RotateCcw size={13} /></button></div><p className="mt-1 truncate text-[9px] text-[var(--text-muted)]">{char.voiceSource === 'user' ? '自定义锁定' : `自动 · ${char.voiceProfile || '待匹配'}`}</p></div>
+                  <div className="flex items-center justify-end gap-2">
+                    {hasRef && <audio src={voiceReferences[char.name]} controls className="h-7 w-20" />}
+                    <button disabled={isGenerating || !char.voiceId} onClick={() => onGenerateVoiceReference?.(char.name)} className="inline-flex items-center gap-1 rounded border border-[var(--border-color)] px-2 py-2 text-[9px] text-[var(--text-secondary)] hover:text-white disabled:opacity-30">{isGenerating ? <Loader2 size={12} className="animate-spin" /> : hasRef ? <RefreshCw size={12} /> : <MicOff size={12} />}{hasRef ? '重做' : '试听'}</button>
+                    {hasRef && <button onClick={() => onClearVoiceReference?.(char.name)} title="删除试听" className="text-[var(--text-muted)] hover:text-red-300"><X size={12} /></button>}
                   </div>
-                  <span className="text-[9px] font-mono text-[var(--text-secondary)] text-center truncate w-full">{char.name}</span>
                 </div>
               );
             })}
+            </div>
           </div>
+          {unresolvedSpeakingVoices.length > 0 && <p className="mt-3 text-[10px] text-amber-300">请先确认：{unresolvedSpeakingVoices.map(character => character.name).join('、')}。系统不会再为性别未知的发声角色默认套用女声。</p>}
         </div>
       )}
 
@@ -293,7 +314,8 @@ export default function Step3({ storyPlan, storyboards, characters, objects, cos
         </button>
         <button
           onClick={onNext}
-          disabled={storyboards.length === 0}
+          disabled={storyboards.length === 0 || unresolvedSpeakingVoices.length > 0}
+          title={unresolvedSpeakingVoices.length ? '请先确认所有有台词角色的性别与 Fish Audio 音色' : undefined}
           className="bg-[var(--accent-green)] text-[var(--bg-primary)] px-6 py-2.5 rounded font-mono text-sm hover:bg-[#5dd18d] disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >
           Next: Generate Images →

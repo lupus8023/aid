@@ -19,6 +19,55 @@ function compactText(value: unknown, limit = 220): string {
   return `${text.slice(0, cut > limit * 0.65 ? cut : limit).trim()}.`;
 }
 
+function fitH3PromptBudget(prompt: string): string {
+  if (prompt.length <= 7000) return prompt;
+  // Still images already carry appearance. Under pressure, discard only the
+  // duplicated static LOOK sentence, never action, dialogue, timing or sound.
+  let fitted = prompt.replace(/ LOOK:[^\n]*? ACTION:/g, ' ACTION:');
+  if (fitted.length <= 7000) return fitted;
+  // The definitions above already bind identities and pictures; keep the
+  // official retention section but compact its duplicated prose.
+  fitted = fitted
+    .replace(/<Picture (\d+)> starts \[Shot (\d+)\];[^\n]*/g, '<Picture $1> = [Shot $2] visual anchor.')
+    .replace(/<Subject (\d+)>: fully_preserved[^\n]*/g, '<Subject $1>: preserve identity/wardrobe.')
+    .replace(/<Picture (\d+)>: reference;[^\n]*/g, '<Picture $1>: reference.');
+  if (fitted.length <= 7000) return fitted;
+  throw new Error(`H3 提示词仍有 ${fitted.length} 字符，超过 7000 字符上限；请拆分该视频片段`);
+}
+
+function compactActionArc(value: unknown, limit = 280): string {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= limit) return text;
+
+  // A video action is an arc, not a synopsis prefix. Plain truncation kept the
+  // trigger and discarded the impact/result at the end, so H3 produced a slow
+  // setup with no dramatic payoff. Preserve both ends inside the same prompt
+  // budget and remove only the middle elaboration.
+  const joiner = ' then ';
+  const usable = limit - joiner.length;
+  const headLimit = Math.floor(usable * 0.58);
+  const tailLimit = usable - headLimit;
+  const headBoundary = Math.max(
+    text.lastIndexOf('. ', headLimit),
+    text.lastIndexOf('; ', headLimit),
+    text.lastIndexOf(', ', headLimit),
+    text.lastIndexOf('，', headLimit),
+    text.lastIndexOf('。', headLimit),
+  );
+  const tailStartTarget = Math.max(0, text.length - tailLimit);
+  const tailCandidates = [
+    text.indexOf('. ', tailStartTarget),
+    text.indexOf('; ', tailStartTarget),
+    text.indexOf(', ', tailStartTarget),
+    text.indexOf('，', tailStartTarget),
+    text.indexOf('。', tailStartTarget),
+  ].filter(index => index >= 0);
+  const tailBoundary = tailCandidates.length ? Math.min(...tailCandidates) + 1 : tailStartTarget;
+  const head = text.slice(0, headBoundary > headLimit * 0.55 ? headBoundary + 1 : headLimit).trim().replace(/[;,，。.]$/, '');
+  const tail = text.slice(tailBoundary).trim().replace(/^[;,，。.]\s*/, '');
+  return `${head}${joiner}${tail}`.slice(0, limit).trim();
+}
+
 function regexpEscape(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -139,11 +188,11 @@ function officialCameraMotion(storyboard: Storyboard, index: number): string {
 
 function authoritativeShotAction(storyboard: Storyboard): string {
   const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
-  return compactText(
+  return compactActionArc(
     // The screenplay action owns what happens. The image prompt is only a
     // static visual anchor and must never replace causal action.
     sanitizeVisualDirection(storyboard.action || storyboard.prompt || storyboard.description, spokenLines),
-    220,
+    240,
   );
 }
 
@@ -158,7 +207,7 @@ function silentNarrativePerformance(storyboard: Storyboard): string {
   const parts = listenerChanges.length
     ? [`During the scheduled line, visibly perform the listener change: ${listenerChanges.join('; ')}`]
     : [];
-  return compactText(sanitizeNarrativeDirection(parts, spokenLines), 360);
+  return compactText(sanitizeNarrativeDirection(parts, spokenLines), 220);
 }
 
 function officialShotFraming(storyboard: Storyboard): string {
@@ -199,8 +248,8 @@ function shotMotionCadence(storyboard: Storyboard): string {
 
 function shotSoundCue(storyboard: Storyboard): string {
   const plan = storyboardAudioPlan(storyboard);
-  const environment = plan.environment.length ? plan.environment.join(', ') : 'location room tone';
-  const foley = plan.foley.length ? plan.foley.join(', ') : 'only sounds caused by the visible action';
+  const environment = plan.environment.length ? plan.environment.slice(0, 3).map(item => compactText(item, 42)).join(', ') : 'location room tone';
+  const foley = plan.foley.length ? plan.foley.slice(0, 3).map(item => compactText(item, 42)).join(', ') : 'only sounds caused by the visible action';
   const humanLayer = plan.backgroundHuman === 'indistinct_nonverbal'
     ? 'Background people contribute only an indistinct nonverbal presence.'
     : '';
@@ -247,18 +296,30 @@ function cinematicTransition(previous: Storyboard, next: Storyboard): string {
   return 'one match cut carried by a shared vector, shape, motivated light change, or visibly caused sound into the new geography';
 }
 
-function shotActionSchedule(storyboard: Storyboard, range: { start: number; end: number }): string {
+function shotActionSchedule(storyboard: Storyboard, range: { start: number; end: number }, compact = false): string {
   const span = Math.max(0.1, range.end - range.start);
   const initiation = Math.min(range.end, range.start + Math.min(0.25, span * 0.08));
-  const commitment = range.start + span * 0.30;
-  const consequence = range.start + span * 0.64;
+  const commitment = range.start + span * 0.28;
+  const consequence = range.start + span * 0.62;
+  const recovery = range.start + span * 0.84;
   // Keep detailed_description observable and playable. Abstract cause/pressure/
   // choice prose used to repeat the screenplay in several explanatory
   // sentences; Ref2VA occasionally vocalized those sentences as narration.
   // The authoritative action already contains the causal beat, so only send
   // the physical performance and its timing here.
   const narrative = silentNarrativePerformance(storyboard);
-  return `${authoritativeShotAction(storyboard)} ${narrative ? `Silent performance: ${narrative}` : ''} Start by ${h3Timestamp(initiation)}; commit by ${h3Timestamp(commitment)}; consequence by ${h3Timestamp(consequence)}; transition through ${h3Timestamp(range.end)}. Real-time cycle; no slow motion/extended holds. Cadence: ${shotMotionCadence(storyboard)}`;
+  const actionText = `${storyboard.action || ''} ${storyboard.description || ''}`.toLowerCase();
+  const hasContact = /(?:抓|握|按|压|推|拉|撞|触|夹|捏|踩|落地|击|碰|grip|grab|press|push|pull|strike|impact|touch|pinch|land|contact)/i.test(actionText);
+  const microPerformance = storyboard.clipType === 'reaction' || storyboard.clipType === 'dialogue' || storyboard.clipType === 'performance'
+    ? 'Stagger micro-actions by 0.1–0.3s: eyes lead head; breath/eyeline lead brow and lids; mouth/jaw follow. Do not animate every facial channel continuously.'
+    : 'Stagger anticipation, weight shift, limb action and follow-through by 0.1–0.3s; do not launch every body part together.';
+  const contactPhysics = hasContact
+    ? 'Physical contact sequence: approach, touch, visible compression/load, increase force, brief hold, gradual release, then local rebound/inertia; only the loaded region deforms.'
+    : 'Preserve believable mass, acceleration and follow-through; no uniform-speed drift.';
+  if (compact) {
+    return `${authoritativeShotAction(storyboard)} Start by ${h3Timestamp(initiation)}; one peak/consequence by ${h3Timestamp(consequence)}; recover by ${h3Timestamp(recovery)} with 0.2–0.4s residual. Stagger channels 0.1–0.3s; ${hasContact ? 'contact→load→release→local rebound' : 'preserve mass/acceleration'}. Real time; no slow motion.`;
+  }
+  return `${authoritativeShotAction(storyboard)} ${narrative ? `Silent performance: ${narrative}` : ''} Start by ${h3Timestamp(initiation)}; commit by ${h3Timestamp(commitment)}; one action peak and visible consequence by ${h3Timestamp(consequence)}; release/recover by ${h3Timestamp(recovery)}; preserve 0.2–0.4s residual motion or expression into ${h3Timestamp(range.end)}. ${microPerformance} ${contactPhysics} Real-time cycle; no slow motion/extended holds. Cadence: ${shotMotionCadence(storyboard)}`;
 }
 
 export function buildVideoSegmentPrompt(
@@ -271,12 +332,16 @@ export function buildVideoSegmentPrompt(
     referenceAudioNames?: string[];
     visualOverride?: string;
     language?: 'zh' | 'en';
-    lockedDialogueTrack?: boolean;
   } = {},
 ): string {
   const first = storyboards[0];
   if (!first) throw new Error('视频片段至少需要一个分镜');
   const duration = Math.min(15, Math.max(4, options.duration || estimateVideoSegmentSeconds(storyboards)));
+  // Three detailed shots plus multiple voice identities can already exceed
+  // H3's hard prompt ceiling after adding complete micro-action timing. Use
+  // the lossless compact form from three shots onward; it removes duplicated
+  // look/sound prose, never actions, exact dialogue or timestamps.
+  const compactMode = storyboards.length >= 3;
   const timeline = allocateSegmentTimeline(storyboards, duration);
   const characters = [...new Set(storyboards.flatMap(storyboard => storyboard.characters || []))];
   const objects = [...new Set(storyboards.flatMap(storyboard => storyboard.objects || []))];
@@ -292,16 +357,8 @@ export function buildVideoSegmentPrompt(
   const hasVoiceReferences = options.hasVoiceReferences || referenceAudioNames.length > 0;
   const subjectId = new Map(characters.map((name, index) => [name, index + 1]));
   const speechEventCount = timedSpeech.length;
-  const lockedDialogueTrack = Boolean(options.lockedDialogueTrack);
-  const lockedAudioDefinition = lockedDialogueTrack
-    ? `<Audio 1> is the authoritative voice, timing and rhythm reference for exactly ${speechEventCount} scheduled dialogue event${speechEventCount === 1 ? '' : 's'}. Match its speaker identity, phoneme rhythm, onset, ending and pauses. Generate a complete synchronized soundtrack containing the tagged line${speechEventCount === 1 ? '' : 's'} once, plus continuous location ambience and visibly caused Foley; never add, extend or reinterpret human speech.`
-    : '';
-  const speechControl = lockedDialogueTrack
-    ? speechEventCount
-      ? `Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} ${speechEventCount === 1 ? 'occurs' : 'occur'}, once each: only the tagged dialogue line${speechEventCount === 1 ? '' : 's'} below, using <Audio 1> as the exact voice and timing reference. No narration, ad-lib, singing, breathy words or other speech; all untagged prose is silent direction.`
-      : 'No narrator, dialogue, singing, ad-lib, breathy words or intelligible human vocalization exists. <Audio 1> contains no vocal event; all prose below is silent visual direction. Generate continuous non-vocal ambience and caused Foley.'
-    : speechEventCount
-      ? `No narrator or ad-lib exists. Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} ${speechEventCount === 1 ? 'occurs' : 'occur'}: only the tagged dialogue line${speechEventCount === 1 ? '' : 's'} below, once each. Other prose is silent direction; never vocalize or mouth it.`
+  const speechControl = speechEventCount
+      ? `Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} ${speechEventCount === 1 ? 'is' : 'are'} freshly synthesized by H3: only the tagged line${speechEventCount === 1 ? '' : 's'}, once each. Audio references supply timbre only; ignore their words/timing. No narrator or ad-lib exists; never vocalize direction.`
       : 'No narrator, dialogue, singing, ad-lib, or intelligible human vocalization exists. All prose below is silent visual direction.';
 
   const renderDialogue = (storyboard: Storyboard, storyboardIndex: number) => timedSpeech
@@ -313,20 +370,15 @@ export function buildVideoSegmentPrompt(
       const subject = subjectId.get(name);
       const source = subject ? `<Subject ${subject}> (${id})` : `${name || 'The on-screen speaker'} (${id})`;
       const eventNumber = timedSpeech.indexOf(line) + 1;
-      if (lockedDialogueTrack) {
-        const taggedLine = `<d>[${dialogueLanguage(text)}] ${text}</d>`;
-        return line.lipSync
-          ? `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, ${source} speaks once in the exact timing and voice of <Audio 1>: ${taggedLine}. The mouth starts and stops with this event; no other vocalization.`
-          : `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, the off-screen voice of ${source} speaks once in the exact timing and voice of <Audio 1>: ${taggedLine}. Visible reactions synchronize to it; no on-screen mouth speaks.`;
-      }
       const performance = nonSpokenPerformanceControl(line.emotion, line.delivery);
+      const performanceDirection = compactMode ? performance.split(';')[0] : performance;
       const volume = line.volume === 'raised' ? 'at a raised but controlled volume'
         : line.volume === 'soft' ? 'softly'
           : line.volume === 'whisper' ? 'in a restrained whisper'
             : 'at a natural speaking volume';
       return line.lipSync
-        ? `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, ${source} delivers one synchronized line with ${performance}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>.`
-        : `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, the off-screen voice of ${source} delivers one line with ${performance}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>.`;
+        ? `At ${h3Timestamp(line.start)}, ${source} says once with ${performanceDirection}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>. End by ${h3Timestamp(line.end)} (deadline; no stretching); lips track sound, then close.`
+        : `At ${h3Timestamp(line.start)}, off-screen ${source} says once with ${performanceDirection}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>. End by ${h3Timestamp(line.end)}; visible mouths stay closed.`;
     }).join(' ');
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
@@ -352,7 +404,7 @@ export function buildVideoSegmentPrompt(
     const visualDirection = sanitizeVisualDirection(storyboard.prompt || storyboard.description, spokenLines);
     const actionDirection = authoritativeShotAction(storyboard);
     const visualAnchor = visualDirection && visualDirection !== actionDirection
-      ? ` LOOK: ${compactText(visualDirection, 70)}`
+      ? ` LOOK: ${compactText(visualDirection, 48)}`
       : '';
     const handoff = index < storyboards.length - 1
       ? `At ${h3Timestamp(range.end)}, move into [Shot ${index + 2}] by ${cinematicTransition(storyboard, storyboards[index + 1])}.`
@@ -361,7 +413,17 @@ export function buildVideoSegmentPrompt(
     const props = (storyboard.objects || []).length
       ? `The visible story props are ${(storyboard.objects || []).join(', ')}.`
       : '';
-    return `${shotHeader} ${entry} ${pictureAnchor} ${cast} ${props} Use ${officialShotFraming(storyboard)}.${visualAnchor} ${shotActionSchedule(storyboard, range)} The camera uses ${officialCameraMotion(storyboard, index)}. ${dialogue} ${shotSoundCue(storyboard)} ${handoff}`;
+    if (compactMode) {
+      const compactCast = beatCharacters.length
+        ? `Cast once: ${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}> (${name})` : name).join(', ')}; no extras.`
+        : 'No character.';
+      // The full ambience/Foley manifest is emitted once below. In a dense
+      // four-shot segment this per-shot cue only needs the synchronized cause;
+      // keeping another 135 characters per shot could push a valid causal
+      // prompt over H3's 7000-character ceiling.
+      return `${shotHeader} ${pictureAnchor} ${compactCast} ${props} ${officialShotFraming(storyboard)}. ACTION: ${shotActionSchedule(storyboard, range, true)} CAMERA: ${compactText(officialCameraMotion(storyboard, index), 90)}. ${dialogue} SOUND: ${compactText(shotSoundCue(storyboard), 72)} ${compactText(handoff, 105)}`;
+    }
+    return `${shotHeader} ${entry} ${pictureAnchor} ${cast} ${props} Use ${officialShotFraming(storyboard)}.${visualAnchor} ACTION: ${shotActionSchedule(storyboard, range)} The camera uses ${officialCameraMotion(storyboard, index)}. ${dialogue} ${shotSoundCue(storyboard)} ${handoff}`;
   });
 
   const visualOverride = sanitizeVisualDirection(options.visualOverride, timedSpeech.map(line => line.exactLine));
@@ -371,21 +433,22 @@ export function buildVideoSegmentPrompt(
     .replace(/PHYSICS:|CONSTRAINTS:/g, '')
     .replace('Timed action, camera, dialogue and sound fields are authoritative.', 'Timed fields are authoritative.')
     .trim();
+  const fittedPhysics = compactMode
+    ? 'Preserve causality, identity, wardrobe, geography, light, screen direction, body/cloth/prop weight and dialogue eyelines. Timed fields are authoritative; no stage acting or slow motion.'
+    : physics;
   // Official H3 format keeps dialogue exclusively inside detailed_description.
   // overall_soundscape contains ambience, Foley and non-verbal human sound only.
-  const soundscape = lockedDialogueTrack
-    ? `${buildAudioManifest(storyboards)} The tagged line${speechEventCount === 1 ? '' : 's'} ${speechEventCount === 1 ? 'is' : 'are'} the sole human-vocal layer and use <Audio 1> as the exact voice/timing reference. Add no breath words, crowd speech, whisper, narration, singing or other intelligible voice.`
-    : buildAudioManifest(storyboards);
-  const nonDiegeticMusic = lockedDialogueTrack ? 'N/A — no music; only scheduled dialogue, continuous location ambience and caused Foley.' : buildNonDiegeticMusic(storyboards);
+  const soundscape = buildAudioManifest(storyboards);
+  const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
 
   if (isFirstLastMode) {
-    return `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.
+    return fitH3PromptBudget(`How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.
 
-integrated_multimodal_description: ${styleOpening} ${lockedAudioDefinition} ${speechControl} ${shotDescriptions.join(' ')} ${physics}
+integrated_multimodal_description: ${styleOpening} ${speechControl} ${shotDescriptions.join(' ')} ${fittedPhysics}
 
 overall_soundscape: ${soundscape}
 
-non_diegetic_music: ${nonDiegeticMusic}`;
+non_diegetic_music: ${nonDiegeticMusic}`);
   }
 
   const pictureDefinitions = [
@@ -396,19 +459,17 @@ non_diegetic_music: ${nonDiegeticMusic}`;
     const pictures = storyboards.flatMap((storyboard, storyboardIndex) => storyboard.characters?.includes(name) ? [`<Picture ${storyboardIndex + referenceOffset}>`] : []);
     return `<Subject ${index + 1}> = ${name} in ${pictures.join(', ') || 'references'}; preserve one face/body/hair/wardrobe/accessory identity.`;
   });
-  const audioDefinitions = lockedDialogueTrack
-    ? [lockedAudioDefinition]
-    : referenceAudioNames.map((name, index) => {
+  const audioDefinitions = referenceAudioNames.map((name, index) => {
       const subject = subjectId.get(name);
       const speaker = timedSpeech.find(line => line.character === name)?.speakerId;
-      return `<Audio ${index + 1}> is a voice-timbre reference for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (${speaker})` : ''}; it is not copied as a soundtrack and cannot add words, narration, or continuous speech.`;
+      return `<Audio ${index + 1}> is the reusable Fish Audio timbre identity for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (${speaker})` : ''}; ignore sample words/timing. H3 speaks only scheduled dialogue.`;
     });
   const retention = [
-    ...subjectDefinitions.map((_, index) => `<Subject ${index + 1}>: fully_preserved identity/wardrobe across ${storyboards.flatMap((storyboard, shotIndex) => storyboard.characters?.includes(characters[index]) ? [`[Shot ${shotIndex + 1}]`] : []).join(',')}.`),
+    ...subjectDefinitions.map((_, index) => compactMode
+      ? `<Subject ${index + 1}>: preserve identity/wardrobe.`
+      : `<Subject ${index + 1}>: fully_preserved identity/wardrobe across ${storyboards.flatMap((storyboard, shotIndex) => storyboard.characters?.includes(characters[index]) ? [`[Shot ${shotIndex + 1}]`] : []).join(',')}.`),
     ...pictureDefinitions.map((_, index) => `<Picture ${index + 1}>: reference; lock identity/world, not pose/viewpoint.`),
-    ...audioDefinitions.map((_, index) => lockedDialogueTrack
-      ? `<Audio ${index + 1}>: voice/timing reference for the tagged dialogue only; regenerate the complete synchronized ambience and Foley bed around it.`
-      : `<Audio ${index + 1}>: reference - voice timbre for its bound scheduled speaker only; no source wording or continuous vocal track is copied.`),
+    ...audioDefinitions.map((_, index) => `<Audio ${index + 1}>: timbre only; ignore source words/timing.`),
   ];
   const summaryPictures = storyboards.map((_, index) => `<Picture ${index + referenceOffset}>`).join(', ');
 
@@ -416,7 +477,7 @@ non_diegetic_music: ${nonDiegeticMusic}`;
     .map(storyboard => String(storyboard.montageRole || storyboard.clipType || 'development'))
     .join(' -> ');
 
-  return `subject_definitions:
+  return fitH3PromptBudget(`subject_definitions:
 ${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}
 
 summary:
@@ -429,13 +490,13 @@ detailed_description:
 ${styleOpening}
 ${speechControl}
 ${shotDescriptions.join('\n')}
-${physics}
+${fittedPhysics}
 
 overall_soundscape:
 ${soundscape}
 
 non_diegetic_music:
-${nonDiegeticMusic}`;
+${nonDiegeticMusic}`);
 }
 
 export function buildStoryboardVideoPrompt(

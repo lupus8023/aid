@@ -847,12 +847,6 @@ function conditioningNode(prompt: JsonRecord): JsonRecord {
   return matches[0];
 }
 
-function conditioningNodeEntry(prompt: JsonRecord): [string, JsonRecord] {
-  const matches = Object.entries(prompt).filter(([, node]: [string, any]) => node.class_type === 'MiniMaxH3AudioConditioningT8') as [string, JsonRecord][];
-  if (matches.length !== 1) throw new ComfyUIError('工作流必须且只能包含一个 MiniMaxH3AudioConditioningT8 节点');
-  return matches[0];
-}
-
 function nextNodeId(prompt: JsonRecord): string {
   return String(Math.max(0, ...Object.keys(prompt).map(Number).filter(Number.isFinite)) + 1);
 }
@@ -933,111 +927,6 @@ function injectReferenceAudios(prompt: JsonRecord, remoteAudios: string[]): void
   );
   Object.assign(inputs, h3ReferenceAudioPolicy(remoteAudios.length));
   inputs.strict_prompt_tags = true;
-}
-
-export function injectLockedDriveAudio(
-  prompt: JsonRecord,
-  remoteAudio: string,
-  variant?: ComfyUIWorkflow,
-): void {
-  if (!remoteAudio) throw new ComfyUIError('锁定音轨未提供');
-  const [conditioningId, node] = conditioningNodeEntry(prompt);
-  const inputs = node.inputs;
-  for (const key of Object.keys(inputs)) {
-    if (key.startsWith('ref_audios.ref_audio_')) delete inputs[key];
-  }
-  const nodeId = nextNodeId(prompt);
-  prompt[nodeId] = {
-    class_type: 'LoadAudio',
-    inputs: { audio: remoteAudio },
-    _meta: { title: 'AID exact full-duration dialogue track' },
-  };
-  inputs.drive_audio = [nodeId, 0];
-  inputs.final_audio = [nodeId, 0];
-  // Hybrid is valid only when the graph provides an explicit first/last
-  // keyframe. Story's normal multi-shot path supplies its opening frame and
-  // shot stills through ref_images, so it must remain Ref2VA even when the
-  // authoritative soundtrack is added as another reference. The dedicated
-  // first/last-frame workflow keeps Hybrid so those keyframes stay active.
-  inputs.task_type = variant
-    ? (variant === 'aid_first_last' ? 'Hybrid' : 'Ref2VA')
-    : (inputs.first_frame || inputs.last_frame ? 'Hybrid' : 'Ref2VA');
-  // `lock_source` and `remix_source` both start from the sparse dialogue
-  // latent, so silent intervals remain silent even when the prompt requests
-  // ambience. `reference_only` keeps the exact stem as H3's voice/timing
-  // reference while regenerating a complete synchronized soundtrack.
-  inputs.audio_mode = 'reference_only';
-  inputs.audio_denoise_strength = 1;
-  inputs.add_source_as_reference = true;
-  inputs.prompt_primary_audio_ordinal = 1;
-  inputs.strict_prompt_tags = true;
-
-  const decodeEntry = Object.entries(prompt).find(([, outputNode]) =>
-    /^MiniMaxH3AVDecode/.test(String((outputNode as JsonRecord).class_type || '')),
-  );
-  if (!decodeEntry) throw new ComfyUIError('工作流缺少 H3 音视频解码节点');
-  // H3 can synthesize a guide performance even when <Audio 1> supplies the
-  // authoritative voice. Its timing may begin before the scheduled source
-  // stem, so envelope ducking alone cannot guarantee a single speaker. Split
-  // the generated soundtrack and rebuild the environmental bed from every
-  // non-vocal stem before the exact Fish Audio dialogue is mixed back in.
-  const separationNodeId = nextNodeId(prompt);
-  prompt[separationNodeId] = {
-    class_type: 'AudioSeparation',
-    inputs: {
-      audio: [decodeEntry[0], 1],
-      chunk_fade_shape: 'half_sine',
-      chunk_length: 10,
-      chunk_overlap: 0.2,
-    },
-    _meta: { title: 'AID remove H3 guide vocals' },
-  };
-  const bassDrumsNodeId = nextNodeId(prompt);
-  prompt[bassDrumsNodeId] = {
-    class_type: 'AudioMerge',
-    inputs: {
-      audio1: [separationNodeId, 0],
-      audio2: [separationNodeId, 1],
-      merge_method: 'add',
-    },
-    _meta: { title: 'AID non-vocal bed: bass + transients' },
-  };
-  const nonVocalNodeId = nextNodeId(prompt);
-  prompt[nonVocalNodeId] = {
-    class_type: 'AudioMerge',
-    inputs: {
-      audio1: [bassDrumsNodeId, 0],
-      audio2: [separationNodeId, 2],
-      merge_method: 'add',
-    },
-    _meta: { title: 'AID complete environment and Foley bed' },
-  };
-  const mixNodeId = nextNodeId(prompt);
-  prompt[mixNodeId] = {
-    class_type: 'MiniMaxH3AudioMixT8',
-    inputs: {
-      source_audio: [nodeId, 0],
-      generated_audio: [nonVocalNodeId, 0],
-      source_gain_db: 0,
-      generated_gain_db: -2,
-      duck_generated: 0.35,
-      output_sample_rate: 'source',
-      peak_limit_dbfs: -1,
-    },
-    _meta: { title: 'AID exact dialogue + generated soundscape' },
-  };
-  let muxCount = 0;
-  for (const outputNode of Object.values(prompt) as JsonRecord[]) {
-    if (!['VHS_VideoCombine', 'SaveVideo'].includes(String(outputNode.class_type || ''))) continue;
-    if (!outputNode.inputs || !('audio' in outputNode.inputs)) continue;
-    // Keep the authoritative Fish Audio stem on top of H3's vocal-free room
-    // tone, environmental bed and caused Foley. The remaining light duck only
-    // creates dialogue headroom; it is no longer responsible for suppressing
-    // a second voice.
-    outputNode.inputs.audio = [mixNodeId, 0];
-    muxCount += 1;
-  }
-  if (!muxCount) throw new ComfyUIError('工作流没有可锁定音轨的视频输出节点');
 }
 
 function validatePrompt(prompt: JsonRecord, definitions: JsonRecord): void {
@@ -1244,22 +1133,6 @@ async function normalizeReferenceAudio(
     throw new ComfyUIError(`参考音频 ${index} 转换为 32kHz WAV 失败：${details}`);
   }
   return { path: outputPath, duration: targetDuration };
-}
-
-async function createSilentDriveAudio(directory: string, duration: number): Promise<string> {
-  const outputPath = path.join(directory, 'locked_silence_48k_stereo.wav');
-  try {
-    await execFileAsync(process.env.FFMPEG_PATH || 'ffmpeg', [
-      '-hide_banner', '-loglevel', 'error', '-y',
-      '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
-      '-t', duration.toFixed(3), '-c:a', 'pcm_s16le',
-      outputPath,
-    ], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' });
-  } catch (error: any) {
-    const details = String(error?.stderr || error?.message || error).trim();
-    throw new ComfyUIError(`生成锁定静音轨失败：${details}`);
-  }
-  return outputPath;
 }
 
 async function uploadAsset(config: ComfyUIConfig, localPath: string, subfolder: string): Promise<string> {
@@ -1596,8 +1469,6 @@ export async function createComfyUIVideoTask(input: {
   endFrame?: string;
   referenceAudios?: string[];
   referenceAudioNames?: string[];
-  driveAudio?: string;
-  lockAudio?: boolean;
   settings?: ComfyUIClientSettings;
 }): Promise<{ taskId: string; promptId: string; workflow: ComfyUIWorkflow; workflowPath: string }> {
   const config = getComfyUIConfig(input.settings);
@@ -1605,8 +1476,7 @@ export async function createComfyUIVideoTask(input: {
     if (!config.sshHost) throw new ComfyUIError('ComfyUI SSH Host 未配置');
 
     const auxiliaryImages = (input.auxiliaryImages || []).filter(Boolean);
-    const lockAudio = Boolean(input.lockAudio);
-    const referenceAudios = lockAudio ? [] : (input.referenceAudios || []).filter(Boolean);
+    const referenceAudios = (input.referenceAudios || []).filter(Boolean);
     const renderDuration = Math.min(15, Math.max(2, Number(input.duration) || 5));
     if (1 + auxiliaryImages.length > MAX_COMFYUI_REFERENCE_IMAGES) {
       throw new ComfyUIError(`MiniMax H3 多图参考在 AID 中最多使用 ${MAX_COMFYUI_REFERENCE_IMAGES} 张图片`);
@@ -1620,11 +1490,6 @@ export async function createComfyUIVideoTask(input: {
     try {
       const imageSources = [input.firstFrame, ...(input.endFrame ? [input.endFrame] : auxiliaryImages)];
       const localImages = await Promise.all(imageSources.map((source, index) => materializeSource(source, directory, `reference_${index + 1}`)));
-      const localDriveAudio = lockAudio
-        ? input.driveAudio
-          ? await materializeSource(input.driveAudio, directory, 'exact_dialogue_track')
-          : await createSilentDriveAudio(directory, renderDuration)
-        : '';
       const sourceAudios = await Promise.all(referenceAudios.map((source, index) => materializeSource(source, directory, `audio_reference_${index + 1}`)));
       const sourceAudioDurations = await Promise.all(sourceAudios.map((source, index) => probeReferenceAudio(source, index + 1)));
       const targetAudioDurations = fitH3ReferenceAudioDurations(sourceAudioDurations);
@@ -1646,12 +1511,11 @@ export async function createComfyUIVideoTask(input: {
       for (const image of localImages) remoteImages.push(await uploadAsset(config, image, subfolder));
       const remoteAudios: string[] = [];
       for (const audio of localAudios) remoteAudios.push(await uploadAsset(config, audio, subfolder));
-      const remoteDriveAudio = localDriveAudio ? await uploadAsset(config, localDriveAudio, subfolder) : '';
 
       patchWorkflow(workflow, {
         variant,
         imageRefs: remoteImages,
-        prompt: taggedPrompt(input.prompt, variant, variant === 'aid_multi_reference' ? auxiliaryImages.length : 0, lockAudio ? 1 : referenceAudios.length, lockAudio ? ['locked final soundtrack'] : input.referenceAudioNames),
+        prompt: taggedPrompt(input.prompt, variant, variant === 'aid_multi_reference' ? auxiliaryImages.length : 0, referenceAudios.length, input.referenceAudioNames),
         duration: renderDuration,
         aspectRatio: input.aspectRatio || '9:16',
         seed: Number(BigInt(`0x${randomBytes(7).toString('hex')}`)),
@@ -1659,8 +1523,7 @@ export async function createComfyUIVideoTask(input: {
       });
       const apiPrompt = compileFrontendWorkflow(workflow);
       injectReferenceImages(apiPrompt, variant, remoteImages);
-      if (lockAudio) injectLockedDriveAudio(apiPrompt, remoteDriveAudio, variant);
-      else injectReferenceAudios(apiPrompt, remoteAudios);
+      injectReferenceAudios(apiPrompt, remoteAudios);
 
       const promptId = await withTunnel(config, async baseUrl => {
         const definitions = await readRemoteDefinitions(config);

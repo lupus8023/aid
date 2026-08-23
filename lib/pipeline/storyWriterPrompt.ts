@@ -1,6 +1,120 @@
 import type { WriterCharacter, WriterObject } from './types';
 import { normalizeTargetShotCount, targetDurationSeconds } from './shotCount';
 
+export interface SourceShotAdaptationGroup {
+  targetIndex: number;
+  sourceShotRefs: number[];
+  lockedSourceShots: string[];
+}
+
+/** Build a deterministic compression map for a numbered source screenplay. */
+export function buildSourceShotAdaptationMap(synopsis: string, targetShotCount: number): SourceShotAdaptationGroup[] {
+  const sequences: Array<{ id: string; shots: Array<{ index: number; line: string }> }> = [];
+  let current = { id: 'source-sequence-1', shots: [] as Array<{ index: number; line: string }> };
+  sequences.push(current);
+  for (const rawLine of String(synopsis || '').split(/\r?\n/)) {
+    const heading = rawLine.match(/^\s*#{2,}\s*(?:SEQUENCE|场次)\s*([^\n]*)/iu);
+    if (heading) {
+      if (current.shots.length) {
+        current = { id: heading[1]?.trim() || `source-sequence-${sequences.length + 1}`, shots: [] };
+        sequences.push(current);
+      } else {
+        current.id = heading[1]?.trim() || current.id;
+      }
+      continue;
+    }
+    const shot = rawLine.match(/(?:SHOT|镜头)\s*0*(\d+)\b/iu);
+    if (!shot) continue;
+    current.shots.push({ index: Number(shot[1]), line: rawLine.trim() });
+  }
+  const populated = sequences.filter(sequence => sequence.shots.length);
+  const sourceShotCount = populated.reduce((total, sequence) => total + sequence.shots.length, 0);
+  if (!sourceShotCount || sourceShotCount <= targetShotCount || populated.length > targetShotCount) return [];
+
+  const estimatedSpeechSeconds = (line: string) => [...line.matchAll(/[“"]([^”"]+)[”"]/gu)]
+    .reduce((total, match) => {
+      const text = match[1] || '';
+      const han = (text.match(/[\u3400-\u9fff]/g) || []).length;
+      const words = (text.match(/[A-Za-z0-9']+/g) || []).length;
+      const punctuation = (text.match(/[，。！？,.!?;；:：]/g) || []).length;
+      // Keep this estimate identical to the final H3 speech scheduler.  The
+      // older, faster 2.65 words/s estimate allowed a dialogue group through
+      // the outline planner only for the video prompt to reject it later.
+      return total + Math.max(0.8, han / 4.2 + words / 2.4 + punctuation * 0.08);
+    }, 0);
+  const allocations = populated.map(sequence => {
+    const exact = (sequence.shots.length * targetShotCount) / sourceShotCount;
+    const speechFloor = Math.ceil(sequence.shots.reduce((total, shot) => total + estimatedSpeechSeconds(shot.line), 0) / 13.2);
+    const minCount = Math.max(1, speechFloor);
+    return { sequence, count: Math.max(minCount, Math.floor(exact)), minCount, remainder: exact - Math.floor(exact) };
+  });
+  let allocated = allocations.reduce((total, item) => total + item.count, 0);
+  while (allocated < targetShotCount) {
+    const candidate = allocations
+      .filter(item => item.count < item.sequence.shots.length)
+      .sort((a, b) => b.remainder - a.remainder || b.sequence.shots.length - a.sequence.shots.length)[0];
+    if (!candidate) break;
+    candidate.count += 1;
+    candidate.remainder = -1;
+    allocated += 1;
+  }
+  while (allocated > targetShotCount) {
+    const candidate = allocations
+      .filter(item => item.count > item.minCount)
+      .sort((a, b) => a.remainder - b.remainder || b.count - a.count)[0];
+    if (!candidate) break;
+    candidate.count -= 1;
+    allocated -= 1;
+  }
+
+  const groups: SourceShotAdaptationGroup[] = [];
+  for (const { sequence, count } of allocations) {
+    const shotCount = sequence.shots.length;
+    const dp = Array.from({ length: count + 1 }, () => Array(shotCount + 1).fill(Number.POSITIVE_INFINITY));
+    const previous = Array.from({ length: count + 1 }, () => Array(shotCount + 1).fill(-1));
+    dp[0][0] = 0;
+    const groupCost = (start: number, end: number) => {
+      const shots = sequence.shots.slice(start, end);
+      const speech = shots.reduce((total, shot) => total + estimatedSpeechSeconds(shot.line), 0);
+      const speechEvents = shots.reduce((total, shot) => total + [...shot.line.matchAll(/[“"]([^”"]+)[”"]/gu)].length, 0);
+      const locations = new Set(shots.map(shot => shot.line.split('|')[1]?.trim()).filter(Boolean));
+      const durationRisk = speech + Math.max(0, speechEvents - 1) * 0.35 + (speechEvents ? 1 : 0);
+      return (durationRisk > 14.4 ? 100_000 + durationRisk * 1_000 : durationRisk * 12)
+        + Math.max(0, shots.length - 1) * 2
+        + Math.max(0, locations.size - 1) * 8;
+    };
+    for (let groupIndex = 1; groupIndex <= count; groupIndex += 1) {
+      for (let end = groupIndex; end <= shotCount; end += 1) {
+        const minStart = Math.max(groupIndex - 1, end - 4);
+        for (let start = minStart; start < end; start += 1) {
+          if (!Number.isFinite(dp[groupIndex - 1][start])) continue;
+          const cost = dp[groupIndex - 1][start] + groupCost(start, end);
+          if (cost < dp[groupIndex][end]) {
+            dp[groupIndex][end] = cost;
+            previous[groupIndex][end] = start;
+          }
+        }
+      }
+    }
+    const partitions: Array<Array<{ index: number; line: string }>> = [];
+    let end = shotCount;
+    for (let groupIndex = count; groupIndex > 0; groupIndex -= 1) {
+      const start = previous[groupIndex][end];
+      if (start < 0) return [];
+      partitions.unshift(sequence.shots.slice(start, end));
+      end = start;
+    }
+    for (const shots of partitions) {
+      groups.push({
+        targetIndex: groups.length + 1,
+        sourceShotRefs: shots.map(shot => shot.index),
+        lockedSourceShots: shots.map(shot => shot.line),
+      });
+    }
+  }
+  return groups.length === targetShotCount ? groups : [];
+}
+
 export function buildStoryOutlinePrompt(input: {
   synopsis: string;
   characters: WriterCharacter[];
@@ -11,13 +125,14 @@ export function buildStoryOutlinePrompt(input: {
   const { synopsis, characters, objects, language } = input;
   const targetShots = normalizeTargetShotCount(input.targetShotCount);
   const targetSeconds = targetDurationSeconds(targetShots);
-  const characterDetails = characters.map(character => `- ${character.name}: ${character.description}`).join('\n');
+  const characterDetails = characters.map(character => `- ${character.name}: ${character.description}${character.gender && character.gender !== 'unknown' ? `；已知性别=${character.gender}` : ''}${character.ageGroup && character.ageGroup !== 'unknown' ? `；已知年龄段=${character.ageGroup}` : ''}`).join('\n');
   const objectDetails = objects.length
     ? objects.map(object => `- ${object.name}: ${object.description}`).join('\n')
     : 'None';
   const outputLanguage = language === 'en'
     ? 'All story text must be English; preserve uploaded entity names exactly.'
     : '所有故事文本必须使用中文；已上传实体名称保持原样。';
+  const sourceAdaptationMap = buildSourceShotAdaptationMap(synopsis, targetShots);
 
   return `你是长片总编剧。只做【全片故事骨架与镜头地图】，不要写详细分镜、摄影 prompt、声音设计或逐镜状态 JSON。
 
@@ -35,6 +150,8 @@ ${objectDetails}
 
 制作规格：全片严格 ${targetShots} 镜，目标约 ${targetSeconds} 秒。
 
+${sourceAdaptationMap.length ? `编号原稿压缩合同（权威）：原稿镜数多于目标镜数。每个 targetIndex 必须只改编对应 sourceShotRefs 的相邻原镜；actionGoal 合并其动作因果，所有原台词逐字保留在 requiredDialogueLines。不得跨组搬运、遗漏或按比例猜测台词位置。\n${JSON.stringify(sourceAdaptationMap, null, 2)}` : ''}
+
 先锁定全片因果链、人物弧线、核心观众问题、高潮选择、结局、伏笔回收与对白弧线，再分配 sequences。每个 sequence 的 beatMap 只写极简镜头地图；所有 beatMap 合计必须严格 ${targetShots} 条，全片 index 从 1 连续到 ${targetShots}。
 
 叙事设计规则：
@@ -43,9 +160,11 @@ ${objectDetails}
 - audienceQuestion 记录观众此刻追问什么。镜头可以回答旧问题，但必须同时提出更具体的新问题，直到高潮回收 centralDramaticQuestion。
 - dialoguePurpose 规划台词的叙事功能：question、answer、reveal、conceal、challenge、refusal、decision、promise、callback、payoff 或 visual_only。不要把“台词克制”误解为默认禁言；当私人目标、关系变化、选择、承诺或回收无法仅靠画面准确表达时，必须规划有效台词。
 - 用 dialogueUnitId 把跨镜的提问/回答、挑战/拒绝、承诺/回收绑定为同一连续对白单元；dialogueContext 写清这句台词承接的事实以及说完后听者必须改变的认知/关系。不能把一个完整交流拆成互不相干的口号。
+- 非 visual_only 镜头必须先写 dialogueTurns，再由执行编剧写逐字台词。每个 turn 锁定 speaker、function、contentGoal、respondsTo：contentGoal 要写清该角色必须传递的新事实/立场/选择，不能只写“表达担心”“说一句鼓励”或孤立感叹。需要问答、挑战/回应、揭示/反应时，在同镜或同一 dialogueUnitId 的连续镜头安排完整轮次，不能只留下提问或半句。
 - dialogueObligation 为 required 时必须生成台词，不得在详细剧本阶段静默降为 visual_only；optional 才允许在动作已经完全表达信息时删除；visual 表示明确无对白。
 - 对白要形成跨镜呼应：问题必须得到回答或故意延迟；承诺/谎言/关键词必须在后面产生变化或回收。台词不能复述画面动作，也不能是脱离上下文的口号。
 - montageRole 决定剪辑语义：setup、development、escalation、parallel、contrast、decision、consequence、bridge、payoff、resolution。并置必须产生新的理解，不是旅游式画面罗列。
+- characters 必须为每个可用角色规划 role、gender、ageGroup 与 voiceProfile。gender 只能是 female、male、nonbinary、unknown；ageGroup 只能是 child、young_adult、adult、senior、unknown。用户原文有定义时严格服从；原文未定义时，由本阶段明确做出一次角色设计选择，使后续形象与声音共用同一性别/年龄，不得让图片模型和音频模型各自猜测。只有用户明确要求身份保持未知时才写 unknown。voiceProfile 只描述年龄感、音高、质感、气质、语速和语言，不写可朗读台词。
 
 连续性规则：
 - 前一条 consequence 必须成为后一条 cause，或明确推动下一场。
@@ -53,6 +172,7 @@ ${objectDetails}
 - emotionalTurn 写镜头前后变化；没有变化也要写“保持X但新增Y信息”。
 - 任何非 visual_only 的 dialoguePurpose 都必须先在 requiredSpeaker 绑定一个上方可用角色的精确名称。用户指定台词还要在 requiredLine 中逐字保留；若只是规划由执行编剧创作的必要台词，requiredSpeaker 保留角色名而 requiredLine 留空。
 - 用户原文明确命名并给出台词的文字角色保留自己的台词，绝不能转交给其他角色。未明确命名的路人或临时人声改成可见动作并设为 visual_only。
+- 如果用户原稿已有编号镜头但制作规格要求不同镜数，必须按剧情语义把每条用户逐字台词重新安置到对应 actionGoal，保持说话者、原句和先后顺序；不得按旧镜号硬套、不得按比例搬运到不相干场次，也不得遗漏后半段台词。所有用户逐字台词都必须在某个 beat.requiredDialogueLines 中出现一次。
 - sequence 的 entryState / exitState 必须能交接人物位置、关系、关键道具与情绪。
 - 不要输出 shotSize、cameraMove、angle、sceneStyle、promptDraft、audioPlan、stateBefore 或 stateAfter；这些由后续阶段分批完成。
 
@@ -78,7 +198,7 @@ ${objectDetails}
   "audiencePromise": "影片向观众承诺的类型体验与情感回报",
   "dialogueArc": "问题/承诺/冲突台词如何跨场推进并在结尾回收",
   "montageStrategy": "哪些过程省略、平行、对照或用因果剪辑压缩",
-  "characters": [{ "name": "可用角色精确名称", "want": "欲望", "obstacle": "阻碍", "arc": "弧线", "subtext": "潜台词" }],
+  "characters": [{ "name": "可用角色精确名称", "role": "剧情身份", "gender": "female|male|nonbinary|unknown", "ageGroup": "child|young_adult|adult|senior|unknown", "voiceProfile": "非台词的音色画像", "want": "欲望", "obstacle": "阻碍", "arc": "弧线", "subtext": "潜台词" }],
   "sequences": [{
     "id": "seq-1",
     "locationId": "english_location_key",
@@ -93,6 +213,7 @@ ${objectDetails}
     "shotCount": 9,
     "beatMap": [{
       "index": 1,
+      "sourceShotRefs": [1],
       "actionGoal": "唯一可见动作与局面变化",
       "cause": "直接前因",
       "consequence": "直接后果",
@@ -102,6 +223,7 @@ ${objectDetails}
       "dialogueUnitId": "dlg-1；同一问答/承诺回收使用同一个 id，无对白为空",
       "dialogueObligation": "required|optional|visual",
       "dialogueContext": "这句承接什么，听者听后必须理解/决定/关系改变什么",
+      "dialogueTurns": [{ "speaker": "可用角色精确名称", "function": "question|answer|reveal|conceal|challenge|refusal|decision|promise|callback|payoff", "contentGoal": "本轮必须说清的新事实/立场/选择", "respondsTo": "回应的上一轮 contentGoal 或伏笔；首轮可空" }],
       "montageRole": "setup|development|escalation|parallel|contrast|decision|consequence|bridge|payoff|resolution",
       "audienceQuestion": "本镜结束时观众继续追问的问题",
       "requiredSpeaker": "第一条指定台词的可用角色精确名称；无台词则空字符串",
@@ -126,8 +248,11 @@ export function buildStoryBeatBatchPrompt(input: {
   objects: WriterObject[];
   language: 'zh' | 'en';
 }): string {
-  const { synopsis, outline, sequence, beatMap, previousBoundary, continuesSequence = false, nextRoadmap = [], characters, objects, language } = input;
+  const { outline, sequence, beatMap, previousBoundary, continuesSequence = false, nextRoadmap = [], characters, objects, language } = input;
   const outlineRecord = (outline && typeof outline === 'object' ? outline : {}) as Record<string, unknown>;
+  const outlineSequences = Array.isArray(outlineRecord.sequences)
+    ? outlineRecord.sequences as Array<{ beatMap?: Array<Record<string, unknown>> }>
+    : [];
   const firstIndex = Number(beatMap[0]?.index || 0);
   const lastIndex = Number(beatMap[beatMap.length - 1]?.index || 0);
   const outputLanguage = language === 'en'
@@ -152,14 +277,22 @@ export function buildStoryBeatBatchPrompt(input: {
     audiencePromise: outlineRecord.audiencePromise,
     dialogueArc: outlineRecord.dialogueArc,
     montageStrategy: outlineRecord.montageStrategy,
+    dialogueRoadmap: outlineSequences.flatMap(item => Array.isArray(item.beatMap) ? item.beatMap : [])
+      .filter(item => item.dialogueObligation !== 'visual')
+      .map(item => ({
+        index: item.index,
+        unit: item.dialogueUnitId,
+        purpose: item.dialoguePurpose,
+        context: item.dialogueContext,
+        turns: item.dialogueTurns,
+      })),
   };
 
   return `你是执行编剧。全片骨架已经锁定，只展开镜头 ${firstIndex}–${lastIndex} 的【详细剧本】，不得重写故事、改变镜头数量或提前/延后结局。
 
 ${outputLanguage}
 
-用户原始输入（用于核对指定事实和逐字台词）：
-${synopsis}
+用户原始输入已经在上一阶段被结构化锁定。为避免把整部长稿在每个批次重复发送、引发超时或安全误判，本批只使用下方全片故事脊柱、当前场次、权威镜头地图及其中的 requiredDialogueLines。逐字台词以 requiredDialogueLines 为最高优先级，不得改写。
 
 全片故事脊柱：
 ${JSON.stringify(storySpine, null, 2)}
@@ -188,18 +321,19 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 写作规则：
 - 严格输出 ${beatMap.length} 个 beats，对应 index ${firstIndex}–${lastIndex}；每个 beat 只展开对应 beatMap，不得合并、拆分、增删或调序。
 - characters / objects 只能使用允许列表中的精确名称；临时环境元素只写在 action。
-- cause → conflict → choice → consequence → nextCause 必须形成可见因果；前一镜 stateAfter 必须等于后一镜 stateBefore。
+- cause → conflict → choice → consequence → nextCause 必须形成可见因果；前一镜 stateAfter 必须等于后一镜 stateBefore。最后的 payoff/resolution 镜不要凭空制造新冲突，conflict 应写已经解决的核心张力及仍需验证的余波，不能留空。
 - 每镜必须落实 beatMap.informationGain 和 audienceQuestion。dramaticPurpose 说明局面为何改变，informationGain 说明观众因此理解了什么，两者不能互相复制。
 - 每个 action 都要包含“触发→表演/动作→可见结果”，让后续导演能拍出因果，而不是只有人物走、看、停顿和气氛。
 - 每镜只承担一个主动作弧：进入动作→加速/施力→明确触点或决定→0.25–0.6 秒可读结果。速度变化来自物理加速度和阻力，不得把整段动作默认写成匀速慢动作。
 - 相邻镜头的动作和能量要形成长短交替；关键信息落定后给短呼吸，普通动作不能用无意义停顿拖时长。除非剧情明确要求时间主观化，否则禁止 slow motion、长时间悬停和空镜漂移。
 - 每个镜尾必须留下一个可被下一镜接住的具体交棒：身体/道具运动方向、视线、前景遮挡、焦点变化、可见结果或由动作产生的声音；一个接缝只用一种交棒逻辑，并保持矢量、速度与银幕方向连续。
-- 第一镜 stateBefore 必须按照上述交接类型承接上一批；最后一镜 nextCause 要准确铺向后续路线。
+- 第一镜 stateBefore 必须按照上述交接类型承接上一批。若后续路线非空，最后一镜 nextCause 要准确铺向后续路线；若这是全片末镜且没有后续路线，nextCause 必须写已经达成的终局状态并明确不再触发新剧情，不能留空，也不能为了填字段凭空制造续集事件。
 - 台词服务叙事，而不是一律从少。beatMap.requiredLine 非空时逐字写入 speech；否则按 dialoguePurpose 判断：私人目标、问题/回答、关系转折、谎言/揭示、承诺/回收或明确选择若仅靠画面会含混，就写必要台词；visual_only 才保持 speech=[]。禁止旁白、画外音、路人台词、笑声、哼唱和无来源人声。
 - 台词必须承接上下文：用 storyFunction 标明 question/answer/reveal/refusal/decision/promise/callback/payoff；用 respondsTo 指向它回应的前一句信息或伏笔。不得写重复画面、孤立口号、通用感叹或没有对象的短句。
+- beatMap.dialogueTurns 是逐条台词的语义合同：speech 条数、说话者顺序和 storyFunction 必须逐项一致；每句 exactLine 必须完整交付对应 contentGoal。respondsTo 沿用计划并写清回应对象。不能把一个完整 turn 压缩成“不能停”“走吧”“我知道”“快点”这类脱离上下文就无法理解剧情的口号；极短句只有在上一轮台词就在同一 dialogueUnitId 且该句是清楚的回答/拒绝/回收时才允许。
 - beatMap.dialogueUnitId、dialogueObligation、dialogueContext 是权威对白契约，逐项沿用。required 必须写 speech，不能因为动作可见而降为 visual_only；同一 dialogueUnitId 的问答/承诺/回收必须语义相接，听者的 listenerState 要写出听后发生的具体变化。
 - 一镜通常有 0–2 条有序台词；用户原文同镜明确给出三句或四句短对答时必须全部按 requiredDialogueLines 的原顺序保留。逐条绑定已出场角色，不能重叠，总台词时长加留白必须装入 durationHint。不要为了凑数量写台词。
-- 若 beatMap 只规划了 AI 自创台词功能、没有 requiredLine，而本镜信息已经能靠动作清楚交付，可以将 dialoguePurpose 明确改成 visual_only 并保持 speech=[]；绝不能为了满足字段而把一个角色的原话转嫁给另一个角色。requiredLine 非空时不得这样降级。
+- 只有 dialogueObligation=optional 且没有 requiredLine 时，若本镜信息已经能靠动作完整、无歧义地交付，才可将 dialoguePurpose 明确改成 visual_only 并保持 speech=[]；dialogueObligation=required 或 requiredLine 非空时绝不能降级，也不能把一个角色的原话转嫁给另一个角色。
 - beatMap.requiredDialogueLines 非空时，speech 必须逐条、逐字、按顺序等于该数组；requiredLine/requiredSpeaker 是首句兼容字段。绝不能漏句、串角色、合并旁白或把临时人物的话转嫁给主角。
 - 自行创作 story_required 台词时，说话者必须在 characters 中以已上传精确名称出现；action 还要用当前输出语言清楚表现该可见角色正在开口。不要因为英文叙述使用自然称呼而改写 characters / speech.character 中的精确库名称。
 - audioPlan 是唯一声音源。backgroundHuman 默认 none；环境声和拟音必须由地点或可见动作引起；未要求音乐时 music 为 none。

@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   try {
     const {
       storyboard, segmentStoryboards = [], apiKey, videoModel, aspectRatio,
-      characterAudios = [], driveAudio, lockDialogueAudio = false, firstFrameUrl,
+      characterAudios = [], firstFrameUrl,
       voiceReferences = {},  // { 角色名: CloudinaryURL }
       videoProvider = 'apimart', comfyui = {},
       language = 'zh',
@@ -47,17 +47,12 @@ export async function POST(request: NextRequest) {
       // H3 的所有参考音频总计不能超过 15 秒。只传本镜头真正开口的角色，
       // 避免把画面中未说话角色的声音也计入额度。后续还会在 Companion 端统一裁剪总长。
       const speakingCharacters = [...new Set<string>(videoStoryboards.flatMap(speakingCharacterNames))];
-      const exactAudioByCharacter = new Map<string, string>(
-        (Array.isArray(characterAudios) ? characterAudios : [])
-          .filter((audio: any) => audio?.character && audio?.audioUrl)
-          .map((audio: any) => [String(audio.character), String(audio.audioUrl)]),
-      );
       const referenceAudioNames: string[] = [];
       const referenceAudios = speakingCharacters
-        // Exact segment dialogue is safer than a generic timbre sample: even
-        // if Ref2VA retains source semantics, it cannot introduce unrelated
-        // sample words before or after the scheduled <d> line.
-        .map((name) => ({ name, url: exactAudioByCharacter.get(name) || voiceReferences[name] }))
+        // Fish Audio is a one-time character timbre reference only. H3 remains
+        // the sole generator of this segment's dialogue, lip sync and complete
+        // soundtrack from the <d> lines below.
+        .map((name) => ({ name, url: voiceReferences[name] }))
         .filter((x): x is { name: string; url: string } => Boolean(x.url))
         .slice(0, 3)
         .map((x) => { referenceAudioNames.push(x.name); return x.url; });
@@ -81,21 +76,15 @@ export async function POST(request: NextRequest) {
         // the multi-reference workflow so every checked storyboard remains a
         // visible editorial reference inside the same 15-second clip.
         endFrame: firstFrameUrl && !isMultiBeatSegment ? storyboard.imageUrl : undefined,
-        // A full-duration exact dialogue track is authoritative. Do not also
-        // pass the same words as a timbre reference: native Ref2VA can extend
-        // their semantics into an unscripted second line.
-        referenceAudios: lockDialogueAudio ? [] : referenceAudios,
-        referenceAudioNames: lockDialogueAudio ? [] : referenceAudioNames,
-        driveAudio: typeof driveAudio === 'string' ? driveAudio : undefined,
-        lockAudio: Boolean(lockDialogueAudio),
+        referenceAudios,
+        referenceAudioNames,
         // H3 generates the synchronized soundtrack natively. Voice samples are
         // optional references, so APIMart's URL-tag syntax must not enter the prompt.
         prompt: buildVideoSegmentPrompt(isMultiBeatSegment ? videoStoryboards : [storyboard], [], {
           firstFrameUrl,
           duration: Number(storyboard.videoDuration) || (isMultiBeatSegment ? 15 : 5),
-          hasVoiceReferences: lockDialogueAudio || referenceAudios.length > 0,
-          referenceAudioNames: lockDialogueAudio ? [] : referenceAudioNames,
-          lockedDialogueTrack: Boolean(lockDialogueAudio),
+          hasVoiceReferences: referenceAudios.length > 0,
+          referenceAudioNames,
           visualOverride: storyboard.videoPromptOverride && String(storyboard.videoPrompt || '').trim()
             ? String(storyboard.videoPrompt).trim()
             : undefined,

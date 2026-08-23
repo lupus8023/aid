@@ -78,11 +78,20 @@ function officialSpeakerId(value: unknown, character: string): string {
   return match ? `S${Number(match[1])}` : raw;
 }
 
-function generatedSpeakerIsVisible(storyboard: Storyboard, line: StorySpeechLine): boolean {
+const UNBOUND_VISIBLE_IDENTITY = /(?:一名|一个|一位|陌生的?|不知名的?)(?:年轻的?|年迈的?)?(?:少年|少女|男孩|女孩|男人|女人|男子|女子|老人|孩子|士兵|警察|医生|工人|路人|村民)|\b(?:a|an|another|unnamed|unknown)\s+(?:(?:young|old|teenage|elderly|middle-aged)\s+)?(?:boy|girl|man|woman|person|child|soldier|officer|doctor|worker|passerby|villager)\b/i;
+
+/**
+ * Structured `characters` is the cast authority. The action may naturally use
+ * a translated role alias (e.g. “the mermaid princess” for 人鱼公主), so absence
+ * of the exact library name is not itself an error. Only quarantine the line
+ * when the prose explicitly introduces a different, unbound visible identity.
+ */
+export function generatedSpeakerMatchesVisibleAction(storyboard: Storyboard, line: StorySpeechLine): boolean {
   if (line.source === 'user_exact') return true;
   const action = clean(storyboard.action);
   if (!action) return true; // Legacy projects may not have preserved an action field.
-  return action.toLocaleLowerCase().includes(clean(line.character).toLocaleLowerCase());
+  if (action.toLocaleLowerCase().includes(clean(line.character).toLocaleLowerCase())) return true;
+  return !UNBOUND_VISIBLE_IDENTITY.test(action);
 }
 
 export function speechSeconds(text: string): number {
@@ -135,7 +144,7 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
     .filter(line => line.character
       && line.exactLine
       && visible.has(line.character)
-      && generatedSpeakerIsVisible(storyboard, line)
+      && generatedSpeakerMatchesVisibleAction(storyboard, line)
       && (line.source === 'user_exact' || !isDirectingInstructionDialogue(line.exactLine))
       && !seen.has(`${line.character}\u0000${line.exactLine}`)
       && Boolean(seen.add(`${line.character}\u0000${line.exactLine}`)))
@@ -158,7 +167,7 @@ export function storyboardSpeechWarnings(storyboard: Storyboard): string[] {
     if (!exactLine || isDirectingInstructionDialogue(exactLine)) return ['已拦截被误写成台词的导演/表演说明'];
     if (!visible.has(clean(line.character))) return [`已拦截未出场角色“${clean(line.character) || '未知'}”的台词`];
     const normalized = { ...line, character: clean(line.character), exactLine } as StorySpeechLine;
-    if (!generatedSpeakerIsVisible(storyboard, normalized)) return [`已拦截与画面动作不匹配的“${normalized.character}”台词`];
+    if (!generatedSpeakerMatchesVisibleAction(storyboard, normalized)) return [`已拦截与画面动作不匹配的“${normalized.character}”台词`];
     return [];
   });
 }
@@ -207,6 +216,17 @@ export function validateSpeechContract(storyboards: Storyboard[]): string | unde
   if (new Set(lines.map(line => line.character)).size > 3) return '一个 H3 片段最多绑定 3 个说话角色，请拆成独立片段';
   const overlong = lines.find(line => speechSeconds(line.exactLine) > 11.5);
   if (overlong) return `台词过长，无法在 15 秒内保留开场留白和说后反应：${overlong.character}`;
+  const overloadedStoryboard = storyboards.find(storyboard => {
+    const shotLines = storyboardSpeech(storyboard);
+    if (!shotLines.length) return false;
+    const plan = storyboardAudioPlan(storyboard);
+    const required = shotLines.reduce((sum, line) => sum + speechSeconds(line.exactLine), 0)
+      + Math.max(0, shotLines.length - 1) * 0.35
+      + Math.max(0.45, plan.silenceBefore)
+      + Math.max(0.55, plan.silenceAfter);
+    return required > 15;
+  });
+  if (overloadedStoryboard) return `镜头 ${overloadedStoryboard.sceneNumber} 的多轮台词合计超过 H3 15 秒，请在剧本改编阶段拆成相邻镜头`;
   return undefined;
 }
 
@@ -252,8 +272,11 @@ export function compileTimedSpeech(
 
 export function buildAudioManifest(storyboards: Storyboard[]): string {
   const plans = storyboards.map(storyboardAudioPlan);
-  const environment = [...new Set(plans.flatMap(plan => plan.environment))];
-  const foley = [...new Set(plans.flatMap(plan => plan.foley))];
+  // Per-shot cues already preserve the specific sources. The overall H3 field
+  // is a compact bed summary; an unbounded union can consume hundreds of
+  // prompt characters and crowd out action/dialogue timing.
+  const environment = [...new Set(plans.flatMap(plan => plan.environment))].slice(0, 4);
+  const foley = [...new Set(plans.flatMap(plan => plan.foley))].slice(0, 4);
   const allowBackgroundPresence = plans.some(plan => plan.backgroundHuman === 'indistinct_nonverbal');
   return [
     environment.length

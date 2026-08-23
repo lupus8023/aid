@@ -7,7 +7,7 @@ import StatusBar from '@/components/StatusBar';
 import StepIndicator from '@/components/StepIndicator';
 import Step1 from '@/components/Step1';
 import Step2 from '@/components/Step2';
-import Step3 from '@/components/Step3';
+import Step3, { type VoiceCastPatch } from '@/components/Step3';
 import Step4 from '@/components/Step4';
 import Step5 from '@/components/Step5';
 import Step6 from '@/components/Step6';
@@ -23,16 +23,18 @@ import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
-import { allocateSegmentTimeline, estimateVideoSegmentSeconds, isCompletedVideoSegment, resolveVideoSegmentGroups, restoredStoryStep, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
+import { estimateVideoSegmentSeconds, isCompletedVideoSegment, resolveVideoSegmentGroups, restoredStoryStep, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
+import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
 import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
 import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@/lib/gridRecovery';
-import { compileTimedSpeech, segmentSpeechSignature, storyboardSpeech } from '@/lib/speechAudioContract';
-import { castStoryVoices, lockStoryboardVoiceIds } from '@/lib/voiceCasting';
+import { storyboardSpeech } from '@/lib/speechAudioContract';
+import { castCharacterVoice, castStoryVoices, lockStoryboardVoiceIds } from '@/lib/voiceCasting';
 import { applyStoryAspectRatio, hasStoryMedia, projectStoryAspectRatio, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { getImageModelCapabilities } from '@/lib/imageModels';
 import { autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, normalizeStoryboardImageArtifact, planAutoImageBatch } from '@/lib/autoProduction';
+import { effectiveStoryCast } from '@/lib/storyCast';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -472,6 +474,10 @@ export default function StoryPage() {
       projectIdRef.current = savedProject.id!;
       const savedLanguageForVoice = savedProject.language === 'en' ? 'en' : 'zh';
       const savedCharacters = castStoryVoices((savedProject.characters || []) as Character[], savedLanguageForVoice);
+      const savedStoryPlan = savedProject.storyPlan ? {
+        ...savedProject.storyPlan,
+        characters: castStoryVoices(savedProject.storyPlan.characters || [], savedLanguageForVoice),
+      } : undefined;
       const savedObjects = savedProject.objects || [];
       const savedCostumeImages = savedProject.costumeImages || {};
       const savedSceneImages = savedProject.sceneImages || [];
@@ -498,12 +504,16 @@ export default function StoryPage() {
       projectAspectRatioRef.current = savedAspectRatio;
       setProjectAspectRatio(savedAspectRatio);
       setVisualStyle(normalizeVisualStyle(savedProject.visualStyle || settings.visualStyle));
+      const savedEffectiveVoiceCast = [
+        ...savedCharacters,
+        ...(savedStoryPlan?.characters || []).filter(planned => !savedCharacters.some(character => character.name === planned.name)),
+      ];
       const savedStoryboards = lockStoryboardVoiceIds<Storyboard>((savedProject.storyboards || []).map(item => normalizeStoryboardImageArtifact({
         ...item,
         aspectRatio: savedAspectRatio,
         imageFailureReason: normalizeSavedImageFailureReason(item.imageFailureReason)
           || (item.status === 'failed' ? '上次分镜生成未完成；请重新生成，系统会定位具体原因并自动修正可恢复的提示词问题' : undefined),
-      })), savedCharacters);
+      })), savedEffectiveVoiceCast);
       storyboardsRef.current = savedStoryboards;
       setStoryboards(savedStoryboards);
       void recoverProjectVideos(savedStoryboards, savedProject.id!);
@@ -589,8 +599,8 @@ export default function StoryPage() {
       setVoiceReferences(savedProject.voiceReferences);
       setCostumeImages(savedCostumeImages);
       setSceneImages(savedSceneImages);
-      setStoryPlan(savedProject.storyPlan);
-      storyPlanRef.current = savedProject.storyPlan;
+      setStoryPlan(savedStoryPlan);
+      storyPlanRef.current = savedStoryPlan;
       setVideoSegmentPlan(savedProject.videoSegmentPlan);
       videoSegmentPlanRef.current = savedProject.videoSegmentPlan;
       const savedAuto = savedAutoProduction();
@@ -648,6 +658,84 @@ export default function StoryPage() {
     });
   };
 
+  const handleVoiceCastChange = (characterName: string, patch: VoiceCastPatch) => {
+    const uploaded = charactersRef.current.find(character => character.name === characterName);
+    const planned = storyPlanRef.current?.characters.find(character => character.name === characterName);
+    if (!uploaded && !planned) return;
+
+    const base = {
+      ...uploaded,
+      ...planned,
+      name: characterName,
+      description: uploaded?.description || [planned?.role, planned?.voiceProfile].filter(Boolean).join('；'),
+    };
+    const wantsAutomatic = patch.voiceSource === 'auto';
+    const resolved = wantsAutomatic
+      ? castCharacterVoice({ ...base, ...patch, voiceId: undefined, voiceSource: 'auto' }, projectLanguageRef.current)
+      : { ...base, ...patch, voiceId: String(patch.voiceId ?? base.voiceId ?? '').trim(), voiceSource: 'user' as const };
+
+    const nextCharacters = charactersRef.current.map(character => character.name === characterName ? {
+      ...character,
+      gender: resolved.gender,
+      ageGroup: resolved.ageGroup,
+      voiceId: resolved.voiceId || undefined,
+      voiceProfile: resolved.voiceProfile,
+      voiceSource: resolved.voiceSource,
+    } : character);
+    charactersRef.current = nextCharacters;
+    setCharacters(nextCharacters);
+
+    const currentPlan = storyPlanRef.current;
+    const nextPlan = currentPlan ? {
+      ...currentPlan,
+      characters: currentPlan.characters.map(character => character.name === characterName ? {
+        ...character,
+        gender: resolved.gender,
+        ageGroup: resolved.ageGroup,
+        voiceId: resolved.voiceId || undefined,
+        voiceProfile: resolved.voiceProfile,
+        voiceSource: resolved.voiceSource,
+      } : character),
+    } : undefined;
+    storyPlanRef.current = nextPlan;
+    setStoryPlan(nextPlan);
+
+    const effectiveCast = [
+      ...nextCharacters,
+      ...(nextPlan?.characters || []).filter(character => !nextCharacters.some(uploadedCharacter => uploadedCharacter.name === character.name)),
+    ];
+    const nextStoryboards = lockStoryboardVoiceIds(storyboardsRef.current, effectiveCast);
+    storyboardsRef.current = nextStoryboards;
+    setStoryboards(nextStoryboards);
+
+    const previousVoiceId = uploaded?.voiceId || planned?.voiceId;
+    let nextVoiceReferences = voiceReferencesRef.current;
+    if (previousVoiceId !== resolved.voiceId && nextVoiceReferences?.[characterName]) {
+      nextVoiceReferences = { ...nextVoiceReferences };
+      delete nextVoiceReferences[characterName];
+      voiceReferencesRef.current = nextVoiceReferences;
+      setVoiceReferences(nextVoiceReferences);
+    }
+
+    saveProject({
+      characters: nextCharacters,
+      objects: objectsRef.current,
+      storyContent,
+      language: projectLanguageRef.current,
+      targetShotCount,
+      aspectRatio: projectAspectRatioRef.current,
+      visualStyle,
+      storyOutline: '',
+      storyboards: nextStoryboards,
+      voiceReferences: nextVoiceReferences,
+      costumeImages: costumeImagesRef.current,
+      sceneImages: sceneImagesRef.current,
+      storyPlan: nextPlan,
+      videoSegmentPlan: videoSegmentPlanRef.current,
+      createdAt: new Date().toISOString(),
+    });
+  };
+
   const handleOpen = () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -681,6 +769,10 @@ export default function StoryPage() {
         const importedLanguage = data.language === 'en' || data.language === 'zh'
           ? data.language
           : (settingsRef.current.language === 'en' ? 'en' : 'zh');
+        const importedStoryPlan: StoryPlan | undefined = data.storyPlan ? {
+          ...data.storyPlan,
+          characters: castStoryVoices(data.storyPlan.characters || [], importedLanguage),
+        } : undefined;
         projectLanguageLockedRef.current = Boolean(data.language);
         projectLanguageRef.current = importedLanguage;
         setProjectLanguage(importedLanguage);
@@ -690,15 +782,19 @@ export default function StoryPage() {
         projectAspectRatioRef.current = importedAspectRatio;
         setProjectAspectRatio(importedAspectRatio);
         setVisualStyle(normalizeVisualStyle(data.visualStyle || settings.visualStyle));
-        const importedStoryboards = lockStoryboardVoiceIds<Storyboard>((data.storyboards || []).map((item: Storyboard) => ({ ...item, aspectRatio: importedAspectRatio })), importedCharacters);
+        const importedEffectiveVoiceCast = [
+          ...importedCharacters,
+          ...(importedStoryPlan?.characters || []).filter(planned => !importedCharacters.some(character => character.name === planned.name)),
+        ];
+        const importedStoryboards = lockStoryboardVoiceIds<Storyboard>((data.storyboards || []).map((item: Storyboard) => ({ ...item, aspectRatio: importedAspectRatio })), importedEffectiveVoiceCast);
         storyboardsRef.current = importedStoryboards;
         setStoryboards(importedStoryboards);
         void recoverProjectVideos(importedStoryboards, importedProjectId);
         setVoiceReferences(data.voiceReferences);
         setCostumeImages(importedCostumeImages);
         setSceneImages(importedSceneImages);
-        setStoryPlan(data.storyPlan);
-        storyPlanRef.current = data.storyPlan;
+        setStoryPlan(importedStoryPlan);
+        storyPlanRef.current = importedStoryPlan;
         setVideoSegmentPlan(data.videoSegmentPlan);
         videoSegmentPlanRef.current = data.videoSegmentPlan;
         // Import is an explicit project replacement. Persist it immediately so
@@ -719,7 +815,7 @@ export default function StoryPage() {
           voiceReferences: data.voiceReferences,
           costumeImages: importedCostumeImages,
           sceneImages: importedSceneImages,
-          storyPlan: data.storyPlan,
+          storyPlan: importedStoryPlan,
           videoSegmentPlan: data.videoSegmentPlan,
           createdAt: data.createdAt || new Date().toISOString(),
         });
@@ -847,6 +943,10 @@ export default function StoryPage() {
       storyboards.map(storyboard => ({ ...storyboard, visualStyle })),
       effectiveVoiceCast,
     );
+    const deliveryAudit = auditStoryDelivery(storyPlan, styledStoryboards);
+    if (deliveryAudit.errors.length) {
+      throw new Error(`故事交付校验失败：${deliveryAudit.errors.slice(0, 4).join('；')}`);
+    }
     setVideoSegmentPlan(undefined);
     videoSegmentPlanRef.current = undefined;
     setStoryboards(styledStoryboards);
@@ -906,7 +1006,7 @@ export default function StoryPage() {
           sb.prompt.includes(`[${name}]`) ||
           sb.prompt.includes(name) ||
           sb.description.includes(name);
-        const groupCharacters = charactersRef.current.filter(character =>
+        const groupCharacters = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters).filter(character =>
           group.some(sb => mentionsEntity(sb, character.name, sb.characters))
         );
         const groupObjects = objectsRef.current.filter(object =>
@@ -1181,7 +1281,7 @@ export default function StoryPage() {
             const response = await fetch('/api/generate', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ storyboard: { ...storyboard, prompt }, characters: charactersRef.current, objects: objectsRef.current, aspectRatio: projectAspectRatioRef.current, imageModel: activeSettings.imageModel, apiKey: activeSettings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle })
+              body: JSON.stringify({ storyboard: { ...storyboard, prompt }, characters: effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters), objects: objectsRef.current, aspectRatio: projectAspectRatioRef.current, imageModel: activeSettings.imageModel, apiKey: activeSettings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle })
             });
             const data = await readApiJson<{ taskId: string }>(response, '启动单张分镜生成失败');
             taskId = data.taskId;
@@ -1282,7 +1382,8 @@ export default function StoryPage() {
       return;
     }
     const generationProjectId = projectIdRef.current;
-    const character = characterName ? charactersRef.current.find(c => c.name === characterName) : undefined;
+    const productionCast = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters);
+    const character = characterName ? productionCast.find(c => c.name === characterName) : undefined;
     const sceneStyle = storyboardsRef.current[0]?.sceneStyle;
 
     if (type === 'costume' && characterName) {
@@ -1365,7 +1466,8 @@ export default function StoryPage() {
       return;
     }
     const generationProjectId = projectIdRef.current;
-    const character = characters.find(c => c.name === characterName);
+    const character = charactersRef.current.find(c => c.name === characterName)
+      || storyPlanRef.current?.characters.find(c => c.name === characterName);
     if (!character) return;
     setVoiceGenerating(prev => ({ ...prev, [characterName]: true }));
     try {
@@ -1426,46 +1528,6 @@ export default function StoryPage() {
     }
   };
 
-  const handleGenerateAudio = async (storyboard: Storyboard) => {
-    if (!settings.fishAudioKey) { alert('Please configure Fish Audio API Key in settings'); return; }
-    const generationProjectId = projectIdRef.current;
-    const speech = storyboardSpeech(storyboard);
-    if (!speech.length) return;
-
-    setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, audioStatus: 'generating' } : sb));
-    try {
-      const lines = speech.map(line => {
-          const charName = line.character.trim().toLowerCase();
-          const matched = characters.find(c => c.name.trim().toLowerCase() === charName);
-          return {
-            character: line.character,
-            text: line.exactLine,
-            voiceId: line.voiceId || matched?.voiceId,
-            emotion: line.emotion,
-            delivery: line.delivery,
-          };
-        });
-
-      const response = await fetch('/api/generate-audio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lines, fishAudioKey: settings.fishAudioKey })
-      });
-      if (!response.ok) throw new Error((await response.json()).error || 'Failed');
-      const { characterAudios, audioUrl } = await response.json();
-      if (generationProjectId !== projectIdRef.current) return;
-
-      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id
-        ? { ...sb, audioStatus: 'completed', characterAudios, audioUrl }
-        : sb
-      ));
-    } catch (error) {
-      if (generationProjectId !== projectIdRef.current) return;
-      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, audioStatus: 'failed' } : sb));
-      alert(`Audio generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
   const handleGenerateVideo = async (
     storyboard: Storyboard,
     requestedSegment?: Storyboard[],
@@ -1511,16 +1573,6 @@ export default function StoryPage() {
 
     const segmentIds = segment.map(item => item.id);
     const leader = segment[0];
-    const speechSignature = segmentSpeechSignature(segment);
-    let exactCharacterAudios = leader.audioSpeechSignature === speechSignature
-      ? (leader.characterAudios || [])
-      : [];
-    let exactDialogueTrack = leader.audioSpeechSignature === speechSignature && leader.audioTrackVersion === 'locked-v1'
-      ? leader.audioUrl
-      : undefined;
-    let exactDialogueTrackDuration = leader.audioSpeechSignature === speechSignature && leader.audioTrackVersion === 'locked-v1'
-      ? leader.audioDuration
-      : undefined;
     const segmentId = `segment-${Date.now()}-${leader.sceneNumber}`;
     const duration = estimateVideoSegmentSeconds(segment);
     const leaderIndex = currentShots.findIndex(item => item.id === leader.id);
@@ -1570,49 +1622,6 @@ export default function StoryPage() {
       });
     });
     try {
-      // A generic voice sample contains unrelated words and can leak fragments
-      // into Ref2VA's native soundtrack. When Fish Audio is configured, create
-      // one clean reference per speaking character from this segment's exact
-      // authoritative lines. If H3 follows either timbre or source content, it
-      // can only hear words that are already allowed in the segment.
-      if (videoProvider === 'comfyui' && speechSignature !== '[]' && !exactDialogueTrack && !activeSettings.fishAudioKey) {
-        throw new Error('有台词的 H3 片段需要 Fish Audio Key 生成可锁定的精确对白音轨');
-      }
-      if (videoProvider === 'comfyui' && speechSignature !== '[]' && activeSettings.fishAudioKey && !exactDialogueTrack) {
-        commitStoryboards(prev => prev.map(item => item.id === leader.id ? { ...item, audioStatus: 'generating' as const } : item));
-        const timedSpeech = compileTimedSpeech(segment, allocateSegmentTimeline(segment, duration));
-        const lines = timedSpeech.map(line => {
-          const matched = charactersRef.current.find(character => character.name.trim().toLowerCase() === line.character.trim().toLowerCase());
-          return {
-            character: line.character,
-            text: line.exactLine,
-            voiceId: line.voiceId || matched?.voiceId,
-            startSeconds: line.start,
-            emotion: line.emotion,
-            delivery: line.delivery,
-          };
-        });
-        const audioResponse = await fetchStoryApi('/api/generate-audio', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lines, duration, fishAudioKey: activeSettings.fishAudioKey }),
-        }, activeSettings.comfyui);
-        const audioData = await readApiJson<{ characterAudios: { character: string; audioUrl: string; audioDuration?: number }[]; audioUrl?: string; audioDuration?: number }>(audioResponse, '准确台词音频生成失败');
-        exactCharacterAudios = audioData.characterAudios || [];
-        exactDialogueTrack = audioData.audioUrl;
-        exactDialogueTrackDuration = audioData.audioDuration;
-        if (!exactDialogueTrack) throw new Error('准确台词音频生成成功但没有返回锁定音轨');
-        commitStoryboards(prev => prev.map(item => item.id === leader.id ? {
-          ...item,
-          audioStatus: 'completed' as const,
-          characterAudios: exactCharacterAudios,
-          audioUrl: exactDialogueTrack,
-          audioDuration: exactDialogueTrackDuration,
-          audioTrackVersion: 'locked-v1',
-          audioSpeechSignature: speechSignature,
-        } : item));
-      }
-
       const portableSegment = await Promise.all(segment.map(async item => ({
         ...item,
         visualStyle,
@@ -1623,12 +1632,13 @@ export default function StoryPage() {
           ? await prepareStoryboardReference(item.imageUrl!, `场景 ${item.sceneNumber} 分镜图`, projectAspectRatioRef.current)
           : item.imageUrl,
       })));
-      const speakingCharacters = [...new Set(segment.flatMap(item => {
-        const lines = item.dialogueLines?.length
-          ? item.dialogueLines
-          : Object.entries(item.dialogue || {}).map(([character, text]) => ({ character, text }));
-        return lines.filter(line => String(line.text || '').trim()).map(line => line.character);
-      }))];
+      const speakingCharacters = [...new Set(segment.flatMap(item => storyboardSpeech(item).map(line => line.character)))];
+      const missingVoiceReference = videoProvider === 'comfyui'
+        ? speakingCharacters.find(character => !voiceReferencesRef.current?.[character])
+        : undefined;
+      if (missingVoiceReference) {
+        throw new Error(`角色“${missingVoiceReference}”尚未生成全片音色参考；请先在第 3 步锁定一次 Fish Audio 音色`);
+      }
       const portableVoiceEntries = videoProvider === 'comfyui'
         ? await Promise.all(speakingCharacters.map(async character => {
             const source = voiceReferencesRef.current?.[character];
@@ -1638,15 +1648,6 @@ export default function StoryPage() {
           }))
         : [];
       const portableVoiceReferences = Object.fromEntries(portableVoiceEntries.filter((entry): entry is readonly [string, string] => Boolean(entry)));
-      const portableCharacterAudios = videoProvider === 'comfyui'
-        ? await Promise.all(exactCharacterAudios.map(async audio => ({
-            ...audio,
-            audioUrl: await makePortableMediaSource(audio.audioUrl, `${audio.character} 准确台词音频`, true),
-          })))
-        : exactCharacterAudios;
-      const portableDialogueTrack = videoProvider === 'comfyui' && exactDialogueTrack
-        ? await makePortableMediaSource(exactDialogueTrack, '准确台词锁定音轨', true)
-        : undefined;
       const storyboardForRequest = {
         ...portableSegment[0],
         videoDuration: duration,
@@ -1682,7 +1683,7 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, characterAudios: portableCharacterAudios, driveAudio: portableDialogueTrack, lockDialogueAudio: videoProvider === 'comfyui', firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), videoProvider, comfyui: localComfyUISettings(activeSettings.comfyui) })
+        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), videoProvider, comfyui: localComfyUISettings(activeSettings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string }>(response, '视频任务创建失败');
       if (generationProjectId !== projectIdRef.current) return;
@@ -1909,7 +1910,8 @@ export default function StoryPage() {
         setCurrentStep(3);
       }
 
-      for (const character of charactersRef.current) {
+      const productionCast = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters);
+      for (const character of productionCast) {
         if (autoAbortRef.current) return;
         if (!costumeImagesRef.current[character.name]) {
           await retryUntilCompleted(`生成 ${character.name} 定妆`, async () => {
@@ -1924,9 +1926,19 @@ export default function StoryPage() {
           if (sceneImagesRef.current.length === 0) throw new Error('任务结束但没有返回场景图');
         });
       }
-      for (const character of charactersRef.current) {
+      const effectiveVoiceCast = [
+        ...charactersRef.current,
+        ...(storyPlanRef.current?.characters || []).filter(planned => (
+          !charactersRef.current.some(character => character.name === planned.name)
+        )),
+      ];
+      for (const character of effectiveVoiceCast) {
         if (autoAbortRef.current) return;
-        if (settingsRef.current.fishAudioKey && !voiceReferencesRef.current?.[character.name]) {
+        const speaks = storyboardsRef.current.some(storyboard => storyboardSpeech(storyboard).some(line => line.character === character.name));
+        if (speaks && !character.voiceId) {
+          throw new Error(`${character.name} 有台词但尚未确认性别与 Fish Audio 音色；请在第 3 步“全片音色选角”中确认`);
+        }
+        if (speaks && settingsRef.current.fishAudioKey && !voiceReferencesRef.current?.[character.name]) {
           await retryUntilCompleted(`生成 ${character.name} 音色参考`, async () => {
             await handleGenerateVoiceReference(character.name, { throwOnError: true });
             if (!voiceReferencesRef.current?.[character.name]) throw new Error('任务结束但没有返回音色参考');
@@ -1977,6 +1989,10 @@ export default function StoryPage() {
             projectLanguageRef.current,
           )
         : storyboardsRef.current.filter(item => item.imageUrl).map(item => [item]);
+      const deliveryAudit = auditStoryDelivery(storyPlanRef.current, storyboardsRef.current, videoGroups);
+      if (deliveryAudit.errors.length) {
+        throw new Error(`视频分段前故事交付校验失败：${deliveryAudit.errors.slice(0, 4).join('；')}`);
+      }
       for (const group of videoGroups) {
         if (autoAbortRef.current) return;
         const groupLabel = `视频片段 ${group.map(item => item.sceneNumber).join('·')}`;
@@ -2116,7 +2132,6 @@ export default function StoryPage() {
             onUpdate={handleUpdateStoryboard}
             onGenerateImage={handleGenerateImage}
             onGenerateVideoPrompt={handleGenerateVideoPrompt}
-            onGenerateAudio={handleGenerateAudio}
             onGenerateVideo={handleGenerateVideo}
             onGenerateGrid={handleGenerateGrid}
           />
@@ -2226,6 +2241,7 @@ export default function StoryPage() {
                 voiceGenerating={voiceGenerating}
                 onGenerateVoiceReference={handleGenerateVoiceReference}
                 onClearVoiceReference={(name) => setVoiceReferences(prev => { const n = { ...(prev || {}) }; delete n[name]; return n; })}
+                onVoiceCastChange={handleVoiceCastChange}
               />
             )}
             {currentStep === 4 && (
@@ -2255,7 +2271,6 @@ export default function StoryPage() {
                 onNext={() => setCurrentStep(6)}
                 onGenerateVideo={handleGenerateVideo}
                 onGenerateVideoPrompt={handleGenerateVideoPrompt}
-                onGenerateAudio={handleGenerateAudio}
                 onUpdate={handleUpdateStoryboard}
               />
             )}

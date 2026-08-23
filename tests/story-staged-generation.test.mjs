@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildDirectorBatches, normalizeDirectorShots, stripExactDialogueFromDescription, validateDirectorShots } from '../lib/pipeline/storyDirector.ts';
+import { buildDirectorBatches, buildDirectorPrompt, normalizeDirectorShots, stripExactDialogueFromDescription, validateDirectorShots } from '../lib/pipeline/storyDirector.ts';
 import { extractJson } from '../lib/pipeline/json.ts';
-import { applySourceDialogueAuthority, buildStoryBeatBatches, expandStoryCharacters, filterVisibleStorySpeech, normalizeStoryOutline, parseSourceDialogueByShot } from '../lib/pipeline/storyWriter.ts';
-import { buildStoryBeatBatchPrompt, buildStoryOutlinePrompt } from '../lib/pipeline/storyWriterPrompt.ts';
+import { applySourceDialogueAuthority, buildStoryBeatBatches, expandStoryCharacters, filterVisibleStorySpeech, missingSourceDialogueLines, normalizeStoryOutline, normalizedBeatConflict, normalizedBeatNextCause, parseSourceDialogueByShot, sanitizeStoryPlan, structuredRetryCorrection } from '../lib/pipeline/storyWriter.ts';
+import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryOutlinePrompt } from '../lib/pipeline/storyWriterPrompt.ts';
+import { apimartErrorSummary } from '../lib/apimart.ts';
 
 const outlineSequence = (id, start, count) => ({
   id,
@@ -63,6 +64,17 @@ test('normalizes common provider wrappers around the screenplay outline', () => 
   }
 });
 
+test('treats the final beat as a terminal story state instead of inventing a sequel hook', () => {
+  const finalAuthority = {
+    index: 18,
+    montageRole: 'resolution',
+    consequence: 'The tide returns and the family can remain together.',
+  };
+  assert.match(normalizedBeatNextCause('', finalAuthority, 18, 'en'), /Terminal story state/);
+  assert.equal(normalizedBeatNextCause('The bell summons them onward.', finalAuthority, 18, 'en'), 'The bell summons them onward.');
+  assert.equal(normalizedBeatNextCause('', { ...finalAuthority, index: 17, montageRole: 'development' }, 18, 'en'), '');
+});
+
 test('requires every outline dialogue line to retain a valid uploaded speaker', () => {
   const invalid = outlineSequence('seq-1', 1, 9);
   invalid.beatMap[0].requiredLine = '我妹妹还在里面。';
@@ -83,9 +95,28 @@ test('outline dialogue purpose requires an explicit uploaded speaker', () => {
   sequence.beatMap[0].requiredSpeaker = '';
   sequence.beatMap[1].dialoguePurpose = 'question';
   sequence.beatMap[1].requiredSpeaker = '人鱼公主';
+  sequence.beatMap[1].dialogueTurns = [{
+    speaker: '人鱼公主', function: 'question', contentGoal: '问清潮汐为何停止', respondsTo: '',
+  }];
   const outline = normalizeStoryOutline(outlineDocument([sequence]), 9, ['人鱼公主']);
   assert.equal(outline.sequences[0].beatMap[0].dialoguePurpose, 'visual_only');
   assert.equal(outline.sequences[0].beatMap[1].dialoguePurpose, 'question');
+});
+
+test('dialogue turns recover their speaker and purpose instead of being silently downgraded', () => {
+  const sequence = outlineSequence('seq-1', 1, 9);
+  sequence.beatMap[0].dialoguePurpose = 'visual_only';
+  sequence.beatMap[0].dialogueObligation = 'visual';
+  sequence.beatMap[0].requiredSpeaker = '';
+  sequence.beatMap[0].dialogueTurns = [{
+    speaker: '人鱼公主', function: 'reveal', contentGoal: '说明潮门失控会淹没育婴区', respondsTo: '',
+  }];
+  const outline = normalizeStoryOutline(outlineDocument([sequence]), 9, ['人鱼公主']);
+  const beat = outline.sequences[0].beatMap[0];
+  assert.equal(beat.requiredSpeaker, '人鱼公主');
+  assert.equal(beat.dialogueObligation, 'required');
+  assert.equal(beat.dialoguePurpose, 'reveal');
+  assert.equal(beat.dialogueTurns[0].contentGoal, '说明潮门失控会淹没育婴区');
 });
 
 test('screenplay speech keeps visible uploaded voices and drops temporary-character additions', () => {
@@ -95,6 +126,28 @@ test('screenplay speech keeps visible uploaded voices and drops temporary-charac
   ], ['人鱼公主'], ['人鱼公主']), [
     { character: '人鱼公主', exactLine: 'Who controls the tide?' },
   ]);
+});
+
+test('required exact speech restores its visible speaker and can intentionally repeat', () => {
+  const exactLine = 'Hold the western gate.';
+  const plan = sanitizeStoryPlan({
+    title: 'Voice contract',
+    characters: [{ name: 'Tide Officer' }],
+    sequences: [{
+      id: 'seq-1',
+      beats: [1, 2].map(index => ({
+        index,
+        characters: [],
+        action: 'The Tide Officer addresses the crew.',
+        dialogueObligation: 'required',
+        speech: [{ character: 'Tide Officer', exactLine, source: 'user_exact', storyFunction: 'command' }],
+      })),
+    }],
+  }, ['Tide Officer'], [], exactLine, 2);
+  assert.deepEqual(plan.sequences.flatMap(sequence => sequence.beats.map(beat => beat.characters)), [
+    ['Tide Officer'], ['Tide Officer'],
+  ]);
+  assert.deepEqual(plan.sequences.flatMap(sequence => sequence.beats.map(beat => beat.speech[0]?.exactLine)), [exactLine, exactLine]);
 });
 
 test('explicit screenplay speakers become text-defined cast while the sole protagonist alias maps to the uploaded card', () => {
@@ -137,6 +190,72 @@ SHOT 27 | sea | dialogue: Lanxi: “Let it come.” Narrator: “The tide return
   assert.deepEqual(outline.sequences[0].beatMap[26].requiredDialogueLines, parsed.get(27));
 });
 
+test('adapting a numbered source screenplay keeps dialogue from the complete timeline', () => {
+  const source = Array.from({ length: 27 }, (_, offset) => {
+    const index = offset + 1;
+    const dialogue = index === 1
+      ? ' | dialogue: Lanxi: “I will hold the tide.”'
+      : index === 2
+      ? ' | dialogue: Tide Officer: “The gates are buckling.”'
+      : index === 26
+        ? ' | dialogue: Lanxi: “Today, let it come on its own.”'
+        : ' | dialogue: NONE';
+    return `SHOT ${String(index).padStart(2, '0')} | beat ${index}${dialogue}`;
+  }).join('\n');
+  const expanded = expandStoryCharacters(source, [{ name: '人鱼公主', description: 'card' }], 'en');
+  const rewritten = outlineSequence('seq-1', 1, 18);
+  const outline = normalizeStoryOutline(outlineDocument([rewritten]), 18, expanded.characters.map(character => character.name));
+  applySourceDialogueAuthority(outline, expanded.canonicalSynopsis, expanded.characters.map(character => character.name));
+  const allLines = outline.sequences.flatMap(sequence => sequence.beatMap.flatMap(beat => beat.requiredDialogueLines));
+  assert.deepEqual(allLines, [
+    { character: '人鱼公主', text: 'I will hold the tide.' },
+    { character: 'Tide Officer', text: 'The gates are buckling.' },
+    { character: '人鱼公主', text: 'Today, let it come on its own.' },
+  ]);
+  assert.equal(outline.sequences[0].beatMap[17].requiredDialogueLines[0].text, 'Today, let it come on its own.');
+  assert.ok(outline.sequences[0].beatMap[17].sourceShotRefs.includes(26));
+  assert.ok(outline.sequences[0].beatMap[17].sourceShotRefs.includes(27));
+  assert.equal(buildSourceShotAdaptationMap(source, 18).length, 18);
+  assert.deepEqual(missingSourceDialogueLines(outline, expanded.canonicalSynopsis, expanded.characters.map(character => character.name)), []);
+
+  outline.sequences[0].beatMap[17].requiredDialogueLines = [];
+  assert.deepEqual(missingSourceDialogueLines(outline, expanded.canonicalSynopsis, expanded.characters.map(character => character.name)), [
+    { character: '人鱼公主', text: 'Today, let it come on its own.' },
+  ]);
+});
+
+test('source-shot compression avoids merging adjacent dialogue beats beyond H3 timing', () => {
+  const source = `
+### SEQUENCE 1 — chamber
+SHOT 01 | chamber | visual setup | dialogue: NONE
+SHOT 02 | chamber | challenge | dialogue: A: “You have carried every gate since dawn, and your hands are already shaking while another warning reaches the chamber.”
+SHOT 03 | chamber | refusal | dialogue: B: “I cannot leave while the whole city still believes only I can hold back the sea and guide every family home.”
+SHOT 04 | chamber | visual consequence | dialogue: NONE
+SHOT 05 | chamber | visual bridge | dialogue: NONE
+SHOT 06 | chamber | visual payoff | dialogue: NONE`;
+  const groups = buildSourceShotAdaptationMap(source, 4);
+  assert.equal(groups.length, 4);
+  assert.equal(groups.some(group => group.sourceShotRefs.includes(2) && group.sourceShotRefs.includes(3)), false);
+});
+
+test('a final resolution beat receives residual tension without inventing a new conflict', () => {
+  assert.match(normalizedBeatConflict('', {
+    index: 18,
+    montageRole: 'resolution',
+    emotionalTurn: 'Lanxi accepts freedom',
+  }, 18, 'en'), /central conflict is resolved/i);
+  assert.equal(normalizedBeatConflict('The gate still resists.', {
+    index: 17,
+    montageRole: 'escalation',
+    emotionalTurn: '',
+  }, 18, 'en'), 'The gate still resists.');
+  assert.equal(normalizedBeatConflict('', {
+    index: 17,
+    montageRole: 'escalation',
+    emotionalTurn: '',
+  }, 18, 'en'), '');
+});
+
 test('protagonist aliases never mutate names spoken inside exact dialogue', () => {
   const source = `
 SHOT 01 | wheel | dialogue: Lanxi: “I will hold it.”
@@ -155,15 +274,30 @@ SHOT 23 | reef | dialogue: Lanxi: “Do I matter?” Old Sea Turtle: “You matt
   ]);
 });
 
-test('screenplay batches never exceed nine shots and never cross a sequence boundary', () => {
+test('screenplay batches stay small enough for complete JSON and never cross a sequence boundary', () => {
   const outline = normalizeStoryOutline(outlineDocument([
     outlineSequence('seq-1', 1, 12), outlineSequence('seq-2', 13, 6),
   ]), 18);
   const batches = buildStoryBeatBatches(outline);
 
-  assert.deepEqual(batches.map(batch => batch.beatMap.length), [9, 3, 6]);
+  assert.deepEqual(batches.map(batch => batch.beatMap.length), [6, 6, 6]);
   assert.deepEqual(batches.map(batch => batch.sequence.id), ['seq-1', 'seq-1', 'seq-2']);
-  assert.ok(batches.every(batch => batch.beatMap.length <= 9));
+  assert.ok(batches.every(batch => batch.beatMap.length <= 6));
+});
+
+test('dialogue-heavy screenplay batches split before the structured response becomes oversized', () => {
+  const sequence = outlineSequence('seq-1', 1, 9);
+  sequence.beatMap.forEach((beat, index) => {
+    beat.dialoguePurpose = 'exchange';
+    beat.dialogueTurns = [
+      { speaker: 'A', function: 'question', contentGoal: `question ${index}`, respondsTo: '' },
+      { speaker: 'B', function: 'answer', contentGoal: `answer ${index}`, respondsTo: `question ${index}` },
+    ];
+  });
+  const outline = normalizeStoryOutline(outlineDocument([sequence]), 9, ['A', 'B']);
+  const batches = buildStoryBeatBatches(outline);
+  assert.deepEqual(batches.map(batch => batch.beatMap.length), [4, 4, 1]);
+  assert.ok(batches.every(batch => batch.beatMap.flatMap(beat => beat.dialogueTurns).length <= 8));
 });
 
 test('outline and screenplay prompts keep story architecture separate from visual direction', () => {
@@ -178,10 +312,22 @@ test('outline and screenplay prompts keep story architecture separate from visua
     outlineSequence('seq-1', 1, 9), outlineSequence('seq-2', 10, 9),
   ], { title: 'Before Dawn' }), 18);
   const batchPrompt = buildStoryBeatBatchPrompt({
-    synopsis: 'A must cross the city before dawn.',
+    synopsis: 'UNRELATED_FULL_SOURCE_MARKER A must cross the city before dawn.',
     outline,
     sequence: outline.sequences[0],
     beatMap: outline.sequences[0].beatMap,
+    characters: [{ name: 'A', description: 'courier' }],
+    objects: [],
+    language: 'en',
+  });
+  const directorPrompt = buildDirectorPrompt({
+    storyPlan: {
+      ...outlineDocument([], { sourceBrief: 'DIRECTOR_FULL_SOURCE_MARKER', title: 'Before Dawn' }),
+      requirements: [], characters: [], sequences: [],
+    },
+    beats: [{ index: 1, action: 'A runs.', characters: ['A'], speech: [] }],
+    batchNumber: 1,
+    totalBatches: 1,
     characters: [{ name: 'A', description: 'courier' }],
     objects: [],
     language: 'en',
@@ -191,7 +337,9 @@ test('outline and screenplay prompts keep story architecture separate from visua
   assert.match(outlinePrompt, /不要写详细分镜、摄影 prompt/);
   assert.match(outlinePrompt, /informationGain/);
   assert.match(outlinePrompt, /dialogueArc/);
+  assert.match(outlinePrompt, /后续形象与声音共用同一性别\/年龄/);
   assert.match(batchPrompt, /不生成摄影内容/);
+  assert.doesNotMatch(batchPrompt, /UNRELATED_FULL_SOURCE_MARKER/);
   assert.match(batchPrompt, /严格输出 9 个 beats/);
   assert.match(batchPrompt, /一镜通常有 0–2 条有序台词/);
   assert.match(batchPrompt, /requiredDialogueLines/);
@@ -199,6 +347,30 @@ test('outline and screenplay prompts keep story architecture separate from visua
   assert.match(batchPrompt, /每个镜尾必须留下一个可被下一镜接住的具体交棒/);
   assert.match(batchPrompt, /transition 固定写 "cut"/);
   assert.match(batchPrompt, /不使用 dissolve、fade 或 wipe 特效/);
+  assert.doesNotMatch(directorPrompt, /DIRECTOR_FULL_SOURCE_MARKER/);
+  assert.match(directorPrompt, /只执行下方结构化合同/);
+});
+
+test('provider safety refusals receive a content-safe structured retry instead of a blind repeat', () => {
+  const correction = structuredRetryCorrection(new Error("I'm sorry, but I can't assist with that request."));
+  assert.match(correction, /SAFE-FICTION CORRECTION RETRY/);
+  assert.match(correction, /non-graphic PG/);
+  assert.match(correction, /requiredDialogueLines/);
+  assert.doesNotMatch(structuredRetryCorrection(new Error('returned 2 items, expected 18')), /SAFE-FICTION/);
+});
+
+test('APIMart transport diagnostics never expose authorization headers or API keys', () => {
+  const summary = apimartErrorSummary({
+    code: 'ECONNRESET',
+    message: 'socket hang up with sk-secretcredential123456',
+    config: { headers: { Authorization: 'Bearer sk-secretcredential123456' }, data: 'full private prompt' },
+  });
+  assert.deepEqual(summary, {
+    code: 'ECONNRESET',
+    status: undefined,
+    message: 'socket hang up with sk-[REDACTED]',
+  });
+  assert.doesNotMatch(JSON.stringify(summary), /secretcredential|Authorization|private prompt/);
 });
 
 test('director batches mirror screenplay boundaries and remain capped at nine', () => {

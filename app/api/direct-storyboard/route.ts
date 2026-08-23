@@ -25,7 +25,17 @@ export async function POST(request: NextRequest) {
       if (!planned?.name || directorCharacters.some(character => character.name === planned.name)) continue;
       directorCharacters.push({
         name: planned.name,
-        description: 'Text-defined supporting story identity. Preserve one stable role-appropriate face, body, age, silhouette, wardrobe and palette across every listed shot.',
+        description: [
+          'Text-defined supporting story identity. Preserve one stable role-appropriate face, body, age, silhouette, wardrobe and palette across every listed shot.',
+          planned.role ? `Role: ${planned.role}.` : '',
+          planned.gender && planned.gender !== 'unknown' ? `Gender: ${planned.gender}.` : '',
+          planned.ageGroup && planned.ageGroup !== 'unknown' ? `Age group: ${planned.ageGroup}.` : '',
+        ].filter(Boolean).join(' '),
+        gender: planned.gender,
+        ageGroup: planned.ageGroup,
+        voiceId: planned.voiceId,
+        voiceProfile: planned.voiceProfile,
+        voiceSource: planned.voiceSource,
       });
     }
 

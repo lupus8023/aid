@@ -18,6 +18,16 @@ const shot = (sceneNumber, extra = {}) => ({
   ...extra,
 });
 
+test('rejects one rewritten storyboard whose multi-line exchange cannot fit H3 15 seconds', () => {
+  assert.throws(() => buildVideoSegmentPrompt([shot(4, {
+    dialogueLines: [
+      { character: 'Lin', text: 'You have carried every gate since dawn, and your hands are already shaking.' },
+      { character: 'Lin', text: 'I cannot leave while the whole city still believes only I can hold back the sea.' },
+      { character: 'Lin', text: 'Then trust us long enough to learn that the city can stand beside you.' },
+    ],
+  })], [], { duration: 15, referenceAudioNames: ['Lin'], language: 'en' }), /多轮台词合计超过 H3 15 秒/);
+});
+
 test('writes multi-reference H3 prompts in the official six-section order', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1),
@@ -35,10 +45,11 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   });
   assert.match(prompt, /<d>\[Chinese\] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /From 00:\d{2}\.\d{3} to 00:\d{2}\.\d{3}, <Subject 1> \(S63\)/);
+  assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S63\) says once/);
+  assert.match(prompt, /deadline; no stretching/);
   const soundscape = prompt.split('overall_soundscape:')[1].split('non_diegetic_music:')[0];
   assert.doesNotMatch(soundscape, /<d>|线索就在这里|dialogue|speech/i);
-  assert.match(prompt, /The camera uses .*moderate/i);
+  assert.match(prompt, /(?:The camera uses|CAMERA:) .*moderate/i);
   assert.doesNotMatch(prompt, /SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE|DIALOGUE:/);
   assert.equal((prompt.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
@@ -76,10 +87,11 @@ test('binds multiple sequential dialogue lines to their matching H3 voice refere
   ], [], { duration: 12, referenceAudioNames: ['Lin', 'Mei'], hasVoiceReferences: true });
   assert.equal((prompt.match(/你看见了吗？/g) || []).length, 1);
   assert.equal((prompt.match(/就在门后。/g) || []).length, 1);
-  assert.match(prompt, /<Audio 1> is a voice-timbre reference for <Subject 1> \(S1\)/);
-  assert.match(prompt, /<Audio 2> is a voice-timbre reference for <Subject 2> \(S2\)/);
-  assert.match(prompt, /<Subject 1> \(S1\) delivers one synchronized line with/);
-  assert.match(prompt, /<Subject 2> \(S2\) delivers one synchronized line with/);
+  assert.match(prompt, /<Audio 1> is the reusable Fish Audio timbre identity for <Subject 1> \(S1\)/);
+  assert.match(prompt, /<Audio 2> is the reusable Fish Audio timbre identity for <Subject 2> \(S2\)/);
+  assert.match(prompt, /<Subject 1> \(S1\) says once with/);
+  assert.match(prompt, /<Subject 2> \(S2\) says once with/);
+  assert.match(prompt, /ignore sample words\/timing/);
   assert.match(prompt, /breath, eyeline and facial tension change once/);
   assert.match(prompt, /dialogue eyeline axis\/screen sides/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
@@ -207,11 +219,44 @@ test('preserves every grouped storyboard as a complete timed action-camera-dialo
     'Lin tears the seal and recoils from the photograph.',
     'Lin pivots toward the station clock and breaks into a run.',
   ]) assert.equal((prompt.match(new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 1);
-  assert.equal((prompt.match(/The camera uses/g) || []).length, 3);
+  assert.equal((prompt.match(/(?:The camera uses|CAMERA:)/g) || []).length, 3);
   assert.equal((prompt.match(/move into \[Shot/g) || []).length, 2);
   assert.doesNotMatch(prompt, /DIALOGUE:|SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE/);
   assert.doesNotMatch(prompt, /cross-dissolve|fade from|fade into/i);
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
+});
+
+test('compacts only duplicated look prose when a dense four-shot prompt approaches H3 limit', () => {
+  const shots = [1, 2, 3, 4].map(sceneNumber => shot(sceneNumber, {
+    action: `A warning triggers beat ${sceneNumber}; Lin accelerates through heavy resistance, changes grip, redirects the mechanism, and the visible result strikes the next control while the chamber reacts in the background. `.repeat(3),
+    description: `Dense appearance reference for beat ${sceneNumber}, layered foreground obstruction, material detail, directional light and environmental depth. `.repeat(3),
+    audioPlan: {
+      backgroundHuman: 'none',
+      environment: ['surging water across stone channels', 'metal warning resonance', 'deep chamber room tone'],
+      foley: ['hands gripping wet metal', 'mechanism striking its stop', 'cloth and footsteps changing direction'],
+      music: 'none', silenceBefore: 0.2, silenceAfter: 0.3,
+    },
+    speech: sceneNumber <= 3 ? [{
+      speakerId: 'S01', character: 'Lin', exactLine: `Gate ${sceneNumber} is holding now.`, emotion: 'focused', delivery: 'brisk', volume: 'normal', lipSync: true, source: 'story_required',
+    }] : [],
+  }));
+  const prompt = buildVideoSegmentPrompt(shots, [], { duration: 15, language: 'en', referenceAudioNames: ['Lin'], hasVoiceReferences: true });
+  assert.ok(prompt.length <= 7000);
+  shots.slice(0, 3).forEach((_, index) => assert.match(prompt, new RegExp(`Gate ${index + 1} is holding now\\.`)));
+  assert.equal((prompt.match(/<d>/g) || []).length, 3);
+  assert.match(prompt, /ACTION:/);
+});
+
+test('keeps the visible payoff at the end of a long screenplay action arc', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      action: `Lin grips the storm wheel as the chamber tilts, plants both feet, drags the resisting iron spokes through a full turn, fights the reverse current while spray lashes the glass, changes her grip, forces the last quarter turn, and holds until the gears engage. ${'The mechanism shudders under mounting pressure. '.repeat(4)}The redirected wave clears the reef and the red warning lamp turns green.`,
+    }),
+  ], [], { duration: 8, language: 'en' });
+  assert.match(prompt, /Lin grips the storm wheel/);
+  assert.match(prompt, /red warning lamp turns green/);
+  assert.doesNotMatch(prompt, /The mechanism shudders under mounting pressure\.(?: The mechanism shudders under mounting pressure\.){2}/);
+  assert.ok(prompt.length <= 7000);
 });
 
 test('keeps causal story meaning in observable action without explanatory exposition', () => {
@@ -239,6 +284,7 @@ test('schedules two connected lines inside one storyboard in order', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1, {
       durationHint: 10,
+      clipType: 'dialogue',
       characters: ['Lin', 'Mei'],
       action: 'Lin offers the key to Mei; Mei studies him, accepts it, and unlocks the door.',
       speech: [
@@ -250,37 +296,19 @@ test('schedules two connected lines inside one storyboard in order', () => {
   ], [], { duration: 10, language: 'en', referenceAudioNames: ['Lin', 'Mei'], hasVoiceReferences: true });
   assert.equal((prompt.match(/<d>/g) || []).length, 2);
   assert.ok(prompt.indexOf('You should open it.') < prompt.indexOf('Then stay with me.'));
+  assert.match(prompt, /Stagger micro-actions by 0\.1–0\.3s/);
+  assert.match(prompt, /one action peak and visible consequence/);
+  assert.match(prompt, /preserve 0\.2–0\.4s residual motion or expression/);
 });
 
-test('uses the exact stem as timing reference while generating a complete soundtrack', () => {
+test('turns contact actions into load, release and local rebound instead of uniform slow motion', () => {
   const prompt = buildVideoSegmentPrompt([
-    shot(1, {
-      speech: [{
-        speakerId: 'S01', character: 'Lin', exactLine: 'The Western Reef is still half a measure short.',
-        emotion: 'focused', delivery: 'plainly', volume: 'normal', lipSync: true, source: 'story_required',
-      }],
-    }),
-  ], [], { duration: 13, language: 'en', hasVoiceReferences: true, lockedDialogueTrack: true });
-
-  assert.match(prompt, /<Audio 1> is the authoritative voice, timing and rhythm reference/);
-  assert.match(prompt, /speaks once in the exact timing and voice of <Audio 1>/);
-  assert.equal((prompt.match(/The Western Reef is still half a measure short\./g) || []).length, 1);
-  assert.match(prompt, /<d>\[English\] The Western Reef is still half a measure short\.<\/d>/);
-  assert.match(prompt, /continuous location ambience and visibly caused Foley/i);
-  assert.match(prompt, /sole human-vocal layer/i);
-});
-
-test('locks silent H3 segments to a full-duration silent source track', () => {
-  const prompt = buildVideoSegmentPrompt([shot(1)], [], {
-    duration: 6,
-    language: 'en',
-    hasVoiceReferences: true,
-    lockedDialogueTrack: true,
-  });
-  assert.match(prompt, /exactly 0 scheduled dialogue events/);
-  assert.match(prompt, /<Audio 1> contains no vocal event/);
-  assert.match(prompt, /Generate continuous non-vocal ambience and caused Foley/);
-  assert.doesNotMatch(prompt, /<d>/);
+    shot(1, { action: 'She grips the wet rope, pulls hard, then releases it as the hook lands.' }),
+  ], [], { duration: 6 });
+  assert.match(prompt, /approach, touch, visible compression\/load, increase force, brief hold, gradual release/);
+  assert.match(prompt, /only the loaded region deforms/);
+  assert.match(prompt, /no slow motion\/extended holds/);
+  assert.ok(prompt.length <= 7000);
 });
 
 test('writes first/last-frame H3 prompts in the official base-mode structure', () => {

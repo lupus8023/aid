@@ -4,10 +4,11 @@ import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
 import type { VisualStyle } from '@/types';
 import { buildImageCaptureContract, getProductionStylePreset } from '@/lib/promptArchitecture';
+import { structuredRetryCorrection } from './storyWriter';
 
 // 导演阶段：把编剧产出的 StoryPlan 可视化成分镜（Storyboard[]）。
 // 关键点：镜头数量/顺序/台词/时长/转场/连续关系【忠实于 StoryPlan】，只补画面/视频提示词与定妆。
-function buildDirectorPrompt(input: {
+export function buildDirectorPrompt(input: {
   storyPlan: StoryPlan;
   beats: Beat[];
   batchNumber: number;
@@ -54,8 +55,7 @@ function buildDirectorPrompt(input: {
 
   return `你是一位电影导演兼分镜师。全片剧本已经锁定。现在只处理导演批次 ${batchNumber}/${totalBatches}（镜头 ${firstIndex}–${lastIndex}），把本批 beats 可视化为可拍摄分镜。
 
-📌 用户原始输入仍是最高优先级：
-${storyPlan.sourceBrief || '（旧项目未保存原始输入，请以 StoryPlan 为准）'}
+📌 用户原始输入已由 StoryPlan、需求核对表、详细 beats 与逐字 speech 锁定。为避免每个导演批次重复发送整部长稿造成超时或安全误判，本阶段只执行下方结构化合同；不得改写锁定剧情与台词。
 
 编剧对用户意图的理解：${storyPlan.intentSummary || '未提供'}
 需求核对表：${JSON.stringify(storyPlan.requirements || [], null, 2)}
@@ -116,6 +116,8 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
 4. shotSize / cameraMove / angle：为剧本动作选择一个明确且可执行的景别、单一物理运镜和机位；相邻镜头避免机械重复。
    - 相机替观众感受剧情，不做装饰性漂移：动作镜跟住速度与触点；反应镜可做一次短推近；孤立/失落可克制拉远；关系纠偏可从轻微失衡机位回到水平。每镜只能有一个主要运镜，特殊情绪机位不能连续滥用。
    - 动作按“进入→加速/施力→撞点/决定→短回落”组织；速度感来自加速度，不来自整段匀速快或匀速慢。除非 beat 明确要求主观时间，否则禁止慢动作、bullet time、长时间悬停和无目的 slow push。
+   - 微表演必须错峰启动：通常眼球先于头部，视线/呼吸先于眉眼，眉眼先于嘴唇/下颌，身体重心先于手臂；相邻通道保留约 0.1–0.3 秒自然时差，不要所有五官和肢体同时动作。每镜只设一个清晰动作峰值，其余时间允许稳定观察，禁止人物从头到尾不停活动。
+   - 有接触或施力时写出真实物理链：接近→接触→软组织/衣物/道具先受压或蓄力→压力增加→短保持→逐渐释放→惯性/弹性回弹。只让受力区域明显变形，松开后保留约 0.2–0.4 秒残余状态，不能一帧复原。
    - 关键信息或反应落定后保留 0.25–0.6 秒可读呼吸；普通内容不额外停顿。镜尾仍要留下动作、视线、道具、前景遮挡、焦点或可见后果作为下一镜的交棒。
    - 每个接缝只选择一种剪辑语法：动作匹配、视线匹配、道具/形状匹配、前景遮挡藏切、焦点接力、因果切、对照切或平行切。保持运动矢量、速度和银幕方向连续；禁止用淡入淡出、叠化或任意擦除掩盖不连续。
    - 蒙太奇必须有句法：因果切让前镜结果触发后镜动作；平行切比较同时发生的压力；对照切让前后价值发生碰撞；省略切跳过重复过程但保留动作起点、关键变化与结果。每一切既回答上一个观众问题，又打开更具体的下一个问题。
@@ -364,15 +366,15 @@ export async function directStoryboard(input: {
     });
     let batchShots: any[] | undefined;
     let lastError: unknown;
-    const maxAttempts = 3;
+    const maxAttempts = 5;
     for (let attempt = 1; attempt <= maxAttempts && !batchShots; attempt += 1) {
       try {
         if (attempt > 1) {
-          await new Promise(resolve => setTimeout(resolve, attempt === 2 ? 1_500 : 4_000));
+          await new Promise(resolve => setTimeout(resolve, Math.min(10_000, attempt === 2 ? 1_500 : attempt * 2_000)));
         }
         const correction = attempt === 1
           ? ''
-          : `\n\nCORRECTION RETRY: the previous response was invalid (${lastError instanceof Error ? lastError.message : 'unknown error'}). Return only a complete JSON array with exactly ${beats.length} items.`;
+          : `${structuredRetryCorrection(lastError)} Return a JSON array with exactly ${beats.length} items for shots ${beats[0]?.index || 0}-${lastIndex}.`;
         console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, attempt ${attempt}/${maxAttempts}`);
         const response = await chatOnce(`${prompt}${correction}`, {
           apiKey,

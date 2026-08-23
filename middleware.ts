@@ -23,7 +23,15 @@ export function middleware(request: NextRequest) {
   if (process.env.AID_LOCAL_COMPANION !== '1') return NextResponse.next();
 
   const origin = request.headers.get('origin') || '';
-  if (origin && !ALLOWED_COMPANION_ORIGINS.has(origin)) {
+  // Local production still accepts only the packaged Companion and the
+  // hosted Story app. During an actual local end-to-end run Next commonly
+  // occupies another loopback port because the packaged Companion already
+  // owns 3018; treating that same-machine dev origin as hostile prevents any
+  // H3 task from being submitted and makes the version check misleadingly
+  // pass immediately beforehand.
+  const localDevelopmentOrigin = process.env.NODE_ENV !== 'production'
+    && /^http:\/\/(?:127\.0\.0\.1|localhost):\d+$/.test(origin);
+  if (origin && !ALLOWED_COMPANION_ORIGINS.has(origin) && !localDevelopmentOrigin) {
     return NextResponse.json({ error: 'Origin is not allowed by the local aid companion' }, { status: 403 });
   }
   if (request.method === 'OPTIONS') {

@@ -12,6 +12,21 @@ import {
 const APIMART_BASE_URL = 'https://api.apimart.ai/v1';
 let preferSystemNetworkStack = false;
 
+function redactProviderText(value: unknown): string {
+  return String(value || '')
+    .replace(/Bearer\s+[A-Za-z0-9._~-]+/gi, 'Bearer [REDACTED]')
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, 'sk-[REDACTED]')
+    .slice(0, 600);
+}
+
+export function apimartErrorSummary(error: any): { code?: string; status?: number; message: string } {
+  return {
+    code: typeof error?.code === 'string' ? error.code : undefined,
+    status: Number.isFinite(Number(error?.response?.status)) ? Number(error.response.status) : undefined,
+    message: redactProviderText(error?.response?.data?.error?.message || error?.message || 'Unknown APIMart error'),
+  };
+}
+
 // 聊天 API - 用于分析故事
 export async function chatCompletion(prompt: string, apiKey: string, model: string = 'gpt-4o', timeoutMs = 120000, maxTokens = 16000): Promise<string> {
   try {
@@ -61,10 +76,11 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
     console.log(`Chat API response received: model=${model}, contentLength=${content.length}`);
     return content;
   } catch (error: any) {
-    console.error('Chat API error:', error);
-    console.error('Error details:', error.response?.data);
-    console.error('Status:', error.response?.status);
-    throw new Error(`Failed to call chat API: ${error.response?.data?.error?.message || error.message}`);
+    const summary = apimartErrorSummary(error);
+    // Never log the Axios error/config object: it contains the Authorization
+    // header and full prompt body. Keep operational diagnostics credential-free.
+    console.error('Chat API error:', summary);
+    throw new Error(`Failed to call chat API: ${summary.message}`);
   }
 }
 

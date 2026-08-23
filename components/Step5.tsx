@@ -42,7 +42,6 @@ interface Step5Props {
   onNext: () => void;
   onGenerateVideo: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void;
   onGenerateVideoPrompt?: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void;
-  onGenerateAudio?: (storyboard: Storyboard) => void;
   onUpdate?: (storyboard: Storyboard) => void;
   videoSegmentPlan?: VideoSegmentPlan;
   onVideoSegmentPlanChange?: (plan: VideoSegmentPlan) => void;

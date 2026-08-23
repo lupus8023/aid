@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.49 - 2026-08-24
+
+### Improved
+
+- Story now plans the complete film as a causal outline before writing smaller screenplay batches. Each beat retains its source-shot mapping, dramatic turn, audience information, dialogue function, action, camera, sound and physical handoff instead of collapsing long adaptations into disconnected visual moments.
+- The staged writer has a larger structured-output budget, dialogue-aware batch sizing and bounded correction retries, so 18–81-shot projects can finish valid JSON without the misleading “returned 0 shots” failure caused by a truncated outer object.
+- Every generated speaking role becomes part of the effective production cast with a reusable character card, explicit gender/age/role metadata, deterministic Fish Audio timbre and a Story-side voice control entry. Automatic fallback never crosses gender pools.
+- MiniMax H3 receives a timed contract for every included storyboard: concrete action phases, camera behavior, exact tagged dialogue, environmental sound, caused Foley and a physical transition. Dense multi-shot segments use a lossless compact form that keeps the prompt within H3's hard size limit.
+
+### Fixed
+
+- Required dialogue survives outline normalization, detailed screenplay batching, director conversion and segment grouping; direction prose, unnamed visible identities and repeated lines are blocked before they can become audible speech.
+- Supporting characters discovered by the screenplay are now available to storyboard generation, reference-card generation, voice-reference generation and resumed projects instead of appearing as blank cards or inheriting the lead voice.
+- Story performs a delivery audit before directing and reports missing causal links, cast bindings or required lines at the screenplay stage. Safety refusals receive a non-graphic fiction rewrite retry while user-locked facts and dialogue remain unchanged.
+- Development Companion requests accept loopback Story origins on alternate local ports, while production origin checks remain unchanged.
+
+### Verification
+
+- Added Story delivery, staged screenplay, ensemble voice casting and H3 prompt-budget regressions; TypeScript, production build and the Companion release test matrix pass before tagging.
+
 ## 0.1.48 - 2026-08-23
 
 ### Fixed
