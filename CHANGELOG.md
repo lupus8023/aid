@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.52 - 2026-08-24
+
+### Improved
+
+- Story now persists a semantic dialogue contract from outline through screenplay, director beats and H3 segments, preserving each speaker, dramatic function, response relationship and intended audience takeaway.
+- Adjacent question/answer and challenge/response beats are reserved as viable shared H3 segments when their combined duration permits, instead of being separated by the greedy grouping pass.
+- Every directed shot carries its visible consequence into the authoritative H3 action contract, so movement resolves into a readable story change rather than a slow held pose.
+- Manual single-segment generation now creates and persists a missing reusable Fish Audio timbre reference on first use, matching unattended one-click production and avoiding false “voice bound” dead ends in older projects.
+
+### Fixed
+
+- The Story delivery audit now reports missing dialogue turns, mismatched speakers/functions, incomplete response units and absent listener reactions before video generation.
+- Outline normalization repairs unambiguous adjacent response beats that were assigned a new dialogue-unit ID by the planning model.
+- H3 cache contract v14 invalidates earlier clips that lacked the semantic dialogue and visible-consequence contract while retaining completed storyboard images and segment planning.
+
+### Verification
+
+- Focused Story staging, delivery, segmentation, H3 prompt and audio-reference suites pass together with the production build.
+- A real 12.25-second 1:1 two-shot Story segment was generated and cached. Whisper transcribed only the single scheduled English line, word-for-word, with no extra narration; the post-dialogue tail retained stereo environmental audio at approximately -26 dB and no frozen interval was detected.
+
 ## 0.1.51 - 2026-08-24
 
 ### Release baseline
