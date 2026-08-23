@@ -20,9 +20,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'apiKey or dmxApiKey is required' }, { status: 400 });
     }
 
+    const directorCharacters = [...(characters || [])];
+    for (const planned of storyPlan.characters || []) {
+      if (!planned?.name || directorCharacters.some(character => character.name === planned.name)) continue;
+      directorCharacters.push({
+        name: planned.name,
+        description: 'Text-defined supporting story identity. Preserve one stable role-appropriate face, body, age, silhouette, wardrobe and palette across every listed shot.',
+      });
+    }
+
     const storyboards = await directStoryboard({
       storyPlan,
-      characters: characters || [],
+      characters: directorCharacters,
       objects: objects || [],
       apiKey,
       aspectRatio: aspectRatio || '16:9',

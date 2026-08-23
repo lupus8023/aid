@@ -11,6 +11,67 @@ const REQUIREMENT_CATEGORIES: StoryRequirement['category'][] = ['plot', 'charact
 const CLIP_TYPES: StoryClipType[] = ['insert', 'reaction', 'establishing', 'action', 'dialogue', 'performance', 'montage', 'long_take'];
 const VOLUMES: StorySpeechLine['volume'][] = ['whisper', 'soft', 'normal', 'raised'];
 
+const NON_CHARACTER_SPEAKERS = new Set([
+  'none', 'n/a', 'no dialogue', 'narrator', 'voice-over', 'voiceover',
+  '无', '无台词', '旁白', '画外音',
+]);
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function explicitDialogueSpeakers(synopsis: string): Array<{ name: string; count: number }> {
+  const counts = new Map<string, number>();
+  const dialogueLines = String(synopsis || '').split(/\r?\n/).filter(line => /(?:dialogue|台词)\s*[:：]/iu.test(line));
+  const speakerPattern = /([A-Za-z][A-Za-z'’.\-]*(?:\s+[A-Za-z][A-Za-z'’.\-]*){0,4}|[\p{Script=Han}]{1,8})\s*[:：]\s*[“"']/gu;
+  for (const line of dialogueLines) {
+    for (const match of line.matchAll(speakerPattern)) {
+      const name = String(match[1] || '').trim();
+      if (!name || NON_CHARACTER_SPEAKERS.has(name.toLocaleLowerCase())) continue;
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+export function expandStoryCharacters(
+  synopsis: string,
+  uploadedCharacters: WriterCharacter[],
+): { characters: WriterCharacter[]; canonicalSynopsis: string; aliases: Record<string, string> } {
+  const speakers = explicitDialogueSpeakers(synopsis);
+  const aliases: Record<string, string> = {};
+  const uploadedByName = new Map(uploadedCharacters.map(character => [character.name.toLocaleLowerCase(), character]));
+  const remaining = speakers.filter(speaker => !uploadedByName.has(speaker.name.toLocaleLowerCase()));
+
+  // Detailed scripts often name the sole uploaded protagonist in prose while
+  // its character card uses a translated role label. In that one-card case,
+  // the most frequent speaking identity is the deterministic protagonist
+  // alias; supporting roles remain separate text-defined identities.
+  if (uploadedCharacters.length === 1 && remaining.length) {
+    aliases[remaining[0].name] = uploadedCharacters[0].name;
+  }
+
+  let canonicalSynopsis = String(synopsis || '');
+  for (const [alias, canonical] of Object.entries(aliases)) {
+    canonicalSynopsis = canonicalSynopsis.replace(new RegExp(`\\b${escapeRegExp(alias)}\\b`, 'giu'), canonical);
+  }
+
+  const textDefinedCharacters: WriterCharacter[] = remaining
+    .filter(speaker => !aliases[speaker.name])
+    .map(speaker => ({
+      name: speaker.name,
+      description: 'Text-defined supporting story identity explicitly named by the user. Keep one stable role-appropriate face, body, age, silhouette, wardrobe and color palette across every appearance; no separate reference image is supplied.',
+    }));
+
+  return {
+    characters: [...uploadedCharacters, ...textDefinedCharacters],
+    canonicalSynopsis,
+    aliases,
+  };
+}
+
 export interface StoryOutlineBeat {
   index: number;
   actionGoal: string;
@@ -434,7 +495,17 @@ export async function generateStoryPlan(input: {
   dmxApiKey?: string;
   targetShotCount?: number;
 }): Promise<StoryPlan> {
-  const { synopsis, characters, objects, apiKey, language = 'zh', scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
+  const {
+    synopsis: sourceSynopsis,
+    characters: uploadedCharacters,
+    objects,
+    apiKey,
+    language = 'zh',
+    scriptProvider,
+    scriptModel = 'gpt-4o',
+    dmxApiKey,
+  } = input;
+  const { characters, canonicalSynopsis: synopsis } = expandStoryCharacters(sourceSynopsis, uploadedCharacters);
   const targetShotCount = normalizeTargetShotCount(input.targetShotCount);
   const isLocalCompanion = process.env.AID_LOCAL_COMPANION === '1';
   const outlinePrompt = buildStoryOutlinePrompt({ synopsis, characters, objects, language, targetShotCount });
@@ -610,7 +681,7 @@ export async function generateStoryPlan(input: {
     raw,
     characters.map(c => c.name),
     objects.map(o => o.name),
-    synopsis,
+    sourceSynopsis,
     targetShotCount,
     Object.fromEntries(characters.map(character => [character.name, character.voiceId])),
   );

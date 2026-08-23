@@ -935,7 +935,11 @@ function injectReferenceAudios(prompt: JsonRecord, remoteAudios: string[]): void
   inputs.strict_prompt_tags = true;
 }
 
-export function injectLockedDriveAudio(prompt: JsonRecord, remoteAudio: string): void {
+export function injectLockedDriveAudio(
+  prompt: JsonRecord,
+  remoteAudio: string,
+  variant?: ComfyUIWorkflow,
+): void {
   if (!remoteAudio) throw new ComfyUIError('锁定音轨未提供');
   const [conditioningId, node] = conditioningNodeEntry(prompt);
   const inputs = node.inputs;
@@ -950,7 +954,14 @@ export function injectLockedDriveAudio(prompt: JsonRecord, remoteAudio: string):
   };
   inputs.drive_audio = [nodeId, 0];
   inputs.final_audio = [nodeId, 0];
-  inputs.task_type = 'Hybrid';
+  // Hybrid is valid only when the graph provides an explicit first/last
+  // keyframe. Story's normal multi-shot path supplies its opening frame and
+  // shot stills through ref_images, so it must remain Ref2VA even when the
+  // authoritative soundtrack is added as another reference. The dedicated
+  // first/last-frame workflow keeps Hybrid so those keyframes stay active.
+  inputs.task_type = variant
+    ? (variant === 'aid_first_last' ? 'Hybrid' : 'Ref2VA')
+    : (inputs.first_frame || inputs.last_frame ? 'Hybrid' : 'Ref2VA');
   inputs.audio_mode = 'lock_source';
   inputs.audio_denoise_strength = 0;
   inputs.add_source_as_reference = true;
@@ -1589,7 +1600,7 @@ export async function createComfyUIVideoTask(input: {
       });
       const apiPrompt = compileFrontendWorkflow(workflow);
       injectReferenceImages(apiPrompt, variant, remoteImages);
-      if (lockAudio) injectLockedDriveAudio(apiPrompt, remoteDriveAudio);
+      if (lockAudio) injectLockedDriveAudio(apiPrompt, remoteDriveAudio, variant);
       else injectReferenceAudios(apiPrompt, remoteAudios);
 
       const promptId = await withTunnel(config, async baseUrl => {

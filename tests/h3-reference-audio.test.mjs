@@ -102,14 +102,14 @@ test('locks drive and final audio and wires the exact track into the MP4 mux', (
     },
   };
 
-  injectLockedDriveAudio(prompt, 'aid/exact-dialogue.wav');
+  injectLockedDriveAudio(prompt, 'aid/exact-dialogue.wav', 'aid_multi_reference');
   const conditioning = prompt[6].inputs;
   const loadEntry = Object.entries(prompt).find(([, node]) => node.class_type === 'LoadAudio');
   assert.ok(loadEntry);
   assert.equal(loadEntry[1].inputs.audio, 'aid/exact-dialogue.wav');
   assert.deepEqual(conditioning.drive_audio, [loadEntry[0], 0]);
   assert.deepEqual(conditioning.final_audio, [loadEntry[0], 0]);
-  assert.equal(conditioning.task_type, 'Hybrid');
+  assert.equal(conditioning.task_type, 'Ref2VA');
   assert.equal(conditioning.audio_mode, 'lock_source');
   assert.equal(conditioning.audio_denoise_strength, 0);
   assert.equal(conditioning.add_source_as_reference, true);
@@ -117,4 +117,24 @@ test('locks drive and final audio and wires the exact track into the MP4 mux', (
   assert.equal(conditioning.strict_prompt_tags, true);
   assert.equal('ref_audios.ref_audio_0' in conditioning, false);
   assert.deepEqual(prompt[12].inputs.audio, ['6', 2]);
+});
+
+test('locked dialogue keeps Hybrid when explicit keyframes are connected', () => {
+  const prompt = {
+    6: {
+      class_type: 'MiniMaxH3AudioConditioningT8',
+      inputs: {
+        task_type: 'FL2VA',
+        first_frame: ['20', 0],
+        last_frame: ['21', 0],
+      },
+    },
+    12: {
+      class_type: 'VHS_VideoCombine',
+      inputs: { images: ['11', 0], audio: ['11', 1] },
+    },
+  };
+
+  injectLockedDriveAudio(prompt, 'aid/exact-dialogue.wav', 'aid_first_last');
+  assert.equal(prompt[6].inputs.task_type, 'Hybrid');
 });

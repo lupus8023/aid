@@ -876,9 +876,16 @@ export default function StoryPage() {
 
         // Build grid prompt from group's prompts
         const sceneStyle = group[0]?.sceneStyle || '';
-        const charDescs = groupCharacters
-          .map(c => `${c.name}: ${summarize(c.description)}`)
-          .join('\n');
+        const textDefinedCharacters = [...new Set(group.flatMap(sb => sb.characters || []))]
+          .filter(name => !groupCharacters.some(character => character.name === name))
+          .map(name => {
+            const costume = group.map(sb => sb.characterCostume?.[name]).find(Boolean);
+            return `${name}: ${summarize(costume || 'stable role-appropriate face, body, age, silhouette, wardrobe and color palette; text-defined identity without a separate reference image')}`;
+          });
+        const charDescs = [
+          ...groupCharacters.map(c => `${c.name}: ${summarize(c.description)}`),
+          ...textDefinedCharacters,
+        ].join('\n');
         const safetyFindings = group.map(sb => ({
           storyboard: sb,
           risks: analyzeImagePromptSafety(`${sb.prompt}\n${sb.description}`),
@@ -903,9 +910,12 @@ export default function StoryPage() {
             ? rewriteImagePromptForSafety(sb.prompt, safetyLevel).replace(/^[\s\S]*?\n\n/, '')
             : sb.prompt;
           const cleanPrompt = sourcePrompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1');
-          const requiredCharacters = groupCharacters
-            .filter(character => mentionsEntity(sb, character.name, sb.characters))
-            .map(character => character.name);
+          const requiredCharacters = [...new Set([
+            ...(sb.characters || []),
+            ...groupCharacters
+              .filter(character => mentionsEntity(sb, character.name, sb.characters))
+              .map(character => character.name),
+          ])];
           const requiredObjects = groupObjects
             .filter(object => mentionsEntity(sb, object.name, sb.objects))
             .map(object => object.name);

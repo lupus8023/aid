@@ -72,9 +72,9 @@ ${storyPlan.sourceBrief || '（旧项目未保存原始输入，请以 StoryPlan
 
 🌐 ${langInstruction}
 
-🚨 名称精确匹配（强制）：characters/objects 只允许使用已上传名称；临时角色/物体只在 prompt/description 里直接描述。
+🚨 名称精确匹配（强制）：characters 只允许使用下方可用角色名称（含参考角色与用户原文明确命名的文字角色）；objects 只允许使用已上传名称。不得创造新的命名角色。
 
-📋 已上传角色：
+📋 可用角色：
 ${characterDetails}
 📦 已上传物体：
 ${objectDetails}
@@ -99,7 +99,7 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
 1. description：必须以「[景别，机位角度]」开头，包含动作主体、环境、情绪氛围、运镜方式、物理细节（布料/水流/光影）。
    - 先写触发，再写角色的选择/反应，最后写可见后果；镜尾构图必须把 informationGain 或 audienceQuestion 落到一个能看懂的状态上。
 2. prompt（英文图像提示词）：
-   - 已上传角色/物体用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。
+   - 可用角色与已上传物体用 [名称](2-3 个外观关键词) 格式；无名临时角色/物体直接描述。
    - 不要写成关键词堆砌。使用紧凑的摄影因果链，顺序固定为：SUBJECT/ACTION → CAMERA POSITION & DISTANCE → LENS PERSPECTIVE → COMPOSITION & OCCLUSION → FOCUS PLANE & DEPTH LAYERS → MOTIVATED LIGHT → EXPOSURE/COLOR/MATERIAL RESPONSE。
    - CAMERA 必须写清相机相对主体的高度、距离和朝向；不能只写 eye-level、close-up。
    - COMPOSITION 必须写清主体在画面中的位置、留白方向，以及前景/中景/背景关系；需要时使用真实遮挡、非对称裁切或贴近地面的机位，不要每镜都中央构图。

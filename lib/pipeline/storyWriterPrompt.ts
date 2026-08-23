@@ -27,7 +27,7 @@ ${outputLanguage}
 用户原始输入：
 ${synopsis}
 
-已上传角色（characters 只能使用这些精确名称）：
+可用角色（含已上传角色与用户原文明确命名的文字角色；characters 只能使用这些精确名称）：
 ${characterDetails}
 
 已上传物体（objects 只能使用这些精确名称）：
@@ -49,8 +49,8 @@ ${objectDetails}
 - 前一条 consequence 必须成为后一条 cause，或明确推动下一场。
 - actionGoal 是该镜头唯一可见动作/局面变化，不是摄影描述。
 - emotionalTurn 写镜头前后变化；没有变化也要写“保持X但新增Y信息”。
-- 任何非 visual_only 的 dialoguePurpose 都必须先在 requiredSpeaker 绑定一个已上传角色精确名称。用户指定台词还要在 requiredLine 中逐字保留；若只是规划由执行编剧创作的必要台词，requiredSpeaker 保留角色名而 requiredLine 留空。临时/路人/未上传角色的信息改成可见动作，并把 dialoguePurpose 设为 visual_only、requiredSpeaker/requiredLine 都留空。
-- 用户原文中的临时角色、路人、未上传人物即使有说话内容，也不得把台词转交给已上传角色。把信息改成可见动作，requiredSpeaker 和 requiredLine 都留空。
+- 任何非 visual_only 的 dialoguePurpose 都必须先在 requiredSpeaker 绑定一个上方可用角色的精确名称。用户指定台词还要在 requiredLine 中逐字保留；若只是规划由执行编剧创作的必要台词，requiredSpeaker 保留角色名而 requiredLine 留空。
+- 用户原文明确命名并给出台词的文字角色保留自己的台词，绝不能转交给其他角色。未明确命名的路人或临时人声改成可见动作并设为 visual_only。
 - sequence 的 entryState / exitState 必须能交接人物位置、关系、关键道具与情绪。
 - 不要输出 shotSize、cameraMove、angle、sceneStyle、promptDraft、audioPlan、stateBefore 或 stateAfter；这些由后续阶段分批完成。
 
@@ -76,7 +76,7 @@ ${objectDetails}
   "audiencePromise": "影片向观众承诺的类型体验与情感回报",
   "dialogueArc": "问题/承诺/冲突台词如何跨场推进并在结尾回收",
   "montageStrategy": "哪些过程省略、平行、对照或用因果剪辑压缩",
-  "characters": [{ "name": "已上传角色名", "want": "欲望", "obstacle": "阻碍", "arc": "弧线", "subtext": "潜台词" }],
+  "characters": [{ "name": "可用角色精确名称", "want": "欲望", "obstacle": "阻碍", "arc": "弧线", "subtext": "潜台词" }],
   "sequences": [{
     "id": "seq-1",
     "locationId": "english_location_key",
@@ -99,7 +99,7 @@ ${objectDetails}
       "dialoguePurpose": "question|answer|reveal|conceal|challenge|refusal|decision|promise|callback|payoff|visual_only",
       "montageRole": "setup|development|escalation|parallel|contrast|decision|consequence|bridge|payoff|resolution",
       "audienceQuestion": "本镜结束时观众继续追问的问题",
-      "requiredSpeaker": "已上传角色精确名称；无台词则空字符串",
+      "requiredSpeaker": "可用角色精确名称；无台词则空字符串",
       "requiredLine": "用户指定台词或空字符串"
     }]
   }]
@@ -192,7 +192,7 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - 台词服务叙事，而不是一律从少。beatMap.requiredLine 非空时逐字写入 speech；否则按 dialoguePurpose 判断：私人目标、问题/回答、关系转折、谎言/揭示、承诺/回收或明确选择若仅靠画面会含混，就写必要台词；visual_only 才保持 speech=[]。禁止旁白、画外音、路人台词、笑声、哼唱和无来源人声。
 - 台词必须承接上下文：用 storyFunction 标明 question/answer/reveal/refusal/decision/promise/callback/payoff；用 respondsTo 指向它回应的前一句信息或伏笔。不得写重复画面、孤立口号、通用感叹或没有对象的短句。
 - 一镜可有 0–2 条有序台词；两条时必须是清晰的发起→回应或揭示→决定，逐条绑定已出场角色，不能重叠。总台词时长加留白必须装入 durationHint。不要为了凑数量写台词。
-- 若 beatMap 只规划了 AI 自创台词功能、没有 requiredLine，而本镜信息已经能靠动作清楚交付，可以将 dialoguePurpose 明确改成 visual_only 并保持 speech=[]；绝不能为了满足字段而把临时人物原话转嫁给已上传角色。requiredLine 非空时不得这样降级。
+- 若 beatMap 只规划了 AI 自创台词功能、没有 requiredLine，而本镜信息已经能靠动作清楚交付，可以将 dialoguePurpose 明确改成 visual_only 并保持 speech=[]；绝不能为了满足字段而把一个角色的原话转嫁给另一个角色。requiredLine 非空时不得这样降级。
 - beatMap.requiredLine 非空时，speech.character 必须逐字等于 beatMap.requiredSpeaker，speech.exactLine 必须逐字等于 requiredLine，绝不能把临时人物的话转嫁给主角。
 - 自行创作 story_required 台词时，说话者必须在 characters 中以已上传精确名称出现；action 还要用当前输出语言清楚表现该可见角色正在开口。不要因为英文叙述使用自然称呼而改写 characters / speech.character 中的精确库名称。
 - audioPlan 是唯一声音源。backgroundHuman 默认 none；环境声和拟音必须由地点或可见动作引起；未要求音乐时 music 为 none。
@@ -255,7 +255,7 @@ export function buildStoryPlanPrompt(input: {
 
 🧭 指令优先级（从高到低，强制）
 1. 用户明确写出的剧情事实、人物关系、场景、事件顺序、结局、指定台词、时长/镜头数、风格与禁止事项。
-2. 已上传角色与物体的名称和描述。
+2. 可用角色与已上传物体的名称和描述。
 3. 下方通用编剧原则。
 
 需求理解规则：
@@ -285,13 +285,13 @@ ${langInstruction}
 
 🚨 名称精确匹配（强制）
 ═══════════════════════════════════════════════════════════
-1. 你只能使用用户上传的角色和物体名称。
-2. beats[].characters 和 beats[].objects 数组中，只能出现上传列表里的精确名称。
+1. 你只能使用上方可用角色和用户上传的物体名称。
+2. beats[].characters 只能出现可用角色精确名称；beats[].objects 只能出现上传物体精确名称。
 3. 绝对禁止创造新角色名/物体名放进 characters/objects 数组。
-4. 故事中需要但未上传的角色/物体（动物、路人、自然元素等）只在 action / promptDraft 中描述。
+4. 不得再创造新的命名角色；无名路人、自然元素或未上传物体只在 action / promptDraft 中描述。
 5. 用户明确要求出现的角色必须发挥作用；不要为了“用完素材”把无关角色强塞进故事。
 
-📋 已上传角色（唯一允许的角色名称）
+📋 可用角色（含有参考角色与用户原文明确命名的文字角色）
 ${characterDetails}
 
 ✅ 允许的角色名称: ${characterNames}
@@ -403,7 +403,7 @@ ${synopsis}
 - transition 固定写 "cut"。情绪切换和时空跳转也必须通过动作、视线、物体、构图、焦点或声音桥完成物理/语义匹配，不使用 dissolve、fade 或 wipe 特效代替导演调度。
 - characters/objects 数组为空时写 []。
 - sceneStyle：不要只写“cinematic lighting”或情绪形容词。用紧凑英文确定本 sequence 的拍摄基线：一种相机/镜头家族、主光来源与方向/软硬/色温、环境反射或负补光、有限曝光与高光滚降、阴影密度、色彩响应和主要材质。相邻 sequence 若时空连续必须继承同一成像系统。
-- promptDraft：已上传角色用 [名称](2-3 个外观关键词) 格式；临时角色/物体直接描述。动作之后简要写出独特机位距离、前中后景、焦点平面和光线入射关系；不要堆 cinematic、8K、masterpiece、photorealistic 等空泛词。
+- promptDraft：可用角色都用 [名称](2-3 个外观关键词) 格式；无名临时角色或物体直接描述。动作之后简要写出独特机位距离、前中后景、焦点平面和光线入射关系；不要堆 cinematic、8K、masterpiece、photorealistic 等空泛词。
 - cameraMove 必须是单一、可执行的物理运镜，不要把多个方向堆在一起；sceneStyle、promptDraft、audioPlan.environment、audioPlan.foley 和非 none 的 audioPlan.music 必须使用英文，只有 action、剧情字段和台词按项目语言输出。
 - 最终自检 sequences[].beats 的总数必须严格等于 ${targetShots}，beat.index 必须为 1–${targetShots}。
 

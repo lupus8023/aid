@@ -4,7 +4,7 @@ import type { Character, NarrativeState, ObjectItem, StoryAudioPlan, Storyboard,
 // 这是「全自动」的关键契约——阶段之间传结构化 JSON，而非自由文本。
 
 export interface PlannedCharacter {
-  name: string; // 绑定到用户上传的 Character.name，不得创造新角色名
+  name: string; // 绑定上传角色，或绑定用户原始剧本中明确命名的文字角色
   want: string; // 欲望：这个角色真正想要什么
   obstacle: string; // 阻碍：什么挡着他
   arc: string; // 弧线：起点情绪 → 终点情绪
@@ -19,7 +19,7 @@ export interface Beat {
   cameraMove: string; // 运镜：推/拉/摇/移/跟/静止/手持
   angle: string; // 机位：平视/仰拍/俯拍/过肩/FPV
   action: string; // 动作描述（一个明确动作单元，含情绪氛围）
-  characters: string[]; // 本镜头出现的角色（精确匹配上传角色名）
+  characters: string[]; // 本镜头出现的角色（上传角色或用户原文明确命名的文字角色）
   objects: string[]; // 本镜头出现的道具（精确匹配上传物件名）
   dialogueLines: { character: string; text: string }[]; // 有序台词；总时长必须装入本镜
   speech: StorySpeechLine[]; // 唯一权威台词源；只允许 action 中明确点名的已出场角色说话

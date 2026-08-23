@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { buildDirectorBatches, normalizeDirectorShots, stripExactDialogueFromDescription, validateDirectorShots } from '../lib/pipeline/storyDirector.ts';
 import { extractJson } from '../lib/pipeline/json.ts';
-import { buildStoryBeatBatches, filterVisibleStorySpeech, normalizeStoryOutline } from '../lib/pipeline/storyWriter.ts';
+import { buildStoryBeatBatches, expandStoryCharacters, filterVisibleStorySpeech, normalizeStoryOutline } from '../lib/pipeline/storyWriter.ts';
 import { buildStoryBeatBatchPrompt, buildStoryOutlinePrompt } from '../lib/pipeline/storyWriterPrompt.ts';
 
 const outlineSequence = (id, start, count) => ({
@@ -94,6 +94,23 @@ test('screenplay speech keeps visible uploaded voices and drops temporary-charac
     { character: 'Tide Officer', exactLine: 'No one.' },
   ], ['人鱼公主'], ['人鱼公主']), [
     { character: '人鱼公主', exactLine: 'Who controls the tide?' },
+  ]);
+});
+
+test('explicit screenplay speakers become text-defined cast while the sole protagonist alias maps to the uploaded card', () => {
+  const expanded = expandStoryCharacters(`
+SHOT 01 | Lanxi works | dialogue: Lanxi: “Almost.”
+SHOT 02 | A-Luo enters | dialogue: A-Luo: “Rest.” Lanxi: “I can't.”
+SHOT 03 | ending | dialogue: Narrator: “The tide returns.” Tide Officer: “No one.”
+`, [{ name: '人鱼公主', description: 'uploaded mermaid princess card' }]);
+
+  assert.equal(expanded.aliases.Lanxi, '人鱼公主');
+  assert.match(expanded.canonicalSynopsis, /人鱼公主: “Almost\.”/);
+  assert.deepEqual(expanded.characters.map(character => character.name), ['人鱼公主', 'A-Luo', 'Tide Officer']);
+  assert.deepEqual(filterVisibleStorySpeech([
+    { character: 'A-Luo', exactLine: 'Rest.' },
+  ], ['人鱼公主', 'A-Luo'], expanded.characters.map(character => character.name)), [
+    { character: 'A-Luo', exactLine: 'Rest.' },
   ]);
 });
 
