@@ -1533,11 +1533,11 @@ export default function StoryPage() {
             startSeconds: line.start,
           };
         });
-        const audioResponse = await fetch('/api/generate-audio', {
+        const audioResponse = await fetchStoryApi('/api/generate-audio', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ lines, duration, fishAudioKey: activeSettings.fishAudioKey }),
-        });
+        }, activeSettings.comfyui);
         const audioData = await readApiJson<{ characterAudios: { character: string; audioUrl: string; audioDuration?: number }[]; audioUrl?: string; audioDuration?: number }>(audioResponse, '准确台词音频生成失败');
         exactCharacterAudios = audioData.characterAudios || [];
         exactDialogueTrack = audioData.audioUrl;

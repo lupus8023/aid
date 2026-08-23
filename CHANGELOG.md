@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.34 - 2026-08-23
+
+### Fixed
+
+- Exact H3 dialogue timelines are now composed through the local Companion instead of the hosted Netlify function. This guarantees access to the bundled FFmpeg binary and prevents `spawn .../ffmpeg ENOENT` before a video task is submitted.
+
+### Tests
+
+- Revalidated all 112 tests, TypeScript validation, the production build and the installed Companion before repeating the live H3 dialogue test.
+
 ## 0.1.33 - 2026-08-23
 
 ### Improved
