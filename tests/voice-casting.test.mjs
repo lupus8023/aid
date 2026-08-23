@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { castCharacterVoice, castStoryVoices, lockStoryboardVoiceIds } from '../lib/voiceCasting.ts';
+import { castCharacterVoice, castStoryVoices, fishAutoVoiceCandidates, lockStoryboardVoiceIds, normalizeFishVoiceId } from '../lib/voiceCasting.ts';
 import { validateVoiceBindings } from '../lib/speechAudioContract.ts';
 import { fishS2ControlledText } from '../lib/fishSpeechControl.ts';
 
@@ -46,6 +46,17 @@ test('casts distinct role-appropriate voices across an English ensemble', () => 
   assert.notEqual(cast.find(character => character.name === 'Mermaid Princess').voiceId, '27254d2e219945c9896da5cc5e1e77f1');
   assert.match(cast.find(character => character.name === 'Old Sea Turtle').voiceProfile, /masculine/);
   assert.match(cast.find(character => character.name === 'Mother').voiceProfile, /mature feminine/);
+});
+
+test('migrates a retired automatic Fish reference without touching custom ids', () => {
+  const retired = '8ef4a238714b45718ce04243307c57a7';
+  assert.equal(normalizeFishVoiceId(retired), '145d5c8c614f4852a029346ebb5d42db');
+  assert.deepEqual(fishAutoVoiceCandidates('custom-fish-reference'), ['custom-fish-reference']);
+  assert.ok(fishAutoVoiceCandidates(retired).length > 1);
+  const [storyboard] = lockStoryboardVoiceIds([{
+    speech: [{ character: 'A-Luo', voiceId: retired }],
+  }], []);
+  assert.equal(storyboard.speech[0].voiceId, '145d5c8c614f4852a029346ebb5d42db');
 });
 
 test('Fish delivery control never changes or absorbs the exact spoken line', () => {

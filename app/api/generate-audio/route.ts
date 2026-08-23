@@ -8,6 +8,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import ffmpegStatic from 'ffmpeg-static';
 import { fishS2ControlledText } from '@/lib/fishSpeechControl';
+import { generateFishSpeech } from '@/lib/fishAudio';
 
 const execFileAsync = promisify(execFile);
 
@@ -18,22 +19,12 @@ async function generateTTS(
   emotion?: string,
   delivery?: string,
 ): Promise<Buffer> {
-  if (!voiceId?.trim()) throw new Error('每条台词必须绑定明确的角色 voiceId，已禁止使用 Fish 默认音色');
-  const res = await fetch('https://api.fish.audio/v1/tts', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${fishAudioKey}`,
-      'Content-Type': 'application/json',
-      'model': 's2-pro',
-    },
-    body: JSON.stringify({
-      text: fishS2ControlledText(text, emotion, delivery),
-      format: 'mp3',
-      reference_id: voiceId.trim(),
-    }),
-  });
-  if (!res.ok) throw new Error(`fish.audio error: ${await res.text()}`);
-  return Buffer.from(await res.arrayBuffer());
+  const result = await generateFishSpeech(
+    fishS2ControlledText(text, emotion, delivery),
+    voiceId,
+    fishAudioKey,
+  );
+  return result.buffer;
 }
 
 async function uploadBuffer(buffer: Buffer, mimeType = 'audio/mpeg'): Promise<{ url: string; duration: number }> {

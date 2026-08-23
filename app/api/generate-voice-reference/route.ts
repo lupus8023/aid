@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
+import { generateFishSpeech } from '@/lib/fishAudio';
 
 // 生成角色声音参考音频：用一段简短文本捕捉音色，上传到 Cloudinary
 export async function POST(request: NextRequest) {
@@ -17,26 +18,7 @@ export async function POST(request: NextRequest) {
       ? sampleText
       : `${sampleText}，这是我的声音，请记住这个音色特征，谢谢大家。`.slice(0, Math.max(MIN_CHARS, sampleText.length + 20));
 
-    // 用 fish.audio 生成 TTS
-    const ttsRes = await fetch('https://api.fish.audio/v1/tts', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${fishAudioKey}`,
-        'Content-Type': 'application/json',
-        'model': 's2-pro',
-      },
-      body: JSON.stringify({
-        text: paddedText,
-        format: 'mp3',
-        reference_id: voiceId.trim(),
-      }),
-    });
-
-    if (!ttsRes.ok) {
-      throw new Error(`fish.audio error: ${await ttsRes.text()}`);
-    }
-
-    const audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
+    const { buffer: audioBuffer } = await generateFishSpeech(paddedText, voiceId, fishAudioKey);
     const base64 = `data:audio/mpeg;base64,${audioBuffer.toString('base64')}`;
 
     const result = await uploadToCloudinary(base64, {

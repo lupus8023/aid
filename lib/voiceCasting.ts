@@ -23,12 +23,37 @@ const VOICES = {
   youngFemaleEn: [
     '6d5d07dcc342440ba701aa36f7daf42f',
     '617167a94e49486f80d4c4047584d9ed',
-    '8ef4a238714b45718ce04243307c57a7',
+    '145d5c8c614f4852a029346ebb5d42db',
   ],
   authoritativeFemaleEn: ['145d5c8c614f4852a029346ebb5d42db'],
   matureFemaleEn: ['15deb7503c784eedba3b72d27978f43b'],
   male: ['802e3bc2b27e49c2995d23ef70e6ac89'],
 } as const;
+
+// Fish marketplace references can be removed without notice. Keep explicit
+// migrations for ids AID assigned automatically in older projects; never
+// rewrite an arbitrary user-entered reference id.
+const RETIRED_AUTO_VOICE_IDS: Record<string, string> = {
+  '8ef4a238714b45718ce04243307c57a7': '145d5c8c614f4852a029346ebb5d42db',
+};
+
+const CURRENT_AUTO_VOICE_IDS: string[] = [...new Set<string>(Object.values(VOICES).flat())];
+
+export function normalizeFishVoiceId(voiceId?: string): string | undefined {
+  const normalized = String(voiceId || '').trim();
+  if (!normalized) return undefined;
+  return RETIRED_AUTO_VOICE_IDS[normalized] || normalized;
+}
+
+export function fishAutoVoiceCandidates(voiceId?: string): string[] {
+  const original = String(voiceId || '').trim();
+  if (!original) return [];
+  const normalized = normalizeFishVoiceId(original)!;
+  const isAIDAutoVoice = original in RETIRED_AUTO_VOICE_IDS
+    || CURRENT_AUTO_VOICE_IDS.includes(original);
+  if (!isAIDAutoVoice) return [original];
+  return [normalized, ...CURRENT_AUTO_VOICE_IDS.filter(candidate => candidate !== normalized)];
+}
 
 function hash(value: string): number {
   let result = 2166136261;
@@ -65,7 +90,7 @@ export function castCharacterVoice<T extends VoiceCastInput>(
   character: T,
   language: 'zh' | 'en' = 'zh',
 ): T & VoiceCastResult {
-  const existing = String(character.voiceId || '').trim();
+  const existing = normalizeFishVoiceId(character.voiceId);
   if (existing) {
     return {
       ...character,
@@ -90,11 +115,11 @@ export function castStoryVoices<T extends VoiceCastInput>(
   const usedVoiceIds = new Set(
     characters
       .filter(character => String(character.voiceId || '').trim() && character.voiceSource !== 'auto')
-      .map(character => String(character.voiceId).trim()),
+      .map(character => normalizeFishVoiceId(character.voiceId)!),
   );
 
   return characters.map(character => {
-    const existing = String(character.voiceId || '').trim();
+    const existing = normalizeFishVoiceId(character.voiceId);
     if (existing && character.voiceSource !== 'auto') {
       usedVoiceIds.add(existing);
       return castCharacterVoice(character, language);
@@ -128,7 +153,8 @@ export function lockStoryboardVoiceIds<T extends {
     ...storyboard,
     speech: storyboard.speech?.map(line => ({
       ...line,
-      voiceId: line.voiceId || voiceByName.get(line.character.trim().toLocaleLowerCase()),
+      voiceId: normalizeFishVoiceId(line.voiceId)
+        || normalizeFishVoiceId(voiceByName.get(line.character.trim().toLocaleLowerCase())),
     })),
   }));
 }

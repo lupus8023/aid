@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.48 - 2026-08-23
+
+### Fixed
+
+- Story migrates the retired Fish Audio reference previously assigned to A-Luo before generating exact dialogue, so legacy projects no longer stall at `Reference not found`.
+- If Fish removes another AID-assigned public reference, exact-dialogue and reusable voice-reference generation now rotate through the deterministic automatic voice pool. A user-entered custom reference remains authoritative and is never silently replaced.
+- New automatic casting no longer assigns the retired reference. Existing completed image and video segments remain cached; unattended production resumes from the first unfinished audio/video segment.
+
 ## 0.1.47 - 2026-08-23
 
 ### Fixed
