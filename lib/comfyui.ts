@@ -976,15 +976,51 @@ export function injectLockedDriveAudio(
     /^MiniMaxH3AVDecode/.test(String((outputNode as JsonRecord).class_type || '')),
   );
   if (!decodeEntry) throw new ComfyUIError('工作流缺少 H3 音视频解码节点');
+  // H3 can synthesize a guide performance even when <Audio 1> supplies the
+  // authoritative voice. Its timing may begin before the scheduled source
+  // stem, so envelope ducking alone cannot guarantee a single speaker. Split
+  // the generated soundtrack and rebuild the environmental bed from every
+  // non-vocal stem before the exact Fish Audio dialogue is mixed back in.
+  const separationNodeId = nextNodeId(prompt);
+  prompt[separationNodeId] = {
+    class_type: 'AudioSeparation',
+    inputs: {
+      audio: [decodeEntry[0], 1],
+      chunk_fade_shape: 'half_sine',
+      chunk_length: 10,
+      chunk_overlap: 0.2,
+    },
+    _meta: { title: 'AID remove H3 guide vocals' },
+  };
+  const bassDrumsNodeId = nextNodeId(prompt);
+  prompt[bassDrumsNodeId] = {
+    class_type: 'AudioMerge',
+    inputs: {
+      audio1: [separationNodeId, 0],
+      audio2: [separationNodeId, 1],
+      merge_method: 'add',
+    },
+    _meta: { title: 'AID non-vocal bed: bass + transients' },
+  };
+  const nonVocalNodeId = nextNodeId(prompt);
+  prompt[nonVocalNodeId] = {
+    class_type: 'AudioMerge',
+    inputs: {
+      audio1: [bassDrumsNodeId, 0],
+      audio2: [separationNodeId, 2],
+      merge_method: 'add',
+    },
+    _meta: { title: 'AID complete environment and Foley bed' },
+  };
   const mixNodeId = nextNodeId(prompt);
   prompt[mixNodeId] = {
     class_type: 'MiniMaxH3AudioMixT8',
     inputs: {
       source_audio: [nodeId, 0],
-      generated_audio: [decodeEntry[0], 1],
+      generated_audio: [nonVocalNodeId, 0],
       source_gain_db: 0,
-      generated_gain_db: -4,
-      duck_generated: 1,
+      generated_gain_db: -2,
+      duck_generated: 0.35,
       output_sample_rate: 'source',
       peak_limit_dbfs: -1,
     },
@@ -994,10 +1030,10 @@ export function injectLockedDriveAudio(
   for (const outputNode of Object.values(prompt) as JsonRecord[]) {
     if (!['VHS_VideoCombine', 'SaveVideo'].includes(String(outputNode.class_type || ''))) continue;
     if (!outputNode.inputs || !('audio' in outputNode.inputs)) continue;
-    // Keep the authoritative Fish Audio stem on top while retaining H3's
-    // continuous room tone, environmental bed and caused Foley. Full ducking
-    // prevents the generated guide voice from competing while the exact stem
-    // is active; between lines the H3 soundscape remains untouched.
+    // Keep the authoritative Fish Audio stem on top of H3's vocal-free room
+    // tone, environmental bed and caused Foley. The remaining light duck only
+    // creates dialogue headroom; it is no longer responsible for suppressing
+    // a second voice.
     outputNode.inputs.audio = [mixNodeId, 0];
     muxCount += 1;
   }

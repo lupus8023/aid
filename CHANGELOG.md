@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.47 - 2026-08-23
+
+### Fixed
+
+- Story now separates H3's generated audio into vocals and non-vocal stems before final muxing. The generated guide voice is discarded completely; bass, transients, environment and Foley are rebuilt as one continuous bed, then the single authoritative Fish Audio dialogue track is mixed on top.
+- The sound bed receives only light dialogue headroom ducking after vocal removal, so water, weather, mechanisms and caused action sounds remain audible beneath approved speech instead of disappearing with the unwanted guide voice.
+- H3 v12 invalidates v11 clips that may contain both the generated guide performance and the selected character voice while preserving storyboard images and the director's segment plan.
+
+### Verification
+
+- A real 12-second H3 clip whose raw generated track spoke from the opening frame was separated and remuxed without rerendering its image. Whisper detected only the scheduled Tide Officer line, silence detection found no silent interval, and the non-dialogue windows retained an average sound-bed level around -20 dB.
+
 ## 0.1.46 - 2026-08-23
 
 ### Fixed

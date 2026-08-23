@@ -121,13 +121,22 @@ test('mixes the exact dialogue stem over a regenerated H3 soundscape', () => {
   assert.equal(conditioning.prompt_primary_audio_ordinal, 1);
   assert.equal(conditioning.strict_prompt_tags, true);
   assert.equal('ref_audios.ref_audio_0' in conditioning, false);
+  const separationEntry = Object.entries(prompt).find(([, node]) => node.class_type === 'AudioSeparation');
+  assert.ok(separationEntry);
+  assert.deepEqual(separationEntry[1].inputs.audio, ['11', 1]);
+  const mergeEntries = Object.entries(prompt).filter(([, node]) => node.class_type === 'AudioMerge');
+  assert.equal(mergeEntries.length, 2);
+  assert.deepEqual(mergeEntries[0][1].inputs.audio1, [separationEntry[0], 0]);
+  assert.deepEqual(mergeEntries[0][1].inputs.audio2, [separationEntry[0], 1]);
+  assert.deepEqual(mergeEntries[1][1].inputs.audio1, [mergeEntries[0][0], 0]);
+  assert.deepEqual(mergeEntries[1][1].inputs.audio2, [separationEntry[0], 2]);
   const mixEntry = Object.entries(prompt).find(([, node]) => node.class_type === 'MiniMaxH3AudioMixT8');
   assert.ok(mixEntry);
   assert.deepEqual(mixEntry[1].inputs.source_audio, [loadEntry[0], 0]);
-  assert.deepEqual(mixEntry[1].inputs.generated_audio, ['11', 1]);
+  assert.deepEqual(mixEntry[1].inputs.generated_audio, [mergeEntries[1][0], 0]);
   assert.equal(mixEntry[1].inputs.source_gain_db, 0);
-  assert.equal(mixEntry[1].inputs.generated_gain_db, -4);
-  assert.equal(mixEntry[1].inputs.duck_generated, 1);
+  assert.equal(mixEntry[1].inputs.generated_gain_db, -2);
+  assert.equal(mixEntry[1].inputs.duck_generated, 0.35);
   assert.deepEqual(prompt[12].inputs.audio, [mixEntry[0], 0]);
 });
 
