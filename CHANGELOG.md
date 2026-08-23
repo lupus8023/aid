@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.40 - 2026-08-23
+
+### Improved
+
+- Story adaptation now designs complete scene-level dialogue units instead of forcing every generated line to be short. Questions, refusals, decisions, promises and callbacks retain their shared context across shots, while isolated slogan fragments are rejected.
+- The screenplay and director contracts carry dialogue-unit identity, obligation, listener change and montage syntax through planning, blocking and grouped H3 direction. Required story dialogue can no longer be silently downgraded to a visual-only beat.
+- H3 v6 keeps each grouped shot's real-time action and motivated transition while exposing only visible listener performance to the video model; abstract screenplay prose remains outside audiovisual channels.
+
+### Fixed
+
+- Every speaking character now receives one deterministic, role-appropriate Fish Audio voice for the whole film. A young female mermaid is automatically cast to a young feminine voice, user-selected voices remain authoritative, and old projects are migrated on load/import.
+- Fish Audio generation and voice-reference routes now reject missing `voiceId` values instead of silently falling back to an uncontrolled default voice that could change gender or identity between clips.
+- Voice IDs are preserved on every authoritative speech line and included in H3 cache signatures, preventing clips or locked dialogue tracks made with the previous wrong voice from being reused.
+
+### Verification
+
+- Added deterministic voice-casting and missing-voice rejection coverage. All Story, H3, segmentation, unattended-production, recovery, export and Companion route suites pass, together with the production build.
+
 ## 0.1.39 - 2026-08-23
 
 ### Improved

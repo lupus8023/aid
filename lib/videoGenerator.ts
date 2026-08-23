@@ -3,7 +3,7 @@ import type { Storyboard } from '@/types';
 import { buildVideoContinuityRules, getProductionStylePreset } from './promptArchitecture';
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds } from './videoSegments';
 import { NO_SUBTITLE_POLICY } from './videoTextPolicy';
-import { buildAudioManifest, buildNonDiegeticMusic, compileTimedSpeech, storyboardAudioPlan, storyboardSpeech, validateSpeechLanguage } from './speechAudioContract';
+import { buildAudioManifest, buildNonDiegeticMusic, compileTimedSpeech, isDirectingInstructionDialogue, storyboardAudioPlan, storyboardSpeech, validateSpeechLanguage } from './speechAudioContract';
 
 function h3Timestamp(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -138,6 +138,20 @@ function authoritativeShotAction(storyboard: Storyboard): string {
   );
 }
 
+function silentNarrativePerformance(storyboard: Storyboard): string {
+  const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
+  const listenerChanges = (storyboard.speech || [])
+    .map(line => line.listenerState)
+    .filter((value): value is string => Boolean(value && !isDirectingInstructionDialogue(value)));
+  // Only visible performance belongs in H3. Abstract screenplay explanations
+  // are intentionally excluded because Ref2VA may vocalize prose. The action
+  // field already contains trigger -> choice -> visible result.
+  const parts = listenerChanges.length
+    ? [`During the scheduled line, visibly perform the listener change: ${listenerChanges.join('; ')}`]
+    : [];
+  return compactText(sanitizeNarrativeDirection(parts, spokenLines), 360);
+}
+
 function officialShotFraming(storyboard: Storyboard): string {
   const framing = `${storyboard.shotSize || ''} ${storyboard.angle || ''}`.toLowerCase();
   const size = /大特写|extreme close/.test(framing) ? 'extreme close-up'
@@ -233,7 +247,8 @@ function shotActionSchedule(storyboard: Storyboard, range: { start: number; end:
   // sentences; Ref2VA occasionally vocalized those sentences as narration.
   // The authoritative action already contains the causal beat, so only send
   // the physical performance and its timing here.
-  return `${authoritativeShotAction(storyboard)} The action begins immediately at ${h3Timestamp(range.start)}; its decisive move or contact lands by ${h3Timestamp(commitment)}, the visible consequence arrives by ${h3Timestamp(consequence)}, and secondary motion remains alive through ${h3Timestamp(range.end)}. The cadence is ${shotMotionCadence(storyboard)}`;
+  const narrative = silentNarrativePerformance(storyboard);
+  return `${authoritativeShotAction(storyboard)} ${narrative ? `Silent dramatic performance: ${narrative}` : ''} The action begins immediately at ${h3Timestamp(range.start)}; its decisive move or contact lands by ${h3Timestamp(commitment)}, the visible consequence arrives by ${h3Timestamp(consequence)}, and secondary motion remains alive through ${h3Timestamp(range.end)}. The cadence is ${shotMotionCadence(storyboard)}`;
 }
 
 export function buildVideoSegmentPrompt(
@@ -326,7 +341,7 @@ export function buildVideoSegmentPrompt(
     const visualDirection = sanitizeVisualDirection(storyboard.prompt || storyboard.description, spokenLines);
     const actionDirection = authoritativeShotAction(storyboard);
     const visualAnchor = visualDirection && visualDirection !== actionDirection
-      ? ` LOOK: ${compactText(visualDirection, 140)}`
+      ? ` LOOK: ${compactText(visualDirection, 100)}`
       : '';
     const handoff = index < storyboards.length - 1
       ? `At ${h3Timestamp(range.end)}, move into [Shot ${index + 2}] by ${cinematicTransition(storyboard, storyboards[index + 1])}.`
@@ -343,6 +358,7 @@ export function buildVideoSegmentPrompt(
   const physics = buildVideoContinuityRules(hasVoiceReferences)
     .replace(/\n+/g, ' ')
     .replace(/PHYSICS:|CONSTRAINTS:/g, '')
+    .replace('Timed action, camera, dialogue and sound fields are authoritative.', 'Timed fields are authoritative.')
     .trim();
   // Official H3 format keeps dialogue exclusively inside detailed_description.
   // overall_soundscape contains ambience, Foley and non-verbal human sound only.
@@ -385,11 +401,15 @@ non_diegetic_music: ${nonDiegeticMusic}`;
   ];
   const summaryPictures = storyboards.map((_, index) => `<Picture ${index + referenceOffset}>`).join(', ');
 
+  const narrativeArc = storyboards
+    .map(storyboard => String(storyboard.montageRole || storyboard.clipType || 'development'))
+    .join(' -> ');
+
   return `subject_definitions:
 ${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}
 
 summary:
-[${options.firstFrameUrl ? 'keyframe + ' : ''}references${audioDefinitions.length ? ' + audio' : ''}] ${summaryPictures}; ${storyboards.length} causal shots / ${duration}s / one production world; ${speechEventCount ? `${speechEventCount} scheduled dialogue event${speechEventCount === 1 ? '' : 's'} and no other voice` : 'no human voice'}.
+[${options.firstFrameUrl ? 'keyframe + ' : ''}references${audioDefinitions.length ? ' + audio' : ''}] ${summaryPictures}; ${storyboards.length} causal shots / ${duration}s / one production world; ${speechEventCount ? `${speechEventCount} scheduled dialogue event${speechEventCount === 1 ? '' : 's'} and no other voice` : 'no human voice'}. Arc:${narrativeArc || 'development->consequence'}.
 
 retention_analysis:
 ${retention.join('\n')}

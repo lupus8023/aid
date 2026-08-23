@@ -29,6 +29,7 @@ import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
 import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
 import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@/lib/gridRecovery';
 import { compileTimedSpeech, segmentSpeechSignature, storyboardSpeech } from '@/lib/speechAudioContract';
+import { castStoryVoices, lockStoryboardVoiceIds } from '@/lib/voiceCasting';
 import { applyStoryAspectRatio, hasStoryMedia, projectStoryAspectRatio, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { getImageModelCapabilities } from '@/lib/imageModels';
 import { autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, normalizeStoryboardImageArtifact, planAutoImageBatch } from '@/lib/autoProduction';
@@ -469,7 +470,8 @@ export default function StoryPage() {
     const savedProject = loadProject();
     if (savedProject) {
       projectIdRef.current = savedProject.id!;
-      const savedCharacters = savedProject.characters || [];
+      const savedLanguageForVoice = savedProject.language === 'en' ? 'en' : 'zh';
+      const savedCharacters = castStoryVoices((savedProject.characters || []) as Character[], savedLanguageForVoice);
       const savedObjects = savedProject.objects || [];
       const savedCostumeImages = savedProject.costumeImages || {};
       const savedSceneImages = savedProject.sceneImages || [];
@@ -496,12 +498,12 @@ export default function StoryPage() {
       projectAspectRatioRef.current = savedAspectRatio;
       setProjectAspectRatio(savedAspectRatio);
       setVisualStyle(normalizeVisualStyle(savedProject.visualStyle || settings.visualStyle));
-      const savedStoryboards = (savedProject.storyboards || []).map(item => normalizeStoryboardImageArtifact({
+      const savedStoryboards = lockStoryboardVoiceIds<Storyboard>((savedProject.storyboards || []).map(item => normalizeStoryboardImageArtifact({
         ...item,
         aspectRatio: savedAspectRatio,
         imageFailureReason: normalizeSavedImageFailureReason(item.imageFailureReason)
           || (item.status === 'failed' ? '上次分镜生成未完成；请重新生成，系统会定位具体原因并自动修正可恢复的提示词问题' : undefined),
-      }));
+      })), savedCharacters);
       storyboardsRef.current = savedStoryboards;
       setStoryboards(savedStoryboards);
       void recoverProjectVideos(savedStoryboards, savedProject.id!);
@@ -663,7 +665,8 @@ export default function StoryPage() {
         videoRecoveryRef.current.clear();
         setIsCanvasMode(false);
         setProjectName(data.name || 'Untitled Project');
-        const importedCharacters = data.characters || [];
+        const importedVoiceLanguage = data.language === 'en' ? 'en' : 'zh';
+        const importedCharacters = castStoryVoices((data.characters || []) as Character[], importedVoiceLanguage);
         const importedObjects = data.objects || [];
         const importedCostumeImages = data.costumeImages || {};
         const importedSceneImages = data.sceneImages || [];
@@ -687,7 +690,7 @@ export default function StoryPage() {
         projectAspectRatioRef.current = importedAspectRatio;
         setProjectAspectRatio(importedAspectRatio);
         setVisualStyle(normalizeVisualStyle(data.visualStyle || settings.visualStyle));
-        const importedStoryboards = (data.storyboards || []).map((item: Storyboard) => ({ ...item, aspectRatio: importedAspectRatio }));
+        const importedStoryboards = lockStoryboardVoiceIds<Storyboard>((data.storyboards || []).map((item: Storyboard) => ({ ...item, aspectRatio: importedAspectRatio })), importedCharacters);
         storyboardsRef.current = importedStoryboards;
         setStoryboards(importedStoryboards);
         void recoverProjectVideos(importedStoryboards, importedProjectId);
@@ -794,9 +797,12 @@ export default function StoryPage() {
     // Never send uploaded image/base64/File fields to the text-only screenplay
     // endpoints. Besides wasting bandwidth, large character images can make a
     // hosting gateway reject the request with an HTML 413/5xx page.
-    const writerCharacters = characters.map(({ name, description, voiceId }) => ({ name, description, voiceId }));
-    const writerObjects = objects.map(({ name, description }) => ({ name, description }));
     const language = projectLanguageRef.current;
+    const voiceLockedCharacters = castStoryVoices(characters, language);
+    charactersRef.current = voiceLockedCharacters;
+    setCharacters(voiceLockedCharacters);
+    const writerCharacters = voiceLockedCharacters.map(({ name, description, voiceId, voiceProfile, voiceSource }) => ({ name, description, voiceId, voiceProfile, voiceSource }));
+    const writerObjects = objects.map(({ name, description }) => ({ name, description }));
     const activeSettings = settingsRef.current;
     // Older Companion builds ignore the structured field below, so append the
     // same production spec to the brief as a backwards-compatible contract.

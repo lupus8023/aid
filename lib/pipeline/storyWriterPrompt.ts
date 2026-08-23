@@ -42,6 +42,8 @@ ${objectDetails}
 - 每镜必须产生 informationGain：观众新知道一个事实、误解被修正、关系/目标/风险发生变化，或一个伏笔得到推进；不能只重复“很危险/很伤心”。
 - audienceQuestion 记录观众此刻追问什么。镜头可以回答旧问题，但必须同时提出更具体的新问题，直到高潮回收 centralDramaticQuestion。
 - dialoguePurpose 规划台词的叙事功能：question、answer、reveal、conceal、challenge、refusal、decision、promise、callback、payoff 或 visual_only。不要把“台词克制”误解为默认禁言；当私人目标、关系变化、选择、承诺或回收无法仅靠画面准确表达时，必须规划有效台词。
+- 用 dialogueUnitId 把跨镜的提问/回答、挑战/拒绝、承诺/回收绑定为同一连续对白单元；dialogueContext 写清这句台词承接的事实以及说完后听者必须改变的认知/关系。不能把一个完整交流拆成互不相干的口号。
+- dialogueObligation 为 required 时必须生成台词，不得在详细剧本阶段静默降为 visual_only；optional 才允许在动作已经完全表达信息时删除；visual 表示明确无对白。
 - 对白要形成跨镜呼应：问题必须得到回答或故意延迟；承诺/谎言/关键词必须在后面产生变化或回收。台词不能复述画面动作，也不能是脱离上下文的口号。
 - montageRole 决定剪辑语义：setup、development、escalation、parallel、contrast、decision、consequence、bridge、payoff、resolution。并置必须产生新的理解，不是旅游式画面罗列。
 
@@ -97,6 +99,9 @@ ${objectDetails}
       "emotionalTurn": "情绪或认知变化",
       "informationGain": "本镜让观众新增/修正的唯一关键信息",
       "dialoguePurpose": "question|answer|reveal|conceal|challenge|refusal|decision|promise|callback|payoff|visual_only",
+      "dialogueUnitId": "dlg-1；同一问答/承诺回收使用同一个 id，无对白为空",
+      "dialogueObligation": "required|optional|visual",
+      "dialogueContext": "这句承接什么，听者听后必须理解/决定/关系改变什么",
       "montageRole": "setup|development|escalation|parallel|contrast|decision|consequence|bridge|payoff|resolution",
       "audienceQuestion": "本镜结束时观众继续追问的问题",
       "requiredSpeaker": "第一条指定台词的可用角色精确名称；无台词则空字符串",
@@ -192,6 +197,7 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - 第一镜 stateBefore 必须按照上述交接类型承接上一批；最后一镜 nextCause 要准确铺向后续路线。
 - 台词服务叙事，而不是一律从少。beatMap.requiredLine 非空时逐字写入 speech；否则按 dialoguePurpose 判断：私人目标、问题/回答、关系转折、谎言/揭示、承诺/回收或明确选择若仅靠画面会含混，就写必要台词；visual_only 才保持 speech=[]。禁止旁白、画外音、路人台词、笑声、哼唱和无来源人声。
 - 台词必须承接上下文：用 storyFunction 标明 question/answer/reveal/refusal/decision/promise/callback/payoff；用 respondsTo 指向它回应的前一句信息或伏笔。不得写重复画面、孤立口号、通用感叹或没有对象的短句。
+- beatMap.dialogueUnitId、dialogueObligation、dialogueContext 是权威对白契约，逐项沿用。required 必须写 speech，不能因为动作可见而降为 visual_only；同一 dialogueUnitId 的问答/承诺/回收必须语义相接，听者的 listenerState 要写出听后发生的具体变化。
 - 一镜通常有 0–2 条有序台词；用户原文同镜明确给出三句或四句短对答时必须全部按 requiredDialogueLines 的原顺序保留。逐条绑定已出场角色，不能重叠，总台词时长加留白必须装入 durationHint。不要为了凑数量写台词。
 - 若 beatMap 只规划了 AI 自创台词功能、没有 requiredLine，而本镜信息已经能靠动作清楚交付，可以将 dialoguePurpose 明确改成 visual_only 并保持 speech=[]；绝不能为了满足字段而把一个角色的原话转嫁给另一个角色。requiredLine 非空时不得这样降级。
 - beatMap.requiredDialogueLines 非空时，speech 必须逐条、逐字、按顺序等于该数组；requiredLine/requiredSpeaker 是首句兼容字段。绝不能漏句、串角色、合并旁白或把临时人物的话转嫁给主角。
@@ -219,7 +225,10 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
     "dialoguePurpose": "沿用并具体落实 beatMap 的对白功能",
     "montageRole": "沿用 beatMap 的剪辑语义",
     "audienceQuestion": "本镜结束后观众追问的问题",
-    "speech": [{ "character": "当前角色", "exactLine": "只填写角色真正说出口的逐字台词；导演指令必须留在 speech 之外", "emotion": "克制情绪", "delivery": "语速停顿重音", "volume": "whisper|soft|normal|raised", "lipSync": true, "storyFunction": "question|answer|reveal|refusal|decision|promise|callback|payoff", "respondsTo": "回应的前句/信息/伏笔；无则空", "source": "user_exact|story_required" }],
+    "speech": [{ "character": "当前角色", "exactLine": "只填写角色真正说出口的逐字台词；导演指令必须留在 speech 之外", "emotion": "克制情绪", "delivery": "语速停顿重音", "volume": "whisper|soft|normal|raised", "lipSync": true, "listenerState": "听者听后具体改变的认知/情绪/决定", "storyFunction": "question|answer|reveal|refusal|decision|promise|callback|payoff", "respondsTo": "回应的前句/信息/伏笔；无则空", "source": "user_exact|story_required" }],
+    "dialogueUnitId": "沿用 beatMap",
+    "dialogueObligation": "required|optional|visual",
+    "dialogueContext": "沿用 beatMap",
     "audioPlan": { "backgroundHuman": "none|indistinct_nonverbal", "environment": ["sound"], "foley": ["sound"], "music": "none", "silenceBefore": 0.0, "silenceAfter": 0.4 },
     "stateBefore": { "characters": "位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "关系状态", "emotion": "情绪状态" },
     "stateAfter": { "characters": "位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "关系状态", "emotion": "情绪状态" },

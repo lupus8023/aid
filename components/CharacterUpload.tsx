@@ -213,7 +213,7 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
                 />
                 <p className="text-sm font-mono text-[var(--accent-green)] truncate">{char.name}</p>
                 <p className="text-xs text-[var(--text-secondary)] font-mono mt-1 line-clamp-2">{char.description}</p>
-                {char.voiceId && <p className="text-xs font-mono text-[var(--accent-purple)] mt-1 truncate">🎙 {char.voiceId}</p>}
+                {char.voiceId && <p className="text-xs font-mono text-[var(--accent-purple)] mt-1 truncate">🎙 {char.voiceSource === 'auto' ? '自动锁定' : '自定义'} · {char.voiceProfile || char.voiceId}</p>}
 
                 {/* Edit button */}
                 <button

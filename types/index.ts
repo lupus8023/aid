@@ -7,6 +7,8 @@ export interface Character {
   imageBase64?: string; // base64 格式的图片，用于 API 调用
   imageFile?: File;
   voiceId?: string; // fish.audio reference_id
+  voiceProfile?: string; // 角色音色画像；自动选角时用于复现同一声音
+  voiceSource?: 'user' | 'auto';
 }
 
 // 物体类型
@@ -104,6 +106,9 @@ export interface Storyboard {
   nextCause?: string;
   informationGain?: string; // 本镜结束后观众新理解了什么
   dialoguePurpose?: string; // 本镜对白在全片中的功能；无对白时为 visual_only
+  dialogueUnitId?: string; // 跨镜问题/回答/承诺/回收所属的连续对白单元
+  dialogueObligation?: 'required' | 'optional' | 'visual';
+  dialogueContext?: string; // 台词前提与说后必须改变的关系/认知
   montageRole?: string; // setup/development/contrast/decision/payoff/bridge 等剪辑语义
   audienceQuestion?: string; // 此刻维持或回答的观众问题
   stateBefore?: NarrativeState;

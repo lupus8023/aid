@@ -9,6 +9,9 @@ export interface PlannedCharacter {
   obstacle: string; // 阻碍：什么挡着他
   arc: string; // 弧线：起点情绪 → 终点情绪
   subtext: string; // 潜台词：嘴上说的 vs 心里想的
+  voiceId?: string; // 全片固定 Fish Audio reference_id
+  voiceProfile?: string;
+  voiceSource?: 'user' | 'auto';
 }
 
 export interface Beat {
@@ -34,6 +37,9 @@ export interface Beat {
   nextCause: string;
   informationGain: string; // 本镜给观众新增/修正的剧情信息
   dialoguePurpose: string; // question/reveal/refusal/decision/callback/visual_only
+  dialogueUnitId?: string;
+  dialogueObligation?: 'required' | 'optional' | 'visual';
+  dialogueContext?: string;
   montageRole: string; // setup/development/escalation/contrast/decision/consequence/payoff/bridge
   audienceQuestion: string; // 本镜维持或回答的悬念
   stateBefore?: NarrativeState;
@@ -129,5 +135,5 @@ export interface PipelineState {
 }
 
 // 参与编剧阶段的角色/物件输入（从 UI 状态规约而来）
-export type WriterCharacter = Pick<Character, 'name' | 'description' | 'voiceId'>;
+export type WriterCharacter = Pick<Character, 'name' | 'description' | 'voiceId' | 'voiceProfile' | 'voiceSource'>;
 export type WriterObject = Pick<ObjectItem, 'name' | 'description'>;

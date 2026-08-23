@@ -5,6 +5,7 @@ import { extractJson } from './json';
 import { normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from './shotCount';
 import type { NarrativeState, StoryAudioPlan, StoryClipType, StorySpeechLine } from '@/types';
 import { isDirectingInstructionDialogue, sanitizeGeneratedSpeechText } from '@/lib/speechAudioContract';
+import { castStoryVoices } from '@/lib/voiceCasting';
 
 const TRANSITIONS: Beat['transition'][] = ['cut', 'dissolve', 'fade', 'wipe'];
 const REQUIREMENT_CATEGORIES: StoryRequirement['category'][] = ['plot', 'character', 'setting', 'tone', 'format', 'pacing', 'dialogue', 'visual', 'avoid', 'other'];
@@ -39,6 +40,7 @@ function explicitDialogueSpeakers(synopsis: string): Array<{ name: string; count
 export function expandStoryCharacters(
   synopsis: string,
   uploadedCharacters: WriterCharacter[],
+  language: 'zh' | 'en' = 'zh',
 ): { characters: WriterCharacter[]; canonicalSynopsis: string; aliases: Record<string, string> } {
   const speakers = explicitDialogueSpeakers(synopsis);
   const aliases: Record<string, string> = {};
@@ -66,7 +68,7 @@ export function expandStoryCharacters(
     }));
 
   return {
-    characters: [...uploadedCharacters, ...textDefinedCharacters],
+    characters: castStoryVoices([...uploadedCharacters, ...textDefinedCharacters], language),
     canonicalSynopsis,
     aliases,
   };
@@ -80,6 +82,9 @@ export interface StoryOutlineBeat {
   emotionalTurn: string;
   informationGain: string;
   dialoguePurpose: string;
+  dialogueUnitId: string;
+  dialogueObligation: 'required' | 'optional' | 'visual';
+  dialogueContext: string;
   montageRole: string;
   audienceQuestion: string;
   requiredSpeaker: string;
@@ -236,12 +241,19 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
               line.text && allowedCharacters.includes(line.character)
             ));
           const requestedPurpose = asString(beat?.dialoguePurpose, 'visual_only').trim();
+          const rawObligation = asString(beat?.dialogueObligation).trim().toLowerCase();
+          const dialogueObligation: StoryOutlineBeat['dialogueObligation'] = /(?:visual|纯视觉|无对白)/i.test(rawObligation || requestedPurpose)
+            ? 'visual'
+            : (rawObligation === 'required' || requiredSpeaker || requiredLine ? 'required' : 'optional');
           if (requiredLine && !requiredSpeaker) {
             throw new Error(`镜头 ${nextIndex + 1} 有指定台词但没有有效 requiredSpeaker；临时或未上传角色不得发声`);
           }
-          const dialoguePurpose = /(?:visual_only|纯视觉|无对白)/i.test(requestedPurpose) || requiredSpeaker
-            ? requestedPurpose
-            : 'visual_only';
+          if (dialogueObligation === 'required' && !requiredSpeaker) {
+            throw new Error(`镜头 ${nextIndex + 1} 规划了必要对白但没有有效 requiredSpeaker`);
+          }
+          const dialoguePurpose = dialogueObligation === 'visual' || (dialogueObligation === 'optional' && !requiredSpeaker)
+            ? 'visual_only'
+            : requestedPurpose;
           return {
             index: ++nextIndex,
             actionGoal: asString(beat?.actionGoal, asString(beat?.action)).trim(),
@@ -250,6 +262,9 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
             emotionalTurn: asString(beat?.emotionalTurn).trim(),
             informationGain: asString(beat?.informationGain).trim(),
             dialoguePurpose,
+            dialogueUnitId: asString(beat?.dialogueUnitId).trim(),
+            dialogueObligation,
+            dialogueContext: asString(beat?.dialogueContext).trim(),
             montageRole: asString(beat?.montageRole, 'development').trim(),
             audienceQuestion: asString(beat?.audienceQuestion).trim(),
             requiredSpeaker,
@@ -371,6 +386,8 @@ export function sanitizeStoryPlan(
   sourceBrief = '',
   targetShotCount?: number,
   voiceIds: Record<string, string | undefined> = {},
+  voiceProfiles: Record<string, string | undefined> = {},
+  voiceSources: Record<string, 'user' | 'auto' | undefined> = {},
 ): StoryPlan {
   const characters: PlannedCharacter[] = (Array.isArray(raw?.characters) ? raw.characters : []).map((c: any) => ({
     name: asString(c?.name),
@@ -378,6 +395,9 @@ export function sanitizeStoryPlan(
     obstacle: asString(c?.obstacle),
     arc: asString(c?.arc),
     subtext: asString(c?.subtext),
+    voiceId: voiceIds[asString(c?.name)],
+    voiceProfile: voiceProfiles[asString(c?.name)],
+    voiceSource: voiceSources[asString(c?.name)],
   })).filter((c: PlannedCharacter) => c.name && allowedCharacters.includes(c.name));
 
   let globalBeatIndex = 0;
@@ -423,6 +443,7 @@ export function sanitizeStoryPlan(
           delivery: asString(line?.delivery, 'natural, concise, no theatrical emphasis'),
           volume: VOLUMES.includes(line?.volume) ? line.volume : 'normal',
           lipSync: line?.lipSync !== false,
+          listenerState: asString(line?.listenerState).trim(),
           storyFunction: asString(line?.storyFunction, asString(b?.dialoguePurpose)).trim(),
           respondsTo: asString(line?.respondsTo).trim(),
           source,
@@ -462,6 +483,11 @@ export function sanitizeStoryPlan(
         nextCause: asString(b?.nextCause),
         informationGain: asString(b?.informationGain),
         dialoguePurpose: asString(b?.dialoguePurpose, speech.length ? 'story_progression' : 'visual_only'),
+        dialogueUnitId: asString(b?.dialogueUnitId),
+        dialogueObligation: b?.dialogueObligation === 'required' || b?.dialogueObligation === 'optional'
+          ? b.dialogueObligation
+          : 'visual',
+        dialogueContext: asString(b?.dialogueContext),
         montageRole: asString(b?.montageRole, 'development'),
         audienceQuestion: asString(b?.audienceQuestion),
         stateBefore: narrativeState(b?.stateBefore),
@@ -563,7 +589,7 @@ export async function generateStoryPlan(input: {
     scriptModel = 'gpt-4o',
     dmxApiKey,
   } = input;
-  const { characters, canonicalSynopsis: synopsis } = expandStoryCharacters(sourceSynopsis, uploadedCharacters);
+  const { characters, canonicalSynopsis: synopsis } = expandStoryCharacters(sourceSynopsis, uploadedCharacters, language);
   const targetShotCount = normalizeTargetShotCount(input.targetShotCount);
   const isLocalCompanion = process.env.AID_LOCAL_COMPANION === '1';
   const outlinePrompt = buildStoryOutlinePrompt({ synopsis, characters, objects, language, targetShotCount });
@@ -659,6 +685,9 @@ export async function generateStoryPlan(input: {
             if (authority.requiredDialogueLines.length || authority.requiredLine) {
               throw new Error(`镜头 ${authority.index} 规划了 ${required.dialoguePurpose} 台词功能，但没有生成 speech`);
             }
+            if (authority.dialogueObligation === 'required') {
+              throw new Error(`镜头 ${authority.index} 的必要对白单元 ${authority.dialogueUnitId || ''} 没有生成 speech`);
+            }
             beat.dialoguePurpose = 'visual_only';
             required.dialoguePurpose = 'visual_only';
             purpose = 'visual_only';
@@ -692,6 +721,9 @@ export async function generateStoryPlan(input: {
             characterChange: asString(beat?.characterChange, authority.emotionalTurn),
             informationGain: asString(beat?.informationGain, authority.informationGain),
             dialoguePurpose: asString(beat?.dialoguePurpose, authority.dialoguePurpose),
+            dialogueUnitId: authority.dialogueUnitId,
+            dialogueObligation: authority.dialogueObligation,
+            dialogueContext: authority.dialogueContext,
             montageRole: asString(beat?.montageRole, authority.montageRole),
             audienceQuestion: asString(beat?.audienceQuestion, authority.audienceQuestion),
             speech: authority.requiredDialogueLines.length
@@ -775,6 +807,8 @@ export async function generateStoryPlan(input: {
     sourceSynopsis,
     targetShotCount,
     Object.fromEntries(characters.map(character => [character.name, character.voiceId])),
+    Object.fromEntries(characters.map(character => [character.name, character.voiceProfile])),
+    Object.fromEntries(characters.map(character => [character.name, character.voiceSource])),
   );
   const actualShotCount = storyPlanBeatCount(plan);
   if (actualShotCount !== targetShotCount) {

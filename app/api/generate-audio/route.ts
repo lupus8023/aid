@@ -11,6 +11,7 @@ import ffmpegStatic from 'ffmpeg-static';
 const execFileAsync = promisify(execFile);
 
 async function generateTTS(text: string, voiceId: string | undefined, fishAudioKey: string): Promise<Buffer> {
+  if (!voiceId?.trim()) throw new Error('每条台词必须绑定明确的角色 voiceId，已禁止使用 Fish 默认音色');
   const res = await fetch('https://api.fish.audio/v1/tts', {
     method: 'POST',
     headers: {
@@ -21,7 +22,7 @@ async function generateTTS(text: string, voiceId: string | undefined, fishAudioK
     body: JSON.stringify({
       text,
       format: 'mp3',
-      ...(voiceId ? { reference_id: voiceId } : {}),
+      reference_id: voiceId.trim(),
     }),
   });
   if (!res.ok) throw new Error(`fish.audio error: ${await res.text()}`);
@@ -89,6 +90,10 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedLines = lines.filter(({ text }: { text?: string }) => text?.trim());
+    const missingVoice = normalizedLines.find(({ voiceId }: { voiceId?: string }) => !voiceId?.trim());
+    if (missingVoice) {
+      return NextResponse.json({ error: `角色“${missingVoice.character || '未知'}”尚未锁定音色` }, { status: 400 });
+    }
 
     // Generate once in dialogue order so ComfyUI can receive one exact segment track.
     const generatedLines: { character: string; buffer: Buffer; startSeconds?: number }[] = [];

@@ -6,8 +6,8 @@ export async function POST(request: NextRequest) {
   try {
     const { characterName, sampleText, voiceId, fishAudioKey } = await request.json();
 
-    if (!sampleText || !fishAudioKey) {
-      return NextResponse.json({ error: 'sampleText and fishAudioKey are required' }, { status: 400 });
+    if (!sampleText || !fishAudioKey || !voiceId?.trim()) {
+      return NextResponse.json({ error: 'sampleText、fishAudioKey 和已锁定的 voiceId 均为必填项' }, { status: 400 });
     }
 
     // 保证文本足够长，避免生成的音频 < 1.8s（Seedance 最低时长要求）
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         text: paddedText,
         format: 'mp3',
-        ...(voiceId ? { reference_id: voiceId } : {}),
+        reference_id: voiceId.trim(),
       }),
     });
 

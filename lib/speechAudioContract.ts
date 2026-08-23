@@ -109,6 +109,7 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
         delivery: 'natural, concise, no theatrical emphasis',
         volume: 'normal' as const,
         lipSync: true,
+        listenerState: '',
         storyFunction: '',
         respondsTo: '',
         source: 'story_required' as const,
@@ -126,7 +127,7 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
       delivery: clean(line.delivery) || 'natural, concise, no theatrical emphasis',
       volume: line.volume || 'normal',
       lipSync: line.lipSync !== false,
-      listenerState: undefined,
+      listenerState: clean(line.listenerState),
       storyFunction: clean(line.storyFunction),
       respondsTo: clean(line.respondsTo),
       source: line.source === 'user_exact' ? 'user_exact' as const : 'story_required' as const,
@@ -207,6 +208,11 @@ export function validateSpeechContract(storyboards: Storyboard[]): string | unde
   const overlong = lines.find(line => speechSeconds(line.exactLine) > 11.5);
   if (overlong) return `台词过长，无法在 15 秒内保留开场留白和说后反应：${overlong.character}`;
   return undefined;
+}
+
+export function validateVoiceBindings(storyboards: Storyboard[]): string | undefined {
+  const missing = storyboards.flatMap(storyboardSpeech).find(line => !clean(line.voiceId));
+  return missing ? `角色“${missing.character}”尚未锁定音色，不能生成对白` : undefined;
 }
 
 export function compileTimedSpeech(

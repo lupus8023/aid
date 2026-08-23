@@ -60,10 +60,10 @@ test('persists and restores a manual director segment plan', () => {
 
 test('keeps up to three timed dialogue beats together and splits before the fourth', () => {
   const groups = suggestVideoSegments([
-    shot(1, { characters: ['A'], dialogueLines: [{ character: 'A', text: '第一句。' }] }),
-    shot(2, { characters: ['B'], dialogueLines: [{ character: 'B', text: '第二句。' }] }),
-    shot(3, { characters: ['A'], dialogueLines: [{ character: 'A', text: '第三句。' }] }),
-    shot(4, { characters: ['C'], dialogueLines: [{ character: 'C', text: '第四句。' }] }),
+    shot(1, { characters: ['A'], speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: '第一句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
+    shot(2, { characters: ['B'], speech: [{ speakerId: 'S2', character: 'B', voiceId: 'voice-b', exactLine: '第二句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
+    shot(3, { characters: ['A'], speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: '第三句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
+    shot(4, { characters: ['C'], speech: [{ speakerId: 'S3', character: 'C', voiceId: 'voice-c', exactLine: '第四句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
   ]);
   assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2, 3], [4]]);
   assert.equal(validateVideoSegment(groups[0]), undefined);
@@ -94,12 +94,12 @@ test('segment duration reserves compiler lead and tail silence instead of roundi
   const segment = [
     shot(1, {
       characters: ['A'], clipType: 'action', durationHint: 5,
-      speech: [{ speakerId: 'S1', character: 'A', exactLine: 'The Western Reef is still half a measure short.', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'user_exact' }],
+      speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: 'The Western Reef is still half a measure short.', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'user_exact' }],
       audioPlan: { backgroundHuman: 'none', environment: [], foley: [], music: 'none', silenceBefore: 0.1, silenceAfter: 0.4 },
     }),
     shot(2, {
       characters: ['B'], clipType: 'dialogue', durationHint: 4.5,
-      speech: [{ speakerId: 'S2', character: 'B', exactLine: 'Princess, the Southern Bay channel is blocked.', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'user_exact' }],
+      speech: [{ speakerId: 'S2', character: 'B', voiceId: 'voice-b', exactLine: 'Princess, the Southern Bay channel is blocked.', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'user_exact' }],
       audioPlan: { backgroundHuman: 'none', environment: [], foley: [], music: 'none', silenceBefore: 0, silenceAfter: 0.3 },
     }),
   ];

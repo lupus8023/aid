@@ -66,6 +66,8 @@ ${storyPlan.sourceBrief || '（旧项目未保存原始输入，请以 StoryPlan
 - 必须让 dramaticPurpose、cause、conflict、choice、consequence 和 stateBefore/stateAfter 在画面中可见；镜头必须改变信息、关系、决定或物理状态，不能只制造氛围。
 - informationGain 是本镜必须交付给观众的理解；用人物阻挡、视线、反应、道具状态与结果构图让它可读。audienceQuestion 决定镜尾要保留什么悬念，montageRole 决定它与相邻镜的语义关系。
 - speech 是权威对白，不能改写、删减或写进图像 prompt。对白发生时，description 要安排清楚说话者与聆听者的可见表演；无对白时不要虚构开口动作。
+- 对白镜头不能按“谁说一句就切谁”机械覆盖。先用关系构图建立双方目标和空间，权力/信息发生变化时才切；说话者的策略、听者的即时反应以及 speech.listenerState 指定的说后变化必须同时可读。反应镜承担台词后果，不是漂亮头像。
+- 同一 dialogueUnitId 是一个不可拆散的交流动作：提问/挑战要在构图里明确指向对象，回答/拒绝要接住前句压力，承诺/关键词在 callback/payoff 镜头以动作或关系变化回收。
 - description 不得复述、翻译或引用 speech.exactLine，也不得把“停顿后说/以某种语气说”等声音导演指令写成画面动作；只描述可见的口型、视线、表情、阻挡与反应。精确台词和说法只由 speech 字段控制。
 - 不得添加 beat 中没有的情节、台词、旁白、画外音、声音或角色行为。
 - 如果用户原始输入含有 beat 未重复写出的明确视觉、服装、场景或语气要求，必须落实到 description/prompt，但不得改变剧情与镜头数量。
@@ -116,6 +118,7 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
    - 动作按“进入→加速/施力→撞点/决定→短回落”组织；速度感来自加速度，不来自整段匀速快或匀速慢。除非 beat 明确要求主观时间，否则禁止慢动作、bullet time、长时间悬停和无目的 slow push。
    - 关键信息或反应落定后保留 0.25–0.6 秒可读呼吸；普通内容不额外停顿。镜尾仍要留下动作、视线、道具、前景遮挡、焦点或可见后果作为下一镜的交棒。
    - 每个接缝只选择一种剪辑语法：动作匹配、视线匹配、道具/形状匹配、前景遮挡藏切、焦点接力、因果切、对照切或平行切。保持运动矢量、速度和银幕方向连续；禁止用淡入淡出、叠化或任意擦除掩盖不连续。
+   - 蒙太奇必须有句法：因果切让前镜结果触发后镜动作；平行切比较同时发生的压力；对照切让前后价值发生碰撞；省略切跳过重复过程但保留动作起点、关键变化与结果。每一切既回答上一个观众问题，又打开更具体的下一个问题。
 5. sceneStyle：用紧凑英文记录本 sequence 的相机/镜头家族、主光方向与软硬/色温、环境反射或负补光、有限曝光、高光滚降、阴影密度、色彩响应和主要材质。连续 sequence 内保持相同基线。
 
 🎥 项目成像基线（只用于落实摄影物理，不要原样复制成长段落）：
@@ -182,6 +185,9 @@ function mergeBeats(
       nextCause: beat.nextCause,
       informationGain: beat.informationGain,
       dialoguePurpose: beat.dialoguePurpose,
+      dialogueUnitId: beat.dialogueUnitId,
+      dialogueObligation: beat.dialogueObligation,
+      dialogueContext: beat.dialogueContext,
       montageRole: beat.montageRole,
       audienceQuestion: beat.audienceQuestion,
       stateBefore: beat.stateBefore,

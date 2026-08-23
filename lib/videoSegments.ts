@@ -1,12 +1,12 @@
 import type { Storyboard } from '@/types';
-import { speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechContract, validateSpeechLanguage } from './speechAudioContract';
+import { speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechContract, validateSpeechLanguage, validateVoiceBindings } from './speechAudioContract';
 
 export const MAX_H3_SEGMENT_SECONDS = 15;
 export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v5';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v6';
 
 export interface VideoSegmentPlan {
   version: 1;
@@ -53,6 +53,9 @@ export function videoSegmentGenerationSignature(storyboards: Storyboard[]): stri
     nextCause: storyboard.nextCause || '',
     informationGain: storyboard.informationGain || '',
     dialoguePurpose: storyboard.dialoguePurpose || '',
+    dialogueUnitId: storyboard.dialogueUnitId || '',
+    dialogueObligation: storyboard.dialogueObligation || '',
+    dialogueContext: storyboard.dialogueContext || '',
     montageRole: storyboard.montageRole || '',
     audienceQuestion: storyboard.audienceQuestion || '',
     durationHint: storyboard.durationHint || 0,
@@ -113,6 +116,8 @@ export function validateVideoSegment(storyboards: Storyboard[], language?: 'zh' 
   if (storyboards.some(storyboard => !storyboard.imageUrl)) return '所选分镜必须先完成分镜图';
   const speechError = validateSpeechContract(storyboards);
   if (speechError) return speechError;
+  const voiceError = validateVoiceBindings(storyboards);
+  if (voiceError) return voiceError;
   const languageError = validateSpeechLanguage(storyboards, language);
   if (languageError) return languageError;
   const projectedSeconds = storyboards.reduce((sum, storyboard) => sum + estimateStoryboardBeatSeconds(storyboard), 0);
@@ -143,7 +148,10 @@ export function suggestVideoSegments(storyboards: Storyboard[]): Storyboard[][] 
     const closesDramaticUnit = /(?:payoff|resolution|收束|回收)/.test(previousRole);
     const opensDramaticUnit = /(?:setup|建立)/.test(nextRole);
     const explicitBridge = /(?:bridge|parallel|contrast|consequence|桥接|平行|对照|后果)/.test(nextRole);
-    const newDramaticUnit = Boolean(previous && closesDramaticUnit && opensDramaticUnit && !explicitBridge);
+    const previousDialogueUnit = String(previous?.dialogueUnitId || '').trim();
+    const nextDialogueUnit = String(storyboard.dialogueUnitId || '').trim();
+    const sharedDialogueUnit = Boolean(previousDialogueUnit && previousDialogueUnit === nextDialogueUnit);
+    const newDramaticUnit = Boolean(previous && closesDramaticUnit && opensDramaticUnit && !explicitBridge && !sharedDialogueUnit);
 
     // H3 can perform several causal shots — including motivated location
     // changes — inside one 15-second clip. Location/sequence labels and

@@ -73,6 +73,7 @@ jobs:
       - run: npm run test:story-engine
       - run: npm run test:story-stages
       - run: npm run test:story-adaptation
+      - run: npm run test:voice-casting
       - run: npm run test:image-prompt-safety
       - run: npm run test:grid-recovery
       - run: npm run build:companion
