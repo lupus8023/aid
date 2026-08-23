@@ -962,20 +962,28 @@ export function injectLockedDriveAudio(
   inputs.task_type = variant
     ? (variant === 'aid_first_last' ? 'Hybrid' : 'Ref2VA')
     : (inputs.first_frame || inputs.last_frame ? 'Hybrid' : 'Ref2VA');
-  inputs.audio_mode = 'lock_source';
-  inputs.audio_denoise_strength = 0;
+  // A transparent lock makes lip-sync reliable, but its mux_audio output is
+  // only the supplied dialogue stem: every silent interval stays literally
+  // silent. A restrained learned remix keeps the stem as the timing/phoneme
+  // anchor while allowing H3 to render location ambience and caused Foley.
+  inputs.audio_mode = 'remix_source';
+  inputs.audio_denoise_strength = 0.2;
   inputs.add_source_as_reference = true;
   inputs.prompt_primary_audio_ordinal = 1;
   inputs.strict_prompt_tags = true;
 
+  const decodeEntry = Object.entries(prompt).find(([, outputNode]) =>
+    /^MiniMaxH3AVDecode/.test(String((outputNode as JsonRecord).class_type || '')),
+  );
+  if (!decodeEntry) throw new ComfyUIError('工作流缺少 H3 音视频解码节点');
   let muxCount = 0;
   for (const outputNode of Object.values(prompt) as JsonRecord[]) {
     if (!['VHS_VideoCombine', 'SaveVideo'].includes(String(outputNode.class_type || ''))) continue;
     if (!outputNode.inputs || !('audio' in outputNode.inputs)) continue;
-    // Output 2 is MiniMaxH3AudioConditioningT8's mux_audio. With final_audio
-    // connected above, the saved MP4 receives the exact source track instead
-    // of H3's newly decoded audio latent.
-    outputNode.inputs.audio = [conditioningId, 2];
+    // AV Decode output 1 contains the source-conditioned dialogue plus H3's
+    // synchronized non-vocal sound bed. Conditioning output 2 is only the
+    // untouched stem and was the cause of Story clips with no ambience.
+    outputNode.inputs.audio = [decodeEntry[0], 1];
     muxCount += 1;
   }
   if (!muxCount) throw new ComfyUIError('工作流没有可锁定音轨的视频输出节点');

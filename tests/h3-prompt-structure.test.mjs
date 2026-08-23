@@ -262,11 +262,12 @@ test('uses a locked full-duration dialogue track without asking H3 to synthesize
     }),
   ], [], { duration: 13, language: 'en', hasVoiceReferences: true, lockedDialogueTrack: true });
 
-  assert.match(prompt, /<Audio 1> is the authoritative full-duration final soundtrack/);
+  assert.match(prompt, /<Audio 1> is the authoritative full-duration dialogue stem/);
   assert.match(prompt, /lip-syncs exactly to prerecorded dialogue event 1 already present in <Audio 1>/);
-  assert.match(prompt, /Preserve it sample-for-sample/);
+  assert.match(prompt, /Preserve every word, speaker identity, phoneme rhythm, onset, ending and pause/);
   assert.doesNotMatch(prompt, /<d>|The Western Reef is still half a measure short/);
-  assert.match(prompt, /generate no ambience, Foley, music or voice/i);
+  assert.match(prompt, /only synchronized non-vocal location ambience and visibly caused Foley/i);
+  assert.match(prompt, /sole human-vocal layer/i);
 });
 
 test('locks silent H3 segments to a full-duration silent source track', () => {
@@ -277,7 +278,8 @@ test('locks silent H3 segments to a full-duration silent source track', () => {
     lockedDialogueTrack: true,
   });
   assert.match(prompt, /exactly 0 prerecorded dialogue events/);
-  assert.match(prompt, /<Audio 1> is locked silence/);
+  assert.match(prompt, /<Audio 1> contains no vocal event/);
+  assert.match(prompt, /non-vocal ambience and caused Foley may be generated/);
   assert.doesNotMatch(prompt, /<d>/);
 });
 

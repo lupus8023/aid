@@ -249,15 +249,16 @@ function cinematicTransition(previous: Storyboard, next: Storyboard): string {
 
 function shotActionSchedule(storyboard: Storyboard, range: { start: number; end: number }): string {
   const span = Math.max(0.1, range.end - range.start);
-  const commitment = range.start + span * 0.62;
-  const consequence = range.start + span * 0.84;
+  const initiation = Math.min(range.end, range.start + Math.min(0.25, span * 0.08));
+  const commitment = range.start + span * 0.30;
+  const consequence = range.start + span * 0.64;
   // Keep detailed_description observable and playable. Abstract cause/pressure/
   // choice prose used to repeat the screenplay in several explanatory
   // sentences; Ref2VA occasionally vocalized those sentences as narration.
   // The authoritative action already contains the causal beat, so only send
   // the physical performance and its timing here.
   const narrative = silentNarrativePerformance(storyboard);
-  return `${authoritativeShotAction(storyboard)} ${narrative ? `Silent performance: ${narrative}` : ''} Begin at ${h3Timestamp(range.start)}; decisive contact by ${h3Timestamp(commitment)}; visible consequence by ${h3Timestamp(consequence)}; secondary motion through ${h3Timestamp(range.end)}. Cadence: ${shotMotionCadence(storyboard)}`;
+  return `${authoritativeShotAction(storyboard)} ${narrative ? `Silent performance: ${narrative}` : ''} Start by ${h3Timestamp(initiation)}; commit by ${h3Timestamp(commitment)}; consequence by ${h3Timestamp(consequence)}; transition through ${h3Timestamp(range.end)}. Real-time cycle; no slow motion/extended holds. Cadence: ${shotMotionCadence(storyboard)}`;
 }
 
 export function buildVideoSegmentPrompt(
@@ -293,12 +294,12 @@ export function buildVideoSegmentPrompt(
   const speechEventCount = timedSpeech.length;
   const lockedDialogueTrack = Boolean(options.lockedDialogueTrack);
   const lockedAudioDefinition = lockedDialogueTrack
-    ? `<Audio 1> is the authoritative full-duration final soundtrack. It already contains exactly ${speechEventCount} prerecorded dialogue event${speechEventCount === 1 ? '' : 's'} at the scheduled times and silence everywhere else. Preserve it sample-for-sample; generate, extend, replace, reinterpret or add no sound.`
+    ? `<Audio 1> is the authoritative full-duration dialogue stem. It contains exactly ${speechEventCount} prerecorded dialogue event${speechEventCount === 1 ? '' : 's'} at the scheduled times. Preserve every word, speaker identity, phoneme rhythm, onset, ending and pause. Build only synchronized non-vocal location ambience and visibly caused Foley in its empty intervals and beneath it; never generate, replace, extend or reinterpret a human voice.`
     : '';
   const speechControl = lockedDialogueTrack
     ? speechEventCount
       ? `Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} exist only inside <Audio 1>. Generate no voice, narration, ad-lib, singing, breathing words or additional mouth movement; all prose is silent direction.`
-      : 'No narrator, dialogue, singing, ad-lib, breathy words or intelligible human vocalization exists. <Audio 1> is locked silence and all prose below is silent visual direction.'
+      : 'No narrator, dialogue, singing, ad-lib, breathy words or intelligible human vocalization exists. <Audio 1> contains no vocal event; all prose below is silent visual direction, while only non-vocal ambience and caused Foley may be generated.'
     : speechEventCount
       ? `No narrator or ad-lib exists. Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} ${speechEventCount === 1 ? 'occurs' : 'occur'}: only the tagged dialogue line${speechEventCount === 1 ? '' : 's'} below, once each. Other prose is silent direction; never vocalize or mouth it.`
       : 'No narrator, dialogue, singing, ad-lib, or intelligible human vocalization exists. All prose below is silent visual direction.';
@@ -372,9 +373,9 @@ export function buildVideoSegmentPrompt(
   // Official H3 format keeps dialogue exclusively inside detailed_description.
   // overall_soundscape contains ambience, Foley and non-verbal human sound only.
   const soundscape = lockedDialogueTrack
-    ? '<Audio 1> is the complete final soundtrack. Preserve its prerecorded dialogue timing and every silent interval exactly; generate no ambience, Foley, music or voice.'
+    ? `${buildAudioManifest(storyboards)} <Audio 1> remains the sole human-vocal layer. Add no breath words, crowd speech, whisper, narration, singing or other intelligible voice.`
     : buildAudioManifest(storyboards);
-  const nonDiegeticMusic = lockedDialogueTrack ? 'N/A — final audio is locked to <Audio 1>.' : buildNonDiegeticMusic(storyboards);
+  const nonDiegeticMusic = lockedDialogueTrack ? 'N/A — no music; only the dialogue stem, location ambience and caused Foley.' : buildNonDiegeticMusic(storyboards);
 
   if (isFirstLastMode) {
     return `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.
@@ -405,7 +406,7 @@ non_diegetic_music: ${nonDiegeticMusic}`;
     ...subjectDefinitions.map((_, index) => `<Subject ${index + 1}>: fully_preserved identity/wardrobe across ${storyboards.flatMap((storyboard, shotIndex) => storyboard.characters?.includes(characters[index]) ? [`[Shot ${shotIndex + 1}]`] : []).join(',')}.`),
     ...pictureDefinitions.map((_, index) => `<Picture ${index + 1}>: reference; lock identity/world, not pose/viewpoint.`),
     ...audioDefinitions.map((_, index) => lockedDialogueTrack
-      ? `<Audio ${index + 1}>: fully_preserved final soundtrack; exact timing and silence; no generated audio.`
+      ? `<Audio ${index + 1}>: fully_preserved dialogue stem; exact words/timing/voice; only non-vocal ambience and Foley may be added around it.`
       : `<Audio ${index + 1}>: reference - voice timbre for its bound scheduled speaker only; no source wording or continuous vocal track is copied.`),
   ];
   const summaryPictures = storyboards.map((_, index) => `<Picture ${index + referenceOffset}>`).join(', ');

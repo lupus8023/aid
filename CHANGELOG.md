@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.45 - 2026-08-23
+
+### Fixed
+
+- Exact Story dialogue is now used as a lightly remixed timing and phoneme anchor instead of replacing the complete H3 soundtrack. The generated clip keeps the authorized words and speaker identity while restoring synchronized location ambience and visibly caused Foley.
+- H3 action beats begin immediately, reach contact or decision in the first third, and show their consequence before the final third. Default action, reaction, insert, establishing and montage budgets are shorter so ordinary movement no longer expands into an unintended slow-motion performance.
+- H3 v10 invalidates silent-bed and slow-cadence cached clips while retaining completed storyboard images and the director's segment plan.
+
+### Verification
+
+- Added workflow regression coverage for `remix_source` at 0.20 strength and AV Decode audio delivery, plus prompt checks that preserve exact dialogue as the sole vocal layer while allowing non-vocal ambience and Foley.
+
 ## 0.1.44 - 2026-08-23
 
 ### Fixed

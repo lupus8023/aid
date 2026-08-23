@@ -6,7 +6,7 @@ export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v9';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v10';
 
 export interface VideoSegmentPlan {
   version: 1;
@@ -77,15 +77,15 @@ export function estimateStoryboardBeatSeconds(storyboard: Storyboard): number {
   const plan = storyboardAudioPlan(storyboard);
   const hint = Number(storyboard.durationHint || storyboard.videoDuration || 5);
   const typeFloor: Record<string, number> = {
-    insert: 2, reaction: 3, establishing: 3, action: 3.5,
-    dialogue: 5, performance: 5, montage: 2, long_take: 10,
+    insert: 1.7, reaction: 2.4, establishing: 2.7, action: 2.8,
+    dialogue: 5, performance: 5, montage: 1.8, long_take: 8,
   };
   const typeCeiling: Record<string, number> = {
-    insert: 4, reaction: 5, establishing: 6, action: 7,
+    insert: 3.5, reaction: 4.5, establishing: 5.5, action: 6,
     dialogue: 8, performance: 8, montage: 4, long_take: 15,
   };
   const clipType = storyboard.clipType || (lines.length ? 'dialogue' : 'action');
-  const visual = Math.min(typeCeiling[clipType] || 7, Math.max(typeFloor[clipType] || 3.5, hint * 0.7));
+  const visual = Math.min(typeCeiling[clipType] || 6, Math.max(typeFloor[clipType] || 2.8, hint * 0.6));
   const spoken = lines.length
     ? lines.reduce((sum, line) => sum + speechSeconds(line.exactLine), 0)
       + Math.max(0, lines.length - 1) * 0.35

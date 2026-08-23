@@ -86,7 +86,7 @@ test('keeps an official structured H3 prompt free of a second appended contract'
   assert.equal(taggedPrompt(official, 'aid_single_reference', 0, 0), official);
 });
 
-test('locks drive and final audio and wires the exact track into the MP4 mux', () => {
+test('uses the exact dialogue stem as a light remix anchor and saves generated ambience', () => {
   const prompt = {
     6: {
       class_type: 'MiniMaxH3AudioConditioningT8',
@@ -95,6 +95,10 @@ test('locks drive and final audio and wires the exact track into the MP4 mux', (
         audio_mode: 'native',
         'ref_audios.ref_audio_0': ['20', 0],
       },
+    },
+    11: {
+      class_type: 'MiniMaxH3AVDecodeT8',
+      inputs: { samples: ['10', 0] },
     },
     12: {
       class_type: 'VHS_VideoCombine',
@@ -110,13 +114,13 @@ test('locks drive and final audio and wires the exact track into the MP4 mux', (
   assert.deepEqual(conditioning.drive_audio, [loadEntry[0], 0]);
   assert.deepEqual(conditioning.final_audio, [loadEntry[0], 0]);
   assert.equal(conditioning.task_type, 'Ref2VA');
-  assert.equal(conditioning.audio_mode, 'lock_source');
-  assert.equal(conditioning.audio_denoise_strength, 0);
+  assert.equal(conditioning.audio_mode, 'remix_source');
+  assert.equal(conditioning.audio_denoise_strength, 0.2);
   assert.equal(conditioning.add_source_as_reference, true);
   assert.equal(conditioning.prompt_primary_audio_ordinal, 1);
   assert.equal(conditioning.strict_prompt_tags, true);
   assert.equal('ref_audios.ref_audio_0' in conditioning, false);
-  assert.deepEqual(prompt[12].inputs.audio, ['6', 2]);
+  assert.deepEqual(prompt[12].inputs.audio, ['11', 1]);
 });
 
 test('locked dialogue keeps Hybrid when explicit keyframes are connected', () => {
@@ -132,6 +136,10 @@ test('locked dialogue keeps Hybrid when explicit keyframes are connected', () =>
     12: {
       class_type: 'VHS_VideoCombine',
       inputs: { images: ['11', 0], audio: ['11', 1] },
+    },
+    22: {
+      class_type: 'MiniMaxH3AVDecodeT8',
+      inputs: { samples: ['10', 0] },
     },
   };
 
