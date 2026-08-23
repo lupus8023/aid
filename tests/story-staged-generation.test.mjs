@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildDirectorBatches, normalizeDirectorShots } from '../lib/pipeline/storyDirector.ts';
+import { buildDirectorBatches, normalizeDirectorShots, stripExactDialogueFromDescription, validateDirectorShots } from '../lib/pipeline/storyDirector.ts';
 import { extractJson } from '../lib/pipeline/json.ts';
-import { buildStoryBeatBatches, normalizeStoryOutline } from '../lib/pipeline/storyWriter.ts';
+import { buildStoryBeatBatches, filterVisibleStorySpeech, normalizeStoryOutline } from '../lib/pipeline/storyWriter.ts';
 import { buildStoryBeatBatchPrompt, buildStoryOutlinePrompt } from '../lib/pipeline/storyWriterPrompt.ts';
 
 const outlineSequence = (id, start, count) => ({
@@ -51,6 +51,18 @@ test('normalizes the global map to exact continuous indexes and rejects a wrong 
   assert.throws(() => normalizeStoryOutline(outlineDocument([outlineSequence('seq-1', 1, 8)]), 9), /返回了 8 个镜头地图/);
 });
 
+test('normalizes common provider wrappers around the screenplay outline', () => {
+  const outline = outlineDocument([outlineSequence('seq-1', 1, 9)]);
+  for (const wrapped of [
+    { storyPlan: outline },
+    { data: { outline } },
+    { result: { story: outline } },
+    [outline],
+  ]) {
+    assert.equal(normalizeStoryOutline(wrapped, 9).sequences[0].beatMap.length, 9);
+  }
+});
+
 test('requires every outline dialogue line to retain a valid uploaded speaker', () => {
   const invalid = outlineSequence('seq-1', 1, 9);
   invalid.beatMap[0].requiredLine = '我妹妹还在里面。';
@@ -63,6 +75,26 @@ test('requires every outline dialogue line to retain a valid uploaded speaker', 
   invalid.beatMap[0].requiredSpeaker = '人鱼公主';
   const outline = normalizeStoryOutline(outlineDocument([invalid]), 9, ['人鱼公主']);
   assert.equal(outline.sequences[0].beatMap[0].requiredSpeaker, '人鱼公主');
+});
+
+test('outline dialogue purpose requires an explicit uploaded speaker', () => {
+  const sequence = outlineSequence('seq-1', 1, 9);
+  sequence.beatMap[0].dialoguePurpose = 'challenge';
+  sequence.beatMap[0].requiredSpeaker = '';
+  sequence.beatMap[1].dialoguePurpose = 'question';
+  sequence.beatMap[1].requiredSpeaker = '人鱼公主';
+  const outline = normalizeStoryOutline(outlineDocument([sequence]), 9, ['人鱼公主']);
+  assert.equal(outline.sequences[0].beatMap[0].dialoguePurpose, 'visual_only');
+  assert.equal(outline.sequences[0].beatMap[1].dialoguePurpose, 'question');
+});
+
+test('screenplay speech keeps visible uploaded voices and drops temporary-character additions', () => {
+  assert.deepEqual(filterVisibleStorySpeech([
+    { character: '人鱼公主', exactLine: 'Who controls the tide?' },
+    { character: 'Tide Officer', exactLine: 'No one.' },
+  ], ['人鱼公主'], ['人鱼公主']), [
+    { character: '人鱼公主', exactLine: 'Who controls the tide?' },
+  ]);
 });
 
 test('screenplay batches never exceed nine shots and never cross a sequence boundary', () => {
@@ -144,4 +176,37 @@ test('director normalization accepts provider wrappers and a direct object for o
   assert.deepEqual(normalizeDirectorShots({ data: { shot } }, 1), [shot]);
   assert.deepEqual(normalizeDirectorShots(shot, 1), [shot]);
   assert.deepEqual(normalizeDirectorShots(shot, 2), []);
+});
+
+test('director validation rejects language contamination and dialogue copied into visual direction', () => {
+  const beat = {
+    index: 1,
+    speech: [{ character: '人鱼公主', exactLine: 'Today, let it come on its own.' }],
+  };
+  assert.doesNotThrow(() => validateDirectorShots([
+    { description: '[Medium shot] 人鱼公主 lowers her hand and turns toward the sea.', prompt: 'image prompt' },
+  ], [beat], 'array(1)', 'en', ['人鱼公主']));
+  assert.throws(() => validateDirectorShots([
+    { description: '[中景] 人鱼公主 lowers her hand.', prompt: 'image prompt' },
+  ], [beat], 'array(1)', 'en', ['人鱼公主']), /未按英文输出/);
+  assert.throws(() => validateDirectorShots([
+    { description: '[中景] 人鱼公主 alarm 后转身。', prompt: 'image prompt' },
+  ], [beat], 'array(1)', 'zh', ['人鱼公主']), /未解释的英文词/);
+  assert.throws(() => validateDirectorShots([
+    { description: '[Medium shot] 人鱼公主 says, “Today, let it come on its own.”', prompt: 'image prompt' },
+  ], [beat], 'array(1)', 'en', ['人鱼公主']), /重复了权威台词/);
+  assert.equal(
+    stripExactDialogueFromDescription(
+      '[Medium shot] 人鱼公主 says, “Today, let it come on its own.” She turns to sea.',
+      beat,
+    ),
+    '[Medium shot] 人鱼公主 She turns to sea.',
+  );
+  assert.equal(
+    stripExactDialogueFromDescription('She whispers “Again—” and reaches forward.', {
+      speech: [{ character: '人鱼公主', exactLine: 'Again.' }],
+    }),
+    'She and reaches forward.',
+  );
+  assert.equal(stripExactDialogueFromDescription('She удерж reaches forward.'), 'She reaches forward.');
 });

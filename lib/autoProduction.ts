@@ -2,6 +2,10 @@ import type { Storyboard } from '@/types';
 
 export const AUTO_RETRY_DELAYS_MS = [3_000, 8_000, 15_000, 30_000, 60_000] as const;
 
+export function autoProductionLockName(projectId: string): string {
+  return `aid:auto-production:${String(projectId || 'unknown').trim() || 'unknown'}`;
+}
+
 export function autoRetryDelayMs(failureCount: number): number {
   return AUTO_RETRY_DELAYS_MS[Math.min(Math.max(1, failureCount) - 1, AUTO_RETRY_DELAYS_MS.length - 1)];
 }

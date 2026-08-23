@@ -66,6 +66,7 @@ ${storyPlan.sourceBrief || '（旧项目未保存原始输入，请以 StoryPlan
 - 必须让 dramaticPurpose、cause、conflict、choice、consequence 和 stateBefore/stateAfter 在画面中可见；镜头必须改变信息、关系、决定或物理状态，不能只制造氛围。
 - informationGain 是本镜必须交付给观众的理解；用人物阻挡、视线、反应、道具状态与结果构图让它可读。audienceQuestion 决定镜尾要保留什么悬念，montageRole 决定它与相邻镜的语义关系。
 - speech 是权威对白，不能改写、删减或写进图像 prompt。对白发生时，description 要安排清楚说话者与聆听者的可见表演；无对白时不要虚构开口动作。
+- description 不得复述、翻译或引用 speech.exactLine，也不得把“停顿后说/以某种语气说”等声音导演指令写成画面动作；只描述可见的口型、视线、表情、阻挡与反应。精确台词和说法只由 speech 字段控制。
 - 不得添加 beat 中没有的情节、台词、旁白、画外音、声音或角色行为。
 - 如果用户原始输入含有 beat 未重复写出的明确视觉、服装、场景或语气要求，必须落实到 description/prompt，但不得改变剧情与镜头数量。
 
@@ -235,7 +236,51 @@ function directorResponseShape(value: any): string {
   return `object(${Object.keys(value).slice(0, 8).join(',') || 'no keys'})`;
 }
 
-function validateDirectorShots(shots: any[], beats: Beat[], sourceShape: string): void {
+function normalizedDialogueMatch(value: unknown): string {
+  return String(value || '')
+    .toLocaleLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '');
+}
+
+function withoutEntityNames(value: unknown, names: string[]): string {
+  return names.reduce(
+    (text, name) => text.replaceAll(String(name || ''), ''),
+    String(value || ''),
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function stripExactDialogueFromDescription(value: unknown, beat?: Pick<Beat, 'speech'>): string {
+  let description = String(value || '').replace(/\p{Script=Cyrillic}+/gu, '');
+  for (const line of beat?.speech || []) {
+    const exactLine = String(line.exactLine || '').trim();
+    if (!exactLine) continue;
+    const speechAttribution = '(?:(?:低声|高声|轻声)?(?:说出|说道|说)|\\b(?:says?|asks?|replies?|whispers?|shouts?))\\s*[,.:：]?\\s*';
+    const flexibleExactLine = [...normalizedDialogueMatch(exactLine)]
+      .map(character => escapeRegExp(character))
+      .join('[\\s\\p{P}\\p{S}]*');
+    description = description.replace(
+      new RegExp(`(?:${speechAttribution})?[“”"']?${flexibleExactLine}[\\s\\p{P}\\p{S}]*`, 'giu'),
+      '',
+    );
+  }
+  return description
+    .replace(/[“”"']\s*[“”"']/g, '')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+export function validateDirectorShots(
+  shots: any[],
+  beats: Beat[],
+  sourceShape: string,
+  language: 'zh' | 'en' = 'zh',
+  entityNames: string[] = [],
+): void {
   if (shots.length !== beats.length) {
     throw new Error(`返回 ${shots.length} 镜，要求 ${beats.length} 镜（响应结构：${sourceShape}）`);
   }
@@ -246,6 +291,23 @@ function validateDirectorShots(shots: any[], beats: Beat[], sourceShape: string)
     const missing = ['description', 'prompt'].filter(key => typeof shot[key] !== 'string' || !shot[key].trim());
     if (missing.length) {
       throw new Error(`第 ${beats[index]?.index || index + 1} 镜缺少 ${missing.join('、')}`);
+    }
+    const description = withoutEntityNames(shot.description, entityNames);
+    if (/\p{Script=Cyrillic}/u.test(description)) {
+      throw new Error(`第 ${beats[index]?.index || index + 1} 镜 description 混入了异常西里尔字符`);
+    }
+    if (language === 'en' && /\p{Script=Han}/u.test(description)) {
+      throw new Error(`第 ${beats[index]?.index || index + 1} 镜 description 未按英文输出`);
+    }
+    if (language === 'zh' && /\b[A-Za-z]{4,}\b/.test(description)) {
+      throw new Error(`第 ${beats[index]?.index || index + 1} 镜 description 混入了未解释的英文词`);
+    }
+    const normalizedDescription = normalizedDialogueMatch(shot.description);
+    for (const line of beats[index]?.speech || []) {
+      const exactLine = normalizedDialogueMatch(line.exactLine);
+      if (exactLine && normalizedDescription.includes(exactLine)) {
+        throw new Error(`第 ${beats[index]?.index || index + 1} 镜 description 重复了权威台词`);
+      }
     }
   });
 }
@@ -292,12 +354,16 @@ export async function directStoryboard(input: {
     });
     let batchShots: any[] | undefined;
     let lastError: unknown;
-    for (let attempt = 1; attempt <= 2 && !batchShots; attempt += 1) {
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts && !batchShots; attempt += 1) {
       try {
+        if (attempt > 1) {
+          await new Promise(resolve => setTimeout(resolve, attempt === 2 ? 1_500 : 4_000));
+        }
         const correction = attempt === 1
           ? ''
           : `\n\nCORRECTION RETRY: the previous response was invalid (${lastError instanceof Error ? lastError.message : 'unknown error'}). Return only a complete JSON array with exactly ${beats.length} items.`;
-        console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, attempt ${attempt}/2`);
+        console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, attempt ${attempt}/${maxAttempts}`);
         const response = await chatOnce(`${prompt}${correction}`, {
           apiKey,
           dmxApiKey,
@@ -307,8 +373,17 @@ export async function directStoryboard(input: {
           timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000,
         });
         const extracted = extractJson(response);
-        const parsed = normalizeDirectorShots(extracted, beats.length);
-        validateDirectorShots(parsed, beats, directorResponseShape(extracted));
+        const parsed = normalizeDirectorShots(extracted, beats.length).map((shot, index) => ({
+          ...shot,
+          description: stripExactDialogueFromDescription(shot?.description, beats[index]),
+        }));
+        validateDirectorShots(
+          parsed,
+          beats,
+          directorResponseShape(extracted),
+          language,
+          [...characters.map(character => character.name), ...objects.map(object => object.name)],
+        );
         batchShots = parsed.map((shot, index) => ({
           ...shot,
           index: beats[index].index,
@@ -317,7 +392,6 @@ export async function directStoryboard(input: {
       } catch (error) {
         lastError = error;
         console.warn(`[story-director] batch ${batchIndex + 1} failed:`, error instanceof Error ? error.message : error);
-        if (/timeout|timed out|ECONNABORTED/i.test(error instanceof Error ? error.message : String(error))) break;
       }
     }
     if (!batchShots) {

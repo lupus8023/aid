@@ -31,7 +31,7 @@ import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@
 import { segmentSpeechSignature, storyboardSpeech } from '@/lib/speechAudioContract';
 import { applyStoryAspectRatio, hasStoryMedia, projectStoryAspectRatio, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { getImageModelCapabilities } from '@/lib/imageModels';
-import { autoRetryDelayMs, hasUsableStoryboardImage, normalizeStoryboardImageArtifact, planAutoImageBatch } from '@/lib/autoProduction';
+import { autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, normalizeStoryboardImageArtifact, planAutoImageBatch } from '@/lib/autoProduction';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -234,6 +234,8 @@ export default function StoryPage() {
   const [autoResumeRequested, setAutoResumeRequested] = useState(false);
   const autoAbortRef = useRef(false);
   const autoRunLockRef = useRef(false);
+  const autoOwnsCrossTabLeaseRef = useRef(false);
+  const autoLeaseRetryTimerRef = useRef<number>();
   const autoExportCompletionRef = useRef<{
     resolve: () => void;
     reject: (error: unknown) => void;
@@ -599,6 +601,12 @@ export default function StoryPage() {
 
   useEffect(() => {
     const timer = setInterval(() => {
+      const savedAuto = savedAutoProduction();
+      // A stale tab must never overwrite the storyboard/video task ids being
+      // persisted by the one tab that owns this project's orchestration lock.
+      if (savedAuto?.projectId === projectIdRef.current
+        && savedAuto.status === 'running'
+        && !autoOwnsCrossTabLeaseRef.current) return;
       if (characters.length > 0 || storyContent || storyboards.length > 0) {
         saveProject({ characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, videoSegmentPlan, createdAt: new Date().toISOString() });
       }
@@ -1707,7 +1715,7 @@ export default function StoryPage() {
 
   // 一键成片：编剧 → 定妆/音色 → 图片 → 视频 → 合并下载。
   // 每个阶段会持续重试，直到成功、切换项目或用户主动暂停。
-  const handleAutoGenerate = async () => {
+  const handleAutoGenerate = async (ownsCrossTabLease = false): Promise<void> => {
     if (autoRunLockRef.current) {
       // A paid remote request may still be awaiting completion when the user
       // pauses. Continuing must revive that same orchestration instead of
@@ -1718,6 +1726,46 @@ export default function StoryPage() {
         setAutoPaused(false);
         setAutoRunning(true);
         setAutoStage('等待当前已提交任务完成后继续');
+      }
+      return;
+    }
+    // localStorage persists the desired orchestration state, but it does not
+    // provide mutual exclusion. Without a browser-wide lease every open Story
+    // tab resumes the same project and can purchase/submit the same H3 segment.
+    // Web Locks releases automatically when the owning tab closes or crashes;
+    // a waiting tab then resumes from the already persisted task/image state.
+    if (!ownsCrossTabLease && typeof navigator !== 'undefined' && navigator.locks?.request) {
+      let acquired = false;
+      await navigator.locks.request(
+        autoProductionLockName(projectIdRef.current),
+        { ifAvailable: true },
+        async lock => {
+          if (!lock) return;
+          acquired = true;
+          autoOwnsCrossTabLeaseRef.current = true;
+          if (autoLeaseRetryTimerRef.current) {
+            window.clearTimeout(autoLeaseRetryTimerRef.current);
+            autoLeaseRetryTimerRef.current = undefined;
+          }
+          try {
+            await handleAutoGenerate(true);
+          } finally {
+            autoOwnsCrossTabLeaseRef.current = false;
+          }
+        },
+      );
+      if (!acquired) {
+        setAutoRunning(false);
+        setAutoStage('另一标签页正在托管本项目；本页只同步进度');
+        if (!autoLeaseRetryTimerRef.current) {
+          autoLeaseRetryTimerRef.current = window.setTimeout(() => {
+            autoLeaseRetryTimerRef.current = undefined;
+            const saved = savedAutoProduction();
+            if (saved?.projectId === projectIdRef.current && saved.status === 'running') {
+              void handleAutoGenerate();
+            }
+          }, 5000);
+        }
       }
       return;
     }
@@ -1905,6 +1953,10 @@ export default function StoryPage() {
 
   const handleAutoStop = () => {
     autoAbortRef.current = true;
+    if (autoLeaseRetryTimerRef.current) {
+      window.clearTimeout(autoLeaseRetryTimerRef.current);
+      autoLeaseRetryTimerRef.current = undefined;
+    }
     markAutoProduction(projectIdRef.current, 'paused');
     setAutoPaused(true);
     setAutoRunning(false);
@@ -1997,7 +2049,7 @@ export default function StoryPage() {
                     </button>
                   ) : (
                     <button
-                      onClick={handleAutoGenerate}
+                      onClick={() => { void handleAutoGenerate(); }}
                       className="flex items-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--accent-green)] hover:bg-[#5dd18d] text-[var(--bg-primary)] border border-[var(--border-color)] rounded transition-colors"
                     >
                       {autoPaused ? '▶ 继续成片' : '✨ 一键成片'}

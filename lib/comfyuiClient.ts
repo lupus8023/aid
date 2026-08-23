@@ -1,7 +1,10 @@
 import type { AppSettings } from '@/types';
 
 export const DEFAULT_COMFYUI_COMPANION_URL = 'http://127.0.0.1:3018';
-export const STORY_COMPANION_MIN_VERSION = [0, 1, 27] as const;
+// Story generation runs inside the packaged Companion so long 27–81 shot jobs
+// are not cut off by the hosting gateway. Keep this gate aligned with the
+// screenplay schema: older builds silently drop newer narrative fields.
+export const STORY_COMPANION_MIN_VERSION = [0, 1, 31] as const;
 export const SEGMENT_VIDEO_COMPANION_MIN_VERSION = [0, 1, 27] as const;
 export const LOCAL_EXPORT_COMPANION_MIN_VERSION = [0, 1, 19] as const;
 

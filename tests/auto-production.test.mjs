@@ -2,10 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  autoProductionLockName,
   autoRetryDelayMs,
   normalizeStoryboardImageArtifact,
   planAutoImageBatch,
 } from '../lib/autoProduction.ts';
+
+test('uses one cross-tab orchestration lock per project', () => {
+  assert.equal(autoProductionLockName('project-1'), 'aid:auto-production:project-1');
+  assert.equal(autoProductionLockName('  project-2  '), 'aid:auto-production:project-2');
+  assert.equal(autoProductionLockName(''), 'aid:auto-production:unknown');
+});
 
 const shot = (sceneNumber, extra = {}) => ({
   id: `scene-${sceneNumber}`,

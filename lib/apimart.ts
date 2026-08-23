@@ -10,32 +10,42 @@ import {
 } from './imageModels';
 
 const APIMART_BASE_URL = 'https://api.apimart.ai/v1';
+let preferSystemNetworkStack = false;
 
 // 聊天 API - 用于分析故事
 export async function chatCompletion(prompt: string, apiKey: string, model: string = 'gpt-4o', timeoutMs = 120000, maxTokens = 16000): Promise<string> {
   try {
-    const response = await axios.post<ApiMartChatResponse>(
-      `${APIMART_BASE_URL}/chat/completions`,
-      {
-        model,
-        stream: false,
-        max_tokens: maxTokens,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ]
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        httpsAgent: providerHttpsAgent(),
-        timeout: timeoutMs
-      }
-    );
+    const body = {
+      model,
+      stream: false,
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+    };
+    const headers = {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    };
+    const httpsAgent = preferSystemNetworkStack ? undefined : providerHttpsAgent();
+    let response;
+    try {
+      response = await axios.post<ApiMartChatResponse>(
+        `${APIMART_BASE_URL}/chat/completions`,
+        body,
+        { headers, httpsAgent, timeout: timeoutMs },
+      );
+    } catch (error: any) {
+      const connectionFailure = !error?.response && /ECONNRESET|ENOTFOUND|EAI_AGAIN|ERR_TLS_CERT_ALTNAME_INVALID|secure TLS connection|Hostname\/IP does not match/i.test(
+        `${error?.code || ''} ${error?.message || ''}`,
+      );
+      if (!httpsAgent || !connectionFailure) throw error;
+      preferSystemNetworkStack = true;
+      console.warn('[apimart] public-DNS transport failed before response; retrying through the system network stack');
+      response = await axios.post<ApiMartChatResponse>(
+        `${APIMART_BASE_URL}/chat/completions`,
+        body,
+        { headers, timeout: timeoutMs },
+      );
+    }
 
     // Handle SSE format response (": PING\n\n{...json...}")
     let rawData = response.data as any;

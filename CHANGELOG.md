@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.31 - 2026-08-23
+
+### Fixed
+
+- Long screenplay generation now requires Companion v0.1.31 so the local 27–81 shot API cannot silently return an older schema that drops the central dramatic question, audience knowledge, dialogue purpose and montage fields.
+- The compact-outline token budget now scales with the expanded per-shot narrative schema, preventing a valid 27-shot plan from being truncated into an apparent zero-shot response.
+- Story outline, screenplay and director batches now make three spaced attempts, so a transient APIMart TLS reset or timeout does not exhaust both correction attempts immediately.
+- When Companion's public-DNS HTTPS transport fails before receiving a response, APIMart screenplay calls retry through the system network stack. This preserves DNS protection on affected computers without breaking machines that already use a working system proxy.
+- A certificate-host mismatch is now treated as polluted public DNS. After the first such failure (or pre-response reset), the running Companion stays on the verified system network path for subsequent screenplay and director batches.
+- Exact spoken lines are deterministically removed from director descriptions before validation and merging. Repeated model attempts can no longer copy dialogue into visual directions that H3 might vocalize.
+- Dialogue removal now tolerates punctuation/quote variations (for example `Again.` versus `“Again—”`) and strips isolated Cyrillic fragments without accepting a full wrong-language description.
+- Director batches reject multilingual contamination, stray Cyrillic fragments and visual descriptions that repeat exact dialogue. Invalid batches receive a correction retry before they can reach image or H3 generation.
+- Speech validation now treats the exact visible-cast list as the authority, so English action prose may naturally say “the mermaid princess” while the voice binding still preserves the uploaded identity `人鱼公主`.
+- Every non-visual outline dialogue purpose must now name an uploaded speaker before screenplay expansion. Plans that assign dialogue to no valid voice are converted to visible story information instead of looping between missing speech and forbidden temporary-character speech.
+- If a model adds a temporary character's reply beside valid bound dialogue, the screenplay keeps the uploaded character's line and deterministically removes only the unowned addition instead of failing the entire batch or synthesizing an unknown voice.
+- An AI-planned dialogue function with no user-locked line may fall back to a visual payoff when the model cannot produce a valid bound line. User-locked dialogue remains mandatory, preventing both endless retries and invented replacement speech.
+- One-click Film now holds a browser-wide, per-project orchestration lock. Opening or refreshing multiple Story tabs can no longer submit the same paid image/video segment more than once; a standby tab automatically takes over only if the owner closes or crashes.
+- While one tab owns an active one-click run, stale tabs skip their periodic autosave instead of overwriting the newest segment plan, task IDs and cache state with an older project snapshot.
+
+### Tests
+
+- Added director-language, exact-dialogue isolation and cross-tab orchestration-lock regression coverage. The latest 27-shot project is used for a full one-click production verification.
+
 ## 0.1.30 - 2026-08-23
 
 ### Improved

@@ -49,7 +49,7 @@ ${objectDetails}
 - 前一条 consequence 必须成为后一条 cause，或明确推动下一场。
 - actionGoal 是该镜头唯一可见动作/局面变化，不是摄影描述。
 - emotionalTurn 写镜头前后变化；没有变化也要写“保持X但新增Y信息”。
-- 用户指定台词只有在说话人是已上传角色时，才在 requiredSpeaker 写该角色精确名称，并在 requiredLine 中逐字保留；两者必须同时有值或同时为空。
+- 任何非 visual_only 的 dialoguePurpose 都必须先在 requiredSpeaker 绑定一个已上传角色精确名称。用户指定台词还要在 requiredLine 中逐字保留；若只是规划由执行编剧创作的必要台词，requiredSpeaker 保留角色名而 requiredLine 留空。临时/路人/未上传角色的信息改成可见动作，并把 dialoguePurpose 设为 visual_only、requiredSpeaker/requiredLine 都留空。
 - 用户原文中的临时角色、路人、未上传人物即使有说话内容，也不得把台词转交给已上传角色。把信息改成可见动作，requiredSpeaker 和 requiredLine 都留空。
 - sequence 的 entryState / exitState 必须能交接人物位置、关系、关键道具与情绪。
 - 不要输出 shotSize、cameraMove、angle、sceneStyle、promptDraft、audioPlan、stateBefore 或 stateAfter；这些由后续阶段分批完成。
@@ -189,8 +189,9 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - 台词服务叙事，而不是一律从少。beatMap.requiredLine 非空时逐字写入 speech；否则按 dialoguePurpose 判断：私人目标、问题/回答、关系转折、谎言/揭示、承诺/回收或明确选择若仅靠画面会含混，就写必要台词；visual_only 才保持 speech=[]。禁止旁白、画外音、路人台词、笑声、哼唱和无来源人声。
 - 台词必须承接上下文：用 storyFunction 标明 question/answer/reveal/refusal/decision/promise/callback/payoff；用 respondsTo 指向它回应的前一句信息或伏笔。不得写重复画面、孤立口号、通用感叹或没有对象的短句。
 - 一镜可有 0–2 条有序台词；两条时必须是清晰的发起→回应或揭示→决定，逐条绑定已出场角色，不能重叠。总台词时长加留白必须装入 durationHint。不要为了凑数量写台词。
+- 若 beatMap 只规划了 AI 自创台词功能、没有 requiredLine，而本镜信息已经能靠动作清楚交付，可以将 dialoguePurpose 明确改成 visual_only 并保持 speech=[]；绝不能为了满足字段而把临时人物原话转嫁给已上传角色。requiredLine 非空时不得这样降级。
 - beatMap.requiredLine 非空时，speech.character 必须逐字等于 beatMap.requiredSpeaker，speech.exactLine 必须逐字等于 requiredLine，绝不能把临时人物的话转嫁给主角。
-- 自行创作 story_required 台词时，必须在 action 中用精确角色名明确写出该角色正在开口；若 action 只写临时人物、路人或泛称，则 speech 必须为 []。
+- 自行创作 story_required 台词时，说话者必须在 characters 中以已上传精确名称出现；action 还要用当前输出语言清楚表现该可见角色正在开口。不要因为英文叙述使用自然称呼而改写 characters / speech.character 中的精确库名称。
 - audioPlan 是唯一声音源。backgroundHuman 默认 none；环境声和拟音必须由地点或可见动作引起；未要求音乐时 music 为 none。
 - 不生成摄影内容：不要输出 promptDraft、sceneStyle、shotSize、cameraMove、angle 或图像 prompt。
 

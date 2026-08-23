@@ -50,6 +50,22 @@ export interface StoryBeatBatch {
   batchNumber: number;
 }
 
+function unwrapStoryOutline(value: unknown, depth = 0): Record<string, unknown> {
+  if (depth > 4 || !value) return {};
+  if (Array.isArray(value)) {
+    if (value.length === 1) return unwrapStoryOutline(value[0], depth + 1);
+    return {};
+  }
+  if (typeof value !== 'object') return {};
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.sequences)) return record;
+  for (const key of ['storyPlan', 'storyOutline', 'outline', 'plan', 'story', 'result', 'output', 'data']) {
+    const nested = unwrapStoryOutline(record[key], depth + 1);
+    if (Array.isArray(nested.sequences)) return nested;
+  }
+  return {};
+}
+
 function validTransition(value: unknown): Beat['transition'] {
   const s = String(value || '');
   return (TRANSITIONS as string[]).includes(s) ? (s as Beat['transition']) : 'cut';
@@ -94,6 +110,7 @@ function clampSilence(value: unknown, fallback: number): number {
 }
 
 export function normalizeStoryOutline(raw: any, targetShotCount: number, allowedCharacters: string[] = []): StoryOutline {
+  raw = unwrapStoryOutline(raw);
   let nextIndex = 0;
   const sequences: StoryOutlineSequence[] = (Array.isArray(raw?.sequences) ? raw.sequences : [])
     .map((sequence: any, sequenceIndex: number) => {
@@ -102,9 +119,13 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
           const requiredLine = asString(beat?.requiredLine).replace(/\s+/g, ' ').trim();
           const requestedSpeaker = asString(beat?.requiredSpeaker).trim();
           const requiredSpeaker = allowedCharacters.includes(requestedSpeaker) ? requestedSpeaker : '';
+          const requestedPurpose = asString(beat?.dialoguePurpose, 'visual_only').trim();
           if (requiredLine && !requiredSpeaker) {
             throw new Error(`镜头 ${nextIndex + 1} 有指定台词但没有有效 requiredSpeaker；临时或未上传角色不得发声`);
           }
+          const dialoguePurpose = /(?:visual_only|纯视觉|无对白)/i.test(requestedPurpose) || requiredSpeaker
+            ? requestedPurpose
+            : 'visual_only';
           return {
             index: ++nextIndex,
             actionGoal: asString(beat?.actionGoal, asString(beat?.action)).trim(),
@@ -112,7 +133,7 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
             consequence: asString(beat?.consequence).trim(),
             emotionalTurn: asString(beat?.emotionalTurn).trim(),
             informationGain: asString(beat?.informationGain).trim(),
-            dialoguePurpose: asString(beat?.dialoguePurpose, 'visual_only').trim(),
+            dialoguePurpose,
             montageRole: asString(beat?.montageRole, 'development').trim(),
             audienceQuestion: asString(beat?.audienceQuestion).trim(),
             requiredSpeaker,
@@ -172,6 +193,19 @@ function rawBatchBeats(value: any): any[] {
   return Array.isArray(value?.beats) ? value.beats : [];
 }
 
+export function filterVisibleStorySpeech(
+  value: unknown,
+  visibleCharacters: unknown,
+  allowedCharacters: string[],
+): any[] {
+  const visible = Array.isArray(visibleCharacters) ? visibleCharacters.map(String) : [];
+  if (!Array.isArray(value)) return [];
+  return value.filter((line: any) => {
+    const character = asString(line?.character || line?.speaker).trim();
+    return Boolean(character && allowedCharacters.includes(character) && visible.includes(character));
+  });
+}
+
 async function requestStructuredJson<T>(input: {
   prompt: string;
   label: string;
@@ -184,8 +218,12 @@ async function requestStructuredJson<T>(input: {
   timeoutMs: number;
 }): Promise<T> {
   let lastError: unknown;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
+      if (attempt > 1) {
+        await new Promise(resolve => setTimeout(resolve, attempt === 2 ? 1_500 : 4_000));
+      }
       const correction = attempt === 1
         ? ''
         : `\n\nCORRECTION RETRY: the previous response was invalid (${lastError instanceof Error ? lastError.message : 'unknown error'}). Return only complete valid JSON and obey the exact requested item count.`;
@@ -200,8 +238,7 @@ async function requestStructuredJson<T>(input: {
       return input.validate(extractJson(response));
     } catch (error) {
       lastError = error;
-      console.warn(`[story-writer] ${input.label} attempt ${attempt}/2 failed:`, error instanceof Error ? error.message : error);
-      if (/timeout|timed out|ECONNABORTED/i.test(error instanceof Error ? error.message : String(error))) break;
+      console.warn(`[story-writer] ${input.label} attempt ${attempt}/${maxAttempts} failed:`, error instanceof Error ? error.message : error);
     }
   }
   throw new Error(`${input.label}失败：${lastError instanceof Error ? lastError.message : String(lastError)}`);
@@ -410,7 +447,11 @@ export async function generateStoryPlan(input: {
     dmxApiKey,
     provider: scriptProvider,
     model: scriptModel,
-    maxOutputTokens: Math.min(14_000, 4_000 + targetShotCount * 120),
+    // The outline now carries four narrative fields per beat plus sequence
+    // audience state. The older budget ended around 30k characters for a
+    // 27-shot film and providers returned a truncated object; extractJson then
+    // found an inner array and validation misleadingly reported zero shots.
+    maxOutputTokens: Math.min(24_000, 5_000 + targetShotCount * 260),
     timeoutMs: isLocalCompanion ? 150_000 : 48_000,
   });
 
@@ -458,24 +499,35 @@ export async function generateStoryPlan(input: {
           };
           const missing = Object.entries(required).filter(([, value]) => !value.trim()).map(([key]) => key);
           if (missing.length) throw new Error(`镜头 ${authority.index} 缺少叙事字段：${missing.join('、')}`);
-          const purpose = required.dialoguePurpose.toLowerCase();
-          const rawSpeech = Array.isArray(beat?.speech) ? beat.speech : [];
+          let purpose = required.dialoguePurpose.toLowerCase();
+          const submittedSpeech = Array.isArray(beat?.speech) ? beat.speech : [];
+          const rawSpeech = filterVisibleStorySpeech(
+            submittedSpeech,
+            beat?.characters,
+            characters.map(character => character.name),
+          );
+          beat.speech = rawSpeech;
           if (!/(?:visual_only|纯视觉|无对白)/.test(purpose) && rawSpeech.length === 0) {
-            throw new Error(`镜头 ${authority.index} 规划了 ${required.dialoguePurpose} 台词功能，但没有生成 speech`);
+            if (authority.requiredLine) {
+              throw new Error(`镜头 ${authority.index} 规划了 ${required.dialoguePurpose} 台词功能，但没有生成 speech`);
+            }
+            beat.dialoguePurpose = 'visual_only';
+            required.dialoguePurpose = 'visual_only';
+            purpose = 'visual_only';
           }
           if (rawSpeech.length > 2) throw new Error(`镜头 ${authority.index} 返回超过 2 条台词`);
           rawSpeech.forEach((line: any, lineIndex: number) => {
             const character = asString(line?.character || line?.speaker).trim();
             const exactLine = sanitizeGeneratedSpeechText(line?.exactLine || line?.text);
-            if (!character || !characters.some(item => item.name === character) || !Array.isArray(beat?.characters) || !beat.characters.includes(character)) {
-              throw new Error(`镜头 ${authority.index} 第 ${lineIndex + 1} 条台词没有绑定当前出场角色`);
-            }
             if (!exactLine || !asString(line?.storyFunction).trim()) {
               throw new Error(`镜头 ${authority.index} 第 ${lineIndex + 1} 条台词缺少可朗读原文或 storyFunction`);
             }
-            if (!asString(beat?.action).includes(character)) {
-              throw new Error(`镜头 ${authority.index} 的 action 未明确点名说话者 ${character}`);
-            }
+            // `characters` is the authoritative visible-cast list. Do not
+            // require the prose action to repeat a non-Latin uploaded name:
+            // English models commonly write "the mermaid princess" while the
+            // exact library identity remains 人鱼公主. The exact speech binding
+            // above is sufficient and avoids rejecting a semantically valid
+            // scene merely because its prose uses a natural-language alias.
           });
         });
         return batchBeats.map((beat, index) => {
