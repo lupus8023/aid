@@ -7,6 +7,7 @@ import {
   h3ReferenceAudioPolicy,
   h3VisualTaskType,
   injectLockedDriveAudio,
+  selectComfyUIVideoOutput,
   taggedPrompt,
 } from '../lib/comfyui.ts';
 
@@ -86,7 +87,7 @@ test('keeps an official structured H3 prompt free of a second appended contract'
   assert.equal(taggedPrompt(official, 'aid_single_reference', 0, 0), official);
 });
 
-test('uses the exact dialogue stem as a light remix anchor and saves generated ambience', () => {
+test('mixes the exact dialogue stem over a regenerated H3 soundscape', () => {
   const prompt = {
     6: {
       class_type: 'MiniMaxH3AudioConditioningT8',
@@ -114,13 +115,20 @@ test('uses the exact dialogue stem as a light remix anchor and saves generated a
   assert.deepEqual(conditioning.drive_audio, [loadEntry[0], 0]);
   assert.deepEqual(conditioning.final_audio, [loadEntry[0], 0]);
   assert.equal(conditioning.task_type, 'Ref2VA');
-  assert.equal(conditioning.audio_mode, 'remix_source');
-  assert.equal(conditioning.audio_denoise_strength, 0.2);
+  assert.equal(conditioning.audio_mode, 'reference_only');
+  assert.equal(conditioning.audio_denoise_strength, 1);
   assert.equal(conditioning.add_source_as_reference, true);
   assert.equal(conditioning.prompt_primary_audio_ordinal, 1);
   assert.equal(conditioning.strict_prompt_tags, true);
   assert.equal('ref_audios.ref_audio_0' in conditioning, false);
-  assert.deepEqual(prompt[12].inputs.audio, ['11', 1]);
+  const mixEntry = Object.entries(prompt).find(([, node]) => node.class_type === 'MiniMaxH3AudioMixT8');
+  assert.ok(mixEntry);
+  assert.deepEqual(mixEntry[1].inputs.source_audio, [loadEntry[0], 0]);
+  assert.deepEqual(mixEntry[1].inputs.generated_audio, ['11', 1]);
+  assert.equal(mixEntry[1].inputs.source_gain_db, 0);
+  assert.equal(mixEntry[1].inputs.generated_gain_db, -4);
+  assert.equal(mixEntry[1].inputs.duck_generated, 1);
+  assert.deepEqual(prompt[12].inputs.audio, [mixEntry[0], 0]);
 });
 
 test('locked dialogue keeps Hybrid when explicit keyframes are connected', () => {
@@ -145,4 +153,19 @@ test('locked dialogue keeps Hybrid when explicit keyframes are connected', () =>
 
   injectLockedDriveAudio(prompt, 'aid/exact-dialogue.wav', 'aid_first_last');
   assert.equal(prompt[6].inputs.task_type, 'Hybrid');
+});
+
+test('prefers the final muxed audio MP4 over the temporary silent MP4', () => {
+  assert.deepEqual(selectComfyUIVideoOutput({
+    270: {
+      gifs: [
+        { filename: 'segment_00001.mp4', subfolder: 'aid/test', type: 'output' },
+        { filename: 'segment_00001-audio.mp4', subfolder: 'aid/test', type: 'output' },
+      ],
+    },
+  }), {
+    filename: 'segment_00001-audio.mp4',
+    subfolder: 'aid/test',
+    type: 'output',
+  });
 });

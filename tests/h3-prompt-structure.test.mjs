@@ -252,7 +252,7 @@ test('schedules two connected lines inside one storyboard in order', () => {
   assert.ok(prompt.indexOf('You should open it.') < prompt.indexOf('Then stay with me.'));
 });
 
-test('uses a locked full-duration dialogue track without asking H3 to synthesize words', () => {
+test('uses the exact stem as timing reference while generating a complete soundtrack', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1, {
       speech: [{
@@ -262,11 +262,11 @@ test('uses a locked full-duration dialogue track without asking H3 to synthesize
     }),
   ], [], { duration: 13, language: 'en', hasVoiceReferences: true, lockedDialogueTrack: true });
 
-  assert.match(prompt, /<Audio 1> is the authoritative full-duration dialogue stem/);
-  assert.match(prompt, /lip-syncs exactly to prerecorded dialogue event 1 already present in <Audio 1>/);
-  assert.match(prompt, /Preserve every word, speaker identity, phoneme rhythm, onset, ending and pause/);
-  assert.doesNotMatch(prompt, /<d>|The Western Reef is still half a measure short/);
-  assert.match(prompt, /only synchronized non-vocal location ambience and visibly caused Foley/i);
+  assert.match(prompt, /<Audio 1> is the authoritative voice, timing and rhythm reference/);
+  assert.match(prompt, /speaks once in the exact timing and voice of <Audio 1>/);
+  assert.equal((prompt.match(/The Western Reef is still half a measure short\./g) || []).length, 1);
+  assert.match(prompt, /<d>\[English\] The Western Reef is still half a measure short\.<\/d>/);
+  assert.match(prompt, /continuous location ambience and visibly caused Foley/i);
   assert.match(prompt, /sole human-vocal layer/i);
 });
 
@@ -277,9 +277,9 @@ test('locks silent H3 segments to a full-duration silent source track', () => {
     hasVoiceReferences: true,
     lockedDialogueTrack: true,
   });
-  assert.match(prompt, /exactly 0 prerecorded dialogue events/);
+  assert.match(prompt, /exactly 0 scheduled dialogue events/);
   assert.match(prompt, /<Audio 1> contains no vocal event/);
-  assert.match(prompt, /non-vocal ambience and caused Foley may be generated/);
+  assert.match(prompt, /Generate continuous non-vocal ambience and caused Foley/);
   assert.doesNotMatch(prompt, /<d>/);
 });
 

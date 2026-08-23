@@ -25,6 +25,7 @@ const VOICES = {
     '617167a94e49486f80d4c4047584d9ed',
     '8ef4a238714b45718ce04243307c57a7',
   ],
+  authoritativeFemaleEn: ['145d5c8c614f4852a029346ebb5d42db'],
   matureFemaleEn: ['15deb7503c784eedba3b72d27978f43b'],
   male: ['802e3bc2b27e49c2995d23ef70e6ac89'],
 } as const;
@@ -46,11 +47,14 @@ function inferredProfile(character: VoiceCastInput, language: 'zh' | 'en'): {
   const isFemale = /(?:美人鱼|公主|女娲|少女|女孩|姑娘|女人|女性|母亲|妈妈|姐姐|妹妹|妻子|皇后|女王|woman|girl|female|princess|queen|mother|sister|wife|mermaid)/iu.test(text);
   const isMale = /(?:男人|男性|男孩|少年|父亲|爸爸|哥哥|弟弟|丈夫|王子|国王|老者|爷爷|海龟|乌龟|兽|man|boy|male|father|brother|husband|prince|king|old man|turtle|beast)/iu.test(text);
   const isMature = /(?:中年|年长|老年|母亲|妈妈|女王|皇后|mature|middle-aged|elder|mother|queen)/iu.test(text);
+  const isAuthoritativeWoman = isFemale && /(?:女官|军官|指挥官|队长|舰长|警官|officer|commander|captain|chief|inspector)/iu.test(text);
 
   if (isFemale || !isMale) {
-    if (language === 'en') return isMature
-      ? { label: 'mature feminine, calm, natural English', pool: VOICES.matureFemaleEn }
-      : { label: 'young feminine, warm, natural English', pool: VOICES.youngFemaleEn };
+    if (language === 'en') return isAuthoritativeWoman
+      ? { label: 'calm authoritative feminine, measured natural English', pool: VOICES.authoritativeFemaleEn }
+      : isMature
+        ? { label: 'mature feminine, calm, natural English', pool: VOICES.matureFemaleEn }
+        : { label: 'young feminine, warm, natural English', pool: VOICES.youngFemaleEn };
     if (isMature) return { label: '成熟女性，自然沉稳，克制清晰', pool: VOICES.matureFemaleZh };
     return { label: '年轻女性，自然温暖，清晰克制', pool: VOICES.youngFemaleZh };
   }

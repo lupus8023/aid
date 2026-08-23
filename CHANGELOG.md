@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.46 - 2026-08-23
+
+### Fixed
+
+- Story now deterministically selects ComfyUI's final `-audio.mp4` mux instead of the temporary video-only MP4 that may appear first in the output list. Generated dialogue, environment ambience and Foley can no longer disappear during frontend caching.
+- H3 now regenerates a complete native soundtrack from the exact dialogue stem as its voice/timing reference, then mixes the authoritative prerecorded line over that soundscape with automatic ducking. Quiet intervals retain continuous room tone, water, weather and action Foley without allowing generated guide speech to compete with the approved voice.
+- English women in officer, commander or captain roles now use a separate calm authoritative female reference; the former Tide Officer voice is removed from that role.
+- H3 v11 invalidates any v10 clip cached from the silent temporary output while keeping storyboard images and segment grouping intact.
+
+### Verification
+
+- The same cloud render was probed as two outputs: the temporary 12.25-second MP4 had no audio stream, while the final `-audio.mp4` contained stereo AAC. A real `reference_only` H3 run retained continuous audible sound across all 12 seconds and transcribed only the scheduled line; the exact-stem mix kept the same full sound bed. Regression coverage reproduces the mux ordering, requires the audio mix node, and locks officer casting to the new role-specific voice.
+
 ## 0.1.45 - 2026-08-23
 
 ### Fixed

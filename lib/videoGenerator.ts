@@ -294,12 +294,12 @@ export function buildVideoSegmentPrompt(
   const speechEventCount = timedSpeech.length;
   const lockedDialogueTrack = Boolean(options.lockedDialogueTrack);
   const lockedAudioDefinition = lockedDialogueTrack
-    ? `<Audio 1> is the authoritative full-duration dialogue stem. It contains exactly ${speechEventCount} prerecorded dialogue event${speechEventCount === 1 ? '' : 's'} at the scheduled times. Preserve every word, speaker identity, phoneme rhythm, onset, ending and pause. Build only synchronized non-vocal location ambience and visibly caused Foley in its empty intervals and beneath it; never generate, replace, extend or reinterpret a human voice.`
+    ? `<Audio 1> is the authoritative voice, timing and rhythm reference for exactly ${speechEventCount} scheduled dialogue event${speechEventCount === 1 ? '' : 's'}. Match its speaker identity, phoneme rhythm, onset, ending and pauses. Generate a complete synchronized soundtrack containing the tagged line${speechEventCount === 1 ? '' : 's'} once, plus continuous location ambience and visibly caused Foley; never add, extend or reinterpret human speech.`
     : '';
   const speechControl = lockedDialogueTrack
     ? speechEventCount
-      ? `Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} exist only inside <Audio 1>. Generate no voice, narration, ad-lib, singing, breathing words or additional mouth movement; all prose is silent direction.`
-      : 'No narrator, dialogue, singing, ad-lib, breathy words or intelligible human vocalization exists. <Audio 1> contains no vocal event; all prose below is silent visual direction, while only non-vocal ambience and caused Foley may be generated.'
+      ? `Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} ${speechEventCount === 1 ? 'occurs' : 'occur'}, once each: only the tagged dialogue line${speechEventCount === 1 ? '' : 's'} below, using <Audio 1> as the exact voice and timing reference. No narration, ad-lib, singing, breathy words or other speech; all untagged prose is silent direction.`
+      : 'No narrator, dialogue, singing, ad-lib, breathy words or intelligible human vocalization exists. <Audio 1> contains no vocal event; all prose below is silent visual direction. Generate continuous non-vocal ambience and caused Foley.'
     : speechEventCount
       ? `No narrator or ad-lib exists. Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} ${speechEventCount === 1 ? 'occurs' : 'occur'}: only the tagged dialogue line${speechEventCount === 1 ? '' : 's'} below, once each. Other prose is silent direction; never vocalize or mouth it.`
       : 'No narrator, dialogue, singing, ad-lib, or intelligible human vocalization exists. All prose below is silent visual direction.';
@@ -314,9 +314,10 @@ export function buildVideoSegmentPrompt(
       const source = subject ? `<Subject ${subject}> (${id})` : `${name || 'The on-screen speaker'} (${id})`;
       const eventNumber = timedSpeech.indexOf(line) + 1;
       if (lockedDialogueTrack) {
+        const taggedLine = `<d>[${dialogueLanguage(text)}] ${text}</d>`;
         return line.lipSync
-          ? `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, ${source} lip-syncs exactly to prerecorded dialogue event ${eventNumber} already present in <Audio 1>; the mouth starts and stops with that event, with no other vocalization.`
-          : `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, visible reactions synchronize to prerecorded off-screen dialogue event ${eventNumber} already present in <Audio 1>; no on-screen mouth speaks and no new vocal audio is generated.`;
+          ? `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, ${source} speaks once in the exact timing and voice of <Audio 1>: ${taggedLine}. The mouth starts and stops with this event; no other vocalization.`
+          : `From ${h3Timestamp(line.start)} to ${h3Timestamp(line.end)}, the off-screen voice of ${source} speaks once in the exact timing and voice of <Audio 1>: ${taggedLine}. Visible reactions synchronize to it; no on-screen mouth speaks.`;
       }
       const performance = nonSpokenPerformanceControl(line.emotion, line.delivery);
       const volume = line.volume === 'raised' ? 'at a raised but controlled volume'
@@ -373,9 +374,9 @@ export function buildVideoSegmentPrompt(
   // Official H3 format keeps dialogue exclusively inside detailed_description.
   // overall_soundscape contains ambience, Foley and non-verbal human sound only.
   const soundscape = lockedDialogueTrack
-    ? `${buildAudioManifest(storyboards)} <Audio 1> remains the sole human-vocal layer. Add no breath words, crowd speech, whisper, narration, singing or other intelligible voice.`
+    ? `${buildAudioManifest(storyboards)} The tagged line${speechEventCount === 1 ? '' : 's'} ${speechEventCount === 1 ? 'is' : 'are'} the sole human-vocal layer and use <Audio 1> as the exact voice/timing reference. Add no breath words, crowd speech, whisper, narration, singing or other intelligible voice.`
     : buildAudioManifest(storyboards);
-  const nonDiegeticMusic = lockedDialogueTrack ? 'N/A — no music; only the dialogue stem, location ambience and caused Foley.' : buildNonDiegeticMusic(storyboards);
+  const nonDiegeticMusic = lockedDialogueTrack ? 'N/A — no music; only scheduled dialogue, continuous location ambience and caused Foley.' : buildNonDiegeticMusic(storyboards);
 
   if (isFirstLastMode) {
     return `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.
@@ -406,7 +407,7 @@ non_diegetic_music: ${nonDiegeticMusic}`;
     ...subjectDefinitions.map((_, index) => `<Subject ${index + 1}>: fully_preserved identity/wardrobe across ${storyboards.flatMap((storyboard, shotIndex) => storyboard.characters?.includes(characters[index]) ? [`[Shot ${shotIndex + 1}]`] : []).join(',')}.`),
     ...pictureDefinitions.map((_, index) => `<Picture ${index + 1}>: reference; lock identity/world, not pose/viewpoint.`),
     ...audioDefinitions.map((_, index) => lockedDialogueTrack
-      ? `<Audio ${index + 1}>: fully_preserved dialogue stem; exact words/timing/voice; only non-vocal ambience and Foley may be added around it.`
+      ? `<Audio ${index + 1}>: voice/timing reference for the tagged dialogue only; regenerate the complete synchronized ambience and Foley bed around it.`
       : `<Audio ${index + 1}>: reference - voice timbre for its bound scheduled speaker only; no source wording or continuous vocal track is copied.`),
   ];
   const summaryPictures = storyboards.map((_, index) => `<Picture ${index + referenceOffset}>`).join(', ');

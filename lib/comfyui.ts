@@ -962,12 +962,12 @@ export function injectLockedDriveAudio(
   inputs.task_type = variant
     ? (variant === 'aid_first_last' ? 'Hybrid' : 'Ref2VA')
     : (inputs.first_frame || inputs.last_frame ? 'Hybrid' : 'Ref2VA');
-  // A transparent lock makes lip-sync reliable, but its mux_audio output is
-  // only the supplied dialogue stem: every silent interval stays literally
-  // silent. A restrained learned remix keeps the stem as the timing/phoneme
-  // anchor while allowing H3 to render location ambience and caused Foley.
-  inputs.audio_mode = 'remix_source';
-  inputs.audio_denoise_strength = 0.2;
+  // `lock_source` and `remix_source` both start from the sparse dialogue
+  // latent, so silent intervals remain silent even when the prompt requests
+  // ambience. `reference_only` keeps the exact stem as H3's voice/timing
+  // reference while regenerating a complete synchronized soundtrack.
+  inputs.audio_mode = 'reference_only';
+  inputs.audio_denoise_strength = 1;
   inputs.add_source_as_reference = true;
   inputs.prompt_primary_audio_ordinal = 1;
   inputs.strict_prompt_tags = true;
@@ -976,14 +976,29 @@ export function injectLockedDriveAudio(
     /^MiniMaxH3AVDecode/.test(String((outputNode as JsonRecord).class_type || '')),
   );
   if (!decodeEntry) throw new ComfyUIError('工作流缺少 H3 音视频解码节点');
+  const mixNodeId = nextNodeId(prompt);
+  prompt[mixNodeId] = {
+    class_type: 'MiniMaxH3AudioMixT8',
+    inputs: {
+      source_audio: [nodeId, 0],
+      generated_audio: [decodeEntry[0], 1],
+      source_gain_db: 0,
+      generated_gain_db: -4,
+      duck_generated: 1,
+      output_sample_rate: 'source',
+      peak_limit_dbfs: -1,
+    },
+    _meta: { title: 'AID exact dialogue + generated soundscape' },
+  };
   let muxCount = 0;
   for (const outputNode of Object.values(prompt) as JsonRecord[]) {
     if (!['VHS_VideoCombine', 'SaveVideo'].includes(String(outputNode.class_type || ''))) continue;
     if (!outputNode.inputs || !('audio' in outputNode.inputs)) continue;
-    // AV Decode output 1 contains the source-conditioned dialogue plus H3's
-    // synchronized non-vocal sound bed. Conditioning output 2 is only the
-    // untouched stem and was the cause of Story clips with no ambience.
-    outputNode.inputs.audio = [decodeEntry[0], 1];
+    // Keep the authoritative Fish Audio stem on top while retaining H3's
+    // continuous room tone, environmental bed and caused Foley. Full ducking
+    // prevents the generated guide voice from competing while the exact stem
+    // is active; between lines the H3 soundscape remains untouched.
+    outputNode.inputs.audio = [mixNodeId, 0];
     muxCount += 1;
   }
   if (!muxCount) throw new ComfyUIError('工作流没有可锁定音轨的视频输出节点');
@@ -1655,6 +1670,18 @@ function collectFileRefs(value: unknown): ComfyOutputRef[] {
   return Object.values(record).flatMap(collectFileRefs);
 }
 
+export function selectComfyUIVideoOutput(value: unknown): ComfyOutputRef | undefined {
+  const videos = collectFileRefs(value)
+    .filter(ref => VIDEO_SUFFIXES.has(path.extname(ref.filename).toLowerCase()));
+  // VHS_VideoCombine can report both its temporary video-only MP4 and the
+  // final muxed `-audio.mp4`. ComfyUI does not guarantee their array order, so
+  // taking the first video silently drops the entire soundtrack.
+  return videos.sort((left, right) => {
+    const audioRank = (ref: ComfyOutputRef) => /-audio\.[^.]+$/i.test(ref.filename) ? 0 : 1;
+    return audioRank(left) - audioRank(right);
+  })[0];
+}
+
 export async function getComfyUIVideoStatus(taskId: string, settings: ComfyUIClientSettings = {}): Promise<{
   status: 'processing' | 'completed' | 'failed';
   error?: string;
@@ -1700,7 +1727,7 @@ export async function getComfyUIVideoStatus(taskId: string, settings: ComfyUICli
       if (status.status_str === 'error') {
         return { status: 'failed' as const, error: `ComfyUI 执行失败：${comfyUIExecutionError(status.messages)}` };
       }
-      const output = collectFileRefs(item.outputs || {}).find(ref => VIDEO_SUFFIXES.has(path.extname(ref.filename).toLowerCase()));
+      const output = selectComfyUIVideoOutput(item.outputs || {});
       if (!output) return { status: 'failed' as const, error: 'ComfyUI 任务完成但没有返回视频文件' };
       return { status: 'completed' as const, output };
     });
