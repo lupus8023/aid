@@ -1,6 +1,8 @@
 import { VideoClip } from '../components/video-editor/types';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 
+const STORY_AUDIO_TAIL_FILTER = 'areverse,afade=t=in:st=0:d=0.350,areverse';
+
 let ffmpeg: FFmpeg | null = null;
 
 type ProgressCallback = (progress: number, stage?: string) => void;
@@ -89,6 +91,7 @@ export async function exportVideo(
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
         '-pix_fmt', 'yuv420p',
+        '-af', STORY_AUDIO_TAIL_FILTER,
         '-c:a', 'aac',
         trimmedName
       ]);

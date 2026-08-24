@@ -30,6 +30,25 @@ export const COMFYUI_LONG_TASK_PREFIX = 'comfyui-long:';
 export const COMFYUI_IMAGE_TASK_PREFIX = 'comfyui-image:';
 export const MAX_COMFYUI_REFERENCE_IMAGES = 5;
 export const SCAIL2_FRAME_COUNTS = [17, 33, 49, 65, 81] as const;
+export const H3_VIDEO_FPS = 24;
+
+/**
+ * The H3 workflow can only render frame counts whose latent length is valid
+ * for its 17-frame temporal blocks. The remote workflow rounds the requested
+ * duration to frames, then advances to the next frame count congruent to 5
+ * modulo 17. Keep speech/audio conditioning on that same real duration;
+ * otherwise the unmatched final frames are free to become static or buzz.
+ */
+export function h3AlignedFrameCount(duration: number, fps = H3_VIDEO_FPS): number {
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : H3_VIDEO_FPS;
+  const requestedFrames = Math.max(5, Math.round((Number(duration) || 0) * safeFps));
+  return requestedFrames + ((5 - (requestedFrames % 17)) + 17) % 17;
+}
+
+export function h3AlignedDurationSeconds(duration: number, fps = H3_VIDEO_FPS): number {
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : H3_VIDEO_FPS;
+  return h3AlignedFrameCount(duration, safeFps) / safeFps;
+}
 
 export type ComfyUIWorkflow =
   | 'aid_single_reference'
@@ -1765,6 +1784,7 @@ export async function createComfyUIVideoTask(input: {
     const auxiliaryImages = (input.auxiliaryImages || []).filter(Boolean);
     const referenceAudios = (input.referenceAudios || []).filter(Boolean);
     const renderDuration = Math.min(15, Math.max(2, Number(input.duration) || 5));
+    const alignedRenderDuration = h3AlignedDurationSeconds(renderDuration);
     if (1 + auxiliaryImages.length > MAX_COMFYUI_REFERENCE_IMAGES) {
       throw new ComfyUIError(`MiniMax H3 多图参考在 AID 中最多使用 ${MAX_COMFYUI_REFERENCE_IMAGES} 张图片`);
     }
@@ -1819,7 +1839,7 @@ export async function createComfyUIVideoTask(input: {
         remoteAudios,
         input.referenceAudioNames || [],
         input.speechTurns || [],
-        renderDuration,
+        alignedRenderDuration,
         input.language === 'en' ? 'en' : 'zh',
         asrModelDirectory,
       );

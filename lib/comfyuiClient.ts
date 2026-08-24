@@ -112,11 +112,16 @@ async function responseError(response: Response): Promise<string> {
 export async function downloadComfyUIVideo(
   taskId: string,
   settings?: Partial<ComfyUISettings>,
+  options?: { smoothAudioTail?: boolean },
 ): Promise<string> {
   const response = await fetch(comfyUIApiUrl('/api/comfyui/download', settings), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ taskId, comfyui: localComfyUISettings(settings) }),
+    body: JSON.stringify({
+      taskId,
+      comfyui: localComfyUISettings(settings),
+      smoothAudioTail: options?.smoothAudioTail === true,
+    }),
   });
 
   if (!response.ok) throw new Error(await responseError(response));

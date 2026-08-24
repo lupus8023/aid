@@ -5,6 +5,8 @@ import test from 'node:test';
 import {
   fitH3ReferenceAudioDurations,
   h3ConditioningTaskType,
+  h3AlignedDurationSeconds,
+  h3AlignedFrameCount,
   h3ReferenceAudioPolicy,
   h3VisualTaskType,
   injectH3ExactSpeechDrive,
@@ -21,6 +23,13 @@ import {
 
 const TOTAL_BUDGET = 14.7;
 const MINIMUM_DURATION = 2;
+
+test('aligns requested duration to the H3 temporal block used by the remote workflow', () => {
+  assert.equal(h3AlignedFrameCount(12), 294);
+  assert.equal(h3AlignedDurationSeconds(12), 12.25);
+  assert.equal(h3AlignedFrameCount(13), 328);
+  assert.equal(Number(h3AlignedDurationSeconds(13).toFixed(6)), 13.666667);
+});
 
 test('Story uses Fish once per character as timbre reference and never as final dialogue audio', () => {
   const storyPage = readFileSync(new URL('../app/story/page.tsx', import.meta.url), 'utf8');

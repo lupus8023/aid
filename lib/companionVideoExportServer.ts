@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { storyAudioTailFilter } from './audioTailCleanup';
 
 export type CompanionExportClip = {
   clipId: string;
@@ -322,12 +323,19 @@ async function transcodeClip(
   const duration = Math.max(0.05, clip.duration - clip.trimStart - clip.trimEnd);
   const videoFilter = `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=24`;
   const args = ['-y', '-ss', clip.trimStart.toFixed(3), '-i', input];
-  if (!probe.hasAudio) args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000');
+  // `areverse` must see a finite stream before it can emit frames. Give the
+  // synthesized silent fallback an explicit duration instead of relying on
+  // output `-t`, otherwise an audio-less clip can wait forever.
+  if (!probe.hasAudio) args.push(
+    '-f', 'lavfi', '-i',
+    `anullsrc=channel_layout=stereo:sample_rate=48000:d=${duration.toFixed(3)}`,
+  );
   args.push(
     '-t', duration.toFixed(3),
     '-map', '0:v:0',
     '-map', probe.hasAudio ? '0:a:0' : '1:a:0',
     '-vf', videoFilter,
+    '-af', storyAudioTailFilter(),
     '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
     '-shortest', '-movflags', '+faststart', output,

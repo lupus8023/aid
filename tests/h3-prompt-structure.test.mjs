@@ -47,6 +47,7 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
   assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S63\) says once/);
   assert.match(prompt, /deadline; no stretching/);
+  assert.match(prompt, /no electronic hiss, static, buzz, digital residue, or abrupt audio cut/);
   const soundscape = prompt.split('overall_soundscape:')[1].split('non_diegetic_music:')[0];
   assert.doesNotMatch(soundscape, /<d>|线索就在这里|dialogue|speech/i);
   assert.match(prompt, /(?:The camera uses|CAMERA:) .*moderate/i);

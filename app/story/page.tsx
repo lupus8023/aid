@@ -1816,7 +1816,7 @@ export default function StoryPage() {
           if (generationProjectId !== projectIdRef.current) return;
 
           if (isComfyTask && data.status === 'completed' && data.readyForDownload) {
-            const localVideoUrl = await downloadComfyUIVideo(taskId, currentSettings.comfyui);
+            const localVideoUrl = await downloadComfyUIVideo(taskId, currentSettings.comfyui, { smoothAudioTail: true });
             await cacheCompletedVideo(storyboardId, localVideoUrl, segmentStoryboardIds, generationProjectId, generationSignature);
             return;
           }

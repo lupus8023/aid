@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { downloadComfyUIOutput, getComfyUIVideoStatus, isComfyUITask } from '@/lib/comfyui';
+import { smoothStoryVideoAudioTail } from '@/lib/audioTailCleanup';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
-    const { taskId, comfyui = {} } = await request.json();
+    const { taskId, comfyui = {}, smoothAudioTail = false } = await request.json();
     if (!taskId || !isComfyUITask(taskId)) {
       return NextResponse.json({ error: '有效的 ComfyUI Task ID 是必填项' }, { status: 400 });
     }
@@ -19,7 +20,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '视频仍在生成中', status: status.status }, { status: 409 });
     }
 
-    const buffer = await downloadComfyUIOutput(taskId, status.output, comfyui);
+    const downloaded = await downloadComfyUIOutput(taskId, status.output, comfyui);
+    const buffer = smoothAudioTail ? await smoothStoryVideoAudioTail(downloaded) : downloaded;
     const promptId = taskId.replace(/^comfyui(?:-long)?:/, '').replace(/[^a-zA-Z0-9_-]/g, '') || 'minimax-h3';
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,

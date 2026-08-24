@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.61 - 2026-08-24
+
+### Improved
+
+- “Adapt screenplay” now validates its result against the production Story JSON boundary before returning it. It retries complete rewrites for missing or skipped shots, malformed dialogue, directing instructions spoken as dialogue, excessive turns and speech that cannot fit MiniMax H3's 15-second limit.
+- Ordinary source dialogue may be compressed without changing its speaker, facts, intent or response relationship; only explicitly locked verbatim lines remain immutable and may be distributed across adjacent shots.
+
+### Fixed
+
+- MiniMax H3 exact-speech conditioning now uses the workflow's real 17-frame-block-aligned duration, eliminating unmanaged trailing frames that could become static or buzz.
+- Story H3 prompts reserve a clean final location-tone tail and explicitly prohibit hiss, static, digital residue and abrupt audio cuts.
+- Completed ComfyUI Story clips receive a 0.35-second audio-tail cleanup while preserving encoded video frames; Companion export and browser FFmpeg export apply the same cleanup as fallback.
+- Companion export gives generated silence a finite duration, preventing audio-less clips from hanging in the reverse-fade filter.
+
+### Verification
+
+- H3 audio, H3 prompt, screenplay adaptation, audio-tail and local export suites pass; the production Next.js build completes successfully.
+
 ## 0.1.60 - 2026-08-24
 
 ### Fixed

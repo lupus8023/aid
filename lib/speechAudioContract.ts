@@ -291,6 +291,7 @@ export function buildAudioManifest(storyboards: Storyboard[]): string {
       ? 'Background people contribute only a low, indistinct nonverbal presence with no recognizable words.'
       : 'Background human voices are absent.',
     'No narration, ad-lib, singing, or unscripted intelligible words are present.',
+    'The final 0.35 seconds retain only clean stable location tone and settle naturally; no electronic hiss, static, buzz, digital residue, or abrupt audio cut.',
   ].join(' ');
 }
 
