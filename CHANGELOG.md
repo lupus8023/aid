@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.60 - 2026-08-24
+
+### Fixed
+
+- ComfyUI task recovery now checks both prompt history and the live running/pending queues. A persisted task id absent from all three places is reported as terminally stale instead of “processing” forever.
+- Story immediately unlocks stale persisted video tasks after refresh while preserving genuinely queued or running work.
+
+### Verification
+
+- Added queue-shape coverage for running, pending and missing prompt ids; H3 audio, video-segment and production build checks pass.
+
 ## 0.1.59 - 2026-08-24
 
 ### Fixed

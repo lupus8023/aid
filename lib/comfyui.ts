@@ -2004,6 +2004,21 @@ export function selectComfyUIVideoOutput(value: unknown): ComfyOutputRef | undef
   })[0];
 }
 
+export function comfyUIQueueContainsPrompt(value: unknown, promptId: string): boolean {
+  if (!value || typeof value !== 'object' || !promptId) return false;
+  const queue = value as JsonRecord;
+  const entries = [queue.queue_running, queue.queue_pending]
+    .flatMap(group => Array.isArray(group) ? group : []);
+  return entries.some(entry => {
+    if (Array.isArray(entry)) return String(entry[1] || '') === promptId;
+    if (entry && typeof entry === 'object') {
+      const record = entry as JsonRecord;
+      return String(record.prompt_id || record.promptId || '') === promptId;
+    }
+    return false;
+  });
+}
+
 export async function getComfyUIVideoStatus(taskId: string, settings: ComfyUIClientSettings = {}): Promise<{
   status: 'processing' | 'completed' | 'failed';
   error?: string;
@@ -2044,7 +2059,15 @@ export async function getComfyUIVideoStatus(taskId: string, settings: ComfyUICli
     return await withTunnel(config, async baseUrl => {
       const history = await fetchJson(baseUrl, `/history/${encodeURIComponent(promptId)}`, {}, 30_000);
       const item = history[promptId];
-      if (!item) return { status: 'processing' as const };
+      if (!item) {
+        // A persisted id is recoverable only while it exists in ComfyUI's
+        // queue or history. Previously a missing id was reported as processing
+        // forever, leaving Story locked even though the backend had no job.
+        const queue = await fetchJson(baseUrl, '/queue', {}, 30_000);
+        return comfyUIQueueContainsPrompt(queue, promptId)
+          ? { status: 'processing' as const }
+          : { status: 'failed' as const, error: 'ComfyUI 中未找到该任务；已解除生成锁，请重新提交' };
+      }
       const status = item.status || {};
       if (status.status_str === 'error') {
         return { status: 'failed' as const, error: `ComfyUI 执行失败：${comfyUIExecutionError(status.messages)}` };

@@ -9,6 +9,7 @@ import {
   h3VisualTaskType,
   injectH3ExactSpeechDrive,
   selectComfyUIVideoOutput,
+  comfyUIQueueContainsPrompt,
   taggedPrompt,
 } from '../lib/comfyui.ts';
 import {
@@ -259,4 +260,15 @@ test('prefers the final muxed audio MP4 over the temporary silent MP4', () => {
     subfolder: 'aid/test',
     type: 'output',
   });
+});
+
+test('distinguishes a real queued ComfyUI prompt from a stale persisted task id', () => {
+  const queue = {
+    queue_running: [[7, 'prompt-running', {}, {}, []]],
+    queue_pending: [[8, 'prompt-pending', {}, {}, []]],
+  };
+  assert.equal(comfyUIQueueContainsPrompt(queue, 'prompt-running'), true);
+  assert.equal(comfyUIQueueContainsPrompt(queue, 'prompt-pending'), true);
+  assert.equal(comfyUIQueueContainsPrompt(queue, 'prompt-missing'), false);
+  assert.equal(comfyUIQueueContainsPrompt({}, 'prompt-running'), false);
 });
