@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.62 - 2026-08-25
+
+### Improved
+
+- Fish Audio character references now use a naturally articulated calibration read instead of sustained filler vowels, capturing consonants and timbre without the voiced residue that could leak into H3 clip tails. Existing references are versioned out and regenerate once per character on demand.
+- Voice-casting rows reserve a shorter reference-id field and more room for playback and regeneration controls.
+
+### Fixed
+
+- Dialogue clips now run a second H3 audio-only pass that locks the already generated picture, creates continuous perspective-correct ambience and Foley from each timed storyboard beat, and masters that bed underneath the independently verified exact-dialogue stem.
+- The delivered soundtrack no longer depends on the speech-only drive audio for ambience, eliminating silent gaps while preserving exact words, speaker identity and lip timing.
+- Audio-tail cleanup is reduced to a click-safe 50 ms endpoint ramp so valid room tone, weather and physical Foley continue naturally up to editorial cuts without restoring the former static residue.
+
+### Verification
+
+- Two production ComfyUI samples passed exact Whisper transcription, continuous ambience/Foley, tail-spectrum and frame-motion checks. H3 audio, H3 prompt, voice-casting, video-segment, audio-tail and local-export suites pass; the production Next.js build completes successfully.
+
 ## 0.1.61 - 2026-08-24
 
 ### Improved

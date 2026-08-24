@@ -51,18 +51,64 @@ test('Story uses Fish once per character as timbre reference and never as final 
   assert.doesNotMatch(comfy, /injectLockedDriveAudio|exact full-duration dialogue|MiniMaxH3AudioMixT8/);
 });
 
-test('Fish timbre references contain no lexical sentence that H3 can copy', () => {
-  assert.equal(voiceReferenceSample('en'), 'Mmm—ah—oh—ee—oo. Mmm—ah—oh—ee—oo.');
-  assert.equal(voiceReferenceSample('zh'), '嗯——啊——哦——咿——呜。嗯——啊——哦——咿——呜。');
-  assert.doesNotMatch(voiceReferenceSample('en'), /\b(?:light|room|speak|voice|remember)\b/i);
+test('Fish timbre references use natural calibration speech instead of sustained filler vowels', () => {
+  assert.match(voiceReferenceSample('en'), /natural, steady voice/);
+  assert.match(voiceReferenceSample('zh'), /自然、清楚、平稳/);
+  assert.doesNotMatch(voiceReferenceSample('en'), /Mmm|ah—oh/i);
+  assert.doesNotMatch(voiceReferenceSample('zh'), /^嗯|啊——哦/);
 });
 
-test('invalidates old lexical references while retaining timbre-v2 references', () => {
+test('invalidates old vowel references while retaining timbre-v3 references', () => {
   const fresh = `https://example.test/aid-voice-refs/${voiceReferencePublicId('Tide Officer')}.mp3`;
   const old = 'https://example.test/aid-voice-refs/voice-ref-Tide-Officer-123.mp3';
   assert.equal(isCurrentVoiceReference(fresh), true);
   assert.equal(isCurrentVoiceReference(old), false);
   assert.deepEqual(currentVoiceReferences({ Officer: fresh, Legacy: old }), { Officer: fresh });
+});
+
+test('keeps exact-dialogue video latents while regenerating and mixing a dialogue-free sound bed', () => {
+  const prompt = {
+    1: { class_type: 'PrimitiveStringMultiline', inputs: { value: 'subject_definitions:\n\nretention_analysis:\nAudio references supply timbre only; ignore their words/timing.' }, _meta: { title: 'Input Text (Prompt)' } },
+    2: { class_type: 'MiniMaxH3AudioConditioningT8', inputs: { clip: ['3', 0], video_vae: ['4', 0], audio_vae: ['5', 0], prompt: ['1', 0], width: 768, height: 1344, length: 209, task_type: 'Ref2VA', audio_mode: 'native' } },
+    3: { class_type: 'CLIPLoader', inputs: {} },
+    4: { class_type: 'VAELoader', inputs: {} },
+    5: { class_type: 'VAELoader', inputs: {} },
+    6: { class_type: 'MiniMaxH3MemoryEfficientSageAttentionPatch', inputs: { model: ['7', 0] } },
+    7: { class_type: 'UNETLoader', inputs: {} },
+    8: { class_type: 'MiniMaxH3DualClockSamplerT8', inputs: { model: ['6', 0], av_latent: ['2', 1], steps: 8, shift_video: 12, shift_audio: 3 } },
+    9: { class_type: 'BasicGuider', inputs: { model: ['8', 0], conditioning: ['2', 0] } },
+    10: { class_type: 'RandomNoise', inputs: { noise_seed: 1 } },
+    11: { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['10', 0], guider: ['9', 0], sampler: ['8', 1], sigmas: ['8', 2], latent_image: ['2', 1] } },
+    12: { class_type: 'MiniMaxH3AVDecodeT8', inputs: { av_latent: ['11', 0], video_vae: ['4', 0], audio_vae: ['5', 0] } },
+    13: { class_type: 'VHS_VideoCombine', inputs: { images: ['12', 0], audio: ['12', 1] } },
+  };
+  assert.equal(injectH3ExactSpeechDrive(
+    prompt,
+    ['voice.wav'],
+    ['Officer'],
+    [{ speakerId: 'S2', character: 'Officer', exactLine: 'The gate is holding.' }],
+    8.67,
+    'en',
+    '/models/faster-whisper-small',
+    'Generate only continuous wind, cloth movement and footsteps. No human voice.',
+  ), true);
+  const nodes = Object.values(prompt);
+  const sourcePrepare = nodes.find(node => node.class_type === 'MiniMaxH3SourceAVPrepareT8');
+  const backgroundConditioning = nodes.find(node => node._meta?.title === 'AID native ambience and Foley conditioning');
+  const master = nodes.find(node => node.class_type === 'MiniMaxH3DialogueSafeMasterT8');
+  assert.equal(sourcePrepare.inputs.video_mode, 'lock');
+  assert.equal(sourcePrepare.inputs.audio_mode, 'regenerate');
+  assert.equal(backgroundConditioning.inputs.audio_mode, 'native');
+  assert.equal('drive_audio' in backgroundConditioning.inputs, false);
+  assert.deepEqual(master.inputs.speech_accepted, [
+    Object.entries(prompt).find(([, node]) => node.class_type === 'MiniMaxH3SpeechVerifyT8')[0],
+    4,
+  ]);
+  assert.ok(Array.isArray(master.inputs.ambience_audio));
+  assert.deepEqual(prompt[13].inputs.audio, [
+    Object.entries(prompt).find(([, node]) => node.class_type === 'MiniMaxH3DialogueSafeMasterT8')[0],
+    0,
+  ]);
 });
 
 test('builds H3 speech first and drives video with the verified exact track', () => {

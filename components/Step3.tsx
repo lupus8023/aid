@@ -187,13 +187,13 @@ export default function Step3({ storyPlan, storyboards, characters, objects, cos
             <span className={`rounded border px-2 py-1 text-[9px] font-mono ${unresolvedSpeakingVoices.length ? 'border-amber-400/40 text-amber-300' : 'border-emerald-400/30 text-emerald-300'}`}>{unresolvedSpeakingVoices.length ? `${unresolvedSpeakingVoices.length} 个发声角色待确认` : '全部发声角色已锁定'}</span>
           </div>
           <div className="mt-3 overflow-x-auto rounded-lg border border-white/5">
-            <div className="min-w-[920px] divide-y divide-white/5">
+            <div className="min-w-[1020px] divide-y divide-white/5">
             {voiceCast.map(char => {
               const hasRef = !!voiceReferences[char.name];
               const isGenerating = !!voiceGenerating[char.name];
               const isSpeaking = speakingNames.has(char.name);
               return (
-                <div key={char.name} className="grid grid-cols-[150px_120px_130px_minmax(280px,1fr)_150px] items-center gap-3 px-3 py-3">
+                <div key={char.name} className="grid grid-cols-[150px_120px_130px_minmax(240px,360px)_minmax(260px,1fr)] items-center gap-3 px-3 py-3">
                   <div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate text-xs text-white">{char.name}</span>{isSpeaking && <span className="rounded bg-[var(--accent-green)]/10 px-1.5 py-0.5 text-[8px] text-[var(--accent-green)]">有台词</span>}</div><p className="mt-1 truncate text-[9px] text-[var(--text-muted)]">{char.role || char.voiceProfile || '故事角色'}</p></div>
                   <select value={(char.gender || 'unknown') as VoiceGender} onChange={event => onVoiceCastChange?.(char.name, { gender: event.target.value as VoiceGender, voiceId: undefined, voiceSource: 'auto' })} className="rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-2 text-[10px] text-white">
                     <option value="unknown">性别待确认</option><option value="female">女性</option><option value="male">男性</option><option value="nonbinary">中性/非二元</option>
@@ -203,7 +203,7 @@ export default function Step3({ storyPlan, storyboards, characters, objects, cos
                   </select>
                   <div><div className="flex gap-2"><input value={char.voiceId || ''} onChange={event => onVoiceCastChange?.(char.name, { voiceId: event.target.value, voiceSource: 'user', voiceProfile: '用户指定音色' })} placeholder="Fish Audio reference_id" className={`min-w-0 flex-1 rounded border bg-[var(--bg-primary)] px-2 py-2 font-mono text-[10px] text-white ${isSpeaking && !char.voiceId ? 'border-amber-400/60' : 'border-[var(--border-color)]'}`} /><button onClick={() => onVoiceCastChange?.(char.name, { voiceId: undefined, voiceSource: 'auto' })} title="按角色资料重新自动选声" className="rounded border border-[var(--border-color)] px-2 text-[var(--text-secondary)] hover:text-white"><RotateCcw size={13} /></button></div><p className="mt-1 truncate text-[9px] text-[var(--text-muted)]">{char.voiceSource === 'user' ? '自定义锁定' : `自动 · ${char.voiceProfile || '待匹配'}`}</p></div>
                   <div className="flex items-center justify-end gap-2">
-                    {hasRef && <audio src={voiceReferences[char.name]} controls className="h-7 w-20" />}
+                    {hasRef && <audio src={voiceReferences[char.name]} controls className="h-7 w-40 shrink-0" />}
                     <button disabled={isGenerating || !char.voiceId} onClick={() => onGenerateVoiceReference?.(char.name)} className="inline-flex items-center gap-1 rounded border border-[var(--border-color)] px-2 py-2 text-[9px] text-[var(--text-secondary)] hover:text-white disabled:opacity-30">{isGenerating ? <Loader2 size={12} className="animate-spin" /> : hasRef ? <RefreshCw size={12} /> : <MicOff size={12} />}{hasRef ? '重做' : '试听'}</button>
                     {hasRef && <button onClick={() => onClearVoiceReference?.(char.name)} title="删除试听" className="text-[var(--text-muted)] hover:text-red-300"><X size={12} /></button>}
                   </div>

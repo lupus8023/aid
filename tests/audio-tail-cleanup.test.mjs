@@ -13,7 +13,7 @@ const require = createRequire(import.meta.url);
 const execFileAsync = promisify(execFile);
 
 test('uses a duration-independent reverse fade for H3 tail cleanup', () => {
-  assert.equal(storyAudioTailFilter(), 'areverse,afade=t=in:st=0:d=0.350,areverse');
+  assert.equal(storyAudioTailFilter(), 'areverse,afade=t=in:st=0:d=0.050,areverse');
   assert.equal(storyAudioTailFilter(5), 'areverse,afade=t=in:st=0:d=0.500,areverse');
 });
 

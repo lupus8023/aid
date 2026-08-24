@@ -526,6 +526,41 @@ non_diegetic_music:
 ${nonDiegeticMusic}`);
 }
 
+/**
+ * Audio-only direction for the second H3 pass used by Story dialogue clips.
+ * The first pass already owns the exact speech and all lip movement. This
+ * pass locks those generated video latents and regenerates only a clean,
+ * full-duration ambience/Foley bed, so no textual dialogue or voice reference
+ * is allowed to leak into it.
+ */
+export function buildVideoSegmentSoundBedPrompt(
+  storyboards: Storyboard[],
+  duration?: number,
+): string {
+  const first = storyboards[0];
+  if (!first) throw new Error('音效底轨至少需要一个分镜');
+  const seconds = Math.min(15, Math.max(4, duration || estimateVideoSegmentSeconds(storyboards)));
+  const timeline = allocateSegmentTimeline(storyboards, seconds);
+  const shotCues = storyboards.map((storyboard, index) => {
+    const range = timeline[index];
+    const action = compactText(authoritativeShotAction(storyboard), 180);
+    const cue = compactText(shotSoundCue(storyboard), 220);
+    return `[Shot ${index + 1}] ${h3Timestamp(range.start)}-${h3Timestamp(range.end)}: the locked picture shows ${action} AUDIO ONLY: ${cue}`;
+  });
+  return fitH3PromptBudget(`summary:
+[locked-video audio regeneration] Preserve the already generated video stream exactly. Generate only a clean, full-duration background sound bed for ${storyboards.length} causal shot${storyboards.length === 1 ? '' : 's'} over ${seconds.toFixed(2)} seconds.
+
+detailed_description:
+The video stream is authoritative and must remain unchanged. No character, narrator, crowd member or off-screen person speaks, whispers, hums, laughs, gasps, sings or makes an intelligible vocal sound. Do not imitate, repeat or reconstruct any dialogue. Generate only perspective-correct location ambience and restrained physical Foley synchronized to visible causes.
+${shotCues.join('\n')}
+
+overall_soundscape:
+${buildAudioManifest(storyboards)} The bed remains continuous between visible actions and contains no electronic hiss, static, buzz, codec residue or synthetic vocal tone.
+
+non_diegetic_music:
+${buildNonDiegeticMusic(storyboards)}`);
+}
+
 export function buildStoryboardVideoPrompt(
   storyboard: Storyboard,
   characterAudios: { character: string; audioUrl: string }[] = [],

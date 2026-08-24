@@ -1,12 +1,15 @@
-export const VOICE_REFERENCE_CONTRACT_VERSION = 'timbre-v2';
+export const VOICE_REFERENCE_CONTRACT_VERSION = 'timbre-v3';
 
-// H3 receives this file only as a speaker/timbre reference. Ordinary words in
-// the old reference sentence could be copied into the start of a generated
-// clip, so the reference deliberately contains no lexical or story content.
+// H3 receives this file only as a speaker/timbre reference. Sustained isolated
+// vowels made a weak reference: they contained too little consonant/transient
+// information and could leave a voiced tail in the generated audio latent.
+// Use a calm, naturally articulated calibration read instead. Exact dialogue
+// is generated and ASR-trimmed separately, so these words never become the
+// delivered dialogue track.
 export function voiceReferenceSample(language: 'zh' | 'en' = 'zh'): string {
   return language === 'en'
-    ? 'Mmm—ah—oh—ee—oo. Mmm—ah—oh—ee—oo.'
-    : '嗯——啊——哦——咿——呜。嗯——啊——哦——咿——呜。';
+    ? 'Today feels calm and clear. I will finish these two sentences in a natural, steady voice, while the quiet moment moves gently forward.'
+    : '今天的空气很安静，我会用自然、清楚、平稳的声音说完这两句话。远处的风轻轻吹过，时间正在缓缓向前。';
 }
 
 export function voiceReferencePublicId(characterName?: string): string {

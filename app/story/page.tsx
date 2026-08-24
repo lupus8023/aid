@@ -1668,7 +1668,7 @@ export default function StoryPage() {
       // Manual segment generation must be as self-sufficient as one-click
       // production. A character's Fish voiceId locks casting, while this tiny
       // reference file is generated once and reused only to teach H3 the
-      // timbre. Older projects may have the voiceId but no current timbre-v2
+      // timbre. Older projects may have the voiceId but no current calibration
       // artifact, so create it lazily instead of presenting an enabled button
       // that fails after the user clicks it.
       if (videoProvider === 'comfyui') {

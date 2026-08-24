@@ -1,7 +1,7 @@
 import { VideoClip } from '../components/video-editor/types';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 
-const STORY_AUDIO_TAIL_FILTER = 'areverse,afade=t=in:st=0:d=0.350,areverse';
+const STORY_AUDIO_TAIL_FILTER = 'areverse,afade=t=in:st=0:d=0.050,areverse';
 
 let ffmpeg: FFmpeg | null = null;
 

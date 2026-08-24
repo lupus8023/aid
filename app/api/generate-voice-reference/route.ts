@@ -12,8 +12,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'fishAudioKey 和已锁定的 voiceId 均为必填项' }, { status: 400 });
     }
 
-    // This is a timbre probe, not dialogue. Keep it non-lexical so H3 cannot
-    // accidentally repeat a Fish reference word before the scripted line.
+    // This is a timbre calibration read, not delivered dialogue. A naturally
+    // articulated sentence captures consonants, transitions and breath much
+    // better than sustained vowels; the H3 exact-speech pass owns all final
+    // words and timing independently.
     const sampleText = voiceReferenceSample(language === 'en' ? 'en' : 'zh');
 
     const { buffer: audioBuffer } = await generateFishSpeech(sampleText, voiceId, fishAudioKey);

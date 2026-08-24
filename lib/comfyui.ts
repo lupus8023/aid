@@ -1021,6 +1021,7 @@ export function injectH3ExactSpeechDrive(
   duration: number,
   language: 'zh' | 'en',
   asrModelDirectory = '',
+  backgroundPrompt = '',
 ): boolean {
   const turns = speechTurns
     .map(turn => ({
@@ -1034,6 +1035,14 @@ export function injectH3ExactSpeechDrive(
   if (!turns.length || !remoteAudios.length || remoteAudios.length !== referenceAudioNames.length) return false;
 
   const conditioning = conditioningNode(prompt);
+  const originalTaskType = String(conditioning.inputs.task_type || 'Ref2VA');
+  const mainDecodeEntry = Object.entries(prompt).find(([, node]: [string, any]) => node.class_type === 'MiniMaxH3AVDecodeT8');
+  const mainDecodeId = mainDecodeEntry?.[0];
+  const mainSamplerId = linkedNodeId(mainDecodeEntry?.[1]?.inputs?.av_latent);
+  const mainSampler = mainSamplerId ? prompt[mainSamplerId] : undefined;
+  const mainSetupId = linkedNodeId(mainSampler?.inputs?.sampler);
+  const mainSetup = mainSetupId ? prompt[mainSetupId] : undefined;
+  const videoCombineEntry = Object.entries(prompt).find(([, node]: [string, any]) => node.class_type === 'VHS_VideoCombine');
   const clip = conditioning.inputs.clip;
   const videoVae = conditioning.inputs.video_vae;
   const audioVae = conditioning.inputs.audio_vae;
@@ -1230,6 +1239,98 @@ export function injectH3ExactSpeechDrive(
   conditioning.inputs.drive_audio = [finalizeId, 0];
   conditioning.inputs.strict_prompt_tags = true;
   rewritePromptForExactSpeechDrive(prompt);
+
+  // The exact-speech track deliberately contains no ambience or Foley. Using
+  // it as a low-denoise remix source for the delivered soundtrack suppressed
+  // every requested background layer and could turn padded silence into a
+  // voiced/static tail. Keep that pass only for video/lip-sync. A second H3
+  // pass locks its generated video latent, regenerates only target audio from
+  // a dialogue-free prompt, and mixes that bed with the independently verified
+  // speech stem. Both passes remain one ComfyUI task and one browser poll.
+  if (
+    backgroundPrompt.trim()
+    && mainDecodeId
+    && mainSamplerId
+    && mainSampler?.class_type === 'SamplerCustomAdvanced'
+    && mainSetup?.class_type === 'MiniMaxH3DualClockSamplerT8'
+    && videoCombineEntry
+  ) {
+    const backgroundPromptId = addPromptNode(prompt, 'PrimitiveStringMultiline', {
+      value: backgroundPrompt.trim(),
+    }, 'AID dialogue-free ambience and Foley prompt');
+    const backgroundConditioningInputs: JsonRecord = {
+      ...conditioning.inputs,
+      prompt: [backgroundPromptId, 0],
+      task_type: originalTaskType,
+      audio_mode: 'native',
+      audio_denoise_strength: 1,
+      add_source_as_reference: false,
+      prompt_primary_audio_ordinal: 0,
+      strict_prompt_tags: true,
+    };
+    delete backgroundConditioningInputs.drive_audio;
+    for (const key of Object.keys(backgroundConditioningInputs)) {
+      if (key.startsWith('ref_audios.ref_audio_')) delete backgroundConditioningInputs[key];
+    }
+    const backgroundConditioningId = addPromptNode(
+      prompt,
+      'MiniMaxH3AudioConditioningT8',
+      backgroundConditioningInputs,
+      'AID native ambience and Foley conditioning',
+    );
+    const sourcePrepareId = addPromptNode(prompt, 'MiniMaxH3SourceAVPrepareT8', {
+      video_latent: [mainSamplerId, 0],
+      audio_latent: [backgroundConditioningId, 1],
+      video_mode: 'lock',
+      video_denoise_strength: 0,
+      audio_mode: 'regenerate',
+      audio_denoise_strength: 1,
+      audio_fit_policy: 'strict',
+      dtype_device_policy: 'match_video',
+    }, 'AID lock picture and regenerate sound bed');
+    const backgroundSetupId = addPromptNode(prompt, 'MiniMaxH3DualClockSamplerT8', {
+      ...mainSetup.inputs,
+      av_latent: [sourcePrepareId, 0],
+    }, 'AID ambience and Foley sampler');
+    const backgroundGuiderId = addPromptNode(prompt, 'BasicGuider', {
+      model: [backgroundSetupId, 0],
+      conditioning: [backgroundConditioningId, 0],
+    }, 'AID ambience and Foley guider');
+    const backgroundNoiseId = addPromptNode(prompt, 'RandomNoise', {
+      noise_seed: Number(BigInt(`0x${randomBytes(7).toString('hex')}`)),
+    }, 'AID ambience and Foley noise');
+    const backgroundSamplerId = addPromptNode(prompt, 'SamplerCustomAdvanced', {
+      noise: [backgroundNoiseId, 0],
+      guider: [backgroundGuiderId, 0],
+      sampler: [backgroundSetupId, 1],
+      sigmas: [backgroundSetupId, 2],
+      latent_image: [sourcePrepareId, 0],
+    }, 'AID ambience and Foley generation');
+    const backgroundDecodeId = addPromptNode(prompt, 'MiniMaxH3AVDecodeT8', {
+      av_latent: [backgroundSamplerId, 0],
+      video_vae: videoVae,
+      audio_vae: audioVae,
+    }, 'AID ambience and Foley decode');
+    const masterId = addPromptNode(prompt, 'MiniMaxH3DialogueSafeMasterT8', {
+      speech_audio: [finalizeId, 0],
+      speech_accepted: [verifyId, 4],
+      target_duration_seconds: renderSeconds,
+      speech_start_seconds: 0,
+      output_sample_rate: 32000,
+      music_fit_policy: 'strict',
+      ambience_fit_policy: 'strict',
+      sfx_fit_policy: 'strict',
+      loop_crossfade_seconds: 0.25,
+      speech_gain_db: 0,
+      music_gain_db: -60,
+      ambience_gain_db: -4,
+      sfx_gain_db: 0,
+      duck_background: 0.28,
+      peak_limit_dbfs: -1,
+      ambience_audio: [backgroundDecodeId, 1],
+    }, 'AID exact dialogue plus full soundscape master');
+    videoCombineEntry[1].inputs.audio = [masterId, 0];
+  }
   return true;
 }
 
@@ -1767,6 +1868,7 @@ export async function createComfyUICharacterReplaceTask(input: {
 export async function createComfyUIVideoTask(input: {
   firstFrame: string;
   prompt: string;
+  backgroundPrompt?: string;
   duration: number;
   aspectRatio: string;
   auxiliaryImages?: string[];
@@ -1842,6 +1944,7 @@ export async function createComfyUIVideoTask(input: {
         alignedRenderDuration,
         input.language === 'en' ? 'en' : 'zh',
         asrModelDirectory,
+        input.backgroundPrompt || '',
       );
       if (!usesExactSpeechDrive) injectReferenceAudios(apiPrompt, remoteAudios);
 

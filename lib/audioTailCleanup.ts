@@ -7,7 +7,7 @@ import ffmpegStatic from 'ffmpeg-static';
 
 const execFileAsync = promisify(execFile);
 
-export const STORY_AUDIO_TAIL_FADE_SECONDS = 0.35;
+export const STORY_AUDIO_TAIL_FADE_SECONDS = 0.05;
 
 /** Reverse-fade-reverse avoids probing duration and guarantees a zero-amplitude cut. */
 export function storyAudioTailFilter(seconds = STORY_AUDIO_TAIL_FADE_SECONDS): string {
@@ -16,9 +16,9 @@ export function storyAudioTailFilter(seconds = STORY_AUDIO_TAIL_FADE_SECONDS): s
 }
 
 /**
- * Clean the final H3 audio block without touching the encoded video frames.
- * Story reserves at least 0.55 seconds after speech, so the 0.35-second tail
- * fade removes VAE/static residue without clipping an authored line.
+ * Apply only a click-safe endpoint ramp without touching encoded video frames.
+ * The soundtrack now has an independently generated full-duration ambience
+ * bed, so a long tail fade would audibly erase valid room tone before cuts.
  */
 export async function smoothStoryVideoAudioTail(buffer: Buffer): Promise<Buffer> {
   if (!buffer.length) return buffer;
