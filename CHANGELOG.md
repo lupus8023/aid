@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.55 - 2026-08-24
+
+### Fixed
+
+- Exact-dialogue continuity segments now select MiniMax H3 `Hybrid` conditioning whenever real first/last-frame connections coexist with the verified dialogue drive track, instead of failing execution under an incompatible `Ref2VA` task.
+- H3 voice profiles now preserve each screenplay speaker ID across Story prompts, Fish Audio timbre references and exact-dialogue conditioning. A sole speaking `Subject 2` is no longer renumbered to `S1`, preventing a silent listener such as the mermaid princess from inheriting the Tide Officer's male voice and lip movement.
+
+### Verification
+
+- Confirmed both failures against the actual recent ComfyUI prompt history, including the mismatched `Subject 2 / S2` prompt and `S1` voice profile.
+- H3 audio, prompt-structure and video-segment suites pass, together with the production website and Companion builds.
+
 ## 0.1.54 - 2026-08-24
 
 ### Added

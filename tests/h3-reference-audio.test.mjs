@@ -71,7 +71,7 @@ test('builds H3 speech first and drives video with the verified exact track', ()
     prompt,
     ['voice.wav'],
     ['Officer'],
-    [{ character: 'Officer', exactLine: 'The gate is holding.' }],
+    [{ speakerId: 'S2', character: 'Officer', exactLine: 'The gate is holding.' }],
     8,
     'en',
     '/models/faster-whisper-small',
@@ -83,6 +83,36 @@ test('builds H3 speech first and drives video with the verified exact track', ()
   assert.match(prompt[1].inputs.value, /exact H3-generated dialogue track/);
   assert.doesNotMatch(prompt[1].inputs.value, /timbre only; ignore source words/);
   assert.ok(Object.values(prompt).some(node => node.class_type === 'MiniMaxH3SpeechVerifyT8' && node.inputs.verify_mode === 'trim_exact_target'));
+  assert.ok(Object.values(prompt).some(node => (
+    node.class_type === 'MiniMaxH3VoiceProfileT8'
+    && node.inputs.speaker_id === 'S2'
+  )), 'the sole uploaded voice must retain Subject 2 speaker identity instead of being renumbered to S1');
+});
+
+test('uses Hybrid exact-speech conditioning when continuity keeps first and last frames connected', () => {
+  const prompt = {
+    1: { class_type: 'PrimitiveStringMultiline', inputs: { value: 'subject_definitions:\n\nretention_analysis:\nAudio references supply timbre only; ignore their words/timing.' }, _meta: { title: 'Input Text (Prompt)' } },
+    2: { class_type: 'MiniMaxH3AudioConditioningT8', inputs: { clip: ['3', 0], video_vae: ['4', 0], audio_vae: ['5', 0], prompt: ['1', 0], first_frame: ['10', 0], last_frame: ['11', 0], task_type: 'FL2VA', audio_mode: 'native' } },
+    3: { class_type: 'CLIPLoader', inputs: {} },
+    4: { class_type: 'VAELoader', inputs: {} },
+    5: { class_type: 'VAELoader', inputs: {} },
+    6: { class_type: 'MiniMaxH3MemoryEfficientSageAttentionPatch', inputs: { model: ['7', 0] } },
+    7: { class_type: 'UNETLoader', inputs: {} },
+    8: { class_type: 'MiniMaxH3DualClockSamplerT8', inputs: { model: ['6', 0] } },
+    10: { class_type: 'LoadImage', inputs: { image: 'first.png' } },
+    11: { class_type: 'LoadImage', inputs: { image: 'last.png' } },
+  };
+  assert.equal(injectH3ExactSpeechDrive(
+    prompt,
+    ['voice.wav'],
+    ['Officer'],
+    [{ speakerId: 'S2', character: 'Officer', exactLine: 'The gate is holding.' }],
+    8,
+    'en',
+    '/models/faster-whisper-small',
+  ), true);
+  assert.equal(prompt[2].inputs.task_type, 'Hybrid');
+  assert.ok(Array.isArray(prompt[2].inputs.drive_audio));
 });
 
 function assertValidAllocation(sourceDurations, expectedDurations) {

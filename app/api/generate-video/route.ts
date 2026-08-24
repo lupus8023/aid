@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
       // 避免把画面中未说话角色的声音也计入额度。后续还会在 Companion 端统一裁剪总长。
       const speakingCharacters = [...new Set<string>(videoStoryboards.flatMap(speakingCharacterNames))];
       const speechTurns = videoStoryboards.flatMap((shot: any) => storyboardSpeech(shot)).map(line => ({
+        speakerId: line.speakerId,
         character: line.character,
         exactLine: line.exactLine,
         emotion: line.emotion,

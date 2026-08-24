@@ -941,6 +941,7 @@ function injectReferenceAudios(prompt: JsonRecord, remoteAudios: string[]): void
 }
 
 export interface H3ExactSpeechTurn {
+  speakerId?: string;
   character: string;
   exactLine: string;
   emotion?: string;
@@ -1003,7 +1004,12 @@ export function injectH3ExactSpeechDrive(
   asrModelDirectory = '',
 ): boolean {
   const turns = speechTurns
-    .map(turn => ({ ...turn, character: String(turn.character || '').trim(), exactLine: String(turn.exactLine || '').trim() }))
+    .map(turn => ({
+      ...turn,
+      speakerId: String(turn.speakerId || '').trim(),
+      character: String(turn.character || '').trim(),
+      exactLine: String(turn.exactLine || '').trim(),
+    }))
     .filter(turn => turn.character && turn.exactLine)
     .slice(0, 3);
   if (!turns.length || !remoteAudios.length || remoteAudios.length !== referenceAudioNames.length) return false;
@@ -1015,11 +1021,22 @@ export function injectH3ExactSpeechDrive(
   if (!clip || !videoVae || !audioVae) throw new ComfyUIError('H3 工作流缺少语音编码器或 VAE');
   const languageName = language === 'en' ? 'English' : 'Chinese';
   const renderSeconds = Math.min(15.08, Math.max(5.17, Number(duration) || 5.17));
+  // A speaker ID is the binding key shared by the visual prompt, the voice
+  // profile and the dialogue script. It is not the ordinal of the uploaded
+  // audio file: a segment may contain Subject 1 as a silent listener while
+  // only Subject 2 speaks. Renumbering that sole voice reference to S1 makes
+  // H3 animate the listener with the speaker's voice.
+  const speakerIdByCharacter = new Map<string, string>();
+  for (const turn of turns) {
+    if (turn.speakerId && !speakerIdByCharacter.has(turn.character)) {
+      speakerIdByCharacter.set(turn.character, turn.speakerId);
+    }
+  }
   const profileIds = remoteAudios.map((remoteAudio, index) => {
     const loadId = addPromptNode(prompt, 'LoadAudio', { audio: remoteAudio }, `AID timbre reference ${index + 1}`);
     return addPromptNode(prompt, 'MiniMaxH3VoiceProfileT8', {
       voice_mode: 'reference_voice',
-      speaker_id: `S${index + 1}`,
+      speaker_id: speakerIdByCharacter.get(referenceAudioNames[index]) || `S${index + 1}`,
       voice_description: 'the same authorized speaker as the connected reference, with natural clear diction',
       language: languageName,
       rights_confirmed: true,
@@ -1062,7 +1079,10 @@ export function injectH3ExactSpeechDrive(
       speech_guard: [guardId, 0],
     }, 'AID exact speech conditioning');
   } else {
-    const speakerByCharacter = new Map(referenceAudioNames.map((name, index) => [name, `S${index + 1}`]));
+    const speakerByCharacter = new Map(referenceAudioNames.map((name, index) => [
+      name,
+      speakerIdByCharacter.get(name) || `S${index + 1}`,
+    ]));
     const usableTurns = turns.filter(turn => speakerByCharacter.has(turn.character));
     expectedText = usableTurns.map(turn => turn.exactLine).join(' ');
     if (usableTurns.length < 2) return false;
@@ -1149,10 +1169,12 @@ export function injectH3ExactSpeechDrive(
   for (const key of Object.keys(conditioning.inputs)) {
     if (key.startsWith('ref_audios.ref_audio_')) delete conditioning.inputs[key];
   }
-  // The Story workflows inject their opening image through ref_images rather
-  // than first_frame, so the correct image+audio task remains Ref2VA. Hybrid
-  // is reserved by the T8 node for an actual first/last-frame connection.
-  conditioning.inputs.task_type = 'Ref2VA';
+  // Normal Story references use Ref2VA. A continuity segment keeps actual
+  // first_frame/last_frame connections and also adds the verified drive track
+  // as reference media, which is precisely H3's Hybrid contract.
+  conditioning.inputs.task_type = conditioning.inputs.first_frame || conditioning.inputs.last_frame
+    ? 'Hybrid'
+    : 'Ref2VA';
   conditioning.inputs.audio_mode = 'remix_source';
   conditioning.inputs.audio_denoise_strength = 0.15;
   conditioning.inputs.add_source_as_reference = true;
