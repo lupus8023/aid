@@ -265,6 +265,10 @@ function shotSoundCue(storyboard: Storyboard): string {
 }
 
 function cinematicTransition(previous: Storyboard, next: Storyboard): string {
+  const authoredBridge = compactText(previous.editBridge, 160);
+  if (authoredBridge) {
+    return `the authored story bridge: ${authoredBridge}`;
+  }
   const previousCharacters = new Set(previous.characters || []);
   const sharedCharacters = (next.characters || []).filter(name => previousCharacters.has(name));
   const previousObjects = new Set(previous.objects || []);
@@ -426,7 +430,7 @@ export function buildVideoSegmentPrompt(
       // four-shot segment this per-shot cue only needs the synchronized cause;
       // keeping another 135 characters per shot could push a valid causal
       // prompt over H3's 7000-character ceiling.
-      return `${shotHeader} ${pictureAnchor} ${compactCast} ${props} ${officialShotFraming(storyboard)}. ACTION: ${shotActionSchedule(storyboard, range, true)} CAMERA: ${compactText(officialCameraMotion(storyboard, index), 90)}. ${dialogue} SOUND: ${compactText(shotSoundCue(storyboard), 72)} ${compactText(handoff, 105)}`;
+      return `${shotHeader} ${pictureAnchor} ${compactCast} ${props} ${officialShotFraming(storyboard)}. ACTION: ${shotActionSchedule(storyboard, range, true)} CAMERA: ${compactText(officialCameraMotion(storyboard, index), 90)}. ${dialogue} SOUND: ${compactText(shotSoundCue(storyboard), 72)} ${compactText(handoff, 220)}`;
     }
     return `${shotHeader} ${entry} ${pictureAnchor} ${cast} ${props} Use ${officialShotFraming(storyboard)}.${visualAnchor} ACTION: ${shotActionSchedule(storyboard, range)} The camera uses ${officialCameraMotion(storyboard, index)}. ${dialogue} ${shotSoundCue(storyboard)} ${handoff}`;
   });

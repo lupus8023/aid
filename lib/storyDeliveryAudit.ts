@@ -12,6 +12,8 @@ export interface StoryDeliveryAudit {
     dialogueContracts: number;
     dialogueContractsDelivered: number;
     dialogueUnits: number;
+    lockedDialogueLines: number;
+    storyMilestones: number;
     groupedSegments: number;
     multiShotSegments: number;
   };
@@ -52,6 +54,7 @@ export function auditStoryDelivery(
       ['informationGain', '信息增量'],
       ['audienceQuestion', '观众问题'],
       ['montageRole', '蒙太奇功能'],
+      ['editBridge', '剪辑交棒'],
     ] as const) {
       if (!String(storyboard[field] || '').trim()) errors.push(`镜头 ${storyboard.sceneNumber} 丢失${label}`);
     }
@@ -79,6 +82,12 @@ export function auditStoryDelivery(
       if (String(line.contentGoal || '') !== turn.contentGoal) {
         errors.push(`镜头 ${storyboard.sceneNumber} 第 ${turnIndex + 1} 轮丢失“${turn.contentGoal}”语义任务`);
       }
+      if (turn.exactLine && String(line.exactLine || '') !== turn.exactLine) {
+        errors.push(`镜头 ${storyboard.sceneNumber} 第 ${turnIndex + 1} 轮没有逐字交付全片锁定台词`);
+      }
+      if (turn.meaningEvidence && !String(line.exactLine || '').toLocaleLowerCase().includes(turn.meaningEvidence.toLocaleLowerCase())) {
+        errors.push(`镜头 ${storyboard.sceneNumber} 第 ${turnIndex + 1} 轮的实际台词没有包含语义证据“${turn.meaningEvidence}”`);
+      }
       if (!String(line.listenerState || '').trim()) {
         warnings.push(`镜头 ${storyboard.sceneNumber} 第 ${turnIndex + 1} 轮没有可见的听者反应，台词可能无法推动下一镜`);
       }
@@ -86,6 +95,20 @@ export function auditStoryDelivery(
   });
 
   if (storyPlan) {
+    const expectedMilestones = ['opening', 'inciting_incident', 'first_threshold', 'midpoint_reversal', 'crisis_choice', 'climax_proof', 'resolution'];
+    const milestones = storyPlan.structure || [];
+    if (milestones.length !== expectedMilestones.length
+      || expectedMilestones.some(name => milestones.filter(item => item.name === name).length !== 1)) {
+      errors.push('全片缺少完整的七个叙事里程碑');
+    }
+    let priorMilestoneShot = 0;
+    milestones.forEach(milestone => {
+      if (!beats.some(beat => beat.index === milestone.shotIndex)) {
+        errors.push(`叙事里程碑 ${milestone.name} 指向不存在的镜头 ${milestone.shotIndex}`);
+      }
+      if (milestone.shotIndex < priorMilestoneShot) errors.push(`叙事里程碑 ${milestone.name} 顺序倒置`);
+      priorMilestoneShot = milestone.shotIndex;
+    });
     const expectedSpeech = beats.flatMap(beat => beat.speech || []).map(line => (
       speechSignature(line.character, line.exactLine)
     ));
@@ -138,6 +161,8 @@ export function auditStoryDelivery(
       dialogueContracts: beats.reduce((total, beat) => total + (beat.dialogueTurns || []).length, 0),
       dialogueContractsDelivered: storyboards.reduce((total, storyboard) => total + (storyboard.dialogueTurns || []).length, 0),
       dialogueUnits: new Set(beats.map(beat => beat.dialogueUnitId).filter(Boolean)).size,
+      lockedDialogueLines: beats.flatMap(beat => beat.dialogueTurns || []).filter(turn => turn.exactLine).length,
+      storyMilestones: storyPlan?.structure?.length || 0,
       groupedSegments: groups.length,
       multiShotSegments: groups.filter(group => group.length > 1).length,
     },

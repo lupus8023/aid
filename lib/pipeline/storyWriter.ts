@@ -1,5 +1,5 @@
-import type { StoryPlan, Beat, PlannedCharacter, StoryRequirement, WriterCharacter, WriterObject } from './types';
-import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryOutlinePrompt } from './storyWriterPrompt';
+import type { StoryPlan, Beat, PlannedCharacter, StoryRequirement, StoryStructureMilestone, WriterCharacter, WriterObject } from './types';
+import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryDialogueManuscriptPrompt, buildStoryOutlinePrompt } from './storyWriterPrompt';
 import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
 import { normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from './shotCount';
@@ -98,6 +98,7 @@ export interface StoryOutlineBeat {
   dialogueContext: string;
   dialogueTurns: StoryOutlineDialogueTurn[];
   montageRole: string;
+  editBridge: string;
   audienceQuestion: string;
   requiredSpeaker: string;
   requiredLine: string;
@@ -109,6 +110,10 @@ export interface StoryOutlineDialogueTurn {
   function: string;
   contentGoal: string;
   respondsTo: string;
+  exactLine?: string;
+  meaningEvidence?: string;
+  subtext?: string;
+  listenerResult?: string;
 }
 
 function normalizedDialogueTurns(value: unknown, allowedCharacters: string[]): StoryDialogueTurn[] {
@@ -117,6 +122,10 @@ function normalizedDialogueTurns(value: unknown, allowedCharacters: string[]): S
     function: asString(turn?.function || turn?.storyFunction).trim(),
     contentGoal: asString(turn?.contentGoal || turn?.intent).trim(),
     respondsTo: asString(turn?.respondsTo).trim(),
+    exactLine: asString(turn?.exactLine).replace(/\s+/g, ' ').trim() || undefined,
+    meaningEvidence: asString(turn?.meaningEvidence).replace(/\s+/g, ' ').trim() || undefined,
+    subtext: asString(turn?.subtext).trim() || undefined,
+    listenerResult: asString(turn?.listenerResult).trim() || undefined,
   })).filter(turn => allowedCharacters.includes(turn.speaker) && turn.function && turn.contentGoal);
 }
 
@@ -223,9 +232,16 @@ export function applySourceDialogueAuthority(
       beat.requiredLine = lines[0].text;
       beat.dialogueTurns = lines.map((line, index) => ({
         speaker: line.character,
-        function: index === 0 ? 'user_exact' : 'answer',
+        // `user_exact` is a provenance value, never a dramatic function.
+        // Preserve the planner's semantic contract when available so the
+        // detailed screenplay and delivery audit agree on question/reveal/
+        // decision/payoff instead of confusing source with function.
+        function: beat.dialogueTurns[index]?.function
+          || (index === 0 ? beat.dialoguePurpose : 'answer'),
         contentGoal: line.text,
         respondsTo: index === 0 ? '' : lines[index - 1].text,
+        exactLine: line.text,
+        meaningEvidence: line.text,
       }));
       if (/(?:visual_only|纯视觉|无对白)/i.test(beat.dialoguePurpose)) {
         beat.dialoguePurpose = lines.length > 1 ? 'exchange' : 'story_progression';
@@ -372,19 +388,37 @@ function contextlessMicroDialogue(text: string, storyFunction: string, respondsT
   return !(responseFunction && respondsTo.trim());
 }
 
-export function normalizeStoryOutline(raw: any, targetShotCount: number, allowedCharacters: string[] = []): StoryOutline {
+export function normalizeStoryOutline(
+  raw: any,
+  targetShotCount: number,
+  allowedCharacters: string[] = [],
+  characterAliases: Record<string, string> = {},
+): StoryOutline {
   raw = unwrapStoryOutline(raw);
+  const canonicalSpeaker = (value: unknown): string => {
+    const submitted = asString(value).trim();
+    const exact = allowedCharacters.find(name => name.toLocaleLowerCase() === submitted.toLocaleLowerCase());
+    if (exact) return exact;
+    const alias = Object.entries(characterAliases).find(([candidate]) => {
+      const normalized = submitted.toLocaleLowerCase();
+      const key = candidate.toLocaleLowerCase();
+      return normalized === key
+        || normalized.endsWith(` ${key}`)
+        || (key.length >= 3 && new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(key)}(?:$|[^a-z0-9])`, 'iu').test(normalized));
+    });
+    return alias?.[1] || submitted;
+  };
   let nextIndex = 0;
   const sequences: StoryOutlineSequence[] = (Array.isArray(raw?.sequences) ? raw.sequences : [])
     .map((sequence: any, sequenceIndex: number) => {
       const beatMap: StoryOutlineBeat[] = (Array.isArray(sequence?.beatMap) ? sequence.beatMap : [])
         .map((beat: any) => {
-          const requiredLine = asString(beat?.requiredLine).replace(/\s+/g, ' ').trim();
-          const requestedSpeaker = asString(beat?.requiredSpeaker).trim();
+          let requiredLine = asString(beat?.requiredLine).replace(/\s+/g, ' ').trim();
+          const requestedSpeaker = canonicalSpeaker(beat?.requiredSpeaker);
           let requiredSpeaker = allowedCharacters.includes(requestedSpeaker) ? requestedSpeaker : '';
           const requiredDialogueLines = (Array.isArray(beat?.requiredDialogueLines) ? beat.requiredDialogueLines : [])
             .map((line: any) => ({
-              character: asString(line?.character || line?.speaker).trim(),
+              character: canonicalSpeaker(line?.character || line?.speaker),
               text: asString(line?.text || line?.exactLine).replace(/\s+/g, ' ').trim(),
             }))
             .filter((line: { character: string; text: string }) => (
@@ -393,10 +427,14 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
           const requestedPurpose = asString(beat?.dialoguePurpose, 'visual_only').trim();
           const dialogueTurns: StoryOutlineDialogueTurn[] = (Array.isArray(beat?.dialogueTurns) ? beat.dialogueTurns : [])
             .map((turn: any): StoryOutlineDialogueTurn => ({
-              speaker: asString(turn?.speaker || turn?.character).trim(),
+              speaker: canonicalSpeaker(turn?.speaker || turn?.character),
               function: asString(turn?.function || turn?.storyFunction).trim(),
               contentGoal: asString(turn?.contentGoal || turn?.intent).trim(),
               respondsTo: asString(turn?.respondsTo).trim(),
+              exactLine: asString(turn?.exactLine).replace(/\s+/g, ' ').trim() || undefined,
+              meaningEvidence: asString(turn?.meaningEvidence).replace(/\s+/g, ' ').trim() || undefined,
+              subtext: asString(turn?.subtext).trim() || undefined,
+              listenerResult: asString(turn?.listenerResult).trim() || undefined,
             }))
             .filter((turn: StoryOutlineDialogueTurn) => allowedCharacters.includes(turn.speaker) && turn.function && turn.contentGoal)
             .slice(0, 4);
@@ -404,6 +442,19 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
             || requiredDialogueLines[0]?.character
             || dialogueTurns[0]?.speaker
             || '';
+          if (requiredLine && !requiredSpeaker) {
+            const sourceRefs = (Array.isArray(beat?.sourceShotRefs) ? beat.sourceShotRefs : [])
+              .map(Number).filter((value: number) => Number.isInteger(value) && value > 0);
+            if (sourceRefs.length) {
+              // In numbered-source adaptation, the deterministic authority
+              // pass below restores the original speaker and exact line from
+              // sourceShotRefs. Ignore a model's malformed duplicate here
+              // instead of regenerating the whole outline.
+              requiredLine = '';
+            } else {
+              throw new Error(`镜头 ${nextIndex + 1} 有指定台词但没有有效 requiredSpeaker（模型返回 speaker=${requestedSpeaker || '空'}）；临时或未上传角色不得发声`);
+            }
+          }
           const rawObligation = asString(beat?.dialogueObligation).trim().toLowerCase();
           // A provider occasionally labels the beat `visual` while also
           // returning a complete, valid dialogueTurns contract. Explicit
@@ -413,10 +464,8 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
             && /(?:visual|纯视觉|无对白)/i.test(rawObligation || requestedPurpose);
           const dialogueObligation: StoryOutlineBeat['dialogueObligation'] = inferredVisual
             ? 'visual'
-            : (rawObligation === 'required' || requiredSpeaker || requiredLine ? 'required' : 'optional');
-          if (requiredLine && !requiredSpeaker) {
-            throw new Error(`镜头 ${nextIndex + 1} 有指定台词但没有有效 requiredSpeaker；临时或未上传角色不得发声`);
-          }
+            : ((rawObligation === 'required' && Boolean(requiredSpeaker || requiredLine || requiredDialogueLines.length || dialogueTurns.length))
+              || requiredSpeaker || requiredLine ? 'required' : 'optional');
           if (dialogueObligation === 'required' && !requiredSpeaker) {
             throw new Error(`镜头 ${nextIndex + 1} 规划了必要对白但没有有效 requiredSpeaker`);
           }
@@ -444,12 +493,16 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
             dialogueTurns: requiredDialogueLines.length
               ? requiredDialogueLines.map((line: { character: string; text: string }, index: number) => ({
                   speaker: line.character,
-                  function: index === 0 ? 'user_exact' : 'answer',
+                  function: dialogueTurns[index]?.function
+                    || (index === 0 ? dialoguePurpose : 'answer'),
                   contentGoal: line.text,
                   respondsTo: index === 0 ? '' : requiredDialogueLines[index - 1].text,
+                  exactLine: line.text,
+                  meaningEvidence: line.text,
                 }))
               : dialogueTurns,
             montageRole: asString(beat?.montageRole, 'development').trim(),
+            editBridge: asString(beat?.editBridge).trim(),
             audienceQuestion: asString(beat?.audienceQuestion).trim(),
             requiredSpeaker,
             requiredLine,
@@ -458,15 +511,18 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
               : (requiredLine && requiredSpeaker ? [{ character: requiredSpeaker, text: requiredLine }] : []),
           };
         });
+      const sequenceId = asString(sequence?.id, `seq-${sequenceIndex + 1}`);
+      const firstBeat = beatMap[0];
+      const finalBeat = beatMap[beatMap.length - 1];
       return {
-        id: asString(sequence?.id, `seq-${sequenceIndex + 1}`),
+        id: sequenceId,
         locationId: asString(sequence?.locationId, `loc-${sequenceIndex + 1}`).replace(/[^a-zA-Z0-9_-]/g, '_'),
-        sceneGoal: asString(sequence?.sceneGoal).trim(),
-        dramaticQuestion: asString(sequence?.dramaticQuestion).trim(),
-        turningPoint: asString(sequence?.turningPoint).trim(),
-        exitHook: asString(sequence?.exitHook).trim(),
-        audienceEntry: asString(sequence?.audienceEntry).trim(),
-        audienceExit: asString(sequence?.audienceExit).trim(),
+        sceneGoal: asString(sequence?.sceneGoal).trim() || `Advance ${sequenceId} from ${firstBeat?.cause || 'its entry pressure'} to ${finalBeat?.consequence || 'a changed situation'}.`,
+        dramaticQuestion: asString(sequence?.dramaticQuestion).trim() || firstBeat?.audienceQuestion || `What changes in ${sequenceId}?`,
+        turningPoint: asString(sequence?.turningPoint).trim() || finalBeat?.consequence || finalBeat?.actionGoal || `The situation changes at the end of ${sequenceId}.`,
+        exitHook: asString(sequence?.exitHook).trim() || finalBeat?.consequence || `The result of ${sequenceId} forces the next scene.`,
+        audienceEntry: asString(sequence?.audienceEntry).trim() || firstBeat?.cause || `The audience enters ${sequenceId} with the prior consequence.`,
+        audienceExit: asString(sequence?.audienceExit).trim() || finalBeat?.informationGain || `The audience leaves ${sequenceId} with a changed understanding.`,
         entryState: asString(sequence?.entryState).trim(),
         exitState: asString(sequence?.exitState).trim(),
         shotCount: beatMap.length,
@@ -495,6 +551,38 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
   if (nextIndex !== targetShotCount) {
     throw new Error(`故事骨架返回了 ${nextIndex} 个镜头地图，但制作规格要求 ${targetShotCount} 个`);
   }
+  const milestoneNames: StoryStructureMilestone['name'][] = [
+    'opening', 'inciting_incident', 'first_threshold', 'midpoint_reversal', 'crisis_choice', 'climax_proof', 'resolution',
+  ];
+  const structure: StoryStructureMilestone[] = (Array.isArray(raw?.structure) ? raw.structure : [])
+    .map((milestone: any) => ({
+      name: asString(milestone?.name).trim() as StoryStructureMilestone['name'],
+      shotIndex: Number(milestone?.shotIndex),
+      event: asString(milestone?.event).trim(),
+      audienceShift: asString(milestone?.audienceShift).trim(),
+    }))
+    .filter((milestone: StoryStructureMilestone) => milestoneNames.includes(milestone.name));
+  if (structure.length !== milestoneNames.length
+    || milestoneNames.some(name => structure.filter(item => item.name === name).length !== 1)
+    || structure.some(item => !Number.isInteger(item.shotIndex) || item.shotIndex < 1 || item.shotIndex > targetShotCount || !item.event || !item.audienceShift)) {
+    throw new Error('故事骨架必须完整规划 opening、inciting_incident、first_threshold、midpoint_reversal、crisis_choice、climax_proof、resolution 七个结构节点，并绑定有效镜头与观众认知变化');
+  }
+  const orderedMilestones = milestoneNames.map(name => structure.find(item => item.name === name)!);
+  if (orderedMilestones.some((item, index) => index > 0 && item.shotIndex < orderedMilestones[index - 1].shotIndex)) {
+    throw new Error('故事结构节点的镜头顺序不能倒退');
+  }
+  const climax = orderedMilestones.find(item => item.name === 'climax_proof')!;
+  const resolution = orderedMilestones.find(item => item.name === 'resolution')!;
+  // Repair a common outline-label mistake deterministically. Re-running the
+  // entire long outline because the model attached `resolution` one shot too
+  // early is costly and does not improve the authored beat map. The final
+  // beat is already authoritative, so lock resolution to it.
+  resolution.shotIndex = targetShotCount;
+  if (targetShotCount >= 18 && climax.shotIndex >= resolution.shotIndex) {
+    climax.shotIndex = targetShotCount - 1;
+    const crisis = orderedMilestones.find(item => item.name === 'crisis_choice')!;
+    if (crisis.shotIndex > climax.shotIndex) crisis.shotIndex = Math.max(1, climax.shotIndex - 1);
+  }
   const requiredSpine = ['centralDramaticQuestion', 'audiencePromise', 'dialogueArc', 'montageStrategy']
     .filter(key => !asString(raw?.[key]).trim());
   if (requiredSpine.length) {
@@ -502,15 +590,36 @@ export function normalizeStoryOutline(raw: any, targetShotCount: number, allowed
   }
   if (sequences.some(sequence => !sequence.sceneGoal || !sequence.dramaticQuestion || !sequence.turningPoint
     || !sequence.exitHook || !sequence.audienceEntry || !sequence.audienceExit
-    || sequence.beatMap.some(beat => !beat.actionGoal || !beat.cause || !beat.consequence || !beat.informationGain || !beat.audienceQuestion))) {
-    throw new Error('故事骨架缺少场次问题/转折/钩子/观众认知，或镜头缺少动作、因果、信息增量与观众问题');
+    || sequence.beatMap.some(beat => !beat.actionGoal || !beat.cause || !beat.consequence || !beat.informationGain || !beat.editBridge || !beat.audienceQuestion))) {
+    throw new Error('故事骨架缺少场次问题/转折/钩子/观众认知，或镜头缺少动作、因果、信息增量、剪辑交棒与观众问题');
   }
-  return { ...raw, sequences } as StoryOutline;
+  const allOutlineBeats = sequences.flatMap(sequence => sequence.beatMap);
+  allOutlineBeats.forEach((beat, index) => {
+    if (index === allOutlineBeats.length - 1) {
+      if (!/terminal\s*image|终局画面|终镜/iu.test(beat.editBridge)) {
+        beat.editBridge = `terminal image: ${beat.consequence}`;
+      }
+      return;
+    }
+    if (!/(?:cause|causal|trigger|action|eyeline|gaze|object|prop|sound|audio|parallel|contrast|match|因果|触发|动作|视线|物体|道具|声音|平行|对照|匹配)/iu.test(beat.editBridge)
+      || !/(?:audience|reveal|realize|understand|infer|prove|观众|揭示|意识|理解|推断|证明)/iu.test(beat.editBridge)) {
+      const next = allOutlineBeats[index + 1];
+      beat.editBridge = `causal trigger: ${beat.consequence} -> ${next?.cause || 'the next action'}; audienceInference: ${beat.informationGain}`;
+    }
+  });
+  return { ...raw, structure: orderedMilestones, sequences } as StoryOutline;
 }
 
-export function buildStoryBeatBatches(outline: StoryOutline, maxBatchSize = 6): StoryBeatBatch[] {
-  const size = Math.max(1, Math.min(6, Math.floor(maxBatchSize) || 6));
-  const maxDialogueTurns = 8;
+export function buildStoryBeatBatches(outline: StoryOutline, maxBatchSize = 1): StoryBeatBatch[] {
+  // The global outline and locked dialogue manuscript already preserve the
+  // full-film context. Ask the execution pass for one beat at a time: even
+  // three-beat payloads occasionally returned a one-item partial array after
+  // every retry, making an otherwise valid long screenplay fail at the final
+  // batch. Per-beat execution only supplies staging/state/audio detail and may
+  // not rewrite the globally authored event or dialogue, so reliability rises
+  // without fragmenting the narrative.
+  const size = Math.max(1, Math.min(3, Math.floor(maxBatchSize) || 1));
+  const maxDialogueTurns = 6;
   const batches: StoryBeatBatch[] = [];
   for (const sequence of outline.sequences) {
     let current: StoryOutlineBeat[] = [];
@@ -537,6 +646,107 @@ export function buildStoryBeatBatches(outline: StoryOutline, maxBatchSize = 6): 
     flush();
   }
   return batches;
+}
+
+export interface StoryDialogueManuscriptTurn {
+  beatIndex: number;
+  dialogueUnitId: string;
+  turnIndex: number;
+  speaker: string;
+  function: string;
+  contentGoal: string;
+  respondsTo: string;
+  exactLine: string;
+  meaningEvidence: string;
+  subtext: string;
+  listenerResult: string;
+}
+
+function manuscriptEvidenceIsPlayable(exactLine: string, evidence: string): boolean {
+  const line = exactLine.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+  const excerpt = evidence.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+  if (!excerpt || !line.includes(excerpt)) return false;
+  const han = (excerpt.match(/[\u3400-\u9fff]/g) || []).length;
+  const words = (excerpt.match(/[A-Za-z0-9']+/g) || []).length;
+  return han >= 4 || words >= 3;
+}
+
+/**
+ * Locks one globally authored screenplay line to every planned semantic turn.
+ * Detailed beat batches are no longer allowed to independently shorten or
+ * paraphrase these lines, which used to destroy continuity between scenes.
+ */
+export function applyStoryDialogueManuscript(
+  outline: StoryOutline,
+  raw: any,
+  allowedCharacters: string[],
+): StoryOutline {
+  const next = JSON.parse(JSON.stringify(outline)) as StoryOutline;
+  const planned = next.sequences.flatMap(sequence => sequence.beatMap.flatMap(beat => (
+    beat.dialogueTurns.map((turn, turnIndex) => ({ beat, turn, turnIndex }))
+  )));
+  const submitted: StoryDialogueManuscriptTurn[] = (Array.isArray(raw?.turns) ? raw.turns : [])
+    .map((turn: any) => ({
+      beatIndex: Number(turn?.beatIndex),
+      dialogueUnitId: asString(turn?.dialogueUnitId).trim(),
+      turnIndex: Number(turn?.turnIndex),
+      speaker: asString(turn?.speaker).trim(),
+      function: asString(turn?.function).trim(),
+      contentGoal: asString(turn?.contentGoal).trim(),
+      respondsTo: asString(turn?.respondsTo).trim(),
+      exactLine: sanitizeGeneratedSpeechText(turn?.exactLine),
+      meaningEvidence: asString(turn?.meaningEvidence).replace(/\s+/g, ' ').trim(),
+      subtext: asString(turn?.subtext).trim(),
+      listenerResult: asString(turn?.listenerResult).trim(),
+    }));
+  if (submitted.length !== planned.length) {
+    throw new Error(`全片台词稿返回 ${submitted.length} 轮，故事骨架要求 ${planned.length} 轮`);
+  }
+
+  submitted.forEach((line, index) => {
+    const expected = planned[index];
+    const identityMatches = line.beatIndex === expected.beat.index
+      && line.dialogueUnitId === expected.beat.dialogueUnitId
+      && line.turnIndex === expected.turnIndex + 1
+      && line.speaker === expected.turn.speaker
+      && line.function === expected.turn.function
+      && line.contentGoal === expected.turn.contentGoal
+      && line.respondsTo === expected.turn.respondsTo;
+    if (!identityMatches) {
+      throw new Error(`全片台词稿第 ${index + 1} 轮偏离镜头 ${expected.beat.index} 的说话者、功能、语义目标或承接关系`);
+    }
+    if (!allowedCharacters.includes(line.speaker) || !line.exactLine || isDirectingInstructionDialogue(line.exactLine)) {
+      throw new Error(`镜头 ${line.beatIndex} 第 ${line.turnIndex} 轮不是有效的角色可朗读台词`);
+    }
+    if (expected.turn.exactLine && line.exactLine !== expected.turn.exactLine) {
+      throw new Error(`镜头 ${line.beatIndex} 的用户逐字台词被改写`);
+    }
+    if (contextlessMicroDialogue(line.exactLine, line.function, line.respondsTo)) {
+      throw new Error(`镜头 ${line.beatIndex} 的台词“${line.exactLine}”过短，无法独立交付完整叙事信息`);
+    }
+    if (!manuscriptEvidenceIsPlayable(line.exactLine, line.meaningEvidence)) {
+      throw new Error(`镜头 ${line.beatIndex} 的 meaningEvidence 必须是 exactLine 中实际承载语义目标的完整原文片段`);
+    }
+    if (!line.subtext || !line.listenerResult) {
+      throw new Error(`镜头 ${line.beatIndex} 的台词缺少潜台词或说后听者变化`);
+    }
+    Object.assign(expected.turn, {
+      exactLine: line.exactLine,
+      meaningEvidence: line.meaningEvidence,
+      subtext: line.subtext,
+      listenerResult: line.listenerResult,
+    });
+  });
+
+  for (const sequence of next.sequences) {
+    for (const beat of sequence.beatMap) {
+      const seconds = beat.dialogueTurns.reduce((total, turn) => total + speechSeconds(turn.exactLine || ''), 0);
+      if (seconds > 12.5) {
+        throw new Error(`镜头 ${beat.index} 的全片台词稿预计 ${seconds.toFixed(1)} 秒，无法在 H3 15 秒片段内保留动作与听者反应`);
+      }
+    }
+  }
+  return next;
 }
 
 function rawBatchBeats(value: any): any[] {
@@ -707,6 +917,14 @@ export function sanitizeStoryPlan(
         silenceAfter: clampSilence(rawAudio.silenceAfter, speech.length ? 0.8 : 0.4),
       };
       const clipType = CLIP_TYPES.includes(b?.clipType) ? b.clipType : (speech.length ? 'dialogue' : 'action');
+      const speechDuration = speech.reduce((total, line) => total + speechSeconds(line.exactLine), 0);
+      const minimumPlayableDuration = speech.length
+        ? speechDuration + Math.max(0, speech.length - 1) * 0.35 + audioPlan.silenceBefore + audioPlan.silenceAfter
+        : 0;
+      const durationHint = Math.min(15, Math.max(
+        clampDuration(b?.durationHint),
+        Math.ceil(minimumPlayableDuration * 2) / 2,
+      ));
       return {
         index,
         sourceShotRefs: (Array.isArray(b?.sourceShotRefs) ? b.sourceShotRefs : [])
@@ -739,10 +957,11 @@ export function sanitizeStoryPlan(
         dialogueContext: asString(b?.dialogueContext),
         dialogueTurns,
         montageRole: asString(b?.montageRole, 'development'),
+        editBridge: asString(b?.editBridge).trim(),
         audienceQuestion: asString(b?.audienceQuestion),
         stateBefore: narrativeState(b?.stateBefore),
         stateAfter: narrativeState(b?.stateAfter),
-        durationHint: clampDuration(b?.durationHint),
+        durationHint,
         transition: validTransition(b?.transition),
         continuityFrom: Number(b?.continuityFrom) || 0,
         sceneStyle: asString(b?.sceneStyle, sceneStyle),
@@ -809,6 +1028,14 @@ export function sanitizeStoryPlan(
     storyAnchor: asString(raw?.storyAnchor, raw?.visualMotif),
     visualMotif: asString(raw?.visualMotif),
     emotionalArc: asString(raw?.emotionalArc),
+    structure: (Array.isArray(raw?.structure) ? raw.structure : []).map((milestone: any) => ({
+      name: asString(milestone?.name) as StoryStructureMilestone['name'],
+      shotIndex: Number(milestone?.shotIndex),
+      event: asString(milestone?.event),
+      audienceShift: asString(milestone?.audienceShift),
+    })).filter((milestone: StoryStructureMilestone) => (
+      milestone.name && Number.isInteger(milestone.shotIndex) && milestone.event && milestone.audienceShift
+    )),
     centralDramaticQuestion: asString(raw?.centralDramaticQuestion),
     audiencePromise: asString(raw?.audiencePromise),
     dialogueArc: asString(raw?.dialogueArc),
@@ -846,11 +1073,16 @@ export async function generateStoryPlan(input: {
   const isLocalCompanion = process.env.AID_LOCAL_COMPANION === '1';
   const outlinePrompt = buildStoryOutlinePrompt({ synopsis, characters, objects, language, targetShotCount });
   console.log(`[story-writer] generating compact outline for ${targetShotCount} shots`);
-  const outline = await requestStructuredJson<StoryOutline>({
+  let outline = await requestStructuredJson<StoryOutline>({
     prompt: outlinePrompt,
     label: '故事骨架',
     validate: raw => {
-      const normalized = normalizeStoryOutline(raw, targetShotCount, characters.map(character => character.name));
+      const normalized = normalizeStoryOutline(
+        raw,
+        targetShotCount,
+        characters.map(character => character.name),
+        expanded.aliases,
+      );
       const authoritative = applySourceDialogueAuthority(normalized, synopsis, characters.map(character => character.name));
       const missingDialogue = missingSourceDialogueLines(authoritative, synopsis, characters.map(character => character.name));
       if (missingDialogue.length) {
@@ -874,9 +1106,39 @@ export async function generateStoryPlan(input: {
     // zero-shot outline. Give the planner enough room to finish the one
     // authoritative JSON object; detailed screenplay prose is still emitted
     // in the smaller batches below.
-    maxOutputTokens: Math.min(24_000, 12_000 + targetShotCount * 450),
+    // APIMart's GPT-4o-compatible endpoint rejects max_tokens above 16,384
+    // before generation begins. Keep a small safety margin so the same
+    // request can also fall back from DMX to APIMart without a deterministic
+    // 400 loop. Eighteen-shot outlines have measured below 10k output tokens.
+    maxOutputTokens: Math.min(16_000, 12_000 + targetShotCount * 450),
     timeoutMs: isLocalCompanion ? 150_000 : 48_000,
   });
+
+  const generatedDialogueTurns = outline.sequences
+    .flatMap(sequence => sequence.beatMap)
+    .flatMap(beat => beat.dialogueTurns)
+    .filter(turn => !turn.exactLine);
+  if (generatedDialogueTurns.length) {
+    const allDialogueTurns = outline.sequences
+      .flatMap(sequence => sequence.beatMap)
+      .flatMap(beat => beat.dialogueTurns);
+    console.log(`[story-writer] writing one locked dialogue manuscript for ${generatedDialogueTurns.length} authored turns`);
+    const dialoguePrompt = buildStoryDialogueManuscriptPrompt({ outline, language });
+    outline = await requestStructuredJson<StoryOutline>({
+      prompt: dialoguePrompt,
+      label: '全片台词稿',
+      validate: raw => applyStoryDialogueManuscript(outline, raw, characters.map(character => character.name)),
+      apiKey,
+      dmxApiKey,
+      provider: scriptProvider,
+      model: scriptModel,
+      // This response contains dialogue only, but every turn carries an exact
+      // line plus semantic evidence and reaction metadata. Keep it bounded so
+      // long projects remain faster than the causal outline pass.
+      maxOutputTokens: Math.min(12_000, 2_000 + allDialogueTurns.length * 180),
+      timeoutMs: isLocalCompanion ? 150_000 : 48_000,
+    });
+  }
 
   // The outline is the first stage that understands every generated role in
   // story context. Recast automatic voices from its explicit gender/age/role
@@ -946,10 +1208,31 @@ export async function generateStoryPlan(input: {
             informationGain: asString(beat?.informationGain, authority.informationGain),
             dialoguePurpose: asString(beat?.dialoguePurpose, authority.dialoguePurpose),
             montageRole: asString(beat?.montageRole, authority.montageRole),
+            editBridge: asString(beat?.editBridge, authority.editBridge),
             audienceQuestion: asString(beat?.audienceQuestion, authority.audienceQuestion),
           };
           const missing = Object.entries(required).filter(([, value]) => !value.trim()).map(([key]) => key);
           if (missing.length) throw new Error(`镜头 ${authority.index} 缺少叙事字段：${missing.join('、')}`);
+          if (language === 'en') {
+            const entityNames = [...characters.map(character => character.name), ...objects.map(object => object.name)];
+            const stripEntityNames = (text: string) => entityNames.reduce(
+              (result, name) => result.replaceAll(name, ''),
+              text,
+            );
+            // Action/cause/consequence/information/edit handoff are replaced
+            // below by the authoritative English outline. Do not regenerate a
+            // valid shot because the execution model translated one of those
+            // ignored copies. Only repair the two detailed fields that survive
+            // into the final beat.
+            if (/\p{Script=Han}/u.test(stripEntityNames(required.conflict))) {
+              required.conflict = `Immediate physical or emotional pressure obstructs the objective: ${authority.actionGoal}`;
+            }
+            if (/\p{Script=Han}/u.test(stripEntityNames(required.nextCause))) {
+              required.nextCause = authority.index === targetShotCount
+                ? `Terminal story state: ${authority.consequence}; no later plot beat follows.`
+                : `The visible consequence drives the next beat: ${authority.consequence}`;
+            }
+          }
           // Persist the resolution fallback into the final Beat rather than
           // merely using it to pass validation.
           beat.conflict = required.conflict;
@@ -994,12 +1277,18 @@ export async function generateStoryPlan(input: {
               if (submittedFunction && submittedFunction !== turn.function) {
                 throw new Error(`镜头 ${authority.index} 第 ${lineIndex + 1} 轮功能应为 ${turn.function}，实际为 ${submittedFunction}`);
               }
+              if (!turn.exactLine) {
+                throw new Error(`镜头 ${authority.index} 第 ${lineIndex + 1} 轮尚未经过全片台词稿锁定`);
+              }
               return {
                 ...line,
                 character: turn.speaker,
+                exactLine: turn.exactLine,
                 storyFunction: turn.function,
                 respondsTo: asString(line?.respondsTo, turn.respondsTo).trim() || turn.respondsTo,
                 contentGoal: turn.contentGoal,
+                listenerState: turn.listenerResult || asString(line?.listenerState).trim(),
+                source: 'story_required',
               };
             });
           }
@@ -1059,21 +1348,26 @@ export async function generateStoryPlan(input: {
             sourceShotRefs: authority.sourceShotRefs,
             sequenceId: batch.sequence.id,
             locationId: batch.sequence.locationId,
-            action: asString(beat?.action, authority.actionGoal),
+            // The global outline owns the observable story event. A detailed
+            // batch may supply performance/state/audio execution, but it may
+            // not paraphrase the action into a different event, copy dialogue
+            // into it, or erase a climax/resolution image.
+            action: authority.actionGoal,
             dramaticPurpose: asString(beat?.dramaticPurpose, authority.actionGoal),
-            cause: asString(beat?.cause, authority.cause),
-            consequence: asString(beat?.consequence, authority.consequence),
-            characterChange: asString(beat?.characterChange, authority.emotionalTurn),
-            informationGain: asString(beat?.informationGain, authority.informationGain),
-            dialoguePurpose: asString(beat?.dialoguePurpose, authority.dialoguePurpose),
+            cause: authority.cause,
+            consequence: authority.consequence,
+            characterChange: authority.emotionalTurn,
+            informationGain: authority.informationGain,
+            dialoguePurpose: authority.dialoguePurpose,
             dialogueUnitId: authority.dialogueUnitId,
             dialogueObligation: authority.dialogueObligation,
             dialogueContext: authority.dialogueContext,
             dialogueTurns: authority.dialogueTurns,
-            montageRole: asString(beat?.montageRole, authority.montageRole),
-            audienceQuestion: asString(beat?.audienceQuestion, authority.audienceQuestion),
+            montageRole: authority.montageRole,
+            editBridge: authority.editBridge,
+            audienceQuestion: authority.audienceQuestion,
             speech: authority.requiredDialogueLines.length
-              ? authority.requiredDialogueLines.map(line => {
+              ? authority.requiredDialogueLines.map((line, lineIndex) => {
                   const generated = (Array.isArray(beat?.speech) ? beat.speech : []).find((candidate: any) => (
                     asString(candidate?.character || candidate?.speaker).trim() === line.character
                       && asString(candidate?.exactLine || candidate?.text).replace(/\s+/g, ' ').trim() === line.text
@@ -1083,8 +1377,16 @@ export async function generateStoryPlan(input: {
                     character: line.character,
                     exactLine: line.text,
                     source: 'user_exact',
-                    storyFunction: asString(generated?.storyFunction, authority.dialoguePurpose).trim() || 'story_progression',
-                    contentGoal: asString(generated?.contentGoal, line.text).trim() || line.text,
+                    storyFunction: authority.dialogueTurns[lineIndex]?.function
+                      || asString(generated?.storyFunction, authority.dialoguePurpose).trim()
+                      || 'story_progression',
+                    contentGoal: authority.dialogueTurns[lineIndex]?.contentGoal
+                      || asString(generated?.contentGoal, line.text).trim()
+                      || line.text,
+                    respondsTo: authority.dialogueTurns[lineIndex]?.respondsTo
+                      || asString(generated?.respondsTo).trim(),
+                    listenerState: authority.dialogueTurns[lineIndex]?.listenerResult
+                      || asString(generated?.listenerState).trim(),
                   };
                 })
               : (authority.requiredLine && authority.requiredSpeaker

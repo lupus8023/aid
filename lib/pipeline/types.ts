@@ -46,6 +46,7 @@ export interface Beat {
   dialogueContext?: string;
   dialogueTurns: StoryDialogueTurn[];
   montageRole: string; // setup/development/escalation/contrast/decision/consequence/payoff/bridge
+  editBridge: string; // 当前镜结果到下一镜触发的剪辑交棒与观众推论
   audienceQuestion: string; // 本镜维持或回答的悬念
   stateBefore?: NarrativeState;
   stateAfter?: NarrativeState;
@@ -77,6 +78,13 @@ export interface StoryRequirement {
   coveredBy: number[]; // global beat indexes that satisfy this requirement
 }
 
+export interface StoryStructureMilestone {
+  name: 'opening' | 'inciting_incident' | 'first_threshold' | 'midpoint_reversal' | 'crisis_choice' | 'climax_proof' | 'resolution';
+  shotIndex: number;
+  event: string; // 该节点实际发生的可见事件或选择
+  audienceShift: string; // 节点前后观众对目标、风险、关系或主题的理解变化
+}
+
 export interface StoryPlan {
   id: string;
   targetShotCount?: number; // 用户在剧本第一步选择的目标镜头数（9 的倍数，最大 81）
@@ -99,6 +107,7 @@ export interface StoryPlan {
   storyAnchor: string;
   visualMotif: string; // 视觉母题：一个反复出现的意象/道具承载主题
   emotionalArc: string; // 全片情绪弧线（起点 → 转折 → 终点）
+  structure?: StoryStructureMilestone[]; // 七个全片结构节点，防止镜头地图只是一组并列事件
   centralDramaticQuestion?: string; // 观众从开场追到结尾的核心问题
   audiencePromise?: string; // 影片承诺给观众的情感/类型体验
   dialogueArc?: string; // 台词如何从提出问题推进到选择与回收

@@ -42,6 +42,7 @@ function coherentFixture() {
       informationGain: `The audience learns story fact ${index}.`, dialoguePurpose: speech.length ? 'story_progression' : 'visual_only',
       dialogueUnitId: speech.length ? `dialogue-${index}` : '', dialogueObligation: speech.length ? 'required' : 'visual', dialogueContext: '',
       montageRole: index === 1 ? 'setup' : index === 18 ? 'resolution' : index < 10 ? 'escalation' : 'consequence',
+      editBridge: index === 18 ? 'terminal image' : `The visible consequence of beat ${index} triggers beat ${index + 1} and changes what the audience expects.`,
       audienceQuestion: index === 18 ? 'How will Lanxi live freely?' : `What will beat ${index + 1} change?`,
       stateBefore: {}, stateAfter: {}, transition: 'cut',
     };
@@ -52,6 +53,10 @@ function coherentFixture() {
     finalChoice: 'Let the tide move freely', consequence: 'The palace survives', change: 'Control becomes trust', storyAnchor: 'tide wheel',
     characters: [], requirements: [], sourceBrief: '', targetShotCount: 18, targetDurationSeconds: 90, estimatedDurationSeconds: 70,
     centralDramaticQuestion: 'Can Lanxi matter without controlling the sea?', audiencePromise: '', dialogueArc: '', montageStrategy: '',
+    structure: [
+      ['opening', 1], ['inciting_incident', 3], ['first_threshold', 5], ['midpoint_reversal', 9],
+      ['crisis_choice', 13], ['climax_proof', 17], ['resolution', 18],
+    ].map(([name, shotIndex]) => ({ name, shotIndex, event: `${name} visible event`, audienceShift: `${name} audience shift` })),
     sequences: [{ id: 'all', locationId: 'world', sceneStyle: '', sceneGoal: '', dramaticQuestion: '', turningPoint: '', exitHook: '', audienceEntry: '', audienceExit: '', beats }],
   };
   const storyboards = beats.map(beat => ({
@@ -107,4 +112,23 @@ test('blocks dialogue that loses its planned semantic content goal', () => {
     speech: [{ ...beat.speech[0], contentGoal: '' }],
   };
   assert.match(auditStoryDelivery(plan, storyboards).errors.join('\n'), /丢失“report that the southern gate is buckling”语义任务/);
+});
+
+test('blocks a shortened spoken line even when its semantic metadata still claims the full goal', () => {
+  const { plan, storyboards } = coherentFixture();
+  const beat = plan.sequences[0].beats[1];
+  beat.dialogueTurns = [{
+    speaker: 'Officer', function: 'reveal', contentGoal: 'report that the southern gate is buckling', respondsTo: '',
+    exactLine: 'The southern gate is buckling.', meaningEvidence: 'southern gate is buckling',
+  }];
+  beat.speech[0].storyFunction = 'reveal';
+  beat.speech[0].contentGoal = beat.dialogueTurns[0].contentGoal;
+  storyboards[1] = {
+    ...storyboards[1],
+    dialogueTurns: beat.dialogueTurns,
+    speech: [{ ...beat.speech[0], exactLine: 'The gate.' }],
+  };
+  const errors = auditStoryDelivery(plan, storyboards).errors.join('\n');
+  assert.match(errors, /没有逐字交付全片锁定台词/);
+  assert.match(errors, /没有包含语义证据/);
 });

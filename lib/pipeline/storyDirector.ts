@@ -65,6 +65,7 @@ export function buildDirectorPrompt(input: {
 - 台词、动作、时长、转场和连续关系来自 beat；你负责设计景别、运镜、机位、场景成像基线与正式图片 prompt。
 - 必须让 dramaticPurpose、cause、conflict、choice、consequence 和 stateBefore/stateAfter 在画面中可见；镜头必须改变信息、关系、决定或物理状态，不能只制造氛围。
 - informationGain 是本镜必须交付给观众的理解；用人物阻挡、视线、反应、道具状态与结果构图让它可读。audienceQuestion 决定镜尾要保留什么悬念，montageRole 决定它与相邻镜的语义关系。
+- editBridge 是编剧锁定的剪辑交棒：本镜镜尾必须留下其中指定的动作、视线、物体、声音或因果结果，让下一镜接住，并让两镜并置后产生指定的观众推论。不得改成淡入淡出、叠化等后期特效。
 - speech 是权威对白，不能改写、删减或写进图像 prompt。对白发生时，description 要安排清楚说话者与聆听者的可见表演；无对白时不要虚构开口动作。
 - 对白镜头不能按“谁说一句就切谁”机械覆盖。先用关系构图建立双方目标和空间，权力/信息发生变化时才切；说话者的策略、听者的即时反应以及 speech.listenerState 指定的说后变化必须同时可读。反应镜承担台词后果，不是漂亮头像。
 - 同一 dialogueUnitId 是一个不可拆散的交流动作：提问/挑战要在构图里明确指向对象，回答/拒绝要接住前句压力，承诺/关键词在 callback/payoff 镜头以动作或关系变化回收。
@@ -192,6 +193,7 @@ function mergeBeats(
       dialogueContext: beat.dialogueContext,
       dialogueTurns: beat.dialogueTurns,
       montageRole: beat.montageRole,
+      editBridge: beat.editBridge,
       audienceQuestion: beat.audienceQuestion,
       stateBefore: beat.stateBefore,
       stateAfter: beat.stateAfter,

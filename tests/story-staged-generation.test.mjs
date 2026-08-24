@@ -3,8 +3,8 @@ import test from 'node:test';
 
 import { buildDirectorBatches, buildDirectorPrompt, normalizeDirectorShots, stripExactDialogueFromDescription, validateDirectorShots } from '../lib/pipeline/storyDirector.ts';
 import { extractJson } from '../lib/pipeline/json.ts';
-import { applySourceDialogueAuthority, buildStoryBeatBatches, expandStoryCharacters, filterVisibleStorySpeech, missingSourceDialogueLines, normalizeStoryOutline, normalizedBeatConflict, normalizedBeatNextCause, parseSourceDialogueByShot, sanitizeStoryPlan, structuredRetryCorrection } from '../lib/pipeline/storyWriter.ts';
-import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryOutlinePrompt } from '../lib/pipeline/storyWriterPrompt.ts';
+import { applySourceDialogueAuthority, applyStoryDialogueManuscript, buildStoryBeatBatches, expandStoryCharacters, filterVisibleStorySpeech, missingSourceDialogueLines, normalizeStoryOutline, normalizedBeatConflict, normalizedBeatNextCause, parseSourceDialogueByShot, sanitizeStoryPlan, structuredRetryCorrection } from '../lib/pipeline/storyWriter.ts';
+import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryDialogueManuscriptPrompt, buildStoryOutlinePrompt } from '../lib/pipeline/storyWriterPrompt.ts';
 import { apimartErrorSummary } from '../lib/apimart.ts';
 
 const outlineSequence = (id, start, count) => ({
@@ -28,20 +28,35 @@ const outlineSequence = (id, start, count) => ({
     informationGain: `${id} information ${offset + 1}`,
     dialoguePurpose: offset % 3 === 0 ? 'question' : 'visual_only',
     montageRole: offset === count - 1 ? 'consequence' : 'development',
+    editBridge: `${id} result ${offset + 1} causally triggers the next action and changes audience understanding`,
     audienceQuestion: `${id} question ${offset + 1}`,
     requiredLine: '',
   })),
 });
 
-const outlineDocument = (sequences, extra = {}) => ({
-  title: 'Long film',
-  centralDramaticQuestion: 'Will the protagonist succeed without losing what matters?',
-  audiencePromise: 'A causal journey with an emotional payoff.',
-  dialogueArc: 'question → challenge → decision → payoff',
-  montageStrategy: 'causal compression with motivated contrast',
-  sequences,
-  ...extra,
-});
+const outlineDocument = (sequences, extra = {}) => {
+  const beatCount = sequences.flatMap(sequence => sequence.beatMap).length;
+  const finalBeat = sequences.at(-1)?.beatMap.at(-1);
+  if (finalBeat) finalBeat.editBridge = 'terminal image: the resolved new life remains visibly stable';
+  return {
+    title: 'Long film',
+    centralDramaticQuestion: 'Will the protagonist succeed without losing what matters?',
+    audiencePromise: 'A causal journey with an emotional payoff.',
+    dialogueArc: 'question → challenge → decision → payoff',
+    montageStrategy: 'causal compression with motivated contrast',
+    structure: [
+      ['opening', 1],
+      ['inciting_incident', Math.max(1, Math.round(beatCount * 0.15))],
+      ['first_threshold', Math.max(1, Math.round(beatCount * 0.28))],
+      ['midpoint_reversal', Math.max(1, Math.round(beatCount * 0.5))],
+      ['crisis_choice', Math.max(1, Math.round(beatCount * 0.72))],
+      ['climax_proof', Math.max(1, Math.round(beatCount * 0.9))],
+      ['resolution', Math.max(1, beatCount)],
+    ].map(([name, shotIndex]) => ({ name, shotIndex, event: `${name} visible event`, audienceShift: `${name} changes audience understanding` })),
+    sequences,
+    ...extra,
+  };
+};
 
 test('normalizes the global map to exact continuous indexes and rejects a wrong quota', () => {
   const outline = normalizeStoryOutline(outlineDocument([
@@ -202,6 +217,7 @@ SHOT 27 | sea | dialogue: Lanxi: “Let it come.” Narrator: “The tide return
   applySourceDialogueAuthority(outline, expanded.canonicalSynopsis, expanded.characters.map(character => character.name));
   assert.deepEqual(outline.sequences[0].beatMap[24].requiredDialogueLines, parsed.get(25));
   assert.deepEqual(outline.sequences[0].beatMap[26].requiredDialogueLines, parsed.get(27));
+  assert.notEqual(outline.sequences[0].beatMap[24].dialogueTurns[0].function, 'user_exact');
 });
 
 test('adapting a numbered source screenplay keeps dialogue from the complete timeline', () => {
@@ -294,9 +310,9 @@ test('screenplay batches stay small enough for complete JSON and never cross a s
   ]), 18);
   const batches = buildStoryBeatBatches(outline);
 
-  assert.deepEqual(batches.map(batch => batch.beatMap.length), [6, 6, 6]);
-  assert.deepEqual(batches.map(batch => batch.sequence.id), ['seq-1', 'seq-1', 'seq-2']);
-  assert.ok(batches.every(batch => batch.beatMap.length <= 6));
+  assert.deepEqual(batches.map(batch => batch.beatMap.length), Array(18).fill(1));
+  assert.deepEqual(batches.map(batch => batch.sequence.id), [...Array(12).fill('seq-1'), ...Array(6).fill('seq-2')]);
+  assert.ok(batches.every(batch => batch.beatMap.length === 1));
 });
 
 test('dialogue-heavy screenplay batches split before the structured response becomes oversized', () => {
@@ -310,8 +326,8 @@ test('dialogue-heavy screenplay batches split before the structured response bec
   });
   const outline = normalizeStoryOutline(outlineDocument([sequence]), 9, ['A', 'B']);
   const batches = buildStoryBeatBatches(outline);
-  assert.deepEqual(batches.map(batch => batch.beatMap.length), [4, 4, 1]);
-  assert.ok(batches.every(batch => batch.beatMap.flatMap(beat => beat.dialogueTurns).length <= 8));
+  assert.deepEqual(batches.map(batch => batch.beatMap.length), Array(9).fill(1));
+  assert.ok(batches.every(batch => batch.beatMap.flatMap(beat => beat.dialogueTurns).length <= 6));
 });
 
 test('outline and screenplay prompts keep story architecture separate from visual direction', () => {
@@ -351,6 +367,7 @@ test('outline and screenplay prompts keep story architecture separate from visua
   assert.match(outlinePrompt, /不要写详细分镜、摄影 prompt/);
   assert.match(outlinePrompt, /informationGain/);
   assert.match(outlinePrompt, /dialogueArc/);
+  assert.match(outlinePrompt, /midpoint_reversal/);
   assert.match(outlinePrompt, /后续形象与声音共用同一性别\/年龄/);
   assert.match(batchPrompt, /不生成摄影内容/);
   assert.doesNotMatch(batchPrompt, /UNRELATED_FULL_SOURCE_MARKER/);
@@ -363,6 +380,51 @@ test('outline and screenplay prompts keep story architecture separate from visua
   assert.match(batchPrompt, /不使用 dissolve、fade 或 wipe 特效/);
   assert.doesNotMatch(directorPrompt, /DIRECTOR_FULL_SOURCE_MARKER/);
   assert.match(directorPrompt, /只执行下方结构化合同/);
+});
+
+test('global dialogue manuscript locks complete spoken meaning before screenplay batches', () => {
+  const sequence = outlineSequence('seq-1', 1, 9);
+  sequence.beatMap[0].dialoguePurpose = 'decision';
+  sequence.beatMap[0].dialogueObligation = 'required';
+  sequence.beatMap[0].dialogueUnitId = 'dlg-1';
+  sequence.beatMap[0].dialogueTurns = [{
+    speaker: 'A', function: 'decision', contentGoal: 'A chooses to share control of the tide instead of carrying it alone', respondsTo: '',
+  }];
+  const outline = normalizeStoryOutline(outlineDocument([sequence]), 9, ['A']);
+  const prompt = buildStoryDialogueManuscriptPrompt({ outline, language: 'en' });
+  assert.match(prompt, /全片对白编剧/);
+  assert.match(prompt, /不得把完整语义压成/);
+
+  const locked = applyStoryDialogueManuscript(outline, { turns: [{
+    beatIndex: 1,
+    dialogueUnitId: 'dlg-1',
+    turnIndex: 1,
+    speaker: 'A',
+    function: 'decision',
+    contentGoal: 'A chooses to share control of the tide instead of carrying it alone',
+    respondsTo: '',
+    exactLine: 'I will open the western gate and let the others carry the tide with me.',
+    meaningEvidence: 'let the others carry the tide with me',
+    subtext: 'A releases the identity built around being indispensable.',
+    listenerResult: 'The crew realizes the order is also an invitation to share responsibility.',
+  }] }, ['A']);
+  const turn = locked.sequences[0].beatMap[0].dialogueTurns[0];
+  assert.equal(turn.exactLine, 'I will open the western gate and let the others carry the tide with me.');
+  assert.equal(turn.meaningEvidence, 'let the others carry the tide with me');
+
+  assert.throws(() => applyStoryDialogueManuscript(outline, { turns: [{
+    beatIndex: 1,
+    dialogueUnitId: 'dlg-1',
+    turnIndex: 1,
+    speaker: 'A',
+    function: 'decision',
+    contentGoal: 'A chooses to share control of the tide instead of carrying it alone',
+    respondsTo: '',
+    exactLine: 'I choose us.',
+    meaningEvidence: 'I choose us',
+    subtext: 'A changes.',
+    listenerResult: 'The crew reacts.',
+  }] }, ['A']), /过短/);
 });
 
 test('provider safety refusals receive a content-safe structured retry instead of a blind repeat', () => {

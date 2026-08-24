@@ -152,6 +152,9 @@ test('invalidates a generated segment when its image, action or dialogue changes
   assert.equal(isCompletedVideoSegment(generated.map((item, index) => index
     ? item
     : { ...item, speech: [{ character: 'A', exactLine: '新的台词。' }] })), false);
+  assert.equal(isCompletedVideoSegment(generated.map((item, index) => index
+    ? item
+    : { ...item, editBridge: 'The falling key match-cuts to the opening lock, proving the two events are causally linked.' })), false);
 });
 
 test('restores a saved H3 project directly to export after refresh', () => {

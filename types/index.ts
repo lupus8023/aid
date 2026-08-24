@@ -33,6 +33,10 @@ export interface StoryDialogueTurn {
   function: string;
   contentGoal: string; // 本轮必须让观众听懂的新事实、立场或选择
   respondsTo: string;
+  exactLine?: string; // 全片台词稿锁定的逐字台词；详细剧本/分镜/H3 只能调度，不能缩写
+  meaningEvidence?: string; // exactLine 中真正交付 contentGoal 的原文片段
+  subtext?: string; // 角色表面说法背后的策略或隐含欲望，不得被朗读
+  listenerResult?: string; // 台词落下后听者可见的认知、关系或决定变化
 }
 
 export interface StorySpeechLine {
@@ -124,6 +128,7 @@ export interface Storyboard {
   dialogueContext?: string; // 台词前提与说后必须改变的关系/认知
   dialogueTurns?: StoryDialogueTurn[]; // 骨架阶段锁定的逐轮语义任务，不能在导演/视频阶段丢失
   montageRole?: string; // setup/development/contrast/decision/payoff/bridge 等剪辑语义
+  editBridge?: string; // 本镜可见/可听结果如何被下一镜接住，以及并置后观众应推断出的新意义
   audienceQuestion?: string; // 此刻维持或回答的观众问题
   stateBefore?: NarrativeState;
   stateAfter?: NarrativeState;

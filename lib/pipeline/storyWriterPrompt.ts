@@ -164,6 +164,7 @@ ${sourceAdaptationMap.length ? `编号原稿压缩合同（权威）：原稿镜
 - dialogueObligation 为 required 时必须生成台词，不得在详细剧本阶段静默降为 visual_only；optional 才允许在动作已经完全表达信息时删除；visual 表示明确无对白。
 - 对白要形成跨镜呼应：问题必须得到回答或故意延迟；承诺/谎言/关键词必须在后面产生变化或回收。台词不能复述画面动作，也不能是脱离上下文的口号。
 - montageRole 决定剪辑语义：setup、development、escalation、parallel、contrast、decision、consequence、bridge、payoff、resolution。并置必须产生新的理解，不是旅游式画面罗列。
+- editBridge 不是“淡入淡出”特效，而是本镜的可见/可听结果如何被下一镜接住：因果触发、动作匹配、视线、物体状态、声音桥、平行或对照，并写清两镜并置后观众新增的推论。统一格式为“bridgeType: 具体可见/可听交棒; audienceInference: 观众由两镜并置新理解什么”。终镜必须写“terminal image: 解决后的可见新生活”，不能再引向下一事件。
 - characters 必须为每个可用角色规划 role、gender、ageGroup 与 voiceProfile。gender 只能是 female、male、nonbinary、unknown；ageGroup 只能是 child、young_adult、adult、senior、unknown。用户原文有定义时严格服从；原文未定义时，由本阶段明确做出一次角色设计选择，使后续形象与声音共用同一性别/年龄，不得让图片模型和音频模型各自猜测。只有用户明确要求身份保持未知时才写 unknown。voiceProfile 只描述年龄感、音高、质感、气质、语速和语言，不写可朗读台词。
 
 连续性规则：
@@ -194,6 +195,7 @@ ${sourceAdaptationMap.length ? `编号原稿压缩合同（权威）：原稿镜
   "storyAnchor": "故事锚点",
   "visualMotif": "视觉母题",
   "emotionalArc": "全片情绪弧线",
+  "structure": [{ "name": "opening|inciting_incident|first_threshold|midpoint_reversal|crisis_choice|climax_proof|resolution", "shotIndex": 1, "event": "该节点的可见事件/选择", "audienceShift": "节点前后观众理解如何改变" }],
   "centralDramaticQuestion": "开场提出、高潮回答的核心观众问题",
   "audiencePromise": "影片向观众承诺的类型体验与情感回报",
   "dialogueArc": "问题/承诺/冲突台词如何跨场推进并在结尾回收",
@@ -225,6 +227,7 @@ ${sourceAdaptationMap.length ? `编号原稿压缩合同（权威）：原稿镜
       "dialogueContext": "这句承接什么，听者听后必须理解/决定/关系改变什么",
       "dialogueTurns": [{ "speaker": "可用角色精确名称", "function": "question|answer|reveal|conceal|challenge|refusal|decision|promise|callback|payoff", "contentGoal": "本轮必须说清的新事实/立场/选择", "respondsTo": "回应的上一轮 contentGoal 或伏笔；首轮可空" }],
       "montageRole": "setup|development|escalation|parallel|contrast|decision|consequence|bridge|payoff|resolution",
+      "editBridge": "bridgeType: 具体可见/可听交棒; audienceInference: 两镜并置后的新增理解；终镜写 terminal image: 解决后的可见新生活",
       "audienceQuestion": "本镜结束时观众继续追问的问题",
       "requiredSpeaker": "第一条指定台词的可用角色精确名称；无台词则空字符串",
       "requiredLine": "第一条用户指定台词或空字符串",
@@ -234,6 +237,98 @@ ${sourceAdaptationMap.length ? `编号原稿压缩合同（权威）：原稿镜
 }
 
 输出前自检：sequences[].shotCount 之和、beatMap 长度之和都必须等于 ${targetShots}；index 必须无重复、无跳号地覆盖 1–${targetShots}。`;
+}
+
+export function buildStoryDialogueManuscriptPrompt(input: {
+  outline: unknown;
+  language: 'zh' | 'en';
+}): string {
+  const outline = (input.outline && typeof input.outline === 'object' ? input.outline : {}) as Record<string, any>;
+  const sequences = Array.isArray(outline.sequences) ? outline.sequences : [];
+  const spine = {
+    title: outline.title,
+    theme: outline.theme,
+    logline: outline.logline,
+    protagonist: outline.protagonist,
+    externalWant: outline.externalWant,
+    internalNeed: outline.internalNeed,
+    stakes: outline.stakes,
+    obstacle: outline.obstacle,
+    finalChoice: outline.finalChoice,
+    consequence: outline.consequence,
+    change: outline.change,
+    storyAnchor: outline.storyAnchor,
+    emotionalArc: outline.emotionalArc,
+    structure: outline.structure,
+    centralDramaticQuestion: outline.centralDramaticQuestion,
+    dialogueArc: outline.dialogueArc,
+  };
+  const roadmap = sequences.map((sequence: any) => ({
+    id: sequence.id,
+    sceneGoal: sequence.sceneGoal,
+    dramaticQuestion: sequence.dramaticQuestion,
+    audienceEntry: sequence.audienceEntry,
+    audienceExit: sequence.audienceExit,
+    turningPoint: sequence.turningPoint,
+    beats: (Array.isArray(sequence.beatMap) ? sequence.beatMap : []).map((beat: any) => ({
+      index: beat.index,
+      actionGoal: beat.actionGoal,
+      informationGain: beat.informationGain,
+      emotionalTurn: beat.emotionalTurn,
+      dialoguePurpose: beat.dialoguePurpose,
+      dialogueUnitId: beat.dialogueUnitId,
+      dialogueObligation: beat.dialogueObligation,
+      dialogueContext: beat.dialogueContext,
+      dialogueTurns: beat.dialogueTurns,
+      requiredDialogueLines: beat.requiredDialogueLines,
+      montageRole: beat.montageRole,
+      audienceQuestion: beat.audienceQuestion,
+    })),
+  }));
+  const outputLanguage = input.language === 'en'
+    ? 'Write every exactLine in natural spoken English. Preserve entity names exactly.'
+    : '所有 exactLine 使用自然中文口语；角色名称保持原样。';
+
+  return `你是全片对白编剧。故事骨架和镜头地图已经锁定。你的唯一任务是一次性写完【全片连续台词稿】，让后续详细剧本、分镜和视频只负责调度，不能再把台词临时缩短。
+
+${outputLanguage}
+
+全片故事脊柱：
+${JSON.stringify(spine, null, 2)}
+
+按场次排列的对白路线：
+${JSON.stringify(roadmap, null, 2)}
+
+强制写作规则：
+- 只为 dialogueTurns 中已经规划的轮次写台词；beatIndex、dialogueUnitId、turnIndex、speaker、function、contentGoal、respondsTo 数量与顺序完全不变。
+- requiredDialogueLines 是用户逐字台词，exactLine 必须逐字等于对应原文。没有 requiredDialogueLines 的轮次才允许创作。
+- exactLine 必须完整、可表演，并让只听这一句的观众听懂 contentGoal 中的新事实、立场或选择。不得把完整语义压成“不能停”“走吧”“我知道”“快点”或 Again/No/Almost 一类口号。
+- 同一 dialogueUnitId 是一个完整交流动作。提问/挑战必须有明确对象；回答/拒绝必须真正接住 respondsTo；承诺、谎言、关键词必须在 callback/payoff 中发生变化，不得让连续台词各说各的。
+- 每一句都要改变信息、关系、策略或决定。禁止重复画面、重复上一句、总结主题、解释观众已经看见的动作，禁止把每个人都写成同一种“漂亮金句”口气。
+- 对白有潜台词：角色为达到当场目标而说，不直接朗读作者结论。只有高潮/回收允许把主题说得更清楚，但仍要落在角色当前选择上。
+- 跨镜回应若可能被拆成不同 H3 片段，exactLine 必须带清楚的名词、对象或决定，不能只用失去指代的“它/那件事/这样”。
+- 中文生成台词通常 8–30 个汉字；英文通常 5–24 个单词。更短只允许作为同一 dialogueUnitId 内立即可懂的回答/拒绝；多轮同镜合计必须能在约 12.5 秒内自然说完并留下反应。
+- exactLine 只包含真正说出口的字词。停顿、语气、表情、动作、无其他人在场等导演说明分别写入 subtext/listenerResult，绝不能进入 exactLine。
+- meaningEvidence 必须逐字摘自 exactLine，是实际承载 contentGoal 的连续片段；中文至少 4 个汉字，英文至少 3 个单词。listenerResult 写台词落下后听者可见地改变了什么。
+
+只输出：
+{
+  "turns": [{
+    "beatIndex": 1,
+    "dialogueUnitId": "dlg-1",
+    "turnIndex": 1,
+    "speaker": "角色精确名称",
+    "function": "沿用规划",
+    "contentGoal": "逐字沿用规划",
+    "respondsTo": "逐字沿用规划",
+    "exactLine": "完整可表演台词",
+    "meaningEvidence": "exactLine 中交付 contentGoal 的原文片段",
+    "subtext": "角色此刻真正想得到什么",
+    "listenerResult": "听者听后可见的认知/关系/决定变化"
+  }]
+}
+
+输出前逐项自检：turns 数量必须等于路线中 dialogueTurns 总数；每个规划轮次恰好出现一次，顺序不变；所有 exactLine 均能在 15 秒片段约束下完整说完。`;
 }
 
 export function buildStoryBeatBatchPrompt(input: {
@@ -276,6 +371,7 @@ export function buildStoryBeatBatchPrompt(input: {
     centralDramaticQuestion: outlineRecord.centralDramaticQuestion,
     audiencePromise: outlineRecord.audiencePromise,
     dialogueArc: outlineRecord.dialogueArc,
+    structure: outlineRecord.structure,
     montageStrategy: outlineRecord.montageStrategy,
     dialogueRoadmap: outlineSequences.flatMap(item => Array.isArray(item.beatMap) ? item.beatMap : [])
       .filter(item => item.dialogueObligation !== 'visual')
@@ -285,6 +381,7 @@ export function buildStoryBeatBatchPrompt(input: {
         purpose: item.dialoguePurpose,
         context: item.dialogueContext,
         turns: item.dialogueTurns,
+        editBridge: item.editBridge,
       })),
   };
 
@@ -323,6 +420,7 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - characters / objects 只能使用允许列表中的精确名称；临时环境元素只写在 action。
 - cause → conflict → choice → consequence → nextCause 必须形成可见因果；前一镜 stateAfter 必须等于后一镜 stateBefore。最后的 payoff/resolution 镜不要凭空制造新冲突，conflict 应写已经解决的核心张力及仍需验证的余波，不能留空。
 - 每镜必须落实 beatMap.informationGain 和 audienceQuestion。dramaticPurpose 说明局面为何改变，informationGain 说明观众因此理解了什么，两者不能互相复制。
+- editBridge 逐字沿用 beatMap。它说明本镜结果如何成为下一镜的剪辑触发和观众推论；不能改成淡入淡出等后期特效。
 - 每个 action 都要包含“触发→表演/动作→可见结果”，让后续导演能拍出因果，而不是只有人物走、看、停顿和气氛。
 - 每镜只承担一个主动作弧：进入动作→加速/施力→明确触点或决定→0.25–0.6 秒可读结果。速度变化来自物理加速度和阻力，不得把整段动作默认写成匀速慢动作。
 - 相邻镜头的动作和能量要形成长短交替；关键信息落定后给短呼吸，普通动作不能用无意义停顿拖时长。除非剧情明确要求时间主观化，否则禁止 slow motion、长时间悬停和空镜漂移。
@@ -330,7 +428,7 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - 第一镜 stateBefore 必须按照上述交接类型承接上一批。若后续路线非空，最后一镜 nextCause 要准确铺向后续路线；若这是全片末镜且没有后续路线，nextCause 必须写已经达成的终局状态并明确不再触发新剧情，不能留空，也不能为了填字段凭空制造续集事件。
 - 台词服务叙事，而不是一律从少。beatMap.requiredLine 非空时逐字写入 speech；否则按 dialoguePurpose 判断：私人目标、问题/回答、关系转折、谎言/揭示、承诺/回收或明确选择若仅靠画面会含混，就写必要台词；visual_only 才保持 speech=[]。禁止旁白、画外音、路人台词、笑声、哼唱和无来源人声。
 - 台词必须承接上下文：用 storyFunction 标明 question/answer/reveal/refusal/decision/promise/callback/payoff；用 respondsTo 指向它回应的前一句信息或伏笔。不得写重复画面、孤立口号、通用感叹或没有对象的短句。
-- beatMap.dialogueTurns 是逐条台词的语义合同：speech 条数、说话者顺序和 storyFunction 必须逐项一致；每句 exactLine 必须完整交付对应 contentGoal。respondsTo 沿用计划并写清回应对象。不能把一个完整 turn 压缩成“不能停”“走吧”“我知道”“快点”这类脱离上下文就无法理解剧情的口号；极短句只有在上一轮台词就在同一 dialogueUnitId 且该句是清楚的回答/拒绝/回收时才允许。
+- beatMap.dialogueTurns 是全片台词稿锁定的逐条合同：speech 条数、说话者顺序和 storyFunction 必须逐项一致；exactLine 必须逐字等于 dialogueTurns.exactLine，不能改写、缩短或重新创作。contentGoal、respondsTo、meaningEvidence、subtext 和 listenerResult 都要原样保留为非朗读元数据。
 - beatMap.dialogueUnitId、dialogueObligation、dialogueContext 是权威对白契约，逐项沿用。required 必须写 speech，不能因为动作可见而降为 visual_only；同一 dialogueUnitId 的问答/承诺/回收必须语义相接，听者的 listenerState 要写出听后发生的具体变化。
 - 一镜通常有 0–2 条有序台词；用户原文同镜明确给出三句或四句短对答时必须全部按 requiredDialogueLines 的原顺序保留。逐条绑定已出场角色，不能重叠，总台词时长加留白必须装入 durationHint。不要为了凑数量写台词。
 - 只有 dialogueObligation=optional 且没有 requiredLine 时，若本镜信息已经能靠动作完整、无歧义地交付，才可将 dialoguePurpose 明确改成 visual_only 并保持 speech=[]；dialogueObligation=required 或 requiredLine 非空时绝不能降级，也不能把一个角色的原话转嫁给另一个角色。
@@ -358,6 +456,7 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
     "informationGain": "观众在本镜新增或修正的唯一理解",
     "dialoguePurpose": "沿用并具体落实 beatMap 的对白功能",
     "montageRole": "沿用 beatMap 的剪辑语义",
+    "editBridge": "逐字沿用 beatMap 的剪辑交棒",
     "audienceQuestion": "本镜结束后观众追问的问题",
     "speech": [{ "character": "当前角色", "exactLine": "只填写角色真正说出口的逐字台词；导演指令必须留在 speech 之外", "emotion": "克制情绪", "delivery": "语速停顿重音", "volume": "whisper|soft|normal|raised", "lipSync": true, "listenerState": "听者听后具体改变的认知/情绪/决定", "storyFunction": "question|answer|reveal|refusal|decision|promise|callback|payoff", "respondsTo": "回应的前句/信息/伏笔；无则空", "source": "user_exact|story_required" }],
     "dialogueUnitId": "沿用 beatMap",

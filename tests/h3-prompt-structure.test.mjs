@@ -206,7 +206,10 @@ test('removes inline quoted dialogue and vocal directions from visual channels',
 
 test('preserves every grouped storyboard as a complete timed action-camera-dialogue unit', () => {
   const prompt = buildVideoSegmentPrompt([
-    shot(1, { action: 'Lin snatches the red envelope from the moving bicycle.', cameraMove: '跟拍', dialogueLines: [] }),
+    shot(1, {
+      action: 'Lin snatches the red envelope from the moving bicycle.', cameraMove: '跟拍', dialogueLines: [],
+      editBridge: 'Match the red envelope crossing frame right to its torn seal entering frame left; the audience realizes the chase was staged to deliver it.',
+    }),
     shot(2, { action: 'Lin tears the seal and recoils from the photograph.', cameraMove: '推近', dialogueLines: [{ character: 'Lin', text: '这不是我的照片。' }] }),
     shot(3, { action: 'Lin pivots toward the station clock and breaks into a run.', cameraMove: '横移', dialogueLines: [] }),
   ], [], { duration: 15, language: 'zh' });
@@ -221,6 +224,7 @@ test('preserves every grouped storyboard as a complete timed action-camera-dialo
   ]) assert.equal((prompt.match(new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 1);
   assert.equal((prompt.match(/(?:The camera uses|CAMERA:)/g) || []).length, 3);
   assert.equal((prompt.match(/move into \[Shot/g) || []).length, 2);
+  assert.match(prompt, /authored story bridge: Match the red envelope crossing frame/);
   assert.doesNotMatch(prompt, /DIALOGUE:|SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE/);
   assert.doesNotMatch(prompt, /cross-dissolve|fade from|fade into/i);
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);

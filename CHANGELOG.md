@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.53 - 2026-08-24
+
+### Improved
+
+- Story now authors one global dialogue manuscript after the causal outline and locks every speaker, exact line, semantic evidence, subtext and listener result before per-shot execution, preventing short disconnected slogans from replacing the story.
+- The full-film spine explicitly carries seven milestones, audience knowledge shifts and an authored edit bridge through screenplay, storyboard, H3 prompting, segment cache signatures and delivery audit.
+- Detailed screenplay execution is generated one shot at a time while retaining the authoritative global event and dialogue, avoiding partial-array failures without fragmenting narrative continuity.
+- H3 montage prompts preserve each included storyboard's timed action, camera, dialogue and motivated physical handoff; automatic grouping still combines compatible beats within the 15-second limit.
+
+### Fixed
+
+- APIMart GPT-4o requests stay within the provider's 16K output ceiling, and long 18–81-shot plans no longer fail because a final execution batch returned only one item.
+- English projects deterministically repair ignored translated execution fields instead of discarding an otherwise valid locked English outline and dialogue manuscript.
+- The Story delivery gate now detects missing milestones, edit bridges, shortened locked lines, lost dialogue meaning and reordered exchanges before video generation.
+
+### Verification
+
+- A real 18-shot English adaptation completed with 7 structural milestones, 23/23 locked dialogue turns and 18 directed 1:1 storyboards. End-to-end delivery audit returned zero errors.
+- Automatic editing produced 14 H3 segments, including 4 multi-shot montage segments; every segment remained within MiniMax H3's 15-second limit. Focused Story, delivery, segmentation and H3 suites plus the production build pass.
+
 ## 0.1.52 - 2026-08-24
 
 ### Improved
