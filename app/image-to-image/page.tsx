@@ -7,7 +7,8 @@ import DevToolsLayout from '@/components/DevToolsLayout';
 import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
 import { readApiJson } from '@/lib/apiResponse';
-import { getImageModelCapabilities } from '@/lib/imageModels';
+import { getImageModelCapabilities, imageModelRequiresApiKey, isComfyUIZImageTurbo } from '@/lib/imageModels';
+import { imageApiUrl, localComfyUISettings } from '@/lib/comfyuiClient';
 
 const MAX_REFERENCE_FILE_BYTES = 8 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES = 1200 * 1024;
@@ -103,10 +104,10 @@ export default function ImageToImagePage() {
       setStatusText(`Generating studio image... ${i + 1}/90`);
       await new Promise(resolve => setTimeout(resolve, 3000));
 
-      const response = await fetch('/api/check-image-status', {
+      const response = await fetch(imageApiUrl('/api/check-image-status', settings.comfyui, taskId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, apiKey: settings.apiKey })
+        body: JSON.stringify({ taskId, apiKey: settings.apiKey, comfyui: localComfyUISettings(settings.comfyui) })
       });
 
       if (!response.ok) continue;
@@ -132,7 +133,12 @@ export default function ImageToImagePage() {
       return;
     }
 
-    if (!settings.apiKey) {
+    if (isComfyUIZImageTurbo(settings.imageModel)) {
+      alert('Z-Image-Turbo 官方基础工作流仅支持文生图；图生图请切换 APIMart 模型');
+      setShowSettings(true);
+      return;
+    }
+    if (imageModelRequiresApiKey(settings.imageModel) && !settings.apiKey) {
       alert('Please configure API Key in settings');
       setShowSettings(true);
       return;
@@ -162,7 +168,7 @@ export default function ImageToImagePage() {
       }
       setReferenceImages(uploadedReferences);
       setStatusText('Creating image generation task...');
-      const response = await fetch('/api/image-to-image', {
+      const response = await fetch(imageApiUrl('/api/image-to-image', settings.comfyui, settings.imageModel), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -172,6 +178,7 @@ export default function ImageToImagePage() {
           aspectRatio,
           imageModel: settings.imageModel,
           apiKey: settings.apiKey,
+          comfyui: localComfyUISettings(settings.comfyui),
         })
       });
 

@@ -124,7 +124,9 @@ CLOUDINARY_API_SECRET=your_cloudinary_secret
 
 运行 aid 的机器需要安装 `ssh` 和 `scp`，并能以无交互方式登录 ComfyUI 主机。ComfyUI H3 当前要求每个任务恰好一条音频；分镜模式请先点击“Generate Audio”。连接字段既可在 Settings 中填写，也可通过 `.env.local.example` 中的 `COMFYUI_*` 变量配置。若两处都填写，以 Settings 为准。
 
-`pandais.beauty` 上的 ComfyUI 通道默认通过本机 aid companion 使用 SSH，不把私钥交给 Netlify。先在 aid 项目目录运行 `npm run companion`，保持 `http://127.0.0.1:3018` 可用；网页会把 ComfyUI 的测试、提交和轮询请求发给这个本地服务，由它使用 `~/.ssh`、ssh-agent 和持久控制连接完成 SSH/SFTP。长剧本规划与 AI 扩写也通过 Companion 执行，避免 Netlify 同步函数的 60 秒限制；图片等短任务仍走 Netlify。companion 只允许 `pandais.beauty` 与本机 origin 跨域访问。
+`pandais.beauty` 上的 ComfyUI 通道默认通过本机 aid companion 使用 SSH，不把私钥交给 Netlify。先在 aid 项目目录运行 `npm run companion`，保持 `http://127.0.0.1:3018` 可用；网页会把 ComfyUI 的测试、提交和轮询请求发给这个本地服务，由它使用 `~/.ssh`、ssh-agent 和持久控制连接完成 SSH/SFTP。长剧本规划、AI 扩写、MiniMax H3 视频以及 Z-Image-Turbo 图片任务都可通过 Companion 执行；APIMart 图片模型仍走 Netlify。companion 只允许 `pandais.beauty` 与本机 origin 跨域访问。
+
+全局图片模型可选择 `ComfyUI · Z-Image-Turbo（本地）`。该分支使用官方 BF16 文生图工作流，支持 Story 九宫格、单分镜、角色草稿、定妆图和场景参考图；官方基础工作流不接受参考图编辑，因此图生图与严格身份参考请切换 APIMart 图片模型。
 
 剧本生成通道可在 Settings 中明确选择 `Auto`、`DMX only` 或 `APIMart only`。Auto 模式优先 DMX，失败后回退 APIMart，并同时保留两家的失败原因；仅使用模式不会静默切换供应商。桌面版 Companion 对这两个 API 域名使用独立公网 DNS，避免代理或 VPN 的 Fake-IP 解析导致“授权正常但剧本 API 无法连接”。
 

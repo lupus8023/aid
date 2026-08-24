@@ -1,4 +1,5 @@
 import type { AppSettings } from '@/types';
+import { isComfyUIZImageTurbo } from './imageModels';
 
 export const DEFAULT_COMFYUI_COMPANION_URL = 'http://127.0.0.1:3018';
 // Story generation runs inside the packaged Companion so long 27–81 shot jobs
@@ -14,6 +15,16 @@ export function comfyUIApiUrl(pathname: string, settings?: Partial<ComfyUISettin
   if (settings?.useLocalCompanion === false) return pathname;
   const baseUrl = String(settings?.localCompanionUrl || DEFAULT_COMFYUI_COMPANION_URL).replace(/\/+$/, '');
   return `${baseUrl}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
+}
+
+export function imageApiUrl(
+  pathname: string,
+  settings: Partial<ComfyUISettings> | undefined,
+  modelOrTaskId: string,
+): string {
+  return isComfyUIZImageTurbo(modelOrTaskId) || String(modelOrTaskId || '').startsWith('comfyui-image:')
+    ? comfyUIApiUrl(pathname, settings)
+    : pathname;
 }
 
 export function companionVersionAtLeast(version: string, minimum: readonly number[]): boolean {

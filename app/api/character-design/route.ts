@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createImageTask } from '@/lib/apimart';
+import { createProviderImageTask } from '@/lib/imageTaskProvider';
+import { getImageModelCapabilities, imageModelRequiresApiKey } from '@/lib/imageModels';
 import { buildCharacterBiblePrompt, buildCharacterConceptGridPrompt } from '@/lib/promptArchitecture';
 import type { VisualStyle } from '@/types';
 
@@ -21,6 +22,7 @@ export async function POST(request: NextRequest) {
       visualStyle,
       imageModel,
       apiKey,
+      comfyui,
     } = body as {
       stage?: 'concepts' | 'bible';
       name?: string;
@@ -36,9 +38,11 @@ export async function POST(request: NextRequest) {
       visualStyle?: VisualStyle;
       imageModel?: string;
       apiKey?: string;
+      comfyui?: Record<string, unknown>;
     };
 
-    if (!apiKey) return NextResponse.json({ error: 'API Key is required' }, { status: 400 });
+    const selectedModel = imageModel || 'doubao-seedream-5-0-lite';
+    if (imageModelRequiresApiKey(selectedModel) && !apiKey) return NextResponse.json({ error: 'API Key is required' }, { status: 400 });
     if (!name?.trim() || !description?.trim()) {
       return NextResponse.json({ error: '角色名称和外观描述不能为空' }, { status: 400 });
     }
@@ -58,10 +62,10 @@ export async function POST(request: NextRequest) {
         description,
         costumeDesc,
         candidateCount: count,
-        hasReferences: references.length > 0,
+        hasReferences: references.length > 0 && getImageModelCapabilities(selectedModel).maxReferenceImages > 0,
         visualStyle,
       });
-      const taskId = await createImageTask(prompt, references, apiKey, imageModel || 'doubao-seedream-5-0-lite', '1:1');
+      const taskId = await createProviderImageTask(prompt, references, apiKey || '', selectedModel, '1:1', undefined, comfyui);
       return NextResponse.json({ taskId, prompt, candidateCount: count });
     }
 
@@ -80,7 +84,7 @@ export async function POST(request: NextRequest) {
         hasIdentityReference: true,
         visualStyle,
       });
-      const taskId = await createImageTask(prompt, [selectedConceptUrl], apiKey, imageModel || 'doubao-seedream-5-0-lite', '4:3');
+      const taskId = await createProviderImageTask(prompt, [selectedConceptUrl], apiKey || '', selectedModel, '4:3', undefined, comfyui);
       return NextResponse.json({ taskId, prompt });
     }
 

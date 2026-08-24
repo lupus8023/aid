@@ -27,6 +27,7 @@ const ASPECT_ALIASES: Record<string, string> = {
 
 export const COMFYUI_TASK_PREFIX = 'comfyui:';
 export const COMFYUI_LONG_TASK_PREFIX = 'comfyui-long:';
+export const COMFYUI_IMAGE_TASK_PREFIX = 'comfyui-image:';
 export const MAX_COMFYUI_REFERENCE_IMAGES = 5;
 export const SCAIL2_FRAME_COUNTS = [17, 33, 49, 65, 81] as const;
 
@@ -172,6 +173,16 @@ export function getComfyUIConfig(settings: ComfyUIClientSettings = {}): ComfyUIC
 export function isComfyUITask(taskId: string): boolean {
   const value = String(taskId || '');
   return value.startsWith(COMFYUI_TASK_PREFIX) || value.startsWith(COMFYUI_LONG_TASK_PREFIX);
+}
+
+export function isComfyUIImageTask(taskId: string): boolean {
+  return String(taskId || '').startsWith(COMFYUI_IMAGE_TASK_PREFIX);
+}
+
+function unwrapComfyUIImageTaskId(taskId: string): string {
+  const promptId = String(taskId || '').replace(/^comfyui-image:/, '').trim();
+  if (!/^[a-zA-Z0-9_-]+$/.test(promptId)) throw new ComfyUIError('ComfyUI 图片任务 ID 无效');
+  return promptId;
 }
 
 export function unwrapComfyUITaskId(taskId: string): string {
@@ -1784,6 +1795,81 @@ export async function createComfyUIVideoTask(input: {
   }
 }
 
+function zImageDimensions(aspectRatio: string): { width: number; height: number } {
+  if (aspectRatio === '9:16') return { width: 768, height: 1344 };
+  if (aspectRatio === '16:9') return { width: 1344, height: 768 };
+  if (aspectRatio === '4:3') return { width: 1152, height: 864 };
+  return { width: 1024, height: 1024 };
+}
+
+function zImageApiPrompt(input: {
+  prompt: string;
+  width: number;
+  height: number;
+  seed: number;
+  outputPrefix: string;
+}): JsonRecord {
+  return {
+    '1': { class_type: 'UNETLoader', inputs: { unet_name: 'z_image_turbo_bf16.safetensors', weight_dtype: 'default' } },
+    '2': { class_type: 'CLIPLoader', inputs: { clip_name: 'qwen_3_4b.safetensors', type: 'lumina2', device: 'default' } },
+    '3': { class_type: 'VAELoader', inputs: { vae_name: 'ae.safetensors' } },
+    '4': { class_type: 'CLIPTextEncode', inputs: { text: input.prompt, clip: ['2', 0] } },
+    '5': { class_type: 'ConditioningZeroOut', inputs: { conditioning: ['4', 0] } },
+    '6': { class_type: 'EmptySD3LatentImage', inputs: { width: input.width, height: input.height, batch_size: 1 } },
+    '7': { class_type: 'ModelSamplingAuraFlow', inputs: { model: ['1', 0], shift: 3 } },
+    '8': {
+      class_type: 'KSampler',
+      inputs: {
+        model: ['7', 0], positive: ['4', 0], negative: ['5', 0], latent_image: ['6', 0],
+        seed: input.seed, steps: 8, cfg: 1, sampler_name: 'res_multistep', scheduler: 'simple', denoise: 1,
+      },
+    },
+    '9': { class_type: 'VAEDecode', inputs: { samples: ['8', 0], vae: ['3', 0] } },
+    '10': { class_type: 'SaveImage', inputs: { images: ['9', 0], filename_prefix: input.outputPrefix } },
+  };
+}
+
+export async function createComfyUIImageTask(input: {
+  prompt: string;
+  aspectRatio?: string;
+  seed?: number;
+  settings?: ComfyUIClientSettings;
+}): Promise<{ taskId: string; promptId: string; width: number; height: number }> {
+  const config = getComfyUIConfig(input.settings);
+  try {
+    if (!config.sshHost) throw new ComfyUIError('ComfyUI SSH Host 未配置');
+    const promptText = String(input.prompt || '').trim();
+    if (!promptText) throw new ComfyUIError('Z-Image-Turbo 提示词不能为空');
+    const { width, height } = zImageDimensions(input.aspectRatio || '1:1');
+    const runId = randomBytes(6).toString('hex');
+    const seed = Number.isFinite(input.seed)
+      ? Math.max(0, Math.floor(Number(input.seed)))
+      : Number(BigInt(`0x${randomBytes(7).toString('hex')}`));
+    const prompt = zImageApiPrompt({
+      prompt: promptText,
+      width,
+      height,
+      seed,
+      outputPrefix: `aid/z_image/${runId}/result`,
+    });
+    const promptId = await withTunnel(config, async baseUrl => {
+      const definitions = await readRemoteDefinitions(config);
+      validatePrompt(prompt, definitions);
+      const response = await fetchJson(baseUrl, '/prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, client_id: `aid-zimage-${runId}` }),
+      });
+      const submittedId = String(response.prompt_id || '').trim();
+      if (!submittedId) throw new ComfyUIError('ComfyUI 提交响应没有 prompt_id');
+      return submittedId;
+    });
+    return { taskId: `${COMFYUI_IMAGE_TASK_PREFIX}${promptId}`, promptId, width, height };
+  } finally {
+    await cleanupPrivateKey(config);
+  }
+}
+
 interface ComfyOutputRef { filename: string; subfolder: string; type: string }
 
 function comfyUIExecutionError(messages: unknown): string {
@@ -1805,6 +1891,54 @@ function collectFileRefs(value: unknown): ComfyOutputRef[] {
   const record = value as JsonRecord;
   if ('filename' in record) return [{ filename: String(record.filename), subfolder: String(record.subfolder || ''), type: String(record.type || 'output') }];
   return Object.values(record).flatMap(collectFileRefs);
+}
+
+const IMAGE_SUFFIXES = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+
+export async function getComfyUIImageStatus(taskId: string, settings: ComfyUIClientSettings = {}): Promise<{
+  status: 'processing' | 'completed' | 'failed';
+  error?: string;
+  output?: ComfyOutputRef;
+}> {
+  const promptId = unwrapComfyUIImageTaskId(taskId);
+  const config = getComfyUIConfig(settings);
+  try {
+    return await withTunnel(config, async baseUrl => {
+      const history = await fetchJson(baseUrl, `/history/${encodeURIComponent(promptId)}`, {}, 30_000);
+      const item = history[promptId];
+      if (!item) return { status: 'processing' as const };
+      const status = item.status || {};
+      if (status.status_str === 'error') {
+        return { status: 'failed' as const, error: `ComfyUI 执行失败：${comfyUIExecutionError(status.messages)}` };
+      }
+      const output = collectFileRefs(item.outputs || {}).find(ref => IMAGE_SUFFIXES.has(path.extname(ref.filename).toLowerCase()));
+      if (!output) return { status: 'failed' as const, error: 'Z-Image-Turbo 已结束但没有返回图片文件' };
+      return { status: 'completed' as const, output };
+    });
+  } finally {
+    await cleanupPrivateKey(config);
+  }
+}
+
+export async function downloadComfyUIImageOutput(
+  taskId: string,
+  output: ComfyOutputRef,
+  settings: ComfyUIClientSettings = {},
+): Promise<Buffer> {
+  unwrapComfyUIImageTaskId(taskId);
+  const config = getComfyUIConfig(settings);
+  try {
+    return await withTunnel(config, async baseUrl => {
+      const params = new URLSearchParams({ filename: output.filename, subfolder: output.subfolder, type: output.type });
+      const response = await fetch(`${baseUrl}/view?${params}`, { signal: AbortSignal.timeout(300_000) });
+      if (!response.ok) throw new ComfyUIError(`ComfyUI 图片下载失败：${await responseError(response)}`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (!buffer.length) throw new ComfyUIError('ComfyUI 图片下载结果为空');
+      return buffer;
+    });
+  } finally {
+    await cleanupPrivateKey(config);
+  }
 }
 
 export function selectComfyUIVideoOutput(value: unknown): ComfyOutputRef | undefined {

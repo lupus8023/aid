@@ -1,17 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTaskStatus } from '@/lib/apimart';
 import { extractImageTaskError } from '@/lib/imagePromptSafety';
+import { downloadComfyUIImageOutput, getComfyUIImageStatus, isComfyUIImageTask } from '@/lib/comfyui';
+import { hasCloudinaryUploadTarget, uploadBufferToCloudinary } from '@/lib/cloudinaryUpload';
+
+export const runtime = 'nodejs';
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
-    const { taskId, apiKey } = await request.json();
+    const { taskId, apiKey, comfyui = {} } = await request.json();
 
-    if (!taskId || !apiKey) {
+    if (!taskId) {
       return NextResponse.json(
-        { error: 'taskId and apiKey are required' },
+        { error: 'taskId is required' },
         { status: 400 }
       );
     }
+
+    if (isComfyUIImageTask(taskId)) {
+      const status = await getComfyUIImageStatus(taskId, comfyui);
+      if (status.status !== 'completed' || !status.output) {
+        return NextResponse.json({ status: status.status, error: status.error });
+      }
+      const buffer = await downloadComfyUIImageOutput(taskId, status.output, comfyui);
+      if (hasCloudinaryUploadTarget()) {
+        const id = taskId.replace(/^comfyui-image:/, '').replace(/[^a-zA-Z0-9_-]/g, '');
+        const uploaded = await uploadBufferToCloudinary(buffer, {
+          folder: 'aid-images/comfyui-z-image', public_id: id, resource_type: 'image', overwrite: true,
+        });
+        return NextResponse.json({ status: 'completed', imageUrl: uploaded.secure_url, provider: 'comfyui-z-image' });
+      }
+      return NextResponse.json({
+        status: 'completed',
+        imageUrl: `data:image/png;base64,${buffer.toString('base64')}`,
+        provider: 'comfyui-z-image',
+      });
+    }
+
+    if (!apiKey) return NextResponse.json({ error: 'apiKey is required' }, { status: 400 });
 
     const status = await getTaskStatus(taskId, apiKey);
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createImageTask } from '@/lib/apimart';
-import { getImageModelCapabilities } from '@/lib/imageModels';
+import { createProviderImageTask } from '@/lib/imageTaskProvider';
+import { getImageModelCapabilities, imageModelRequiresApiKey, isComfyUIZImageTurbo } from '@/lib/imageModels';
 
 function buildStudioPrompt(userIntent?: string, scaleNotes?: string) {
   const intent = userIntent?.trim();
@@ -38,29 +38,35 @@ NEGATIVE RULES:
 
 export async function POST(request: NextRequest) {
   try {
-    const { referenceImages, referenceImage, userIntent, scaleNotes, aspectRatio, imageModel, apiKey } = await request.json();
+    const { referenceImages, referenceImage, userIntent, scaleNotes, aspectRatio, imageModel, apiKey, comfyui = {} } = await request.json();
+    const selectedModel = imageModel || 'doubao-seedream-5-0-lite';
     const images = Array.isArray(referenceImages) ? referenceImages : referenceImage ? [referenceImage] : [];
 
     if (images.length === 0) {
       return NextResponse.json({ error: 'At least one reference image is required' }, { status: 400 });
     }
 
-    const referenceLimit = getImageModelCapabilities(imageModel || 'doubao-seedream-5-0-lite').maxReferenceImages;
+    if (isComfyUIZImageTurbo(selectedModel)) {
+      return NextResponse.json({ error: 'Z-Image-Turbo 官方基础工作流仅支持文生图，图生图请切换 APIMart 模型' }, { status: 400 });
+    }
+    const referenceLimit = getImageModelCapabilities(selectedModel).maxReferenceImages;
     if (images.length > referenceLimit) {
       return NextResponse.json({ error: `The selected model supports up to ${referenceLimit} reference images` }, { status: 400 });
     }
 
-    if (!apiKey) {
+    if (imageModelRequiresApiKey(selectedModel) && !apiKey) {
       return NextResponse.json({ error: 'API Key is required' }, { status: 400 });
     }
 
     const prompt = buildStudioPrompt(userIntent, scaleNotes);
-    const taskId = await createImageTask(
+    const taskId = await createProviderImageTask(
       prompt,
       images,
       apiKey,
-      imageModel || 'doubao-seedream-5-0-lite',
-      aspectRatio || '1:1'
+      selectedModel,
+      aspectRatio || '1:1',
+      undefined,
+      comfyui,
     );
 
     return NextResponse.json({ taskId, prompt });

@@ -11,6 +11,11 @@ test('allows every browser-to-Companion Story media route through CORS', async (
     '/api/generate-video',
     '/api/check-video-status',
     '/api/comfyui/download',
+    '/api/generate',
+    '/api/check-image-status',
+    '/api/character-design',
+    '/api/generate-costume',
+    '/api/image-to-image',
   ]) {
     assert.match(source, new RegExp(`['\"]${route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['\"]`));
   }

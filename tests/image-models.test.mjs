@@ -5,12 +5,21 @@ import {
   buildImageGenerationPayload,
   extractImageTaskId,
   getImageModelCapabilities,
+  imageModelRequiresApiKey,
 } from '../lib/imageModels.ts';
 
 test('exposes both new providers in the global image-model selector', () => {
   const models = APIMART_IMAGE_MODEL_OPTIONS.map(option => option.value);
   assert.ok(models.includes('grok-imagine-image-2.0'));
   assert.ok(models.includes('gemini-3.1-flash-image-preview'));
+  assert.ok(models.includes('comfyui-z-image-turbo'));
+});
+
+test('advertises Z-Image-Turbo as a local text-only provider', () => {
+  const capabilities = getImageModelCapabilities('comfyui-z-image-turbo');
+  assert.equal(capabilities.maxReferenceImages, 0);
+  assert.equal(capabilities.maxResolution, '2K');
+  assert.equal(imageModelRequiresApiKey('comfyui-z-image-turbo'), false);
 });
 
 test('builds the official Grok Imagine 2.0 generation payload', () => {

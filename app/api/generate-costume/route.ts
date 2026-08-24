@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createImageTask } from '@/lib/apimart';
+import { createProviderImageTask } from '@/lib/imageTaskProvider';
+import { imageModelRequiresApiKey } from '@/lib/imageModels';
 import { buildCharacterBiblePrompt, buildSceneReferencePrompt } from '@/lib/promptArchitecture';
 
 export async function POST(request: NextRequest) {
   try {
-    const { type, name, description, costumeDesc, sceneStyle, referenceImageUrl, aspectRatio, imageModel, apiKey, visualStyle } = await request.json();
+    const { type, name, description, costumeDesc, sceneStyle, referenceImageUrl, aspectRatio, imageModel, apiKey, visualStyle, comfyui = {} } = await request.json();
+    const selectedModel = imageModel || 'doubao-seedream-5-0-lite';
+    if (imageModelRequiresApiKey(selectedModel) && !apiKey) return NextResponse.json({ error: 'API Key is required' }, { status: 400 });
 
     let prompt = '';
     if (type === 'costume') {
@@ -21,12 +24,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
     }
 
-    const taskId = await createImageTask(
+    const taskId = await createProviderImageTask(
       prompt,
       referenceImageUrl ? [referenceImageUrl] : [],
       apiKey,
-      imageModel || 'doubao-seedream-5-0-lite',
-      type === 'costume' ? '4:3' : (aspectRatio || '16:9')
+      selectedModel,
+      type === 'costume' ? '4:3' : (aspectRatio || '16:9'),
+      undefined,
+      comfyui,
     );
 
     return NextResponse.json({ taskId });

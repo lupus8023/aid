@@ -12,8 +12,10 @@ export interface ImageModelCapabilities {
 
 const GROK_IMAGE_2 = 'grok-imagine-image-2.0';
 const NANO_BANANA_2 = 'gemini-3.1-flash-image-preview';
+export const COMFYUI_Z_IMAGE_TURBO = 'comfyui-z-image-turbo';
 
 export const APIMART_IMAGE_MODEL_OPTIONS = [
+  { value: COMFYUI_Z_IMAGE_TURBO, label: 'ComfyUI · Z-Image-Turbo（本地）' },
   { value: 'doubao-seedream-5-0-lite', label: 'Seedream 5.0 Lite' },
   { value: 'doubao-seedance-4-5', label: 'Seedream 4.5（兼容旧设置）' },
   { value: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro' },
@@ -22,6 +24,14 @@ export const APIMART_IMAGE_MODEL_OPTIONS = [
   { value: 'gpt-image-2', label: 'GPT-Image-2' },
   { value: 'gpt-image-2-official', label: 'GPT-Image-2 · Official' },
 ] as const;
+
+export function isComfyUIZImageTurbo(model: string): boolean {
+  return model.trim().toLowerCase() === COMFYUI_Z_IMAGE_TURBO;
+}
+
+export function imageModelRequiresApiKey(model: string): boolean {
+  return !isComfyUIZImageTurbo(model);
+}
 
 export function isGrokImagineImage2(model: string): boolean {
   return model.trim().toLowerCase() === GROK_IMAGE_2;
@@ -36,6 +46,15 @@ export function isNanoBanana2(model: string): boolean {
 }
 
 export function getImageModelCapabilities(model: string): ImageModelCapabilities {
+  if (isComfyUIZImageTurbo(model)) {
+    return {
+      model: COMFYUI_Z_IMAGE_TURBO,
+      label: 'ComfyUI · Z-Image-Turbo（纯文生图）',
+      maxReferenceImages: 0,
+      maxResolution: '2K',
+      aspectRatioField: 'size',
+    };
+  }
   if (isGrokImagineImage2(model)) {
     return {
       model: GROK_IMAGE_2,

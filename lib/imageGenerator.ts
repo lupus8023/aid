@@ -1,7 +1,9 @@
-import { createImageTask, getTaskStatus } from './apimart';
+import { getTaskStatus } from './apimart';
+import { createProviderImageTask } from './imageTaskProvider';
+import type { ComfyUIClientSettings } from './comfyui';
 import { Storyboard, Character, ObjectItem, VisualStyle } from '@/types';
 import { buildImageCaptureContract, buildMediumLock } from './promptArchitecture';
-import { getImageModelCapabilities } from './imageModels';
+import { getImageModelCapabilities, isComfyUIZImageTurbo } from './imageModels';
 
 // 为单个分镜生成图片
 export async function generateStoryboardImage(
@@ -15,7 +17,8 @@ export async function generateStoryboardImage(
   globalSceneImage?: string,
   preUploadedReferences?: string[],
   preUploadedReferenceLabels: string[] = [],
-  visualStyle?: VisualStyle
+  visualStyle?: VisualStyle,
+  comfyui: ComfyUIClientSettings = {},
 ): Promise<string> {
   const selectedImageModel = imageModel || 'doubao-seedream-5-0-lite';
   const maxReferenceImages = getImageModelCapabilities(selectedImageModel).maxReferenceImages;
@@ -66,6 +69,18 @@ export async function generateStoryboardImage(
       return `Reference image ${index + 1}: ${label || `uploaded visual reference ${index + 1}`}. Match this reference exactly.`;
     });
 
+    // The official Z-Image-Turbo workflow is text-only. Preserve the semantic
+    // identity/object constraints instead of silently deleting every visual
+    // reference when the provider capability is zero.
+    if (maxReferenceImages === 0) {
+      sceneCharacters.forEach(character => referenceDescriptions.push(
+        `Character requirement: "${character.name}" — ${character.description}. Keep one stable identity, face, body, hair and wardrobe wherever this character appears.`,
+      ));
+      sceneObjects.forEach(object => referenceDescriptions.push(
+        `Object requirement: "${object.name}" — ${object.description}. Keep its shape, material, color and scale consistent.`,
+      ));
+    }
+
     // 没有参考图的物体
     objectsWithoutRef.forEach((obj) => {
       referenceDescriptions.push(
@@ -104,10 +119,11 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       .replace(/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/g, '')
       .replace(/[\u200B-\u200D\uFEFF]/g, '');
 
-    const finalPrompt = cleanEnhancedPrompt.length > 4000
+    const promptLimit = isComfyUIZImageTurbo(selectedImageModel) ? 16000 : 4000;
+    const finalPrompt = cleanEnhancedPrompt.length > promptLimit
       ? (() => {
-          const truncIndex = cleanEnhancedPrompt.lastIndexOf('. ', 3900);
-          const truncated = truncIndex > 0 ? cleanEnhancedPrompt.substring(0, truncIndex + 1) : cleanEnhancedPrompt.substring(0, 4000);
+          const truncIndex = cleanEnhancedPrompt.lastIndexOf('. ', promptLimit - 100);
+          const truncated = truncIndex > 0 ? cleanEnhancedPrompt.substring(0, truncIndex + 1) : cleanEnhancedPrompt.substring(0, promptLimit);
           console.log(`Truncated prompt length: ${truncated.length} chars`);
           return truncated;
         })()
@@ -116,7 +132,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     console.log(`Creating grid image task with ${effectiveReferences.length} reference images`);
     console.log(`Prompt length: ${finalPrompt.length} characters`);
 
-    const taskId = await createImageTask(
+    const taskId = await createProviderImageTask(
       finalPrompt,
       effectiveReferences,
       apiKey,
@@ -126,6 +142,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       // 650×360. Generate the grid at 4K, then the split route stores a
       // compressed mother and serves compact native-detail cells to H3.
       '4K',
+      comfyui,
     );
 
     console.log(`Image task created successfully, task ID: ${taskId}`);
@@ -182,12 +199,14 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     // 纯文生图也要清理 brackets
     const cleanPrompt = `${buildMediumLock(visualStyle)}\n\n${buildImageCaptureContract(visualStyle)}\n\n${storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1')}`;
 
-    const taskId = await createImageTask(
+    const taskId = await createProviderImageTask(
       cleanPrompt,
       [],
       apiKey,
       selectedImageModel,
-      aspectRatio
+      aspectRatio,
+      undefined,
+      comfyui,
     );
 
     console.log(`Image task created successfully (text-only), task ID: ${taskId}`);
@@ -240,25 +259,28 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
   console.log(`Prompt length: ${cleanEnhancedPrompt.length} characters`);
 
   // 检查Prompt长度并警告/截断
-  const finalPrompt = cleanEnhancedPrompt.length > 4000
+  const promptLimit = isComfyUIZImageTurbo(selectedImageModel) ? 16000 : 4000;
+  const finalPrompt = cleanEnhancedPrompt.length > promptLimit
     ? (() => {
-        const truncIndex = cleanEnhancedPrompt.lastIndexOf('. ', 3900);
-        const truncated = truncIndex > 0 ? cleanEnhancedPrompt.substring(0, truncIndex + 1) : cleanEnhancedPrompt.substring(0, 4000);
+        const truncIndex = cleanEnhancedPrompt.lastIndexOf('. ', promptLimit - 100);
+        const truncated = truncIndex > 0 ? cleanEnhancedPrompt.substring(0, truncIndex + 1) : cleanEnhancedPrompt.substring(0, promptLimit);
         console.log(`Truncated prompt length: ${truncated.length} chars`);
         return truncated;
       })()
     : cleanEnhancedPrompt;
 
-  if (finalPrompt.length > 5000) {
+  if (!isComfyUIZImageTurbo(selectedImageModel) && finalPrompt.length > 5000) {
     console.error(`❌ ERROR: Prompt is still too long (${finalPrompt.length} chars) after truncation. Generation may fail.`);
   }
 
-  const taskId = await createImageTask(
+  const taskId = await createProviderImageTask(
     finalPrompt,
     referenceImages.filter((img): img is string => typeof img === 'string'),
     apiKey,
     selectedImageModel,
-    aspectRatio
+    aspectRatio,
+    undefined,
+    comfyui,
   );
 
   console.log(`Image task created successfully, task ID: ${taskId}`);

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.54 - 2026-08-24
+
+### Added
+
+- Added the official ComfyUI Z-Image-Turbo BF16 text-to-image workflow as a global image provider for Story grids, individual storyboards, character concepts, costume sheets and scene references.
+- Image tasks now use a dedicated `comfyui-image:` identity, survive browser refreshes, resume through the local Companion and return either a persistent Cloudinary URL or a lossless local PNG payload.
+- The global model selector exposes Z-Image-Turbo's real capability boundary: text-to-image is supported, while reference-image editing remains on APIMart instead of silently discarding edit inputs.
+
+### Improved
+
+- Text-only Z-Image generation retains character and object descriptions when visual references cannot be consumed, and allows the longer prompt budget required by nine-panel Story contact sheets.
+- Companion CORS coverage now includes every still-image generation and status route used by the hosted AID interface.
+
+### Verification
+
+- Installed the official BF16 diffusion model, Qwen 3 4B text encoder and Flux VAE on the 49GB 4090D ComfyUI instance; all files match their official byte sizes and ComfyUI recognizes them after a queue-safe restart.
+- Generated and downloaded a real 1344×768 Z-Image-Turbo validation frame in 8 steps. Production web build, Companion build, image-model, character-design, grid-recovery and Companion CORS tests pass.
+
 ## 0.1.53 - 2026-08-24
 
 ### Improved

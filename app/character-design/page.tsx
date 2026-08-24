@@ -28,7 +28,8 @@ import {
   parseStoredArray,
   upsertCharacterHistory,
 } from '@/lib/characterLibrary';
-import { getImageModelCapabilities } from '@/lib/imageModels';
+import { getImageModelCapabilities, imageModelRequiresApiKey } from '@/lib/imageModels';
+import { imageApiUrl, localComfyUISettings } from '@/lib/comfyuiClient';
 import type { VisualStyle } from '@/types';
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -151,14 +152,22 @@ export default function CharacterDesignPage() {
     for (let attempt = 0; attempt < 100; attempt += 1) {
       setStatus(`${label} · ${attempt + 1}/100`);
       await new Promise(resolve => setTimeout(resolve, 3000));
-      const response = await fetch('/api/check-image-status', {
+      const response = await fetch(imageApiUrl('/api/check-image-status', settings.comfyui, taskId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, apiKey: settings.apiKey }),
+        body: JSON.stringify({ taskId, apiKey: settings.apiKey, comfyui: localComfyUISettings(settings.comfyui) }),
       });
       if (!response.ok) continue;
       const data = await readApiJson<{ status: string; imageUrl?: string; error?: string }>(response, '查询生图状态失败');
-      if (data.status === 'completed' && data.imageUrl) return data.imageUrl;
+      if (data.status === 'completed' && data.imageUrl) {
+        if (!data.imageUrl.startsWith('data:')) return data.imageUrl;
+        const upload = await fetch('/api/upload-image', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageData: data.imageUrl }),
+        });
+        const persisted = await readApiJson<{ url: string }>(upload, '本地生成图片上传失败');
+        if (!persisted.url) throw new Error('本地生成图片上传后没有返回 URL');
+        return persisted.url;
+      }
       if (data.status === 'failed') throw new Error(data.error || '图片生成失败');
     }
     throw new Error('图片生成超时');
@@ -175,6 +184,7 @@ export default function CharacterDesignPage() {
     visualStyle,
     imageModel: settings.imageModel,
     apiKey: settings.apiKey,
+    comfyui: localComfyUISettings(settings.comfyui),
   });
 
   const generateConcepts = async () => {
@@ -182,7 +192,7 @@ export default function CharacterDesignPage() {
       alert('请先填写角色名称和具体外观');
       return;
     }
-    if (!settings.apiKey) {
+    if (imageModelRequiresApiKey(settings.imageModel) && !settings.apiKey) {
       setShowSettings(true);
       return;
     }
@@ -194,7 +204,7 @@ export default function CharacterDesignPage() {
     try {
       const referenceImages = await ensureUploadedReferences();
       setStatus(`生成 ${candidateCount} 个角色方向…`);
-      const response = await fetch('/api/character-design', {
+      const response = await fetch(imageApiUrl('/api/character-design', settings.comfyui, settings.imageModel), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...commonPayload(), stage: 'concepts', candidateCount, referenceImages }),
@@ -227,7 +237,7 @@ export default function CharacterDesignPage() {
     setBibleUrl('');
     try {
       setStatus('正在扩展多角度、表情、动作与材质系统…');
-      const response = await fetch('/api/character-design', {
+      const response = await fetch(imageApiUrl('/api/character-design', settings.comfyui, settings.imageModel), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...commonPayload(), stage: 'bible', selectedConceptUrl: selectedConcept }),

@@ -17,7 +17,8 @@ import { Character, ObjectItem, Storyboard, VisualStyle } from '@/types';
 import { StoryPlan } from '@/lib/pipeline/types';
 import { useProject } from '@/hooks/useProject';
 import { useSettings } from '@/hooks/useSettings';
-import { comfyUIApiUrl, companionVersionAtLeast, downloadComfyUIVideo, fetchStoryApi, isComfyUIClientTask, localComfyUISettings, SEGMENT_VIDEO_COMPANION_MIN_VERSION, videoStatusResponseError } from '@/lib/comfyuiClient';
+import { comfyUIApiUrl, companionVersionAtLeast, downloadComfyUIVideo, fetchStoryApi, imageApiUrl, isComfyUIClientTask, localComfyUISettings, SEGMENT_VIDEO_COMPANION_MIN_VERSION, videoStatusResponseError } from '@/lib/comfyuiClient';
+import { imageModelRequiresApiKey } from '@/lib/imageModels';
 import { Grid3x3 } from 'lucide-react';
 import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
@@ -28,6 +29,18 @@ import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
+
+async function persistLocalGeneratedImage(imageUrl: string): Promise<string> {
+  if (!imageUrl.startsWith('data:')) return imageUrl;
+  const response = await fetch('/api/upload-image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageData: imageUrl }),
+  });
+  const data = await readApiJson<{ url: string }>(response, '本地生成图片上传失败');
+  if (!data.url) throw new Error('本地生成图片上传后没有返回 URL');
+  return data.url;
+}
 import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
 import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@/lib/gridRecovery';
 import { storyboardSpeech } from '@/lib/speechAudioContract';
@@ -560,15 +573,15 @@ export default function StoryPage() {
                 // Project data and settings are restored by separate hooks.
                 // Wait for the latest settings ref instead of capturing the
                 // initial empty API key and showing a false configuration alert.
-                for (let attempt = 0; attempt < 40 && !settingsRef.current.apiKey; attempt++) {
+                for (let attempt = 0; attempt < 40 && imageModelRequiresApiKey(settingsRef.current.imageModel) && !settingsRef.current.apiKey; attempt++) {
                   await new Promise(resolve => window.setTimeout(resolve, 250));
                 }
                 const recoveryApiKey = settingsRef.current.apiKey;
-                if (!recoveryApiKey) throw new Error('APIMart API Key 尚未加载');
-                const response = await fetch('/api/check-image-status', {
+                if (imageModelRequiresApiKey(settingsRef.current.imageModel) && !recoveryApiKey) throw new Error('APIMart API Key 尚未加载');
+                const response = await fetch(imageApiUrl('/api/check-image-status', settingsRef.current.comfyui, taskId), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ taskId, apiKey: recoveryApiKey })
+                  body: JSON.stringify({ taskId, apiKey: recoveryApiKey, comfyui: localComfyUISettings(settingsRef.current.comfyui) })
                 });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
@@ -974,7 +987,7 @@ export default function StoryPage() {
   // Step4: batch generate via 3x3 grid
   const handleGenerateGrid = async (batch: Storyboard[], options: { throwOnError?: boolean; resumeTaskId?: string } = {}) => {
     const activeSettings = settingsRef.current;
-    if (!activeSettings.apiKey) {
+    if (imageModelRequiresApiKey(activeSettings.imageModel) && !activeSettings.apiKey) {
       const error = new Error('Please configure API Key in settings');
       if (options.throwOnError) throw error;
       if (options.resumeTaskId) return;
@@ -1127,7 +1140,7 @@ export default function StoryPage() {
             // rejection creates a fresh task with the corrected panel prompts.
             let taskId = safetyAttempt === 0 && options.resumeTaskId && batch.length <= 9 ? options.resumeTaskId : '';
             if (!taskId) {
-              const res = await fetch('/api/generate', {
+              const res = await fetch(imageApiUrl('/api/generate', activeSettings.comfyui, activeSettings.imageModel), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1141,7 +1154,8 @@ export default function StoryPage() {
                   sceneImage: sceneImagesRef.current[0] || '',
                   referenceImages: refImages,
                   referenceImageLabels: refLabels,
-                  visualStyle
+                  visualStyle,
+                  comfyui: localComfyUISettings(activeSettings.comfyui),
                 })
               });
               ({ taskId } = await readApiJson<{ taskId: string }>(res, '九宫格任务创建失败'));
@@ -1160,15 +1174,18 @@ export default function StoryPage() {
             for (let j = 0; j < 180; j++) {
               await new Promise(r => setTimeout(r, 3000));
               if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
-              const statusRes = await fetch('/api/check-image-status', {
+              const statusRes = await fetch(imageApiUrl('/api/check-image-status', activeSettings.comfyui, taskId), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ taskId, apiKey: activeSettings.apiKey })
+                body: JSON.stringify({ taskId, apiKey: activeSettings.apiKey, comfyui: localComfyUISettings(activeSettings.comfyui) })
               });
               if (!statusRes.ok) continue;
               const statusData = await statusRes.json();
               if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
-              if (statusData.status === 'completed' && statusData.imageUrl) { gridUrl = statusData.imageUrl; break; }
+              if (statusData.status === 'completed' && statusData.imageUrl) {
+                gridUrl = await persistLocalGeneratedImage(statusData.imageUrl);
+                break;
+              }
               if (statusData.status === 'failed') throw new TerminalImageTaskError(extractImageTaskError(statusData));
             }
             if (!gridUrl) throw new Error('Grid image timeout');
@@ -1252,7 +1269,7 @@ export default function StoryPage() {
   // Step4: individual image generation
   const handleGenerateImage = async (storyboard: Storyboard, options: { throwOnError?: boolean } = {}) => {
     const activeSettings = settingsRef.current;
-    if (!activeSettings.apiKey) {
+    if (imageModelRequiresApiKey(activeSettings.imageModel) && !activeSettings.apiKey) {
       const error = new Error('Please configure API Key in settings');
       if (options.throwOnError) throw error;
       alert(error.message);
@@ -1281,10 +1298,10 @@ export default function StoryPage() {
           const latest = storyboardsRef.current.find(item => item.id === storyboard.id) || storyboard;
           let taskId = safetyAttempt === 0 && latest.imageTaskMode === 'single' ? latest.taskId : undefined;
           if (!taskId) {
-            const response = await fetch('/api/generate', {
+            const response = await fetch(imageApiUrl('/api/generate', activeSettings.comfyui, activeSettings.imageModel), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ storyboard: { ...storyboard, prompt }, characters: effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters), objects: objectsRef.current, aspectRatio: projectAspectRatioRef.current, imageModel: activeSettings.imageModel, apiKey: activeSettings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle })
+              body: JSON.stringify({ storyboard: { ...storyboard, prompt }, characters: effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters), objects: objectsRef.current, aspectRatio: projectAspectRatioRef.current, imageModel: activeSettings.imageModel, apiKey: activeSettings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle, comfyui: localComfyUISettings(activeSettings.comfyui) })
             });
             const data = await readApiJson<{ taskId: string }>(response, '启动单张分镜生成失败');
             taskId = data.taskId;
@@ -1328,10 +1345,10 @@ export default function StoryPage() {
       if (generationProjectId !== projectIdRef.current) return;
       let response: Response;
       try {
-        response = await fetch('/api/check-image-status', {
+        response = await fetch(imageApiUrl('/api/check-image-status', settingsRef.current.comfyui, taskId), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ taskId, apiKey })
+          body: JSON.stringify({ taskId, apiKey, comfyui: localComfyUISettings(settingsRef.current.comfyui) })
         });
       } catch {
         continue;
@@ -1378,7 +1395,7 @@ export default function StoryPage() {
     options: { throwOnError?: boolean } = {},
   ) => {
     const activeSettings = settingsRef.current;
-    if (!activeSettings.apiKey) {
+    if (imageModelRequiresApiKey(activeSettings.imageModel) && !activeSettings.apiKey) {
       const error = new Error('请先在设置中配置 APIMart API Key');
       if (options.throwOnError) throw error;
       alert(error.message);
@@ -1396,7 +1413,7 @@ export default function StoryPage() {
     }
 
     try {
-      const response = await fetch('/api/generate-costume', {
+      const response = await fetch(imageApiUrl('/api/generate-costume', activeSettings.comfyui, activeSettings.imageModel), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1411,7 +1428,8 @@ export default function StoryPage() {
           aspectRatio: projectAspectRatioRef.current,
           imageModel: activeSettings.imageModel,
           apiKey: activeSettings.apiKey,
-          visualStyle
+          visualStyle,
+          comfyui: localComfyUISettings(activeSettings.comfyui),
         })
       });
       const { taskId } = await readApiJson<{ taskId: string }>(response, type === 'costume' ? '生成角色定妆失败' : '生成场景参考失败');
@@ -1421,21 +1439,23 @@ export default function StoryPage() {
       for (let i = 0; i < 90; i++) {
         await new Promise(r => setTimeout(r, 3000));
         if (generationProjectId !== projectIdRef.current) return;
-        const statusRes = await fetch('/api/check-image-status', {
+        const statusRes = await fetch(imageApiUrl('/api/check-image-status', activeSettings.comfyui, taskId), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ taskId, apiKey: activeSettings.apiKey })
+          body: JSON.stringify({ taskId, apiKey: activeSettings.apiKey, comfyui: localComfyUISettings(activeSettings.comfyui) })
         });
         if (!statusRes.ok) continue;
         const statusData = await statusRes.json();
         if (generationProjectId !== projectIdRef.current) return;
         if (statusData.status === 'completed' && statusData.imageUrl) {
           if (type === 'costume' && characterName) {
-            const nextCostumeImages = { ...costumeImagesRef.current, [characterName]: statusData.imageUrl };
+            const persistedImageUrl = await persistLocalGeneratedImage(statusData.imageUrl);
+            const nextCostumeImages = { ...costumeImagesRef.current, [characterName]: persistedImageUrl };
             costumeImagesRef.current = nextCostumeImages;
             setCostumeImages(nextCostumeImages);
           } else {
-            const nextSceneImages = [...sceneImagesRef.current, statusData.imageUrl];
+            const persistedImageUrl = await persistLocalGeneratedImage(statusData.imageUrl);
+            const nextSceneImages = [...sceneImagesRef.current, persistedImageUrl];
             sceneImagesRef.current = nextSceneImages;
             setSceneImages(nextSceneImages);
           }
@@ -1873,7 +1893,7 @@ export default function StoryPage() {
       return;
     }
     const initialSettings = settingsRef.current;
-    if (!initialSettings.apiKey) { alert('一键成片需要先配置 APIMart API Key（剧本单独使用 DMX 也不能替代生图 Key）'); return; }
+    if (imageModelRequiresApiKey(initialSettings.imageModel) && !initialSettings.apiKey) { alert('一键成片使用 APIMart 生图时需要先配置 API Key'); return; }
     if (charactersRef.current.length === 0) { alert('一键成片至少需要一个角色'); return; }
     if (storyboardsRef.current.length === 0 && !storyContent.trim()) { alert('请先填写故事内容'); return; }
     autoRunLockRef.current = true;

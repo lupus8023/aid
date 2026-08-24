@@ -4,7 +4,7 @@ import { Storyboard, Character, ObjectItem } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const { storyboard, characters, objects, aspectRatio, imageModel, apiKey, costumeImages, sceneImage, referenceImages, referenceImageLabels, visualStyle } = await request.json();
+    const { storyboard, characters, objects, aspectRatio, imageModel, apiKey, costumeImages, sceneImage, referenceImages, referenceImageLabels, visualStyle, comfyui = {} } = await request.json();
 
     if (!storyboard || !characters || characters.length === 0) {
       return NextResponse.json(
@@ -13,7 +13,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!apiKey) {
+    const { imageModelRequiresApiKey } = await import('@/lib/imageModels');
+    if (imageModelRequiresApiKey(imageModel || 'doubao-seedream-5-0-lite') && !apiKey) {
       return NextResponse.json(
         { error: 'API Key is required' },
         { status: 400 }
@@ -31,7 +32,8 @@ export async function POST(request: NextRequest) {
       sceneImage,
       referenceImages || [],
       referenceImageLabels || [],
-      visualStyle
+      visualStyle,
+      comfyui,
     );
 
     return NextResponse.json({ taskId });
