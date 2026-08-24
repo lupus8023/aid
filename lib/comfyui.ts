@@ -1032,11 +1032,32 @@ export function injectH3ExactSpeechDrive(
       speakerIdByCharacter.set(turn.character, turn.speakerId);
     }
   }
-  const profileIds = remoteAudios.map((remoteAudio, index) => {
-    const loadId = addPromptNode(prompt, 'LoadAudio', { audio: remoteAudio }, `AID timbre reference ${index + 1}`);
+  // Only build profiles for speakers who actually have a line in this
+  // segment. Older projects can carry duplicate references for the same
+  // character (or references for silent cast members). Counting those files
+  // routed a one-speaker scene into JointDialogue, whose node correctly
+  // rejects anything without 2–3 distinct speakers.
+  const referenceSources = referenceAudioNames.map((name, index) => ({
+    character: String(name || '').trim(),
+    remoteAudio: remoteAudios[index],
+  }));
+  const profileSources: Array<{ character: string; remoteAudio: string; speakerId: string }> = [];
+  const usedSpeakerIds = new Set<string>();
+  for (const turn of turns) {
+    const reference = referenceSources.find(source => source.character === turn.character);
+    if (!reference?.remoteAudio) continue;
+    const speakerId = speakerIdByCharacter.get(turn.character) || `S${profileSources.length + 1}`;
+    if (usedSpeakerIds.has(speakerId)) continue;
+    usedSpeakerIds.add(speakerId);
+    profileSources.push({ ...reference, speakerId });
+  }
+  if (!profileSources.length) return false;
+
+  const profileIds = profileSources.map((source, index) => {
+    const loadId = addPromptNode(prompt, 'LoadAudio', { audio: source.remoteAudio }, `AID timbre reference ${index + 1}`);
     return addPromptNode(prompt, 'MiniMaxH3VoiceProfileT8', {
       voice_mode: 'reference_voice',
-      speaker_id: speakerIdByCharacter.get(referenceAudioNames[index]) || `S${index + 1}`,
+      speaker_id: source.speakerId,
       voice_description: 'the same authorized speaker as the connected reference, with natural clear diction',
       language: languageName,
       rights_confirmed: true,
@@ -1045,7 +1066,7 @@ export function injectH3ExactSpeechDrive(
       highpass_60hz: true,
       peak_limit_minus_3_dbfs: true,
       reference_audio: [loadId, 0],
-    }, `AID voice profile ${referenceAudioNames[index] || index + 1}`);
+    }, `AID voice profile ${source.character || index + 1}`);
   });
   const guardId = addPromptNode(prompt, 'MiniMaxH3SpeechGuardT8', {
     error_release_policy: 'unload_all_models',
@@ -1053,14 +1074,17 @@ export function injectH3ExactSpeechDrive(
 
   let speechConditioningId: string;
   let expectedText: string;
+  const speakerByCharacter = new Map(profileSources.map(source => [source.character, source.speakerId]));
+  const usableTurns = turns.filter(turn => speakerByCharacter.has(turn.character));
+  if (!usableTurns.length) return false;
   if (profileIds.length === 1) {
-    expectedText = turns.map(turn => turn.exactLine).join(' ');
+    expectedText = usableTurns.map(turn => turn.exactLine).join(' ');
     const planId = addPromptNode(prompt, 'MiniMaxH3SpeechPlanT8', {
       voice_profile: [profileIds[0], 0],
       text: expectedText,
       language: languageName,
-      acting_direction: turns.map(turn => turn.delivery || turn.emotion).filter(Boolean).join('; ') || 'natural, emotionally connected, brisk and clearly articulated',
-      emotion: turns[0]?.emotion || 'neutral',
+      acting_direction: usableTurns.map(turn => turn.delivery || turn.emotion).filter(Boolean).join('; ') || 'natural, emotionally connected, brisk and clearly articulated',
+      emotion: usableTurns[0]?.emotion || 'neutral',
       emotion_intensity: 0.6,
       space: 'close',
       chunking: 'single_segment',
@@ -1079,13 +1103,8 @@ export function injectH3ExactSpeechDrive(
       speech_guard: [guardId, 0],
     }, 'AID exact speech conditioning');
   } else {
-    const speakerByCharacter = new Map(referenceAudioNames.map((name, index) => [
-      name,
-      speakerIdByCharacter.get(name) || `S${index + 1}`,
-    ]));
-    const usableTurns = turns.filter(turn => speakerByCharacter.has(turn.character));
     expectedText = usableTurns.map(turn => turn.exactLine).join(' ');
-    if (usableTurns.length < 2) return false;
+    if (new Set(usableTurns.map(turn => speakerByCharacter.get(turn.character))).size < 2) return false;
     const dialogueInputs: JsonRecord = {
       script: usableTurns.map(turn => `${speakerByCharacter.get(turn.character)}: ${turn.exactLine}`).join('\n'),
       script_format: 'speaker_lines',

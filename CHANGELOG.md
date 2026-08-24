@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.56 - 2026-08-24
+
+### Fixed
+
+- Exact-dialogue generation now determines single- versus multi-speaker conditioning from distinct screenplay speaker IDs, not from the number of uploaded timbre-reference files.
+- Duplicate voice references for one character and references belonging to silent cast members are removed before H3 conditioning, preventing one-speaker scenes from being rejected by `MiniMaxH3JointDialogueConditioningT8`.
+
+### Verification
+
+- Added a regression case with two inherited references and two lines from the same `S2` character; the compiled workflow contains one voice profile and the single-speaker conditioning node, with no Joint Dialogue node.
+- Confirmed the preceding Segment 2 generation completed successfully on the production ComfyUI instance with its original `S2 · Tide Officer` binding.
+
 ## 0.1.55 - 2026-08-24
 
 ### Fixed

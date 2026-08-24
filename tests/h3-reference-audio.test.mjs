@@ -115,6 +115,34 @@ test('uses Hybrid exact-speech conditioning when continuity keeps first and last
   assert.ok(Array.isArray(prompt[2].inputs.drive_audio));
 });
 
+test('routes duplicate references for one speaking character through single-speaker conditioning', () => {
+  const prompt = {
+    1: { class_type: 'PrimitiveStringMultiline', inputs: { value: 'subject_definitions:\n\nretention_analysis:\nAudio references supply timbre only; ignore their words/timing.' }, _meta: { title: 'Input Text (Prompt)' } },
+    2: { class_type: 'MiniMaxH3AudioConditioningT8', inputs: { clip: ['3', 0], video_vae: ['4', 0], audio_vae: ['5', 0], prompt: ['1', 0], task_type: 'I2VA', audio_mode: 'native' } },
+    3: { class_type: 'CLIPLoader', inputs: {} },
+    4: { class_type: 'VAELoader', inputs: {} },
+    5: { class_type: 'VAELoader', inputs: {} },
+    6: { class_type: 'MiniMaxH3MemoryEfficientSageAttentionPatch', inputs: { model: ['7', 0] } },
+    7: { class_type: 'UNETLoader', inputs: {} },
+    8: { class_type: 'MiniMaxH3DualClockSamplerT8', inputs: { model: ['6', 0] } },
+  };
+  assert.equal(injectH3ExactSpeechDrive(
+    prompt,
+    ['voice-a.wav', 'voice-b.wav'],
+    ['Officer', 'Officer'],
+    [
+      { speakerId: 'S2', character: 'Officer', exactLine: 'The western gate is open.' },
+      { speakerId: 'S2', character: 'Officer', exactLine: 'Move the patrol now.' },
+    ],
+    8,
+    'en',
+    '/models/faster-whisper-small',
+  ), true);
+  assert.equal(Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3VoiceProfileT8').length, 1);
+  assert.ok(Object.values(prompt).some(node => node.class_type === 'MiniMaxH3SpeechConditioningT8'));
+  assert.ok(!Object.values(prompt).some(node => node.class_type === 'MiniMaxH3JointDialogueConditioningT8'));
+});
+
 function assertValidAllocation(sourceDurations, expectedDurations) {
   const actual = fitH3ReferenceAudioDurations(sourceDurations);
   assert.equal(actual.length, sourceDurations.length);
