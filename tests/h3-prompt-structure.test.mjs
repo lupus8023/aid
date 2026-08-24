@@ -251,6 +251,31 @@ test('compacts only duplicated look prose when a dense four-shot prompt approach
   assert.match(prompt, /ACTION:/);
 });
 
+test('fits a verbose one-shot visual override without dropping timed action or exact dialogue', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(5, {
+      characters: ['A-Luo'],
+      action: 'A-Luo catches the princess before she falls and both turn toward the breached gate.',
+      speech: [{
+        speakerId: 'S03', character: 'A-Luo', exactLine: 'Not while the palace depends on me.',
+        emotion: 'resolute', delivery: 'quickly', volume: 'normal', lipSync: true, source: 'story_required',
+      }],
+    }),
+  ], [], {
+    duration: 13,
+    language: 'en',
+    referenceAudioNames: ['A-Luo'],
+    hasVoiceReferences: true,
+    visualOverride: `OPENING CAMERA INTENT. ${'Repeat supplementary lens, lighting, costume and blocking detail without changing the locked action. '.repeat(110)} FINAL VISUAL PAYOFF.`,
+  });
+
+  assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
+  assert.match(prompt, /OPENING CAMERA INTENT/);
+  assert.match(prompt, /FINAL VISUAL PAYOFF/);
+  assert.match(prompt, /A-Luo catches the princess/);
+  assert.equal((prompt.match(/Not while the palace depends on me\./g) || []).length, 1);
+});
+
 test('keeps the visible payoff at the end of a long screenplay action arc', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1, {

@@ -32,6 +32,14 @@ function fitH3PromptBudget(prompt: string): string {
     .replace(/<Subject (\d+)>: fully_preserved[^\n]*/g, '<Subject $1>: preserve identity/wardrobe.')
     .replace(/<Picture (\d+)>: reference;[^\n]*/g, '<Picture $1>: reference.');
   if (fitted.length <= 7000) return fitted;
+  // Retention restates bindings already declared in subject_definitions. Keep
+  // the required official section, but collapse it before ever sacrificing a
+  // timed action or an exact <d> dialogue line.
+  fitted = fitted.replace(
+    /retention_analysis:\s*[\s\S]*?\n\s*detailed_description:/,
+    'retention_analysis:\nPreserve every declared identity, wardrobe, world and timbre binding.\n\ndetailed_description:',
+  );
+  if (fitted.length <= 7000) return fitted;
   throw new Error(`H3 提示词仍有 ${fitted.length} 字符，超过 7000 字符上限；请拆分该视频片段`);
 }
 
@@ -54,18 +62,20 @@ function compactActionArc(value: unknown, limit = 280): string {
     text.lastIndexOf('，', headLimit),
     text.lastIndexOf('。', headLimit),
   );
-  const tailStartTarget = Math.max(0, text.length - tailLimit);
-  const tailCandidates = [
-    text.indexOf('. ', tailStartTarget),
-    text.indexOf('; ', tailStartTarget),
-    text.indexOf(', ', tailStartTarget),
-    text.indexOf('，', tailStartTarget),
-    text.indexOf('。', tailStartTarget),
-  ].filter(index => index >= 0);
-  const tailBoundary = tailCandidates.length ? Math.min(...tailCandidates) + 1 : tailStartTarget;
-  const head = text.slice(0, headBoundary > headLimit * 0.55 ? headBoundary + 1 : headLimit).trim().replace(/[;,，。.]$/, '');
-  const tail = text.slice(tailBoundary).trim().replace(/^[;,，。.]\s*/, '');
-  return `${head}${joiner}${tail}`.slice(0, limit).trim();
+  const head = text
+    .slice(0, headBoundary > headLimit * 0.55 ? Math.min(headBoundary + 1, headLimit) : headLimit)
+    .trim()
+    .replace(/[;,，。.]$/, '');
+  // Always reserve the tail from the actual end. With repeated long
+  // sentences, choosing the next punctuation after an approximate offset can
+  // produce an oversized tail; the final prefix slice then deletes the very
+  // payoff this helper is meant to preserve.
+  let tail = text.slice(-tailLimit).trim().replace(/^[;,，。.]\s*/, '');
+  if (/^[A-Za-z0-9]/.test(tail) && text.length > tailLimit) {
+    const firstBoundary = tail.search(/[\s,;.]/);
+    if (firstBoundary > 0 && firstBoundary < tail.length * 0.25) tail = tail.slice(firstBoundary + 1).trim();
+  }
+  return `${head}${joiner}${tail}`.trim();
 }
 
 function regexpEscape(value: string): string {
@@ -97,7 +107,7 @@ export function sanitizeVisualDirection(value: unknown, exactSpokenLines: string
   withoutSpeechDirectives = withoutSpeechDirectives
     .replace(/(?:喘息(?:着)?|停顿后|迟疑后|低声|轻声|大声|坚定地|急促地|缓慢地|平静地|愤怒地|哭着|笑着)?\s*(?:说|说道|喊|喊道|叫|叫道|问|问道|回答|答道|低语|耳语|喃喃|念|吼|吼道|尖叫|开口)(?=\s|[，,。.!！]|$)/gi, ' ')
     .replace(/(?:says?|speaks?|shouts?|yells?|asks?|replies?|answers?|whispers?|murmurs?|utters?|exclaims?)(?=\s|[,.!]|$)/gi, ' ');
-  return compactText(withoutSpeechDirectives, 900);
+  return compactActionArc(withoutSpeechDirectives, 900);
 }
 
 function sanitizeNarrativeDirection(value: unknown, exactSpokenLines: string[] = []): string {
@@ -435,7 +445,15 @@ export function buildVideoSegmentPrompt(
     return `${shotHeader} ${entry} ${pictureAnchor} ${cast} ${props} Use ${officialShotFraming(storyboard)}.${visualAnchor} ACTION: ${shotActionSchedule(storyboard, range)} The camera uses ${officialCameraMotion(storyboard, index)}. ${dialogue} ${shotSoundCue(storyboard)} ${handoff}`;
   });
 
-  const visualOverride = sanitizeVisualDirection(options.visualOverride, timedSpeech.map(line => line.exactLine));
+  // A refreshed/model-edited prompt is supplementary visual direction. The
+  // screenplay action, camera, timing, exact dialogue and sound manifest are
+  // authored separately below and remain authoritative. Bound the override
+  // here (preserving its opening and payoff) so one verbose single-shot edit
+  // cannot push an otherwise valid H3 job a few characters over 7000.
+  const visualOverride = compactActionArc(
+    sanitizeVisualDirection(options.visualOverride, timedSpeech.map(line => line.exactLine)),
+    compactMode ? 360 : 720,
+  );
   const styleOpening = `${style.h3Direction}${visualOverride ? ` Visual-only override: ${visualOverride} This direction is visual-only.` : ''} ${NO_SUBTITLE_POLICY} Cuts are physical and motivated, never fades or dissolves.`;
   const physics = buildVideoContinuityRules(hasVoiceReferences)
     .replace(/\n+/g, ' ')

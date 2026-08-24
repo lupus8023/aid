@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.59 - 2026-08-24
+
+### Fixed
+
+- Verbose single-shot H3 visual overrides are now arc-compacted before assembly, preserving their opening intent and final payoff while keeping the authoritative action, camera timeline, exact dialogue and sound contract intact.
+- The final H3 budget fitter collapses duplicated retention prose before rejecting a prompt, so a valid 7,023-character shot is no longer blocked by the 7,000-character ceiling.
+- Action-arc compaction now reserves its tail from the actual end; repeated sentences can no longer cause a prefix slice to delete the visible consequence.
+
+### Verification
+
+- Added a deliberately oversized one-shot override regression case and verified the compiled prompt stays within 7,000 characters, retains both ends of the visual direction, keeps the timed action and emits the exact dialogue once.
+- All 21 H3 prompt-structure tests and all 19 H3 audio tests pass.
+
 ## 0.1.58 - 2026-08-24
 
 ### Fixed
