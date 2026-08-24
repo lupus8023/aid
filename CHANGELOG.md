@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.58 - 2026-08-24
+
+### Fixed
+
+- Story no longer leaves a video segment permanently marked as generating when preprocessing or Companion submission fails before a durable ComfyUI task id is returned.
+- Reloading a project now releases an unsubmitted segment as failed/retryable while preserving genuinely queued segments whose leader has a recoverable task id.
+- Pre-enqueue failures synchronize React state, the latest storyboard ref and project storage immediately instead of waiting for the 30-second autosave window.
+
+### Verification
+
+- Added regression coverage for both an orphaned multi-shot generating segment and a valid running segment whose task id is stored only on its leader.
+- Video-segment and H3 audio suites pass together with the production build.
+
 ## 0.1.57 - 2026-08-24
 
 ### Fixed

@@ -16,6 +16,34 @@ export interface VideoSegmentPlan {
   updatedAt: string;
 }
 
+/**
+ * A browser refresh can persist the optimistic `generating` flag before the
+ * Companion returns a durable task id. With no task id there is nothing to
+ * poll or recover, so keeping the flag would permanently disable retry even
+ * though ComfyUI has no job. Release the whole logical segment together; only
+ * its leader owns the task id in the normal persisted representation.
+ */
+export function releaseUnsubmittedVideoGenerations(storyboards: Storyboard[]): Storyboard[] {
+  const recoverableSegments = new Set(
+    storyboards
+      .filter(storyboard => storyboard.videoStatus === 'generating' && Boolean(storyboard.videoTaskId))
+      .map(storyboard => storyboard.videoSegmentId || storyboard.id),
+  );
+  let changed = false;
+  const next = storyboards.map(storyboard => {
+    if (storyboard.videoStatus !== 'generating') return storyboard;
+    const segmentKey = storyboard.videoSegmentId || storyboard.id;
+    if (recoverableSegments.has(segmentKey)) return storyboard;
+    changed = true;
+    return {
+      ...storyboard,
+      videoStatus: 'failed' as const,
+      videoTaskId: undefined,
+    };
+  });
+  return changed ? next : storyboards;
+}
+
 function generationHash(value: string): string {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {

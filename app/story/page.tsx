@@ -24,7 +24,7 @@ import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
-import { estimateVideoSegmentSeconds, isCompletedVideoSegment, resolveVideoSegmentGroups, restoredStoryStep, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
+import { estimateVideoSegmentSeconds, isCompletedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
@@ -523,14 +523,27 @@ export default function StoryPage() {
         ...savedCharacters,
         ...(savedStoryPlan?.characters || []).filter(planned => !savedCharacters.some(character => character.name === planned.name)),
       ];
-      const savedStoryboards = lockStoryboardVoiceIds<Storyboard>((savedProject.storyboards || []).map(item => normalizeStoryboardImageArtifact({
+      const normalizedStoryboards = lockStoryboardVoiceIds<Storyboard>((savedProject.storyboards || []).map(item => normalizeStoryboardImageArtifact({
         ...item,
         aspectRatio: savedAspectRatio,
         imageFailureReason: normalizeSavedImageFailureReason(item.imageFailureReason)
           || (item.status === 'failed' ? '上次分镜生成未完成；请重新生成，系统会定位具体原因并自动修正可恢复的提示词问题' : undefined),
       })), savedEffectiveVoiceCast);
+      // `generating` is only recoverable after Companion has returned a
+      // durable task id. If the page was refreshed (or a request failed)
+      // before that point, unlock the segment instead of showing a fake job
+      // forever while the ComfyUI queue is empty.
+      const savedStoryboards = releaseUnsubmittedVideoGenerations(normalizedStoryboards);
       storyboardsRef.current = savedStoryboards;
       setStoryboards(savedStoryboards);
+      if (savedStoryboards !== normalizedStoryboards) {
+        saveProject({
+          ...savedProject,
+          name: savedProject.name,
+          storyboards: savedStoryboards,
+          createdAt: savedProject.createdAt,
+        });
+      }
       void recoverProjectVideos(savedStoryboards, savedProject.id!);
       // A refresh used to strand a paid 3×3 task in "generating" forever.
       // Resume polling a batch when all its shots share the same saved task id.
@@ -1748,7 +1761,17 @@ export default function StoryPage() {
     } catch (error) {
       console.error('Video generation failed:', error);
       if (generationProjectId !== projectIdRef.current) return;
-      commitStoryboards(prev => prev.map(sb => segmentIds.includes(sb.id) ? { ...sb, videoStatus: 'failed' } : sb));
+      // Do not rely on the 30-second autosave after a pre-enqueue failure.
+      // Synchronize state/ref/storage immediately so refresh cannot resurrect
+      // the optimistic generating lock without a recoverable task id.
+      const failedStoryboards = storyboardsRef.current.map(sb => segmentIds.includes(sb.id) ? {
+        ...sb,
+        videoStatus: 'failed' as const,
+        videoTaskId: undefined,
+      } : sb);
+      storyboardsRef.current = failedStoryboards;
+      setStoryboards(failedStoryboards);
+      persistCurrentProject(failedStoryboards);
       if (options.throwOnError) throw error;
       alert(`视频生成失败：${error instanceof Error ? error.message : '未知错误'}`);
     }

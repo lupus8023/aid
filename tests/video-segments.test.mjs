@@ -8,6 +8,7 @@ import {
   H3_PROMPT_CONTRACT_VERSION,
   isCompletedVideoSegment,
   persistedVideoClipCount,
+  releaseUnsubmittedVideoGenerations,
   resolveVideoSegmentGroups,
   restoredStoryStep,
   suggestVideoSegments,
@@ -37,6 +38,24 @@ test('suggests compact groups without exceeding four storyboards', () => {
   const groups = suggestVideoSegments(Array.from({ length: 9 }, (_, index) => shot(index + 1)));
   assert.deepEqual(groups.map(group => group.length), [4, 4, 1]);
   assert.ok(groups.every(group => estimateVideoSegmentSeconds(group) <= 15));
+});
+
+test('releases a fake generating segment that never received a durable task id', () => {
+  const stuck = [
+    shot(1, { videoStatus: 'generating', videoSegmentId: 'segment-stuck', videoSegmentStoryboardIds: ['scene-1', 'scene-2'] }),
+    shot(2, { videoStatus: 'generating', videoSegmentId: 'segment-stuck' }),
+  ];
+  const released = releaseUnsubmittedVideoGenerations(stuck);
+  assert.deepEqual(released.map(item => item.videoStatus), ['failed', 'failed']);
+  assert.notEqual(released, stuck);
+});
+
+test('keeps all members locked when the segment leader has a recoverable task id', () => {
+  const running = [
+    shot(1, { videoStatus: 'generating', videoTaskId: 'comfyui:task-1', videoSegmentId: 'segment-running', videoSegmentStoryboardIds: ['scene-1', 'scene-2'] }),
+    shot(2, { videoStatus: 'generating', videoSegmentId: 'segment-running' }),
+  ];
+  assert.equal(releaseUnsubmittedVideoGenerations(running), running);
 });
 
 test('reserves one segment for an adjacent question and answer when they fit together', () => {
