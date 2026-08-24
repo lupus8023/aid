@@ -143,6 +143,36 @@ test('routes duplicate references for one speaking character through single-spea
   assert.ok(!Object.values(prompt).some(node => node.class_type === 'MiniMaxH3JointDialogueConditioningT8'));
 });
 
+test('addresses global S3 and S1 speakers through unambiguous local dialogue aliases', () => {
+  const prompt = {
+    1: { class_type: 'PrimitiveStringMultiline', inputs: { value: 'subject_definitions:\n\nretention_analysis:\nAudio references supply timbre only; ignore their words/timing.' }, _meta: { title: 'Input Text (Prompt)' } },
+    2: { class_type: 'MiniMaxH3AudioConditioningT8', inputs: { clip: ['3', 0], video_vae: ['4', 0], audio_vae: ['5', 0], prompt: ['1', 0], task_type: 'I2VA', audio_mode: 'native' } },
+    3: { class_type: 'CLIPLoader', inputs: {} },
+    4: { class_type: 'VAELoader', inputs: {} },
+    5: { class_type: 'VAELoader', inputs: {} },
+    6: { class_type: 'MiniMaxH3MemoryEfficientSageAttentionPatch', inputs: { model: ['7', 0] } },
+    7: { class_type: 'UNETLoader', inputs: {} },
+    8: { class_type: 'MiniMaxH3DualClockSamplerT8', inputs: { model: ['6', 0] } },
+  };
+  assert.equal(injectH3ExactSpeechDrive(
+    prompt,
+    ['a-luo.wav', 'mermaid.wav'],
+    ['A-Luo', '人鱼公主'],
+    [
+      { speakerId: 'S3', character: 'A-Luo', exactLine: 'Let someone else carry one.' },
+      { speakerId: 'S1', character: '人鱼公主', exactLine: 'Not while the palace depends on me.' },
+    ],
+    13,
+    'en',
+    '/models/faster-whisper-small',
+  ), true);
+  const profiles = Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3VoiceProfileT8');
+  assert.deepEqual(profiles.map(node => node.inputs.speaker_id), ['S3', 'S1']);
+  const script = Object.values(prompt).find(node => node.class_type === 'MiniMaxH3DialogueScriptT8');
+  assert.equal(script.inputs.script, 'S1: Let someone else carry one.\nS2: Not while the palace depends on me.');
+  assert.ok(Object.values(prompt).some(node => node.class_type === 'MiniMaxH3JointDialogueConditioningT8'));
+});
+
 function assertValidAllocation(sourceDurations, expectedDurations) {
   const actual = fitH3ReferenceAudioDurations(sourceDurations);
   assert.equal(actual.length, sourceDurations.length);

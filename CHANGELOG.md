@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.57 - 2026-08-24
+
+### Fixed
+
+- Multi-speaker H3 dialogue keeps each character's global Story speaker ID on its voice profile while addressing the experimental Dialogue Script node through its required local `S1/S2/S3` aliases.
+- Global speaker combinations such as `S3 + S1` no longer collapse both turns onto one profile and fail with “joint dialogue EXP requires 2 or 3 distinct speakers”.
+
+### Verification
+
+- Reproduced Segment 3's exact `A-Luo=S3` and `人鱼公主=S1` ordering against the installed ComfyUI node implementation and added a regression test that compiles it as local `S1/S2` dialogue over globally preserved `S3/S1` profiles.
+
 ## 0.1.56 - 2026-08-24
 
 ### Fixed

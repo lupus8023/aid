@@ -1105,8 +1105,18 @@ export function injectH3ExactSpeechDrive(
   } else {
     expectedText = usableTurns.map(turn => turn.exactLine).join(' ');
     if (new Set(usableTurns.map(turn => speakerByCharacter.get(turn.character))).size < 2) return false;
+    // The experimental Dialogue Script node reserves S1/S2/S3 as local
+    // aliases for connected profile order. Passing global Story IDs such as
+    // S3 + S1 is ambiguous: its local S1 alias overwrites the real global S1
+    // profile, so both turns resolve to the same speaker. Keep the profiles'
+    // global IDs intact, but address them in the dialogue script by the
+    // node's required local ordinal aliases.
+    const dialogueAliasByCharacter = new Map(profileSources.map((source, index) => [
+      source.character,
+      `S${index + 1}`,
+    ]));
     const dialogueInputs: JsonRecord = {
-      script: usableTurns.map(turn => `${speakerByCharacter.get(turn.character)}: ${turn.exactLine}`).join('\n'),
+      script: usableTurns.map(turn => `${dialogueAliasByCharacter.get(turn.character)}: ${turn.exactLine}`).join('\n'),
       script_format: 'speaker_lines',
       default_language: languageName,
       default_space: 'close',
