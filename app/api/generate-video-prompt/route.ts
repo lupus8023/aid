@@ -3,7 +3,7 @@ import { buildVideoSegmentPrompt } from '@/lib/videoGenerator';
 
 export async function POST(request: NextRequest) {
   try {
-    const { storyboard, segmentStoryboards = [], language } = await request.json();
+    const { storyboard, segmentStoryboards = [], referenceAudioNames = [], language } = await request.json();
     if (!storyboard) {
       return NextResponse.json({ error: 'storyboard is required' }, { status: 400 });
     }
@@ -13,6 +13,8 @@ export async function POST(request: NextRequest) {
       : [storyboard];
     const videoPrompt = buildVideoSegmentPrompt(storyboards, [], {
       duration: Number(storyboard.videoDuration) || undefined,
+      referenceAudioNames: Array.isArray(referenceAudioNames) ? referenceAudioNames.filter(Boolean).slice(0, 3) : [],
+      hasVoiceReferences: Array.isArray(referenceAudioNames) && referenceAudioNames.length > 0,
       language: language === 'en' ? 'en' : 'zh',
     });
     return NextResponse.json({ videoPrompt });

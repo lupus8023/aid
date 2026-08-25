@@ -1582,12 +1582,16 @@ export default function StoryPage() {
       .filter(item => segmentIds.includes(item.id))
       .sort((a, b) => a.sceneNumber - b.sceneNumber)
       .map(item => ({ ...item, visualStyle }));
+    const referenceAudioNames = [...new Set(segmentStoryboards
+      .flatMap(item => storyboardSpeech(item).map(line => line.character)))]
+      .filter(name => Boolean(name && voiceReferencesRef.current?.[name]))
+      .slice(0, 3);
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: 'generating...' } : sb));
     try {
       const response = await fetch('/api/generate-video-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle }, segmentStoryboards, language: projectLanguageRef.current, apiKey: settings.apiKey })
+        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle }, segmentStoryboards, referenceAudioNames, language: projectLanguageRef.current, apiKey: settings.apiKey })
       });
       const data = await readApiJson<{ videoPrompt: string }>(response, '视频提示词生成失败');
       if (generationProjectId !== projectIdRef.current) return;

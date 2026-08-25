@@ -128,6 +128,31 @@ function sanitizeNarrativeDirection(value: unknown, exactSpokenLines: string[] =
   return compactText(text.replace(/\s+/g, ' ').trim(), 900);
 }
 
+function dialogueSafeVisualAction(value: unknown, exactSpokenLines: string[], language: 'zh' | 'en'): string {
+  const visual = sanitizeVisualDirection(value, exactSpokenLines);
+  if (!exactSpokenLines.length || !visual) return visual;
+
+  // Native H3 can treat semantic screenplay prose as another utterance even
+  // when the real line is correctly wrapped in <d>. Keep only observable
+  // physical clauses in a speaking shot. In particular, never restate what a
+  // product "means", what the audience learns, or what the line establishes.
+  const semanticClause = language === 'zh'
+    ? /(?:观众|受众|用户|听者|核心价值|优越性|产品价值|意义|观点|结论|真相|信息|定义为|理解|明白|意识到|认识到|相信|期待|好奇|关注|联想到|联系起来|说明|解释|强调|揭示|告诉|介绍|讲解|表达|传达)/i
+    : /(?:audience|viewer|listener|meaning|core value|product value|benefit|message|conclusion|truth|information|understands?|realizes?|learns?|believes?|expects?|becomes? curious|focuses? on|connects?|explains?|emphasizes?|reveals?|tells?|introduces?|describes?|communicates?|establishes? that)/i;
+  const clauses = visual
+    // Do not split on an ASCII period: names such as "Dr. Pan" are common in
+    // these prompts and must remain intact. Semantic tails are normally
+    // separated by commas/semicolons; Chinese sentence punctuation is safe.
+    .split(/(?<=[。！？；;])|\s*[,，]\s*/)
+    .map(clause => clause.trim().replace(/[,，;；]+$/, ''))
+    .filter(Boolean)
+    .filter(clause => !semanticClause.test(clause));
+  const joined = clauses.join(language === 'zh' ? '，' : ', ')
+    .replace(/\s+([。！？.!?；;])/g, '$1')
+    .trim();
+  return compactActionArc(joined, 260);
+}
+
 function dialogueLanguage(text: string): string {
   if (/[\u3040-\u30ff]/.test(text)) return 'Japanese';
   if (/[\uac00-\ud7af]/.test(text)) return 'Korean';
@@ -207,8 +232,12 @@ function authoritativeShotAction(storyboard: Storyboard): string {
   // `prompt` is the English still-image prompt emitted by Story Director.
   // It is intentionally not a video-direction fallback: feeding it to H3 was
   // the source of mixed-language fragments and duplicated visual commands.
-  const action = sanitizeVisualDirection(storyboard.action || storyboard.description, spokenLines);
-  const visibleResult = sanitizeVisualDirection(storyboard.consequence || '', spokenLines);
+  const action = dialogueSafeVisualAction(storyboard.action || storyboard.description, spokenLines, 'en');
+  // Consequence/listener fields often paraphrase the spoken proposition. H3
+  // has demonstrably vocalized that prose before the tagged line, so a shot
+  // with dialogue must express its result visually through the physical action
+  // rather than repeating it as explanatory text.
+  const visibleResult = spokenLines.length ? '' : sanitizeVisualDirection(storyboard.consequence || '', spokenLines);
   const includesResult = visibleResult && action.toLocaleLowerCase().includes(visibleResult.toLocaleLowerCase());
   return compactActionArc(
     // The screenplay action owns what happens. The image prompt is only a
@@ -222,6 +251,7 @@ function authoritativeShotAction(storyboard: Storyboard): string {
 
 function silentNarrativePerformance(storyboard: Storyboard): string {
   const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
+  if (spokenLines.length) return '';
   const listenerChanges = (storyboard.speech || [])
     .map(line => line.listenerState)
     .filter((value): value is string => Boolean(value && !isDirectingInstructionDialogue(value)));
@@ -344,6 +374,13 @@ function shotActionSchedule(storyboard: Storyboard, range: { start: number; end:
   const contactPhysics = hasContact
     ? 'Physical contact sequence: approach, touch, visible compression/load, increase force, brief hold, gradual release, then local rebound/inertia; only the loaded region deforms.'
     : 'Preserve believable mass, acceleration and follow-through; no uniform-speed drift.';
+  if (storyboardSpeech(storyboard).length) {
+    const action = authoritativeShotAction(storyboard);
+    const actionSentence = /[.!?。！？]$/.test(action) ? action : `${action}.`;
+    return compact
+      ? `${actionSentence} Real-time physical action. The dialogue window owns all vocal timing; mouth closed outside it. Preserve residual motion after the line; no slow motion.`
+      : `${actionSentence} Keep the visible action continuous at real-time speed while the tagged dialogue window remains the sole authoritative vocal timing. Outside that window the mouth stays closed. After the line, preserve a motivated reaction or residual motion through the end of the shot; no slow motion or extended hold.`;
+  }
   if (compact) {
     return `${authoritativeShotAction(storyboard)} Start by ${h3Timestamp(initiation)}; one peak/consequence by ${h3Timestamp(consequence)}; recover by ${h3Timestamp(recovery)} with 0.2–0.4s residual. Stagger channels 0.1–0.3s; ${hasContact ? 'contact→load→release→local rebound' : 'preserve mass/acceleration'}. Real time; no slow motion.`;
   }
@@ -493,14 +530,15 @@ function chineseTransition(previous: Storyboard, next: Storyboard): string {
 
 function chineseAuthoritativeAction(storyboard: Storyboard): string {
   const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
-  const action = sanitizeVisualDirection(storyboard.action || storyboard.description, spokenLines);
-  const result = sanitizeVisualDirection(storyboard.consequence || '', spokenLines);
+  const action = dialogueSafeVisualAction(storyboard.action || storyboard.description, spokenLines, 'zh');
+  const result = spokenLines.length ? '' : sanitizeVisualDirection(storyboard.consequence || '', spokenLines);
   const includesResult = result && action.toLocaleLowerCase().includes(result.toLocaleLowerCase());
   return compactActionArc(`${action}${result && !includesResult ? ` 可见后果：${result}` : ''}`, 320);
 }
 
 function chineseSilentPerformance(storyboard: Storyboard): string {
   const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
+  if (spokenLines.length) return '';
   const listenerChanges = (storyboard.speech || [])
     .map(line => line.listenerState)
     .filter((value): value is string => Boolean(value && !isDirectingInstructionDialogue(value)));
@@ -518,6 +556,12 @@ function chineseShotSchedule(storyboard: Storyboard, range: { start: number; end
   const actionText = `${storyboard.action || ''} ${storyboard.description || ''}`.toLowerCase();
   const hasContact = /(?:抓|握|按|压|推|拉|撞|触|夹|捏|踩|落地|击|碰|grip|grab|press|push|pull|strike|impact|touch|pinch|land|contact)/i.test(actionText);
   const action = chineseAuthoritativeAction(storyboard);
+  if (storyboardSpeech(storyboard).length) {
+    const actionSentence = /[。！？]$/.test(action) ? action : `${action}。`;
+    return compact
+      ? `${actionSentence}真实速度完成物理动作；对白时间窗决定全部人声时序，窗外嘴闭合。台词后保留残余动作；不得慢动作。`
+      : `${actionSentence}可见动作按真实速度连续完成，唯一的人声时序以对白时间窗为准；时间窗外嘴始终闭合。台词结束后只保留有动机的反应或残余动作直到镜头结束；不得慢动作或延长停顿。`;
+  }
   if (compact) {
     return `${action} 最迟 ${h3Timestamp(initiation)} 启动；在 ${h3Timestamp(consequence)} 前完成一个动作峰值及其后果；到 ${h3Timestamp(recovery)} 恢复，并保留 0.2–0.4 秒残余状态。各动作通道错开 0.1–0.3 秒；${hasContact ? '接近→接触→受力→释放→局部回弹' : '保持可信的质量与加速度'}。真实速度，不得慢动作。`;
   }
@@ -583,9 +627,15 @@ function buildChineseVideoSegmentPrompt(
         : line.volume === 'soft' ? '轻声'
           : line.volume === 'whisper' ? '以克制的耳语音量'
             : '以自然说话音量';
+      const start = h3Timestamp(line.start);
+      const end = h3Timestamp(line.end);
       return line.lipSync
-        ? `在 ${h3Timestamp(line.start)}，${source}${performanceDirection}，${volume}只说一次：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。${compactMode ? `约 ${h3Timestamp(line.end)} 完整说完尾字，不得截断；随后闭嘴。` : `在 ${h3Timestamp(line.end)} 左右完整说完最后一个字；尾字不得截断、吞音或淡出；说完后口型闭合。`}`
-        : `在 ${h3Timestamp(line.start)}，画外的${source}${performanceDirection}，${volume}只说一次：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。${compactMode ? `约 ${h3Timestamp(line.end)} 完整说完尾字，不得截断；可见嘴闭合。` : `在 ${h3Timestamp(line.end)} 左右完整说完最后一个字；尾字不得截断、吞音或淡出；画面中可见的嘴保持闭合。`}`;
+        ? compactMode
+          ? `[对白时间窗 ${start}–${end}] ${source}：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。首字准时对齐 ${start}，尾字在 ${end} 前完整结束；窗外无人声、嘴闭合。${volume}，${performanceDirection}。`
+          : `[对白时间窗 ${start}–${end}] ${source}：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。第一个字必须在 ${start} 准时起声，最后一个字必须在 ${end} 前完整结束；窗口外无人声且嘴闭合。${volume}；表演${performanceDirection}。`
+        : compactMode
+          ? `[画外对白时间窗 ${start}–${end}] ${source}：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。首字准时对齐 ${start}，尾字在 ${end} 前完整结束；窗外无人声、可见嘴闭合。${volume}，${performanceDirection}。`
+          : `[画外对白时间窗 ${start}–${end}] ${source}：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。第一个字必须在 ${start} 准时起声，最后一个字必须在 ${end} 前完整结束；窗口外无人声，画面中可见的嘴始终闭合。${volume}；表演${performanceDirection}。`;
     }).join(' ');
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
@@ -612,9 +662,9 @@ function buildChineseVideoSegmentPrompt(
       const compactCast = beatCharacters.length
         ? `角色各一次：${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}>（${name}）` : name).join('、')}；无额外角色。`
         : '没有角色。';
-      return `${shotHeader}${pictureAnchor}${compactCast}${props}构图：${chineseShotFraming(storyboard)}。动作：${chineseShotSchedule(storyboard, range, true)} 相机：${compactText(chineseCameraMotion(storyboard, index), 90)}。${dialogue} 声音：${compactText(chineseShotSoundCue(storyboard), 72)} ${compactText(handoff, 220)}`;
+      return `${shotHeader}${pictureAnchor}${compactCast}${props}构图：${chineseShotFraming(storyboard)}。${dialogue} 动作：${chineseShotSchedule(storyboard, range, true)} 相机：${compactText(chineseCameraMotion(storyboard, index), 90)}。声音：${compactText(chineseShotSoundCue(storyboard), 72)} ${compactText(handoff, 220)}`;
     }
-    return `${shotHeader}${entry}${pictureAnchor}${cast}${props}使用${chineseShotFraming(storyboard)}。动作：${chineseShotSchedule(storyboard, range)} 相机使用${chineseCameraMotion(storyboard, index)}。${dialogue}${chineseShotSoundCue(storyboard)} ${handoff}`;
+    return `${shotHeader}${entry}${pictureAnchor}${cast}${props}使用${chineseShotFraming(storyboard)}。${dialogue} 动作：${chineseShotSchedule(storyboard, range)} 相机使用${chineseCameraMotion(storyboard, index)}。${chineseShotSoundCue(storyboard)} ${handoff}`;
   });
 
   const visualOverride = compactActionArc(sanitizeVisualDirection(options.visualOverride, timedSpeech.map(line => line.exactLine)), compactMode ? 360 : 720);
@@ -626,9 +676,16 @@ function buildChineseVideoSegmentPrompt(
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards, 'zh');
 
   if (isFirstLastMode) {
+    const firstLastBindings = [
+      ...characters.map((name, index) => `<Subject ${index + 1}> 是 <Picture 1> 与 <Picture 2> 中的${name}；两张图保持同一身份。`),
+      ...referenceAudioNames.map((name, index) => {
+        const subject = subjectId.get(name);
+        return `<Audio ${index + 1}> 只提供${subject ? `<Subject ${subject}>` : name}的音色；忽略样本原词和时序。`;
+      }),
+    ].join(' ');
     return fitH3PromptBudget(`参考图片与目标视频的时间对齐——Picture 1（来自 Shot 1）对应目标视频 0.00 秒；Picture 2（来自 Shot 1）对应目标视频 ${duration.toFixed(2)} 秒。
 
-integrated_multimodal_description: ${styleOpening} ${speechControl} ${shotDescriptions.join(' ')} ${fittedPhysics}
+integrated_multimodal_description: ${firstLastBindings} ${styleOpening} ${speechControl} ${shotDescriptions.join(' ')} ${fittedPhysics}
 
 overall_soundscape: ${soundscape}
 
@@ -734,9 +791,15 @@ export function buildVideoSegmentPrompt(
         : line.volume === 'soft' ? 'softly'
           : line.volume === 'whisper' ? 'in a restrained whisper'
             : 'at a natural speaking volume';
+      const start = h3Timestamp(line.start);
+      const end = h3Timestamp(line.end);
       return line.lipSync
-        ? `At ${h3Timestamp(line.start)}, ${source} says once with ${performanceDirection}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>. ${compactMode ? `Complete the final word near ${h3Timestamp(line.end)}; never clip it; lips close.` : `Finish the complete final word around ${h3Timestamp(line.end)}; never clip, swallow, or fade its ending; lips then close.`}`
-        : `At ${h3Timestamp(line.start)}, off-screen ${source} says once with ${performanceDirection}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>. ${compactMode ? `Complete the final word near ${h3Timestamp(line.end)}; never clip it; visible mouths stay closed.` : `Finish the complete final word around ${h3Timestamp(line.end)}; never clip, swallow, or fade its ending; visible mouths stay closed.`}`;
+        ? compactMode
+          ? `[DIALOGUE WINDOW ${start}–${end}] ${source}: <d>[${dialogueLanguage(text)}] ${text}</d>. First word exactly at ${start}; final word complete by ${end}; no voice or lip motion outside. ${volume}; ${performanceDirection}.`
+          : `[DIALOGUE WINDOW ${start}–${end}] ${source}: <d>[${dialogueLanguage(text)}] ${text}</d>. The first word starts exactly at ${start}; the complete final word ends by ${end}. Outside this window there is no voice and the mouth stays closed. Speak ${volume}; performance is ${performanceDirection}.`
+        : compactMode
+          ? `[OFF-SCREEN DIALOGUE WINDOW ${start}–${end}] ${source}: <d>[${dialogueLanguage(text)}] ${text}</d>. First word exactly at ${start}; final word complete by ${end}; no voice outside and visible mouths stay closed. ${volume}; ${performanceDirection}.`
+          : `[OFF-SCREEN DIALOGUE WINDOW ${start}–${end}] ${source}: <d>[${dialogueLanguage(text)}] ${text}</d>. The first word starts exactly at ${start}; the complete final word ends by ${end}. Outside this window there is no voice and every visible mouth stays closed. Speak ${volume}; performance is ${performanceDirection}.`;
     }).join(' ');
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
@@ -773,9 +836,9 @@ export function buildVideoSegmentPrompt(
       // four-shot segment this per-shot cue only needs the synchronized cause;
       // keeping another 135 characters per shot could push a valid causal
       // prompt over H3's 7000-character ceiling.
-      return `${shotHeader} ${pictureAnchor} ${compactCast} ${props} ${officialShotFraming(storyboard)}. ACTION: ${shotActionSchedule(storyboard, range, true)} CAMERA: ${compactText(officialCameraMotion(storyboard, index), 90)}. ${dialogue} SOUND: ${compactText(shotSoundCue(storyboard), 72)} ${compactText(handoff, 220)}`;
+      return `${shotHeader} ${pictureAnchor} ${compactCast} ${props} ${officialShotFraming(storyboard)}. ${dialogue} ACTION: ${shotActionSchedule(storyboard, range, true)} CAMERA: ${compactText(officialCameraMotion(storyboard, index), 90)}. SOUND: ${compactText(shotSoundCue(storyboard), 72)} ${compactText(handoff, 220)}`;
     }
-    return `${shotHeader} ${entry} ${pictureAnchor} ${cast} ${props} Use ${officialShotFraming(storyboard)}. ACTION: ${shotActionSchedule(storyboard, range)} The camera uses ${officialCameraMotion(storyboard, index)}. ${dialogue} ${shotSoundCue(storyboard)} ${handoff}`;
+    return `${shotHeader} ${entry} ${pictureAnchor} ${cast} ${props} Use ${officialShotFraming(storyboard)}. ${dialogue} ACTION: ${shotActionSchedule(storyboard, range)} The camera uses ${officialCameraMotion(storyboard, index)}. ${shotSoundCue(storyboard)} ${handoff}`;
   });
 
   // A refreshed/model-edited prompt is supplementary visual direction. The
@@ -802,9 +865,16 @@ export function buildVideoSegmentPrompt(
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
 
   if (isFirstLastMode) {
+    const firstLastBindings = [
+      ...characters.map((name, index) => `<Subject ${index + 1}> is ${name} in <Picture 1> and <Picture 2>; preserve one identity across both pictures.`),
+      ...referenceAudioNames.map((name, index) => {
+        const subject = subjectId.get(name);
+        return `<Audio ${index + 1}> supplies only the timbre for ${subject ? `<Subject ${subject}>` : name}; ignore its source words and timing.`;
+      }),
+    ].join(' ');
     return fitH3PromptBudget(`How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.
 
-integrated_multimodal_description: ${styleOpening} ${speechControl} ${shotDescriptions.join(' ')} ${fittedPhysics}
+integrated_multimodal_description: ${firstLastBindings} ${styleOpening} ${speechControl} ${shotDescriptions.join(' ')} ${fittedPhysics}
 
 overall_soundscape: ${soundscape}
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.73 - 2026-08-26
+
+### Changed
+
+- MiniMax H3 dialogue is now expressed as one authoritative start/end window placed before visual action prose. The first and final words receive explicit boundaries, while mouths and intelligible voices remain closed outside the window.
+- Speaking shots now quarantine dialogue meaning from action, consequence, and listener-state prose, preventing H3 from vocalizing semantic restatements before the tagged screenplay line.
+- Video-prompt previews now use the current runtime voice bindings, matching the prompt that Companion submits.
+
+### Fixed
+
+- First/last-frame H3 prompts preserve `<Picture 2>` and explicitly bind subjects and voice references across both frames instead of replacing the final frame with a mixed-language placeholder.
+- Dialogue-shot physical directions retain names containing periods, such as `Dr. Pan`, while removing abstract product-value and audience-learning clauses.
+
+### Verification
+
+- All 177 automated tests, TypeScript validation, and the production build pass.
+
 ## 0.1.72 - 2026-08-26
 
 ### Fixed

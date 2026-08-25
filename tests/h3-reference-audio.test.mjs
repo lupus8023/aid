@@ -245,6 +245,13 @@ test('keeps an official structured H3 prompt free of a second appended contract'
   assert.equal(taggedPrompt(official, 'aid_single_reference', 0, 0), official);
 });
 
+test('preserves Picture 2 in official first/last prompts even without auxiliary images', () => {
+  const official = `参考图片与目标视频的时间对齐——Picture 1 对应 0.00 秒；Picture 2 对应 9.00 秒。\n\nintegrated_multimodal_description: <Picture 1> 是起点，<Picture 2> 是终点。\n\noverall_soundscape: 场景底噪。\n\nnon_diegetic_music: 没有音乐。`;
+  const tagged = taggedPrompt(official, 'aid_first_last', 0, 1, ['Dr. Pan']);
+  assert.equal((tagged.match(/Picture 2/g) || []).length, 2);
+  assert.doesNotMatch(tagged, /the prior generated output|上一段生成结果/);
+});
+
 test('prefers the final muxed audio MP4 over the temporary silent MP4', () => {
   assert.deepEqual(selectComfyUIVideoOutput({
     270: {

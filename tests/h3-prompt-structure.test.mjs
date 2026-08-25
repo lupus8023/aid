@@ -45,8 +45,8 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   });
   assert.match(prompt, /<d>\[Chinese\] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1>\/<Audio 1> says once/);
-  assert.match(prompt, /Complete the final word near/);
+  assert.match(prompt, /\[DIALOGUE WINDOW 00:\d{2}\.\d{3}–00:\d{2}\.\d{3}\] <Subject 1>\/<Audio 1>:/);
+  assert.match(prompt, /First word exactly at .*final word complete by/);
   assert.match(prompt, /no breath-word, filler, hum, stray phoneme, or reference-sample leakage/);
   assert.match(prompt, /no electronic hiss, static, buzz, digital residue, or abrupt audio cut/);
   const soundscape = prompt.split('overall_soundscape:')[1].split('non_diegetic_music:')[0];
@@ -131,8 +131,8 @@ test('binds multiple sequential dialogue lines to their matching H3 voice refere
   assert.equal((prompt.match(/就在门后。/g) || []).length, 1);
   assert.match(prompt, /<Audio 1> provides only the voice timbre for <Subject 1>/);
   assert.match(prompt, /<Audio 2> provides only the voice timbre for <Subject 2>/);
-  assert.match(prompt, /<Subject 1> using the <Audio 1> timbre says once with/);
-  assert.match(prompt, /<Subject 2> using the <Audio 2> timbre says once with/);
+  assert.match(prompt, /\[DIALOGUE WINDOW [^\]]+\] <Subject 1> using the <Audio 1> timbre:/);
+  assert.match(prompt, /\[DIALOGUE WINDOW [^\]]+\] <Subject 2> using the <Audio 2> timbre:/);
   assert.match(prompt, /ignore its original words and timing/);
   assert.match(prompt, /breath, eyeline and facial tension change once/);
   assert.match(prompt, /dialogue eyeline axis\/screen sides/);
@@ -158,6 +158,29 @@ test('keeps explanatory screenplay fields out of the H3 audiovisual description'
   assert.match(prompt, /No narrator, ad-lib, or other intelligible voice exists/);
   assert.match(prompt, /DIALOGUE WHITELIST: the only intelligible speech/);
   assert.match(prompt, /No narration, ad-lib, singing, or unscripted intelligible words/);
+});
+
+test('quarantines dialogue meaning from visual prose and places one exact speech window before action', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      characters: ['Dr. Pan'],
+      action: 'Dr. Pan拿起一款护肤面膜并指向成分表，将优越性落到具体成分上。',
+      consequence: '面膜的核心价值被定义为丰富成分对肌肤的营养供给。',
+      speech: [{
+        speakerId: 'S01', character: 'Dr. Pan',
+        exactLine: '面膜的核心在于它们丰富的成分，可以给肌肤提供足够的营养。',
+        emotion: '专业而克制', delivery: '自然', volume: 'normal', lipSync: true,
+        listenerState: '观众将面膜的价值与成分供给联系起来，开始关注成分如何有效接触肌肤。',
+        source: 'story_required',
+      }],
+    }),
+  ], [], { duration: 9, language: 'zh', referenceAudioNames: ['Dr. Pan'] });
+
+  assert.match(prompt, /\[对白时间窗 00:\d{2}\.\d{3}–00:\d{2}\.\d{3}\]/);
+  assert.match(prompt, /动作：Dr\. Pan拿起一款护肤面膜并指向成分表/);
+  assert.doesNotMatch(prompt, /将优越性落到具体成分上|核心价值被定义为|观众将面膜的价值与成分供给联系起来/);
+  assert.equal((prompt.match(/面膜的核心在于它们丰富的成分/g) || []).length, 1);
+  assert.ok(prompt.indexOf('</d>') < prompt.indexOf('动作：'), 'the exact dialogue window must be more salient than visual prose');
 });
 
 test('drops model-written stage directions before they can become H3 dialogue', () => {
@@ -378,9 +401,10 @@ test('schedules two connected lines inside one storyboard in order', () => {
   ], [], { duration: 10, language: 'en', referenceAudioNames: ['Lin', 'Mei'], hasVoiceReferences: true });
   assert.equal((prompt.match(/<d>/g) || []).length, 2);
   assert.ok(prompt.indexOf('You should open it.') < prompt.indexOf('Then stay with me.'));
-  assert.match(prompt, /Stagger micro-actions by 0\.1–0\.3s/);
-  assert.match(prompt, /one action peak and visible consequence/);
-  assert.match(prompt, /preserve 0\.2–0\.4s residual motion or expression/);
+  assert.equal((prompt.match(/\[DIALOGUE WINDOW /g) || []).length, 2);
+  assert.match(prompt, /first word starts exactly at/i);
+  assert.match(prompt, /complete final word ends by/i);
+  assert.ok(prompt.lastIndexOf('</d>') < prompt.indexOf('ACTION:'));
 });
 
 test('turns contact actions into load, release and local rebound instead of uniform slow motion', () => {

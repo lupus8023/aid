@@ -1097,13 +1097,19 @@ function validatePrompt(prompt: JsonRecord, definitions: JsonRecord): void {
 }
 
 function sanitizeUnavailablePictureOrdinals(prompt: string, availableCount: number): string {
+  const fallback = /[\u3400-\u9fff]/.test(prompt) ? '上一段生成结果' : 'the prior generated output';
   return String(prompt || '').replace(/<?\b(?:picture|image)\s+(\d+)\b>?/gi, (match, ordinal) => (
-    Number(ordinal) <= Math.max(0, availableCount) ? match : 'the prior generated output'
+    Number(ordinal) <= Math.max(0, availableCount) ? match : fallback
   ));
 }
 
 export function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, auxiliaryCount: number, referenceAudioCount: number, referenceAudioNames?: string[]): string {
-  const prompt = sanitizeUnavailablePictureOrdinals(visualPrompt, 1 + Math.max(0, auxiliaryCount));
+  const availablePictureCount = variant === 'aid_first_last'
+    ? 2
+    : variant === 'aid_multi_reference'
+      ? 1 + Math.max(0, auxiliaryCount)
+      : 1;
+  const prompt = sanitizeUnavailablePictureOrdinals(visualPrompt, availablePictureCount);
   // The Story prompt builder now emits MiniMax's official base or Ref2VA
   // structure, including picture/audio labels and subject bindings. Appending
   // a second free-form contract would break the documented field order and
