@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildVideoSegmentPrompt } from '../lib/videoGenerator.ts';
+import { buildVideoSegmentPrompt, buildVideoSegmentSoundBedPrompt } from '../lib/videoGenerator.ts';
 import { buildVideoStyleContract, PRODUCTION_STYLE_PRESETS } from '../lib/promptArchitecture.ts';
 
 const shot = (sceneNumber, extra = {}) => ({
@@ -359,9 +359,24 @@ test('writes first/last-frame H3 prompts in the official base-mode structure', (
   assert.match(prompt, /Picture 2 .* 8\.00-second mark/);
   assert.match(prompt, /final 16% to resolve into it/);
   assert.match(prompt, /do not uniformly interpolate or slow one gesture/);
-  assert.match(prompt, /non_diegetic_music: N\/A$/);
+  assert.match(prompt, /non_diegetic_music: No music is present\./);
   assert.doesNotMatch(prompt, /subject_definitions:/);
   assert.ok(prompt.length <= 7000);
+});
+
+test('keeps the H3 sound-bed prompt free of speaking actions and music permission', () => {
+  const prompt = buildVideoSegmentSoundBedPrompt([
+    shot(1, {
+      action: 'Dr. Pan begins introducing the mask and explains its benefits.',
+      audioPlan: { backgroundHuman: 'none', environment: ['quiet laboratory hum'], foley: ['page turn'], music: 'none' },
+    }),
+  ], 7);
+  assert.doesNotMatch(prompt, /introducing|explains its benefits/i);
+  assert.doesNotMatch(prompt, /locked picture|already generated video/i);
+  assert.match(prompt, /audio-only sound-bed render; visual output discarded/);
+  assert.match(prompt, /AUDIO ONLY: The audible layer is quiet laboratory hum/);
+  assert.match(prompt, /non_diegetic_music:\nNo music is present\./);
+  assert.match(prompt, /No score, melody, rhythmic bed, jingle, singing, instrumental performance, tonal pad, or musical transition/);
 });
 
 test('applies distinct directing and sound rules for each production style', () => {

@@ -1,6 +1,6 @@
 {
   "name": "aid",
-  "version": "0.1.64",
+  "version": "0.1.65",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,7 +8,7 @@
     "build:companion": "cross-env AID_LOCAL_COMPANION=1 next build && node scripts/prepare-companion.mjs",
     "package:companion": "node scripts/package-companion.mjs",
     "dist:companion": "npm run build:companion && npm run package:companion",
-    "test:h3-audio": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/h3-reference-audio.test.mjs",
+    "test:h3-audio": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/h3-reference-audio.test.mjs",
     "test:shot-count": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/shot-count.test.mjs",
     "test:video-segments": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/video-segments.test.mjs",
     "test:project-isolation": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/project-isolation.test.mjs",

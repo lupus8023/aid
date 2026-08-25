@@ -132,3 +132,25 @@ test('blocks a shortened spoken line even when its semantic metadata still claim
   assert.match(errors, /没有逐字交付全片锁定台词/);
   assert.match(errors, /没有包含语义证据/);
 });
+
+test('does not cascade one quarantined speech line into false errors for every later turn', () => {
+  const { plan, storyboards } = coherentFixture();
+  const beat = plan.sequences[0].beats[1];
+  beat.characters = ['Officer', 'Lanxi'];
+  beat.dialogueTurns = [
+    { speaker: 'Officer', function: 'reveal', contentGoal: 'report silence', respondsTo: '', exactLine: 'No one speaks.' },
+    { speaker: 'Lanxi', function: 'decision', contentGoal: 'order evacuation', respondsTo: 'report silence', exactLine: 'Evacuate the southern hall.' },
+  ];
+  storyboards[1] = {
+    ...storyboards[1],
+    characters: beat.characters,
+    dialogueTurns: beat.dialogueTurns,
+    speech: [
+      { speakerId: 'S1', character: 'Officer', voiceId: 'voice-officer', exactLine: 'No one speaks.', emotion: '', delivery: '', volume: 'normal', lipSync: true, storyFunction: 'reveal', contentGoal: 'report silence', source: 'story_required' },
+      { speakerId: 'S2', character: 'Lanxi', voiceId: 'voice-lanxi', exactLine: 'Evacuate the southern hall.', emotion: '', delivery: '', volume: 'normal', lipSync: true, storyFunction: 'decision', contentGoal: 'order evacuation', source: 'story_required' },
+    ],
+  };
+  const errors = auditStoryDelivery(plan, storyboards).errors.join('\n');
+  assert.match(errors, /缺少第 1 轮/);
+  assert.doesNotMatch(errors, /第 2 轮的说话者|第 2 轮丢失|第 2 轮没有逐字/);
+});

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.65 - 2026-08-25
+
+### Fixed
+
+- Spoken H3 segments now fail closed when exact-speech preparation, voice binding or the required faster-whisper model is unavailable; they can no longer silently fall back to unverified native dialogue generation.
+- Every dialogue turn is generated and strictly ASR-verified independently, then assembled with the Story timeline's opening silence and inter-turn pauses before becoming the full-duration video drive track. Repeated turns from one character are no longer merged into one uninterrupted sentence.
+- Legacy speaker-ID hash collisions are resolved to unique segment-local voice-profile IDs instead of silently dropping the second character's voice and line.
+- The screenplay, storyboard and H3 layers now share the three-turn limit while retaining a fourth overflow sentinel for an explicit error instead of silently truncating dialogue.
+- Delivery audit diagnostics align semantic turns to delivered speech identity, preventing one quarantined line from producing a cascade of false errors for later valid turns.
+- Dialogue-free ambience generation is visually independent, removes its generated vocal stem before mastering, and explicitly prohibits music when the Story audio plan specifies none.
+
+### Verification
+
+- 107 focused H3 audio, prompt, story, delivery, adaptation, video-segment and audio-tail regression tests pass; TypeScript validation and the production Next.js build complete successfully.
+
 ## 0.1.64 - 2026-08-25
 
 ### Fixed

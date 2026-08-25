@@ -8,6 +8,7 @@ import { homedir, tmpdir } from 'os';
 import path from 'path';
 import net from 'net';
 import { Client, type SFTPWrapper } from 'ssh2';
+import { MAX_H3_SPEECH_TURNS } from '@/lib/speechAudioContract';
 
 const execFileAsync = promisify(execFile);
 
@@ -965,6 +966,8 @@ export interface H3ExactSpeechTurn {
   exactLine: string;
   emotion?: string;
   delivery?: string;
+  start?: number;
+  end?: number;
 }
 
 function linkedNodeId(value: unknown): string | undefined {
@@ -1029,13 +1032,29 @@ export function injectH3ExactSpeechDrive(
       speakerId: String(turn.speakerId || '').trim(),
       character: String(turn.character || '').trim(),
       exactLine: String(turn.exactLine || '').trim(),
+      start: Number(turn.start),
+      end: Number(turn.end),
     }))
-    .filter(turn => turn.character && turn.exactLine)
-    .slice(0, 3);
-  if (!turns.length || !remoteAudios.length || remoteAudios.length !== referenceAudioNames.length) return false;
+    .filter(turn => turn.character && turn.exactLine);
+  // Native H3 generation is legitimate only for a genuinely silent segment.
+  // Once exact dialogue exists, every missing binding is a production error;
+  // falling back would synthesize unverified words from the visual prompt.
+  if (!turns.length) {
+    if (speechTurns.length) throw new ComfyUIError('精确台词数据缺少角色名或逐字文本，已阻止 native 降级');
+    return false;
+  }
+  if (turns.length > MAX_H3_SPEECH_TURNS) {
+    throw new ComfyUIError(`精确台词共有 ${turns.length} 轮，超过 H3 的 ${MAX_H3_SPEECH_TURNS} 轮上限`);
+  }
+  if (!remoteAudios.length) throw new ComfyUIError('精确台词缺少角色音色参考，已阻止切换到 H3 native 自由生成');
+  if (remoteAudios.length !== referenceAudioNames.length) {
+    throw new ComfyUIError(`角色音色文件与名称数量不一致（${remoteAudios.length}/${referenceAudioNames.length}）`);
+  }
+  if (!asrModelDirectory.trim()) {
+    throw new ComfyUIError('云端缺少 faster-whisper-small，无法对精确台词执行 ASR 校验');
+  }
 
   const conditioning = conditioningNode(prompt);
-  const originalTaskType = String(conditioning.inputs.task_type || 'Ref2VA');
   const mainDecodeEntry = Object.entries(prompt).find(([, node]: [string, any]) => node.class_type === 'MiniMaxH3AVDecodeT8');
   const mainDecodeId = mainDecodeEntry?.[0];
   const mainSamplerId = linkedNodeId(mainDecodeEntry?.[1]?.inputs?.av_latent);
@@ -1049,16 +1068,33 @@ export function injectH3ExactSpeechDrive(
   if (!clip || !videoVae || !audioVae) throw new ComfyUIError('H3 工作流缺少语音编码器或 VAE');
   const languageName = language === 'en' ? 'English' : 'Chinese';
   const renderSeconds = Math.min(15.08, Math.max(5.17, Number(duration) || 5.17));
-  // A speaker ID is the binding key shared by the visual prompt, the voice
-  // profile and the dialogue script. It is not the ordinal of the uploaded
-  // audio file: a segment may contain Subject 1 as a silent listener while
-  // only Subject 2 speaks. Renumbering that sole voice reference to S1 makes
-  // H3 animate the listener with the speaker's voice.
+  // Preserve valid project IDs, but resolve legacy hash collisions locally.
+  // H3 voice profiles require unique keys; silently skipping the second
+  // character would delete that character's exact line from the drive track.
   const speakerIdByCharacter = new Map<string, string>();
+  const requestedIdByCharacter = new Map<string, string>();
   for (const turn of turns) {
-    if (turn.speakerId && !speakerIdByCharacter.has(turn.character)) {
-      speakerIdByCharacter.set(turn.character, turn.speakerId);
+    const prior = requestedIdByCharacter.get(turn.character);
+    if (prior && turn.speakerId && prior !== turn.speakerId) {
+      throw new ComfyUIError(`角色“${turn.character}”在同一片段中出现多个 speakerId：${prior}/${turn.speakerId}`);
     }
+    if (turn.speakerId && !prior) requestedIdByCharacter.set(turn.character, turn.speakerId);
+  }
+  const usedSpeakerIds = new Set<string>();
+  const speakingCharacters = [...new Set(turns.map(turn => turn.character))];
+  for (const character of speakingCharacters) {
+    const requested = requestedIdByCharacter.get(character);
+    let resolved = requested && !usedSpeakerIds.has(requested) ? requested : '';
+    if (!resolved) {
+      let ordinal = 1;
+      while (usedSpeakerIds.has(`S${ordinal}`)) ordinal += 1;
+      resolved = `S${ordinal}`;
+      if (requested) {
+        console.warn(`[comfyui] resolved duplicate speakerId ${requested} for ${character} as ${resolved}`);
+      }
+    }
+    usedSpeakerIds.add(resolved);
+    speakerIdByCharacter.set(character, resolved);
   }
   // Only build profiles for speakers who actually have a line in this
   // segment. Older projects can carry duplicate references for the same
@@ -1069,17 +1105,16 @@ export function injectH3ExactSpeechDrive(
     character: String(name || '').trim(),
     remoteAudio: remoteAudios[index],
   }));
-  const profileSources: Array<{ character: string; remoteAudio: string; speakerId: string }> = [];
-  const usedSpeakerIds = new Set<string>();
-  for (const turn of turns) {
-    const reference = referenceSources.find(source => source.character === turn.character);
-    if (!reference?.remoteAudio) continue;
-    const speakerId = speakerIdByCharacter.get(turn.character) || `S${profileSources.length + 1}`;
-    if (usedSpeakerIds.has(speakerId)) continue;
-    usedSpeakerIds.add(speakerId);
-    profileSources.push({ ...reference, speakerId });
+  const missingReferences = speakingCharacters.filter(character => (
+    !referenceSources.some(source => source.character === character && source.remoteAudio)
+  ));
+  if (missingReferences.length) {
+    throw new ComfyUIError(`精确台词缺少音色绑定：${missingReferences.join('、')}`);
   }
-  if (!profileSources.length) return false;
+  const profileSources = speakingCharacters.map(character => {
+    const reference = referenceSources.find(source => source.character === character && source.remoteAudio)!;
+    return { ...reference, speakerId: speakerIdByCharacter.get(character)! };
+  });
 
   const profileIds = profileSources.map((source, index) => {
     const loadId = addPromptNode(prompt, 'LoadAudio', { audio: source.remoteAudio }, `AID timbre reference ${index + 1}`);
@@ -1099,129 +1134,158 @@ export function injectH3ExactSpeechDrive(
   const guardId = addPromptNode(prompt, 'MiniMaxH3SpeechGuardT8', {
     error_release_policy: 'unload_all_models',
   }, 'AID exact-dialogue guard');
-
-  let speechConditioningId: string;
-  let expectedText: string;
-  const speakerByCharacter = new Map(profileSources.map(source => [source.character, source.speakerId]));
-  const usableTurns = turns.filter(turn => speakerByCharacter.has(turn.character));
-  if (!usableTurns.length) return false;
-  if (profileIds.length === 1) {
-    expectedText = usableTurns.map(turn => turn.exactLine).join(' ');
+  const profileIdByCharacter = new Map(profileSources.map((source, index) => [source.character, profileIds[index]]));
+  const verifiedTurns = turns.map((turn, turnIndex) => {
+    const profileId = profileIdByCharacter.get(turn.character);
+    if (!profileId) throw new ComfyUIError(`角色“${turn.character}”没有可用的 H3 VoiceProfile`);
+    const plannedSpeechSeconds = Number.isFinite(turn.start) && Number.isFinite(turn.end) && turn.end > turn.start
+      ? turn.end - turn.start
+      : renderSeconds;
+    const turnRenderSeconds = Math.min(15.08, Math.max(
+      5.17,
+      h3AlignedDurationSeconds(Math.min(15, plannedSpeechSeconds + 0.8)),
+    ));
     const planId = addPromptNode(prompt, 'MiniMaxH3SpeechPlanT8', {
-      voice_profile: [profileIds[0], 0],
-      text: expectedText,
+      voice_profile: [profileId, 0],
+      text: turn.exactLine,
       language: languageName,
-      acting_direction: usableTurns.map(turn => turn.delivery || turn.emotion).filter(Boolean).join('; ') || 'natural, emotionally connected, brisk and clearly articulated',
-      emotion: usableTurns[0]?.emotion || 'neutral',
+      acting_direction: turn.delivery || turn.emotion || 'natural, emotionally connected, brisk and clearly articulated',
+      emotion: turn.emotion || 'neutral',
       emotion_intensity: 0.6,
       space: 'close',
       chunking: 'single_segment',
       target_units: 60,
       max_units: 120,
-    }, 'AID exact speech plan');
-    speechConditioningId = addPromptNode(prompt, 'MiniMaxH3SpeechConditioningT8', {
+    }, `AID exact speech plan turn ${turnIndex + 1}`);
+    const speechConditioningId = addPromptNode(prompt, 'MiniMaxH3SpeechConditioningT8', {
       clip,
       video_vae: videoVae,
       audio_vae: audioVae,
-      voice_profile: [profileIds[0], 0],
+      voice_profile: [profileId, 0],
       speech_plan: [planId, 0],
       segment_index: 0,
-      render_seconds: renderSeconds,
+      render_seconds: turnRenderSeconds,
       resolution: 32,
       speech_guard: [guardId, 0],
-    }, 'AID exact speech conditioning');
-  } else {
-    expectedText = usableTurns.map(turn => turn.exactLine).join(' ');
-    if (new Set(usableTurns.map(turn => speakerByCharacter.get(turn.character))).size < 2) return false;
-    // The experimental Dialogue Script node reserves S1/S2/S3 as local
-    // aliases for connected profile order. Passing global Story IDs such as
-    // S3 + S1 is ambiguous: its local S1 alias overwrites the real global S1
-    // profile, so both turns resolve to the same speaker. Keep the profiles'
-    // global IDs intact, but address them in the dialogue script by the
-    // node's required local ordinal aliases.
-    const dialogueAliasByCharacter = new Map(profileSources.map((source, index) => [
-      source.character,
-      `S${index + 1}`,
-    ]));
-    const dialogueInputs: JsonRecord = {
-      script: usableTurns.map(turn => `${dialogueAliasByCharacter.get(turn.character)}: ${turn.exactLine}`).join('\n'),
-      script_format: 'speaker_lines',
-      default_language: languageName,
-      default_space: 'close',
-    };
-    profileIds.forEach((profileId, index) => {
-      dialogueInputs[`voice_profiles.voice_profile_${index}`] = [profileId, 0];
-    });
-    const dialogueId = addPromptNode(prompt, 'MiniMaxH3DialogueScriptT8', dialogueInputs, 'AID exact dialogue script');
-    speechConditioningId = addPromptNode(prompt, 'MiniMaxH3JointDialogueConditioningT8', {
-      clip,
-      video_vae: videoVae,
+    }, `AID exact speech conditioning turn ${turnIndex + 1}`);
+    const sampleSetupId = addPromptNode(prompt, 'MiniMaxH3DualClockSamplerT8', {
+      model: speechModelLink(prompt),
+      av_latent: [speechConditioningId, 1],
+      steps: 20,
+      shift_video: 12,
+      shift_audio: 3,
+      sampler_name: 'dual_clock_euler',
+      scheduler: 'native_flow',
+    }, `AID exact-dialogue sampler turn ${turnIndex + 1}`);
+    const guiderId = addPromptNode(prompt, 'BasicGuider', {
+      model: [sampleSetupId, 0],
+      conditioning: [speechConditioningId, 0],
+    }, `AID exact-dialogue guider turn ${turnIndex + 1}`);
+    const noiseId = addPromptNode(prompt, 'RandomNoise', {
+      noise_seed: Number(BigInt(`0x${randomBytes(7).toString('hex')}`)),
+    }, `AID exact-dialogue noise turn ${turnIndex + 1}`);
+    const samplerId = addPromptNode(prompt, 'SamplerCustomAdvanced', {
+      noise: [noiseId, 0],
+      guider: [guiderId, 0],
+      sampler: [sampleSetupId, 1],
+      sigmas: [sampleSetupId, 2],
+      latent_image: [speechConditioningId, 1],
+    }, `AID exact-dialogue generation turn ${turnIndex + 1}`);
+    const decodeId = addPromptNode(prompt, 'MiniMaxH3SpeechDecodeT8', {
+      av_latent: [samplerId, 0],
       audio_vae: audioVae,
-      dialogue_plan: [dialogueId, 0],
-      start_turn: 0,
-      turn_count: Math.min(3, usableTurns.length),
-      render_seconds: renderSeconds,
-      resolution: 32,
-      speech_guard: [guardId, 0],
-    }, 'AID joint exact-dialogue conditioning');
-  }
+      trim_mode: 'conservative_energy',
+      energy_threshold_dbfs: -50,
+      trim_padding_seconds: 0.1,
+    }, `AID exact-dialogue decode turn ${turnIndex + 1}`);
+    const expectedId = addPromptNode(prompt, 'PrimitiveStringMultiline', {
+      value: turn.exactLine,
+    }, `AID expected dialogue turn ${turnIndex + 1}`);
+    const verifyId = addPromptNode(prompt, 'MiniMaxH3SpeechVerifyT8', {
+      audio: [decodeId, 0],
+      expected_text: [expectedId, 0],
+      verify_mode: 'trim_exact_target',
+      asr_model_directory: asrModelDirectory,
+      language: languageName,
+      min_similarity: 0.8,
+      beam_size: 5,
+      cpu_threads: 8,
+      unload_after_verify: true,
+      strict: true,
+      pre_padding_seconds: 0.08,
+      post_padding_seconds: 0.2,
+      speaker_check_mode: 'off',
+      speaker_model_directory: '',
+      min_speaker_similarity: 0.86,
+      unload_speaker_after_verify: true,
+      peak_limit_dbfs: -1,
+    }, `AID exact-dialogue ASR turn ${turnIndex + 1}`);
+    return { verifyId, turn };
+  });
 
-  const sampleSetupId = addPromptNode(prompt, 'MiniMaxH3DualClockSamplerT8', {
-    model: speechModelLink(prompt),
-    av_latent: [speechConditioningId, 1],
-    steps: 20,
-    shift_video: 12,
-    shift_audio: 3,
-    sampler_name: 'dual_clock_euler',
-    scheduler: 'native_flow',
-  }, 'AID exact-dialogue sampler');
-  const guiderId = addPromptNode(prompt, 'BasicGuider', {
-    model: [sampleSetupId, 0],
-    conditioning: [speechConditioningId, 0],
-  }, 'AID exact-dialogue guider');
-  const noiseId = addPromptNode(prompt, 'RandomNoise', {
-    noise_seed: Number(BigInt(`0x${randomBytes(7).toString('hex')}`)),
-  }, 'AID exact-dialogue noise');
-  const samplerId = addPromptNode(prompt, 'SamplerCustomAdvanced', {
-    noise: [noiseId, 0],
-    guider: [guiderId, 0],
-    sampler: [sampleSetupId, 1],
-    sigmas: [sampleSetupId, 2],
-    latent_image: [speechConditioningId, 1],
-  }, 'AID exact-dialogue generation');
-  const decodeId = addPromptNode(prompt, 'MiniMaxH3SpeechDecodeT8', {
-    av_latent: [samplerId, 0],
-    audio_vae: audioVae,
-    trim_mode: 'conservative_energy',
-    energy_threshold_dbfs: -50,
-    trim_padding_seconds: 0.1,
-  }, 'AID exact-dialogue decode');
-  const expectedId = addPromptNode(prompt, 'PrimitiveStringMultiline', { value: expectedText }, 'AID expected dialogue');
-  const verifyId = addPromptNode(prompt, 'MiniMaxH3SpeechVerifyT8', {
-    audio: [decodeId, 0],
-    expected_text: [expectedId, 0],
-    verify_mode: asrModelDirectory ? 'trim_exact_target' : 'off',
-    asr_model_directory: asrModelDirectory,
-    language: languageName,
-    min_similarity: 0.8,
-    beam_size: 5,
-    cpu_threads: 8,
-    unload_after_verify: true,
-    strict: false,
-    pre_padding_seconds: 0.08,
-    post_padding_seconds: 0.2,
-    speaker_check_mode: 'off',
-    speaker_model_directory: '',
-    min_speaker_similarity: 0.86,
-    unload_speaker_after_verify: true,
-    peak_limit_dbfs: -1,
-  }, 'AID exact-dialogue ASR trim');
+  let assembledAudio: [string, number] | undefined;
+  verifiedTurns.forEach(({ verifyId, turn }, turnIndex) => {
+    const previous = verifiedTurns[turnIndex - 1]?.turn;
+    const rawPauseSeconds = turnIndex === 0
+      ? (Number.isFinite(turn.start) ? Math.max(0, turn.start) : 0.45)
+      : (Number.isFinite(turn.start) && Number.isFinite(previous?.end)
+          ? Math.max(0, turn.start - Number(previous?.end))
+          : 0.35);
+    const pauseSeconds = Number(rawPauseSeconds.toFixed(3));
+    if (pauseSeconds > 0.001) {
+      const silenceId = addPromptNode(prompt, 'EmptyAudio', {
+        duration: pauseSeconds,
+        sample_rate: 32000,
+        channels: 2,
+      }, turnIndex === 0 ? 'AID exact-dialogue opening silence' : `AID exact-dialogue gap before turn ${turnIndex + 1}`);
+      if (!assembledAudio) assembledAudio = [silenceId, 0];
+      else {
+        const concatId = addPromptNode(prompt, 'AudioConcat', {
+          audio1: assembledAudio,
+          audio2: [silenceId, 0],
+          direction: 'after',
+        }, `AID append silence before turn ${turnIndex + 1}`);
+        assembledAudio = [concatId, 0];
+      }
+    }
+    if (!assembledAudio) assembledAudio = [verifyId, 0];
+    else {
+      const concatId = addPromptNode(prompt, 'AudioConcat', {
+        audio1: assembledAudio,
+        audio2: [verifyId, 0],
+        direction: 'after',
+      }, `AID append exact dialogue turn ${turnIndex + 1}`);
+      assembledAudio = [concatId, 0];
+    }
+  });
+  if (!assembledAudio) throw new ComfyUIError('精确台词音轨组装失败');
+  const finalVerifyId = verifiedTurns[verifiedTurns.length - 1].verifyId;
   const finalizeId = addPromptNode(prompt, 'MiniMaxH3SpeechFinalizeT8', {
-    audio: [verifyId, 0],
+    audio: assembledAudio,
     release_policy: 'keep_loaded',
-    upstream_report: [verifyId, 5],
+    upstream_report: [finalVerifyId, 5],
     speech_guard: [guardId, 0],
   }, 'AID exact-dialogue final');
+  // Every prior verifier is strict, so reaching the last accepted output means
+  // all turns passed ASR. Pad the verified sequence to the exact video clock
+  // before it is used as H3's drive track.
+  const speechMasterId = addPromptNode(prompt, 'MiniMaxH3DialogueSafeMasterT8', {
+    speech_audio: [finalizeId, 0],
+    speech_accepted: [finalVerifyId, 4],
+    target_duration_seconds: renderSeconds,
+    speech_start_seconds: 0,
+    output_sample_rate: 32000,
+    music_fit_policy: 'strict',
+    ambience_fit_policy: 'strict',
+    sfx_fit_policy: 'strict',
+    loop_crossfade_seconds: 0.25,
+    speech_gain_db: 0,
+    music_gain_db: -60,
+    ambience_gain_db: -60,
+    sfx_gain_db: -60,
+    duck_background: 0,
+    peak_limit_dbfs: -1,
+  }, 'AID verified full-duration speech master');
 
   for (const key of Object.keys(conditioning.inputs)) {
     if (key.startsWith('ref_audios.ref_audio_')) delete conditioning.inputs[key];
@@ -1236,17 +1300,17 @@ export function injectH3ExactSpeechDrive(
   conditioning.inputs.audio_denoise_strength = 0.15;
   conditioning.inputs.add_source_as_reference = true;
   conditioning.inputs.prompt_primary_audio_ordinal = 1;
-  conditioning.inputs.drive_audio = [finalizeId, 0];
+  conditioning.inputs.drive_audio = [speechMasterId, 0];
   conditioning.inputs.strict_prompt_tags = true;
   rewritePromptForExactSpeechDrive(prompt);
+  if (videoCombineEntry) videoCombineEntry[1].inputs.audio = [speechMasterId, 0];
 
-  // The exact-speech track deliberately contains no ambience or Foley. Using
-  // it as a low-denoise remix source for the delivered soundtrack suppressed
-  // every requested background layer and could turn padded silence into a
-  // voiced/static tail. Keep that pass only for video/lip-sync. A second H3
-  // pass locks its generated video latent, regenerates only target audio from
-  // a dialogue-free prompt, and mixes that bed with the independently verified
-  // speech stem. Both passes remain one ComfyUI task and one browser poll.
+  // The exact-speech track deliberately contains no ambience or Foley. Generate
+  // the bed from an independent T2VA latent: reusing the speaking picture or
+  // its reference images lets H3 infer the visible mouth performance and
+  // reconstruct the dialogue despite an explicit no-speech prompt. The
+  // independent bed is then source-separated and its vocal stem is discarded
+  // before it can reach the dialogue-safe master.
   if (
     backgroundPrompt.trim()
     && mainDecodeId
@@ -1261,7 +1325,7 @@ export function injectH3ExactSpeechDrive(
     const backgroundConditioningInputs: JsonRecord = {
       ...conditioning.inputs,
       prompt: [backgroundPromptId, 0],
-      task_type: originalTaskType,
+      task_type: 'T2VA',
       audio_mode: 'native',
       audio_denoise_strength: 1,
       add_source_as_reference: false,
@@ -1269,8 +1333,16 @@ export function injectH3ExactSpeechDrive(
       strict_prompt_tags: true,
     };
     delete backgroundConditioningInputs.drive_audio;
+    delete backgroundConditioningInputs.final_audio;
+    delete backgroundConditioningInputs.first_frame;
+    delete backgroundConditioningInputs.last_frame;
     for (const key of Object.keys(backgroundConditioningInputs)) {
-      if (key.startsWith('ref_audios.ref_audio_')) delete backgroundConditioningInputs[key];
+      if (
+        key.startsWith('ref_audios.ref_audio_')
+        || key.startsWith('ref_images.ref_image_')
+        || key.startsWith('ref_videos.ref_video_')
+        || key.startsWith('ref_video_audios.ref_video_audio_')
+      ) delete backgroundConditioningInputs[key];
     }
     const backgroundConditioningId = addPromptNode(
       prompt,
@@ -1278,19 +1350,9 @@ export function injectH3ExactSpeechDrive(
       backgroundConditioningInputs,
       'AID native ambience and Foley conditioning',
     );
-    const sourcePrepareId = addPromptNode(prompt, 'MiniMaxH3SourceAVPrepareT8', {
-      video_latent: [mainSamplerId, 0],
-      audio_latent: [backgroundConditioningId, 1],
-      video_mode: 'lock',
-      video_denoise_strength: 0,
-      audio_mode: 'regenerate',
-      audio_denoise_strength: 1,
-      audio_fit_policy: 'strict',
-      dtype_device_policy: 'match_video',
-    }, 'AID lock picture and regenerate sound bed');
     const backgroundSetupId = addPromptNode(prompt, 'MiniMaxH3DualClockSamplerT8', {
       ...mainSetup.inputs,
-      av_latent: [sourcePrepareId, 0],
+      av_latent: [backgroundConditioningId, 1],
     }, 'AID ambience and Foley sampler');
     const backgroundGuiderId = addPromptNode(prompt, 'BasicGuider', {
       model: [backgroundSetupId, 0],
@@ -1304,16 +1366,32 @@ export function injectH3ExactSpeechDrive(
       guider: [backgroundGuiderId, 0],
       sampler: [backgroundSetupId, 1],
       sigmas: [backgroundSetupId, 2],
-      latent_image: [sourcePrepareId, 0],
+      latent_image: [backgroundConditioningId, 1],
     }, 'AID ambience and Foley generation');
     const backgroundDecodeId = addPromptNode(prompt, 'MiniMaxH3AVDecodeT8', {
       av_latent: [backgroundSamplerId, 0],
       video_vae: videoVae,
       audio_vae: audioVae,
     }, 'AID ambience and Foley decode');
+    const backgroundSeparationId = addPromptNode(prompt, 'AudioSeparation', {
+      audio: [backgroundDecodeId, 1],
+      chunk_fade_shape: 'half_sine',
+      chunk_length: 10,
+      chunk_overlap: 0.25,
+    }, 'AID reject generated vocals from sound bed');
+    const backgroundLowId = addPromptNode(prompt, 'AudioCombine', {
+      audio_1: [backgroundSeparationId, 0],
+      audio_2: [backgroundSeparationId, 1],
+      method: 'add',
+    }, 'AID combine non-vocal bass and percussion');
+    const safeBackgroundId = addPromptNode(prompt, 'AudioCombine', {
+      audio_1: [backgroundLowId, 0],
+      audio_2: [backgroundSeparationId, 2],
+      method: 'add',
+    }, 'AID non-vocal ambience and Foley bed');
     const masterId = addPromptNode(prompt, 'MiniMaxH3DialogueSafeMasterT8', {
       speech_audio: [finalizeId, 0],
-      speech_accepted: [verifyId, 4],
+      speech_accepted: [finalVerifyId, 4],
       target_duration_seconds: renderSeconds,
       speech_start_seconds: 0,
       output_sample_rate: 32000,
@@ -1331,7 +1409,7 @@ export function injectH3ExactSpeechDrive(
       sfx_gain_db: 0,
       duck_background: 0.28,
       peak_limit_dbfs: -1,
-      ambience_audio: [backgroundDecodeId, 1],
+      ambience_audio: [safeBackgroundId, 0],
     }, 'AID exact dialogue plus full soundscape master');
     videoCombineEntry[1].inputs.audio = [masterId, 0];
   }

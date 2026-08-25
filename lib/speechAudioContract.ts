@@ -1,5 +1,7 @@
 import type { StoryAudioPlan, Storyboard, StorySpeechLine } from '@/types';
 
+export const MAX_H3_SPEECH_TURNS = 3;
+
 export interface TimedSpeechLine extends StorySpeechLine {
   storyboardIndex: number;
   sceneNumber: number;
@@ -150,7 +152,10 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
       && (line.source === 'user_exact' || !isDirectingInstructionDialogue(line.exactLine))
       && !seen.has(`${line.character}\u0000${line.exactLine}`)
       && Boolean(seen.add(`${line.character}\u0000${line.exactLine}`)))
-    .slice(0, 4);
+    // Keep exactly one overflow sentinel so validateSpeechContract can reject
+    // a fourth turn explicitly. Slicing to MAX_H3_SPEECH_TURNS here would
+    // silently delete the invalid turn before the validator can see it.
+    .slice(0, MAX_H3_SPEECH_TURNS + 1);
 }
 
 export function storyboardSpeechWarnings(storyboard: Storyboard): string[] {
@@ -214,8 +219,8 @@ export function validateSpeechLanguage(storyboards: Storyboard[], language?: 'zh
 
 export function validateSpeechContract(storyboards: Storyboard[]): string | undefined {
   const lines = storyboards.flatMap(storyboardSpeech);
-  if (lines.length > 3) return '一个 H3 片段最多安排 3 条顺序台词，请拆成独立片段';
-  if (new Set(lines.map(line => line.character)).size > 3) return '一个 H3 片段最多绑定 3 个说话角色，请拆成独立片段';
+  if (lines.length > MAX_H3_SPEECH_TURNS) return `一个 H3 片段最多安排 ${MAX_H3_SPEECH_TURNS} 条顺序台词，请拆成独立片段`;
+  if (new Set(lines.map(line => line.character)).size > MAX_H3_SPEECH_TURNS) return `一个 H3 片段最多绑定 ${MAX_H3_SPEECH_TURNS} 个说话角色，请拆成独立片段`;
   const overlong = lines.find(line => speechSeconds(line.exactLine) > 11.5);
   if (overlong) return `台词过长，无法在 15 秒内保留开场留白和说后反应：${overlong.character}`;
   const overloadedStoryboard = storyboards.find(storyboard => {
@@ -299,5 +304,5 @@ export function buildNonDiegeticMusic(storyboards: Storyboard[]): string {
   const music = [...new Set(storyboards.map(storyboard => storyboardAudioPlan(storyboard).music).filter(value => value && value !== 'none'))];
   return music.length
     ? `The audience-only score uses ${music.join('; ')}. It remains subordinate to dialogue and visibly caused sound.`
-    : 'N/A';
+    : 'No music is present. No score, melody, rhythmic bed, jingle, singing, instrumental performance, tonal pad, or musical transition is generated.';
 }

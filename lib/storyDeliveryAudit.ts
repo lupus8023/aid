@@ -24,6 +24,35 @@ function speechSignature(character: string, exactLine: string): string {
 }
 
 /**
+ * Match a semantic turn to its delivered speech identity before comparing its
+ * fields. storyboardSpeech may quarantine one invalid line; positional access
+ * would then blame every later, otherwise valid turn for the single omission.
+ * The occurrence index remains authoritative when the same speaker/function
+ * repeats, while exact locked text is the strongest available identity.
+ */
+function alignDeliveredTurns(expectedTurns: any[], deliveredLines: ReturnType<typeof storyboardSpeech>) {
+  const unused = new Set(deliveredLines.map((_, index) => index));
+  return expectedTurns.map((turn, expectedIndex) => {
+    const candidates = [...unused]
+      .filter(index => deliveredLines[index].character === turn.speaker)
+      .map(index => {
+        const line = deliveredLines[index];
+        let score = 0;
+        if (turn.exactLine && String(line.exactLine || '') === String(turn.exactLine)) score += 100;
+        if (turn.function && String(line.storyFunction || '') === String(turn.function)) score += 20;
+        if (turn.contentGoal && String(line.contentGoal || '') === String(turn.contentGoal)) score += 10;
+        score -= Math.abs(index - expectedIndex);
+        return { index, line, score };
+      })
+      .sort((left, right) => right.score - left.score || left.index - right.index);
+    const match = candidates[0];
+    if (!match) return { line: undefined, deliveredIndex: -1 };
+    unused.delete(match.index);
+    return { line: match.line, deliveredIndex: match.index };
+  });
+}
+
+/**
  * Verifies that the Story engine delivered the same causal story and exact
  * spoken-line sequence through screenplay, storyboard and segment planning.
  * This is deliberately deterministic: a later visual model may improve how a
@@ -70,11 +99,15 @@ export function auditStoryDelivery(
       errors.push(`镜头 ${storyboard.sceneNumber} 的逐轮台词语义合同在导演阶段丢失或被改写`);
     }
     const deliveredLines = storyboardSpeech(storyboard);
+    const alignedLines = alignDeliveredTurns(expectedTurns, deliveredLines);
     expectedTurns.forEach((turn, turnIndex) => {
-      const line = deliveredLines[turnIndex];
+      const { line, deliveredIndex } = alignedLines[turnIndex];
       if (!line) {
         errors.push(`镜头 ${storyboard.sceneNumber} 缺少第 ${turnIndex + 1} 轮语义合同对应的逐字台词`);
         return;
+      }
+      if (deliveredLines.length === expectedTurns.length && deliveredIndex !== turnIndex) {
+        errors.push(`镜头 ${storyboard.sceneNumber} 第 ${turnIndex + 1} 轮台词发生缺失、插入或调序（实际位于第 ${deliveredIndex + 1} 条）`);
       }
       if (line.character !== turn.speaker || String(line.storyFunction || '') !== turn.function) {
         errors.push(`镜头 ${storyboard.sceneNumber} 第 ${turnIndex + 1} 轮的说话者或叙事功能偏离故事骨架`);

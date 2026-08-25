@@ -4,7 +4,7 @@ import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
 import { normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from './shotCount';
 import type { NarrativeState, StoryAudioPlan, Storyboard, StoryClipType, StoryDialogueTurn, StorySpeechLine } from '@/types';
-import { generatedSpeakerMatchesVisibleAction, isDirectingInstructionDialogue, sanitizeGeneratedSpeechText, speechSeconds } from '@/lib/speechAudioContract';
+import { MAX_H3_SPEECH_TURNS, generatedSpeakerMatchesVisibleAction, isDirectingInstructionDialogue, sanitizeGeneratedSpeechText, speechSeconds } from '@/lib/speechAudioContract';
 import { castStoryVoices, resolveGeneratedStoryIdentity } from '@/lib/voiceCasting';
 import type { VoiceAgeGroup, VoiceGender } from '@/types';
 
@@ -437,7 +437,10 @@ export function normalizeStoryOutline(
               listenerResult: asString(turn?.listenerResult).trim() || undefined,
             }))
             .filter((turn: StoryOutlineDialogueTurn) => allowedCharacters.includes(turn.speaker) && turn.function && turn.contentGoal)
-            .slice(0, 4);
+            .slice(0, MAX_H3_SPEECH_TURNS + 1);
+          if (dialogueTurns.length > MAX_H3_SPEECH_TURNS) {
+            throw new Error(`镜头 ${nextIndex + 1} 规划了超过 ${MAX_H3_SPEECH_TURNS} 轮台词，请拆到相邻镜头`);
+          }
           requiredSpeaker = requiredSpeaker
             || requiredDialogueLines[0]?.character
             || dialogueTurns[0]?.speaker
@@ -869,7 +872,7 @@ export function sanitizeStoryPlan(
         ...requiredSpeechCharacters,
       ])];
       const visibleAction = asString(b?.action);
-      const dialogueTurns = normalizedDialogueTurns(b?.dialogueTurns, allowedCharacters).slice(0, 4);
+      const dialogueTurns = normalizedDialogueTurns(b?.dialogueTurns, allowedCharacters).slice(0, MAX_H3_SPEECH_TURNS + 1);
       const currentBeatSpeechSignatures = new Set<string>();
       const speech: StorySpeechLine[] = rawSpeech.map((line: any, lineIndex: number): StorySpeechLine | undefined => {
         const character = asString(line?.character || line?.speaker).trim();
@@ -905,7 +908,10 @@ export function sanitizeStoryPlan(
           contentGoal: asString(line?.contentGoal, dialogueTurns[lineIndex]?.contentGoal).trim(),
           source,
         };
-      }).filter((line: StorySpeechLine | undefined): line is StorySpeechLine => Boolean(line)).slice(0, 4);
+      }).filter((line: StorySpeechLine | undefined): line is StorySpeechLine => Boolean(line)).slice(0, MAX_H3_SPEECH_TURNS + 1);
+      if (dialogueTurns.length > MAX_H3_SPEECH_TURNS || speech.length > MAX_H3_SPEECH_TURNS) {
+        throw new Error(`镜头 ${index} 超过 H3 的 ${MAX_H3_SPEECH_TURNS} 轮台词上限，请拆到相邻镜头`);
+      }
       previousBeatSpeechSignatures = new Set(speech.map(line => `${line.character}\u0000${line.exactLine}`));
       const rawAudio = b?.audioPlan && typeof b.audioPlan === 'object' ? b.audioPlan : {};
       const audioPlan: StoryAudioPlan = {
@@ -1309,7 +1315,9 @@ export async function generateStoryPlan(input: {
             required.dialoguePurpose = 'visual_only';
             purpose = 'visual_only';
           }
-          if (rawSpeech.length > 4) throw new Error(`镜头 ${authority.index} 返回超过 4 条台词`);
+          if (rawSpeech.length > MAX_H3_SPEECH_TURNS) {
+            throw new Error(`镜头 ${authority.index} 返回超过 ${MAX_H3_SPEECH_TURNS} 条台词，请拆到相邻镜头`);
+          }
           rawSpeech.forEach((line: any, lineIndex: number) => {
             const exactLine = sanitizeGeneratedSpeechText(line?.exactLine || line?.text);
             const storyFunction = asString(line?.storyFunction).trim();

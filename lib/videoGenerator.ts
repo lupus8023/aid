@@ -543,15 +543,18 @@ export function buildVideoSegmentSoundBedPrompt(
   const timeline = allocateSegmentTimeline(storyboards, seconds);
   const shotCues = storyboards.map((storyboard, index) => {
     const range = timeline[index];
-    const action = compactText(authoritativeShotAction(storyboard), 180);
     const cue = compactText(shotSoundCue(storyboard), 220);
-    return `[Shot ${index + 1}] ${h3Timestamp(range.start)}-${h3Timestamp(range.end)}: the locked picture shows ${action} AUDIO ONLY: ${cue}`;
+    // Do not repeat visual actions here. Dialogue shots commonly describe a
+    // character as "introducing", "explaining" or "answering"; feeding that
+    // semantic action into the audio-bed pass contradicts the no-speech rule
+    // and can make H3 reconstruct the line from the visible performance.
+    return `[Shot ${index + 1}] ${h3Timestamp(range.start)}-${h3Timestamp(range.end)} AUDIO ONLY: ${cue}`;
   });
   return fitH3PromptBudget(`summary:
-[locked-video audio regeneration] Preserve the already generated video stream exactly. Generate only a clean, full-duration background sound bed for ${storyboards.length} causal shot${storyboards.length === 1 ? '' : 's'} over ${seconds.toFixed(2)} seconds.
+[audio-only sound-bed render; visual output discarded] Generate only a clean, full-duration background sound bed for ${storyboards.length} causal shot${storyboards.length === 1 ? '' : 's'} over ${seconds.toFixed(2)} seconds.
 
 detailed_description:
-The video stream is authoritative and must remain unchanged. No character, narrator, crowd member or off-screen person speaks, whispers, hums, laughs, gasps, sings or makes an intelligible vocal sound. Do not imitate, repeat or reconstruct any dialogue. Generate only perspective-correct location ambience and restrained physical Foley synchronized to visible causes.
+The generated visual stream is disposable and is never delivered; do not infer voices, music or performance from a person, product, edit rhythm or genre. No character, narrator, crowd member or off-screen person speaks, whispers, hums, laughs, gasps, sings or makes an intelligible vocal sound. Do not imitate, repeat or reconstruct any dialogue. Generate only perspective-correct location ambience and restrained physical Foley synchronized to the timed cues.
 ${shotCues.join('\n')}
 
 overall_soundscape:

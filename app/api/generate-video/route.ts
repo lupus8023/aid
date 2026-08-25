@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildStoryboardVideoPrompt, buildVideoSegmentPrompt, buildVideoSegmentSoundBedPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
 import { snapDurationToModel } from '@/lib/apimart';
 import { createComfyUIVideoTask } from '@/lib/comfyui';
-import { storyboardSpeech } from '@/lib/speechAudioContract';
+import { compileTimedSpeech, storyboardSpeech } from '@/lib/speechAudioContract';
+import { allocateSegmentTimeline } from '@/lib/videoSegments';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -47,12 +48,19 @@ export async function POST(request: NextRequest) {
       // H3 的所有参考音频总计不能超过 15 秒。只传本镜头真正开口的角色，
       // 避免把画面中未说话角色的声音也计入额度。后续还会在 Companion 端统一裁剪总长。
       const speakingCharacters = [...new Set<string>(videoStoryboards.flatMap(speakingCharacterNames))];
-      const speechTurns = videoStoryboards.flatMap((shot: any) => storyboardSpeech(shot)).map(line => ({
+      const requestedDuration = Number(storyboard.videoDuration) || (videoStoryboards.length > 1 ? 15 : 5);
+      const timedSpeech = compileTimedSpeech(
+        videoStoryboards,
+        allocateSegmentTimeline(videoStoryboards, requestedDuration),
+      );
+      const speechTurns = timedSpeech.map(line => ({
         speakerId: line.speakerId,
         character: line.character,
         exactLine: line.exactLine,
         emotion: line.emotion,
         delivery: line.delivery,
+        start: line.start,
+        end: line.end,
       }));
       const referenceAudioNames: string[] = [];
       const referenceAudios = speakingCharacters
@@ -91,7 +99,7 @@ export async function POST(request: NextRequest) {
         // optional references, so APIMart's URL-tag syntax must not enter the prompt.
         prompt: buildVideoSegmentPrompt(isMultiBeatSegment ? videoStoryboards : [storyboard], [], {
           firstFrameUrl,
-          duration: Number(storyboard.videoDuration) || (isMultiBeatSegment ? 15 : 5),
+          duration: requestedDuration,
           hasVoiceReferences: referenceAudios.length > 0,
           referenceAudioNames,
           visualOverride: storyboard.videoPromptOverride && String(storyboard.videoPrompt || '').trim()
@@ -102,10 +110,10 @@ export async function POST(request: NextRequest) {
         backgroundPrompt: speechTurns.length
           ? buildVideoSegmentSoundBedPrompt(
               isMultiBeatSegment ? videoStoryboards : [storyboard],
-              Number(storyboard.videoDuration) || (isMultiBeatSegment ? 15 : 5),
+              requestedDuration,
             )
           : undefined,
-        duration: Number(storyboard.videoDuration) || 5,
+        duration: requestedDuration,
         aspectRatio: aspectRatio || '16:9',
         settings: comfyui,
       });
