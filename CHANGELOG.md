@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.68 - 2026-08-25
+
+### Fixed
+
+- Exact H3 dialogue no longer depends on ASR or speaker-similarity nodes. Voice bindings, exact-text plans and timeline structure remain fail-closed, while model-dependent similarity scores can no longer reject a generation.
+- Every decoded turn is capped to its storyboard slot, faded at the edit boundary and padded to an exact-width sample block before serial assembly. Short takes cannot pull later lines earlier, and synthesis headroom cannot overflow the segment master.
+- Missing, incomplete, overlapping, out-of-range or sub-millisecond dialogue timings and invalid master durations now fail before a ComfyUI graph is queued instead of silently dropping a turn or constructing an impossible timeline.
+- A final sample-domain ceiling protects both the speech-only drive track and the delivered soundscape master from cumulative rounding or legacy-request overflow.
+- The obsolete post-ASR report link has been removed; audio is no longer connected to the string-only Speech Finalize report input.
+- When the Story contract prohibits music, the separated Bass, Drums and Vocals stems are all discarded and only the ambience/Foley-oriented Other stem reaches the master. Permitted scores continue to retain all non-vocal stems.
+
+### Verification
+
+- The H3 audio regression suite, TypeScript validation and the production Next.js build complete successfully; the generated graph was also checked against the live ComfyUI node schemas and implementations for Trim, Fade, Concat, Decode, Speech Finalize and Dialogue Safe Master.
+
 ## 0.1.67 - 2026-08-25
 
 ### Fixed

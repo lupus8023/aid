@@ -67,7 +67,7 @@ test('invalidates old vowel references while retaining timbre-v3 references', ()
 });
 
 test('generates a visually independent sound bed and rejects its vocal stem before mastering', () => {
-  const prompt = {
+  const seedPrompt = {
     1: { class_type: 'PrimitiveStringMultiline', inputs: { value: 'subject_definitions:\n\nretention_analysis:\nAudio references supply timbre only; ignore their words/timing.' }, _meta: { title: 'Input Text (Prompt)' } },
     2: { class_type: 'MiniMaxH3AudioConditioningT8', inputs: { clip: ['3', 0], video_vae: ['4', 0], audio_vae: ['5', 0], prompt: ['1', 0], width: 768, height: 1344, length: 209, task_type: 'Ref2VA', audio_mode: 'native' } },
     3: { class_type: 'CLIPLoader', inputs: {} },
@@ -82,24 +82,29 @@ test('generates a visually independent sound bed and rejects its vocal stem befo
     12: { class_type: 'MiniMaxH3AVDecodeT8', inputs: { av_latent: ['11', 0], video_vae: ['4', 0], audio_vae: ['5', 0] } },
     13: { class_type: 'VHS_VideoCombine', inputs: { images: ['12', 0], audio: ['12', 1] } },
   };
+  const prompt = structuredClone(seedPrompt);
   assert.equal(injectH3ExactSpeechDrive(
     prompt,
     ['voice.wav'],
     ['Officer'],
-    [{ speakerId: 'S2', character: 'Officer', exactLine: 'The gate is holding.' }],
+    [{ speakerId: 'S2', character: 'Officer', exactLine: 'The gate is holding.', start: 0.8, end: 4 }],
     8.67,
     'en',
-    '/models/faster-whisper-small',
-    'Generate only continuous wind, cloth movement and footsteps. No human voice.',
+    'Generate only continuous wind, cloth movement and footsteps. No human voice. No music is present.',
   ), true);
   const nodes = Object.values(prompt);
   const backgroundConditioning = nodes.find(node => node._meta?.title === 'AID native ambience and Foley conditioning');
   const backgroundSetupEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID ambience and Foley sampler');
   const backgroundSeparationEntry = Object.entries(prompt).find(([, node]) => node.class_type === 'AudioSeparation');
-  const safeBackgroundEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID non-vocal ambience and Foley bed');
   const masterEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID exact dialogue plus full soundscape master');
   const finalizeEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID exact-dialogue final');
-  const verifierEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID exact-dialogue ASR diagnostic turn 1');
+  const decodeEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID exact-dialogue decode turn 1');
+  const acceptedEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID exact speech structural acceptance');
+  const scheduledAudioEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID fit dialogue to scheduled turn 1');
+  const clickSafeAudioEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID click-safe dialogue boundary turn 1');
+  const exactSlotEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID exact-width dialogue slot turn 1');
+  const boundedTrackEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID final speech track master bound');
+  const appendTurnEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID append exact dialogue turn 1');
   const speechVerifiers = Object.entries(prompt).filter(([, node]) => node.class_type === 'MiniMaxH3SpeechVerifyT8');
   const master = masterEntry[1];
   assert.ok(!nodes.some(node => node.class_type === 'MiniMaxH3SourceAVPrepareT8'));
@@ -117,21 +122,46 @@ test('generates a visually independent sound bed and rejects its vocal stem befo
     Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID ambience and Foley decode')[0],
     1,
   ]);
-  assert.deepEqual(master.inputs.speech_accepted, [verifierEntry[0], 4]);
-  assert.deepEqual(finalizeEntry[1].inputs.upstream_report, [verifierEntry[0], 5]);
-  assert.equal(speechVerifiers.length, 1);
-  assert.equal(speechVerifiers[0][1].inputs.strict, false);
-  assert.equal(speechVerifiers[0][1].inputs.min_similarity, 0);
-  assert.equal(speechVerifiers[0][1].inputs.speaker_check_mode, 'off');
-  assert.deepEqual(master.inputs.ambience_audio, [safeBackgroundEntry[0], 0]);
+  assert.deepEqual(master.inputs.speech_accepted, [acceptedEntry[0], 0]);
+  assert.equal('upstream_report' in finalizeEntry[1].inputs, false);
+  assert.equal(speechVerifiers.length, 0);
+  assert.equal(acceptedEntry[1].inputs.value, true);
+  assert.deepEqual(scheduledAudioEntry[1].inputs.audio, [decodeEntry[0], 0]);
+  assert.equal(scheduledAudioEntry[1].inputs.duration, 3.2);
+  assert.deepEqual(clickSafeAudioEntry[1].inputs.audio, [scheduledAudioEntry[0], 0]);
+  assert.equal(clickSafeAudioEntry[1].inputs.fade_out_seconds, 0.012);
+  assert.deepEqual(exactSlotEntry[1].inputs.speech_audio, [clickSafeAudioEntry[0], 0]);
+  assert.deepEqual(exactSlotEntry[1].inputs.speech_accepted, [acceptedEntry[0], 0]);
+  assert.equal(exactSlotEntry[1].inputs.target_duration_seconds, 3.2);
+  assert.deepEqual(appendTurnEntry[1].inputs.audio2, [exactSlotEntry[0], 0]);
+  assert.equal(boundedTrackEntry[1].inputs.duration, 8.67);
+  assert.deepEqual(finalizeEntry[1].inputs.audio, [boundedTrackEntry[0], 0]);
+  assert.deepEqual(master.inputs.ambience_audio, [backgroundSeparationEntry[0], 2]);
+  assert.equal(nodes.filter(node => node.class_type === 'AudioCombine').length, 0);
   assert.equal(master.inputs.ambience_fit_policy, 'pad_or_trim');
   assert.deepEqual(prompt[13].inputs.audio, [
     masterEntry[0],
     0,
   ]);
+
+  const scoredPrompt = structuredClone(seedPrompt);
+  assert.equal(injectH3ExactSpeechDrive(
+    scoredPrompt,
+    ['voice.wav'],
+    ['Officer'],
+    [{ speakerId: 'S2', character: 'Officer', exactLine: 'The gate is holding.', start: 0.8, end: 4 }],
+    8.67,
+    'en',
+    'Generate wind and footsteps under a restrained audience-only orchestral score. No human voice.',
+  ), true);
+  const scoredNodes = Object.values(scoredPrompt);
+  const scoredBedEntry = Object.entries(scoredPrompt).find(([, node]) => node._meta?.title === 'AID permitted non-vocal score ambience and Foley bed');
+  const scoredMasterEntry = Object.entries(scoredPrompt).find(([, node]) => node._meta?.title === 'AID exact dialogue plus full soundscape master');
+  assert.equal(scoredNodes.filter(node => node.class_type === 'AudioCombine').length, 2);
+  assert.deepEqual(scoredMasterEntry[1].inputs.ambience_audio, [scoredBedEntry[0], 0]);
 });
 
-test('builds H3 speech first and drives video with the verified exact track', () => {
+test('builds H3 speech first and drives video with the structurally scheduled exact-text track', () => {
   const prompt = {
     1: { class_type: 'PrimitiveStringMultiline', inputs: { value: 'subject_definitions:\n<Audio 1> is the reusable Fish Audio timbre identity for S1; ignore sample words/timing. H3 speaks only scheduled dialogue.\n\nretention_analysis:\n<Audio 1>: timbre only; ignore source words/timing.\nAudio references supply timbre only; ignore their words/timing.' }, _meta: { title: 'Input Text (Prompt)' } },
     2: { class_type: 'MiniMaxH3AudioConditioningT8', inputs: { clip: ['3', 0], video_vae: ['4', 0], audio_vae: ['5', 0], prompt: ['1', 0], task_type: 'Ref2VA', audio_mode: 'native', 'ref_audios.ref_audio_0': ['9', 0] } },
@@ -147,10 +177,9 @@ test('builds H3 speech first and drives video with the verified exact track', ()
     prompt,
     ['voice.wav'],
     ['Officer'],
-    [{ speakerId: 'S2', character: 'Officer', exactLine: 'The gate is holding.' }],
+    [{ speakerId: 'S2', character: 'Officer', exactLine: 'The gate is holding.', start: 0.8, end: 3.5 }],
     8,
     'en',
-    '/models/faster-whisper-small',
   ), true);
   assert.equal(prompt[2].inputs.audio_mode, 'remix_source');
   assert.equal(prompt[2].inputs.task_type, 'Ref2VA');
@@ -158,7 +187,8 @@ test('builds H3 speech first and drives video with the verified exact track', ()
   assert.equal('ref_audios.ref_audio_0' in prompt[2].inputs, false);
   assert.match(prompt[1].inputs.value, /exact H3-generated dialogue track/);
   assert.doesNotMatch(prompt[1].inputs.value, /timbre only; ignore source words/);
-  assert.ok(Object.values(prompt).some(node => node.class_type === 'MiniMaxH3SpeechVerifyT8' && node.inputs.verify_mode === 'trim_exact_target'));
+  assert.ok(!Object.values(prompt).some(node => node.class_type === 'MiniMaxH3SpeechVerifyT8'));
+  assert.ok(Object.values(prompt).some(node => node.class_type === 'PrimitiveBoolean' && node.inputs.value === true));
   assert.ok(Object.values(prompt).some(node => (
     node.class_type === 'MiniMaxH3VoiceProfileT8'
     && node.inputs.speaker_id === 'S2'
@@ -182,10 +212,9 @@ test('uses Hybrid exact-speech conditioning when continuity keeps first and last
     prompt,
     ['voice.wav'],
     ['Officer'],
-    [{ speakerId: 'S2', character: 'Officer', exactLine: 'The gate is holding.' }],
+    [{ speakerId: 'S2', character: 'Officer', exactLine: 'The gate is holding.', start: 0.8, end: 3.5 }],
     8,
     'en',
-    '/models/faster-whisper-small',
   ), true);
   assert.equal(prompt[2].inputs.task_type, 'Hybrid');
   assert.ok(Array.isArray(prompt[2].inputs.drive_audio));
@@ -212,7 +241,6 @@ test('routes duplicate references for one speaking character through single-spea
     ],
     8,
     'en',
-    '/models/faster-whisper-small',
   ), true);
   assert.equal(Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3VoiceProfileT8').length, 1);
   assert.equal(Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3SpeechConditioningT8').length, 2);
@@ -224,12 +252,15 @@ test('routes duplicate references for one speaking character through single-spea
     Object.values(prompt).filter(node => node.class_type === 'EmptyAudio').map(node => node.inputs.duration),
     [1.2, 0.35],
   );
-  assert.equal(Object.values(prompt).filter(node => (
-    node.class_type === 'MiniMaxH3SpeechVerifyT8'
-    && node.inputs.strict === false
-    && node.inputs.min_similarity === 0
-    && node.inputs.speaker_check_mode === 'off'
-  )).length, 2);
+  assert.deepEqual(
+    Object.values(prompt).filter(node => String(node._meta?.title || '').startsWith('AID fit dialogue to scheduled turn')).map(node => node.inputs.duration),
+    [1.8, 1.85],
+  );
+  assert.deepEqual(
+    Object.values(prompt).filter(node => String(node._meta?.title || '').startsWith('AID exact-width dialogue slot')).map(node => node.inputs.target_duration_seconds),
+    [1.8, 1.85],
+  );
+  assert.equal(Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3SpeechVerifyT8').length, 0);
   assert.ok(!Object.values(prompt).some(node => node.class_type === 'MiniMaxH3JointDialogueConditioningT8'));
 });
 
@@ -249,17 +280,17 @@ test('renders different speakers independently before assembling their exact tur
     ['a-luo.wav', 'mermaid.wav'],
     ['A-Luo', '人鱼公主'],
     [
-      { speakerId: 'S3', character: 'A-Luo', exactLine: 'Let someone else carry one.' },
-      { speakerId: 'S1', character: '人鱼公主', exactLine: 'Not while the palace depends on me.' },
+      { speakerId: 'S3', character: 'A-Luo', exactLine: 'Let someone else carry one.', start: 0.8, end: 4.2 },
+      { speakerId: 'S1', character: '人鱼公主', exactLine: 'Not while the palace depends on me.', start: 4.55, end: 9.4 },
     ],
     13,
     'en',
-    '/models/faster-whisper-small',
   ), true);
   const profiles = Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3VoiceProfileT8');
   assert.deepEqual(profiles.map(node => node.inputs.speaker_id), ['S3', 'S1']);
   assert.equal(Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3SpeechPlanT8').length, 2);
-  assert.equal(Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3SpeechVerifyT8').length, 2);
+  assert.equal(Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3SpeechVerifyT8').length, 0);
+  assert.equal(Object.values(prompt).filter(node => node.class_type === 'PrimitiveBoolean').length, 1);
   assert.equal(Object.values(prompt).filter(node => node.class_type === 'ComfySwitchNode').length, 0);
   assert.ok(!Object.values(prompt).some(node => node.class_type === 'MiniMaxH3DialogueScriptT8'));
   assert.ok(!Object.values(prompt).some(node => node.class_type === 'MiniMaxH3JointDialogueConditioningT8'));
@@ -281,12 +312,11 @@ test('resolves legacy speaker-id collisions without dropping either character', 
     ['chen.wav', 'gu.wav'],
     ['陈默', '顾寒'],
     [
-      { speakerId: 'S39', character: '陈默', exactLine: '先关掉总闸。' },
-      { speakerId: 'S39', character: '顾寒', exactLine: '我去检查备用线路。' },
+      { speakerId: 'S39', character: '陈默', exactLine: '先关掉总闸。', start: 0.8, end: 2.5 },
+      { speakerId: 'S39', character: '顾寒', exactLine: '我去检查备用线路。', start: 2.85, end: 5.8 },
     ],
     8,
     'zh',
-    '/models/faster-whisper-small',
   ), true);
   const profiles = Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3VoiceProfileT8');
   assert.equal(new Set(profiles.map(node => node.inputs.speaker_id)).size, 2);
@@ -299,11 +329,32 @@ test('resolves legacy speaker-id collisions without dropping either character', 
 test('fails closed for spoken segments instead of silently falling back to native H3 speech', () => {
   assert.equal(injectH3ExactSpeechDrive({}, [], [], [], 8, 'zh'), false);
   assert.throws(() => injectH3ExactSpeechDrive(
-    {}, [], [], [{ speakerId: 'S1', character: '陈默', exactLine: '关掉总闸。' }], 8, 'zh', '/models/faster-whisper-small',
+    {}, [], [], [{ speakerId: 'S1', character: '陈默', exactLine: '关掉总闸。', start: 0.8, end: 2.8 }], 8, 'zh',
   ), /缺少角色音色参考/);
   assert.throws(() => injectH3ExactSpeechDrive(
-    {}, ['chen.wav'], ['陈默'], [{ speakerId: 'S1', character: '陈默', exactLine: '关掉总闸。' }], 8, 'zh', '',
-  ), /缺少 faster-whisper-small/);
+    {}, ['chen.wav'], ['陈默'], [{ speakerId: 'S1', character: '陈默', exactLine: '关掉总闸。' }], 8, 'zh',
+  ), /缺少有效的开始\/结束时间/);
+  assert.throws(() => injectH3ExactSpeechDrive(
+    {}, ['chen.wav'], ['陈默'], [
+      { speakerId: 'S1', character: '陈默', exactLine: '关掉总闸。', start: 0.8, end: 2.8 },
+      { speakerId: 'S2', character: '', exactLine: '我去检查。', start: 3.15, end: 4.8 },
+    ], 8, 'zh',
+  ), /阻止静默丢弃/);
+  assert.throws(() => injectH3ExactSpeechDrive(
+    {}, ['chen.wav'], ['陈默'], [{ speakerId: 'S1', character: '陈默', exactLine: '关掉总闸。', start: 0.8, end: 0.8005 }], 8, 'zh',
+  ), /短于 1 毫秒/);
+  assert.throws(() => injectH3ExactSpeechDrive(
+    {}, ['chen.wav'], ['陈默'], [{ speakerId: 'S1', character: '陈默', exactLine: '关掉总闸。', start: 0.8, end: 2.8 }], Number.NaN, 'zh',
+  ), /缺少有效的母带时长/);
+  assert.throws(() => injectH3ExactSpeechDrive(
+    {}, ['chen.wav'], ['陈默'], [{ speakerId: 'S1', character: '陈默', exactLine: '关掉总闸。', start: 7.2, end: 8.4 }], 8, 'zh',
+  ), /超过片段母带/);
+  assert.throws(() => injectH3ExactSpeechDrive(
+    {}, ['chen.wav'], ['陈默'], [
+      { speakerId: 'S1', character: '陈默', exactLine: '先关总闸。', start: 0.8, end: 2.8 },
+      { speakerId: 'S1', character: '陈默', exactLine: '再查线路。', start: 2.4, end: 4.2 },
+    ], 8, 'zh',
+  ), /时间重叠或顺序错误/);
 });
 
 function assertValidAllocation(sourceDurations, expectedDurations) {
