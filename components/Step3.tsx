@@ -193,7 +193,7 @@ export default function Step3({ storyPlan, storyboards, characters, objects, cos
               const isGenerating = !!voiceGenerating[char.name];
               const isSpeaking = speakingNames.has(char.name);
               return (
-                <div key={char.name} className="grid grid-cols-[150px_120px_130px_minmax(240px,360px)_minmax(260px,1fr)] items-center gap-3 px-3 py-3">
+                <div key={char.name} className="grid grid-cols-[150px_120px_130px_minmax(240px,360px)_minmax(260px,1fr)] items-start gap-3 px-3 py-3">
                   <div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate text-xs text-white">{char.name}</span>{isSpeaking && <span className="rounded bg-[var(--accent-green)]/10 px-1.5 py-0.5 text-[8px] text-[var(--accent-green)]">有台词</span>}</div><p className="mt-1 truncate text-[9px] text-[var(--text-muted)]">{char.role || char.voiceProfile || '故事角色'}</p></div>
                   <select value={(char.gender || 'unknown') as VoiceGender} onChange={event => onVoiceCastChange?.(char.name, { gender: event.target.value as VoiceGender, voiceId: undefined, voiceSource: 'auto' })} className="rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-2 text-[10px] text-white">
                     <option value="unknown">性别待确认</option><option value="female">女性</option><option value="male">男性</option><option value="nonbinary">中性/非二元</option>

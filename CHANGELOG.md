@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.64 - 2026-08-25
+
+### Fixed
+
+- Voice-casting row content now aligns to the top, keeping character details, selectors, the Fish Audio reference field and preview controls on one consistent upper edge even when helper text is present.
+
+### Verification
+
+- The voice-casting regression suite and production Next.js build complete successfully.
+
 ## 0.1.63 - 2026-08-25
 
 ### Fixed
