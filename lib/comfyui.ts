@@ -1181,50 +1181,75 @@ export function injectH3ExactSpeechDrive(
       model: [sampleSetupId, 0],
       conditioning: [speechConditioningId, 0],
     }, `AID exact-dialogue guider turn ${turnIndex + 1}`);
-    const noiseId = addPromptNode(prompt, 'RandomNoise', {
-      noise_seed: Number(BigInt(`0x${randomBytes(7).toString('hex')}`)),
-    }, `AID exact-dialogue noise turn ${turnIndex + 1}`);
-    const samplerId = addPromptNode(prompt, 'SamplerCustomAdvanced', {
-      noise: [noiseId, 0],
-      guider: [guiderId, 0],
-      sampler: [sampleSetupId, 1],
-      sigmas: [sampleSetupId, 2],
-      latent_image: [speechConditioningId, 1],
-    }, `AID exact-dialogue generation turn ${turnIndex + 1}`);
-    const decodeId = addPromptNode(prompt, 'MiniMaxH3SpeechDecodeT8', {
-      av_latent: [samplerId, 0],
-      audio_vae: audioVae,
-      trim_mode: 'conservative_energy',
-      energy_threshold_dbfs: -50,
-      trim_padding_seconds: 0.1,
-    }, `AID exact-dialogue decode turn ${turnIndex + 1}`);
     const expectedId = addPromptNode(prompt, 'PrimitiveStringMultiline', {
       value: turn.exactLine,
     }, `AID expected dialogue turn ${turnIndex + 1}`);
-    const verifyId = addPromptNode(prompt, 'MiniMaxH3SpeechVerifyT8', {
-      audio: [decodeId, 0],
-      expected_text: [expectedId, 0],
-      verify_mode: 'trim_exact_target',
-      asr_model_directory: asrModelDirectory,
-      language: languageName,
-      min_similarity: 0.8,
-      beam_size: 5,
-      cpu_threads: 8,
-      unload_after_verify: true,
-      strict: true,
-      pre_padding_seconds: 0.08,
-      post_padding_seconds: 0.2,
-      speaker_check_mode: 'off',
-      speaker_model_directory: '',
-      min_speaker_similarity: 0.86,
-      unload_speaker_after_verify: true,
-      peak_limit_dbfs: -1,
-    }, `AID exact-dialogue ASR turn ${turnIndex + 1}`);
-    return { verifyId, turn };
+
+    const addSpeechCandidate = (attempt: number, strict: boolean): string => {
+      const suffix = `turn ${turnIndex + 1} attempt ${attempt}`;
+      const noiseId = addPromptNode(prompt, 'RandomNoise', {
+        noise_seed: Number(BigInt(`0x${randomBytes(7).toString('hex')}`)),
+      }, `AID exact-dialogue noise ${suffix}`);
+      const samplerId = addPromptNode(prompt, 'SamplerCustomAdvanced', {
+        noise: [noiseId, 0],
+        guider: [guiderId, 0],
+        sampler: [sampleSetupId, 1],
+        sigmas: [sampleSetupId, 2],
+        latent_image: [speechConditioningId, 1],
+      }, `AID exact-dialogue generation ${suffix}`);
+      const decodeId = addPromptNode(prompt, 'MiniMaxH3SpeechDecodeT8', {
+        av_latent: [samplerId, 0],
+        audio_vae: audioVae,
+        trim_mode: 'conservative_energy',
+        energy_threshold_dbfs: -50,
+        trim_padding_seconds: 0.1,
+      }, `AID exact-dialogue decode ${suffix}`);
+      return addPromptNode(prompt, 'MiniMaxH3SpeechVerifyT8', {
+        audio: [decodeId, 0],
+        expected_text: [expectedId, 0],
+        verify_mode: 'trim_exact_target',
+        asr_model_directory: asrModelDirectory,
+        language: languageName,
+        min_similarity: 0.8,
+        beam_size: 5,
+        cpu_threads: 8,
+        unload_after_verify: true,
+        strict,
+        pre_padding_seconds: 0.08,
+        post_padding_seconds: 0.2,
+        speaker_check_mode: 'off',
+        speaker_model_directory: '',
+        min_speaker_similarity: 0.86,
+        unload_speaker_after_verify: true,
+        peak_limit_dbfs: -1,
+      }, `AID exact-dialogue ASR ${suffix}`);
+    };
+
+    // Exact H3 speech is stochastic. Keep the first ASR gate non-throwing so
+    // ComfyUI's lazy switch can render a fresh candidate only when needed.
+    // The retry remains strict: no rejected speech can reach the video master.
+    const firstVerifyId = addSpeechCandidate(1, false);
+    const retryVerifyId = addSpeechCandidate(2, true);
+    const selectedAudioId = addPromptNode(prompt, 'ComfySwitchNode', {
+      switch: [firstVerifyId, 4],
+      on_false: [retryVerifyId, 0],
+      on_true: [firstVerifyId, 0],
+    }, `AID select accepted dialogue turn ${turnIndex + 1}`);
+    const selectedAcceptedId = addPromptNode(prompt, 'ComfySwitchNode', {
+      switch: [firstVerifyId, 4],
+      on_false: [retryVerifyId, 4],
+      on_true: [firstVerifyId, 4],
+    }, `AID accepted dialogue turn ${turnIndex + 1}`);
+    const selectedReportId = addPromptNode(prompt, 'ComfySwitchNode', {
+      switch: [firstVerifyId, 4],
+      on_false: [retryVerifyId, 5],
+      on_true: [firstVerifyId, 5],
+    }, `AID verification report turn ${turnIndex + 1}`);
+    return { selectedAudioId, selectedAcceptedId, selectedReportId, turn };
   });
 
   let assembledAudio: [string, number] | undefined;
-  verifiedTurns.forEach(({ verifyId, turn }, turnIndex) => {
+  verifiedTurns.forEach(({ selectedAudioId, turn }, turnIndex) => {
     const previous = verifiedTurns[turnIndex - 1]?.turn;
     const rawPauseSeconds = turnIndex === 0
       ? (Number.isFinite(turn.start) ? Math.max(0, turn.start) : 0.45)
@@ -1248,30 +1273,30 @@ export function injectH3ExactSpeechDrive(
         assembledAudio = [concatId, 0];
       }
     }
-    if (!assembledAudio) assembledAudio = [verifyId, 0];
+    if (!assembledAudio) assembledAudio = [selectedAudioId, 0];
     else {
       const concatId = addPromptNode(prompt, 'AudioConcat', {
         audio1: assembledAudio,
-        audio2: [verifyId, 0],
+        audio2: [selectedAudioId, 0],
         direction: 'after',
       }, `AID append exact dialogue turn ${turnIndex + 1}`);
       assembledAudio = [concatId, 0];
     }
   });
   if (!assembledAudio) throw new ComfyUIError('精确台词音轨组装失败');
-  const finalVerifyId = verifiedTurns[verifiedTurns.length - 1].verifyId;
+  const finalTurn = verifiedTurns[verifiedTurns.length - 1];
   const finalizeId = addPromptNode(prompt, 'MiniMaxH3SpeechFinalizeT8', {
     audio: assembledAudio,
     release_policy: 'keep_loaded',
-    upstream_report: [finalVerifyId, 5],
+    upstream_report: [finalTurn.selectedReportId, 0],
     speech_guard: [guardId, 0],
   }, 'AID exact-dialogue final');
-  // Every prior verifier is strict, so reaching the last accepted output means
-  // all turns passed ASR. Pad the verified sequence to the exact video clock
-  // before it is used as H3's drive track.
+  // Every rejected first candidate is routed through a strict retry, so
+  // reaching the selected output means every turn passed ASR. Pad the verified
+  // sequence to the exact video clock before it is used as H3's drive track.
   const speechMasterId = addPromptNode(prompt, 'MiniMaxH3DialogueSafeMasterT8', {
     speech_audio: [finalizeId, 0],
-    speech_accepted: [finalVerifyId, 4],
+    speech_accepted: [finalTurn.selectedAcceptedId, 0],
     target_duration_seconds: renderSeconds,
     speech_start_seconds: 0,
     output_sample_rate: 32000,
@@ -1391,7 +1416,7 @@ export function injectH3ExactSpeechDrive(
     }, 'AID non-vocal ambience and Foley bed');
     const masterId = addPromptNode(prompt, 'MiniMaxH3DialogueSafeMasterT8', {
       speech_audio: [finalizeId, 0],
-      speech_accepted: [finalVerifyId, 4],
+      speech_accepted: [finalTurn.selectedAcceptedId, 0],
       target_duration_seconds: renderSeconds,
       speech_start_seconds: 0,
       output_sample_rate: 32000,
@@ -2128,14 +2153,38 @@ export async function createComfyUIImageTask(input: {
 
 interface ComfyOutputRef { filename: string; subfolder: string; type: string }
 
-function comfyUIExecutionError(messages: unknown): string {
+function historyApiPrompt(item: JsonRecord | undefined): JsonRecord {
+  const candidate = Array.isArray(item?.prompt) ? item.prompt[2] : undefined;
+  return candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+    ? candidate as JsonRecord
+    : {};
+}
+
+function comfyUIExecutionError(messages: unknown, apiPrompt: JsonRecord = {}): string {
   if (Array.isArray(messages)) {
     for (const message of messages) {
       if (!Array.isArray(message) || message[0] !== 'execution_error') continue;
       const details = message[1] as JsonRecord | undefined;
       const node = details?.node_type || details?.node_id;
       const exception = details?.exception_message || details?.exception_type;
-      if (exception) return `${node ? `${node}: ` : ''}${String(exception)}`;
+      if (exception) {
+        const nodeId = String(details?.node_id || '');
+        const nodeDefinition = apiPrompt[nodeId];
+        const rawException = String(exception);
+        const speechMetrics = rawException.match(
+          /speech verification failed:\s*text_similarity=([0-9.]+),\s*speaker_similarity=([0-9.]+)/i,
+        );
+        if (
+          details?.node_type === 'MiniMaxH3SpeechVerifyT8'
+          && speechMetrics
+          && nodeDefinition?.inputs?.speaker_check_mode === 'off'
+        ) {
+          const threshold = Number(nodeDefinition.inputs.min_similarity);
+          const thresholdLabel = Number.isFinite(threshold) ? threshold.toFixed(3) : '配置值';
+          return `MiniMaxH3SpeechVerifyT8: 台词 ASR 校验失败：文本相似度 ${speechMetrics[1]}，要求至少 ${thresholdLabel}；音色相似度未启用（原始 0.000 不是音色不匹配）`;
+        }
+        return `${node ? `${node}: ` : ''}${rawException}`;
+      }
     }
   }
   return JSON.stringify(messages || []).slice(0, 3000);
@@ -2165,7 +2214,10 @@ export async function getComfyUIImageStatus(taskId: string, settings: ComfyUICli
       if (!item) return { status: 'processing' as const };
       const status = item.status || {};
       if (status.status_str === 'error') {
-        return { status: 'failed' as const, error: `ComfyUI 执行失败：${comfyUIExecutionError(status.messages)}` };
+        return {
+          status: 'failed' as const,
+          error: `ComfyUI 执行失败：${comfyUIExecutionError(status.messages, historyApiPrompt(item))}`,
+        };
       }
       const output = collectFileRefs(item.outputs || {}).find(ref => IMAGE_SUFFIXES.has(path.extname(ref.filename).toLowerCase()));
       if (!output) return { status: 'failed' as const, error: 'Z-Image-Turbo 已结束但没有返回图片文件' };
@@ -2275,7 +2327,10 @@ export async function getComfyUIVideoStatus(taskId: string, settings: ComfyUICli
       }
       const status = item.status || {};
       if (status.status_str === 'error') {
-        return { status: 'failed' as const, error: `ComfyUI 执行失败：${comfyUIExecutionError(status.messages)}` };
+        return {
+          status: 'failed' as const,
+          error: `ComfyUI 执行失败：${comfyUIExecutionError(status.messages, historyApiPrompt(item))}`,
+        };
       }
       const output = selectComfyUIVideoOutput(item.outputs || {});
       if (!output) return { status: 'failed' as const, error: 'ComfyUI 任务完成但没有返回视频文件' };

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.66 - 2026-08-25
+
+### Fixed
+
+- Exact H3 dialogue now performs one lazy, fresh-seed regeneration when the first candidate fails the strict ASR text threshold. The accepted first take remains fast, while a stochastic wording failure no longer forces the user to restart the complete video segment manually.
+- A second rejected candidate still fails closed, so approximate, truncated or improvised dialogue cannot enter the video master.
+- Speech-verification errors now distinguish the active ASR text score from a disabled speaker check; `speaker_similarity=0.000` is no longer presented as an apparent voice-identity failure when speaker verification was not run.
+
+### Verification
+
+- 69 focused H3 audio, prompt, story-delivery, video-segment and Companion regression tests pass; TypeScript validation and the production Next.js build complete successfully.
+
 ## 0.1.65 - 2026-08-25
 
 ### Fixed

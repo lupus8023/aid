@@ -98,6 +98,9 @@ test('generates a visually independent sound bed and rejects its vocal stem befo
   const backgroundSeparationEntry = Object.entries(prompt).find(([, node]) => node.class_type === 'AudioSeparation');
   const safeBackgroundEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID non-vocal ambience and Foley bed');
   const masterEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID exact dialogue plus full soundscape master');
+  const acceptedSwitchEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID accepted dialogue turn 1');
+  const audioSwitchEntry = Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID select accepted dialogue turn 1');
+  const speechVerifiers = Object.entries(prompt).filter(([, node]) => node.class_type === 'MiniMaxH3SpeechVerifyT8');
   const master = masterEntry[1];
   assert.ok(!nodes.some(node => node.class_type === 'MiniMaxH3SourceAVPrepareT8'));
   assert.equal(backgroundConditioning.inputs.task_type, 'T2VA');
@@ -114,10 +117,12 @@ test('generates a visually independent sound bed and rejects its vocal stem befo
     Object.entries(prompt).find(([, node]) => node._meta?.title === 'AID ambience and Foley decode')[0],
     1,
   ]);
-  assert.deepEqual(master.inputs.speech_accepted, [
-    Object.entries(prompt).find(([, node]) => node.class_type === 'MiniMaxH3SpeechVerifyT8')[0],
-    4,
-  ]);
+  assert.deepEqual(master.inputs.speech_accepted, [acceptedSwitchEntry[0], 0]);
+  assert.equal(speechVerifiers.length, 2);
+  assert.deepEqual(speechVerifiers.map(([, node]) => node.inputs.strict), [false, true]);
+  assert.deepEqual(audioSwitchEntry[1].inputs.switch, [speechVerifiers[0][0], 4]);
+  assert.deepEqual(audioSwitchEntry[1].inputs.on_false, [speechVerifiers[1][0], 0]);
+  assert.deepEqual(audioSwitchEntry[1].inputs.on_true, [speechVerifiers[0][0], 0]);
   assert.deepEqual(master.inputs.ambience_audio, [safeBackgroundEntry[0], 0]);
   assert.equal(master.inputs.ambience_fit_policy, 'pad_or_trim');
   assert.deepEqual(prompt[13].inputs.audio, [
@@ -249,7 +254,8 @@ test('renders different speakers independently before assembling their exact tur
   const profiles = Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3VoiceProfileT8');
   assert.deepEqual(profiles.map(node => node.inputs.speaker_id), ['S3', 'S1']);
   assert.equal(Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3SpeechPlanT8').length, 2);
-  assert.equal(Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3SpeechVerifyT8').length, 2);
+  assert.equal(Object.values(prompt).filter(node => node.class_type === 'MiniMaxH3SpeechVerifyT8').length, 4);
+  assert.equal(Object.values(prompt).filter(node => node.class_type === 'ComfySwitchNode').length, 6);
   assert.ok(!Object.values(prompt).some(node => node.class_type === 'MiniMaxH3DialogueScriptT8'));
   assert.ok(!Object.values(prompt).some(node => node.class_type === 'MiniMaxH3JointDialogueConditioningT8'));
 });
