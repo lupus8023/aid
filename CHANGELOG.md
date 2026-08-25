@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.67 - 2026-08-25
+
+### Fixed
+
+- H3 speaker-identity similarity remains completely disabled; its unmeasured `0.000` placeholder never participates in acceptance.
+- The faster-whisper-small text score is now diagnostic-only. Chinese homophones, names, short lines and model-specific transcription differences can no longer reject usable dialogue or trigger a second generation pass.
+- Each dialogue turn receives text-aware synthesis headroom beyond the brisk storyboard timing estimate, reducing deterministic sentence-tail truncation before the audio is placed back on the exact segment timeline.
+- ASR still preserves its transcript report and trims a confidently recognized exact target, while structural voice binding, turn limits, silent-segment handling and non-vocal sound-bed safeguards remain enforced.
+
+### Verification
+
+- 173 regression tests pass across H3 audio and prompts, story generation and delivery, video segmentation, voice casting, project recovery and Companion export; TypeScript validation and the production Next.js build complete successfully.
+
 ## 0.1.66 - 2026-08-25
 
 ### Fixed

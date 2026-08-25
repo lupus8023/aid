@@ -8,7 +8,7 @@ import { homedir, tmpdir } from 'os';
 import path from 'path';
 import net from 'net';
 import { Client, type SFTPWrapper } from 'ssh2';
-import { MAX_H3_SPEECH_TURNS } from '@/lib/speechAudioContract';
+import { MAX_H3_SPEECH_TURNS, speechSeconds } from '@/lib/speechAudioContract';
 
 const execFileAsync = promisify(execFile);
 
@@ -1141,9 +1141,19 @@ export function injectH3ExactSpeechDrive(
     const plannedSpeechSeconds = Number.isFinite(turn.start) && Number.isFinite(turn.end) && turn.end > turn.start
       ? turn.end - turn.start
       : renderSeconds;
+    // The storyboard clock estimates Chinese at a brisk 4.2 characters/s.
+    // H3 often speaks more slowly than that, so sizing the synthesis latent
+    // directly from the planned slot can deterministically cut off the end of
+    // a correct line. Give speech generation its own text-aware headroom; the
+    // verifier still trims a confidently located exact target before the
+    // resulting audio is placed back on the storyboard clock.
+    const textAwareSpeechSeconds = speechSeconds(turn.exactLine) * 1.3 + 1.2;
     const turnRenderSeconds = Math.min(15.08, Math.max(
       5.17,
-      h3AlignedDurationSeconds(Math.min(15, plannedSpeechSeconds + 0.8)),
+      h3AlignedDurationSeconds(Math.min(15, Math.max(
+        plannedSpeechSeconds + 1.2,
+        textAwareSpeechSeconds,
+      ))),
     ));
     const planId = addPromptNode(prompt, 'MiniMaxH3SpeechPlanT8', {
       voice_profile: [profileId, 0],
@@ -1185,67 +1195,57 @@ export function injectH3ExactSpeechDrive(
       value: turn.exactLine,
     }, `AID expected dialogue turn ${turnIndex + 1}`);
 
-    const addSpeechCandidate = (attempt: number, strict: boolean): string => {
-      const suffix = `turn ${turnIndex + 1} attempt ${attempt}`;
-      const noiseId = addPromptNode(prompt, 'RandomNoise', {
-        noise_seed: Number(BigInt(`0x${randomBytes(7).toString('hex')}`)),
-      }, `AID exact-dialogue noise ${suffix}`);
-      const samplerId = addPromptNode(prompt, 'SamplerCustomAdvanced', {
-        noise: [noiseId, 0],
-        guider: [guiderId, 0],
-        sampler: [sampleSetupId, 1],
-        sigmas: [sampleSetupId, 2],
-        latent_image: [speechConditioningId, 1],
-      }, `AID exact-dialogue generation ${suffix}`);
-      const decodeId = addPromptNode(prompt, 'MiniMaxH3SpeechDecodeT8', {
-        av_latent: [samplerId, 0],
-        audio_vae: audioVae,
-        trim_mode: 'conservative_energy',
-        energy_threshold_dbfs: -50,
-        trim_padding_seconds: 0.1,
-      }, `AID exact-dialogue decode ${suffix}`);
-      return addPromptNode(prompt, 'MiniMaxH3SpeechVerifyT8', {
-        audio: [decodeId, 0],
-        expected_text: [expectedId, 0],
-        verify_mode: 'trim_exact_target',
-        asr_model_directory: asrModelDirectory,
-        language: languageName,
-        min_similarity: 0.8,
-        beam_size: 5,
-        cpu_threads: 8,
-        unload_after_verify: true,
-        strict,
-        pre_padding_seconds: 0.08,
-        post_padding_seconds: 0.2,
-        speaker_check_mode: 'off',
-        speaker_model_directory: '',
-        min_speaker_similarity: 0.86,
-        unload_speaker_after_verify: true,
-        peak_limit_dbfs: -1,
-      }, `AID exact-dialogue ASR ${suffix}`);
+    const noiseId = addPromptNode(prompt, 'RandomNoise', {
+      noise_seed: Number(BigInt(`0x${randomBytes(7).toString('hex')}`)),
+    }, `AID exact-dialogue noise turn ${turnIndex + 1}`);
+    const samplerId = addPromptNode(prompt, 'SamplerCustomAdvanced', {
+      noise: [noiseId, 0],
+      guider: [guiderId, 0],
+      sampler: [sampleSetupId, 1],
+      sigmas: [sampleSetupId, 2],
+      latent_image: [speechConditioningId, 1],
+    }, `AID exact-dialogue generation turn ${turnIndex + 1}`);
+    const decodeId = addPromptNode(prompt, 'MiniMaxH3SpeechDecodeT8', {
+      av_latent: [samplerId, 0],
+      audio_vae: audioVae,
+      trim_mode: 'conservative_energy',
+      energy_threshold_dbfs: -50,
+      trim_padding_seconds: 0.1,
+    }, `AID exact-dialogue decode turn ${turnIndex + 1}`);
+    // faster-whisper-small is useful for locating a confidently recognized
+    // exact span, but its CER is not a reliable production truth score for
+    // Chinese homophones, names, or short lines. Keep the transcript/report
+    // and exact-target trim, while making the score diagnostic-only.
+    const verifyId = addPromptNode(prompt, 'MiniMaxH3SpeechVerifyT8', {
+      audio: [decodeId, 0],
+      expected_text: [expectedId, 0],
+      verify_mode: 'trim_exact_target',
+      asr_model_directory: asrModelDirectory,
+      language: languageName,
+      min_similarity: 0,
+      beam_size: 5,
+      cpu_threads: 8,
+      unload_after_verify: true,
+      strict: false,
+      pre_padding_seconds: 0.08,
+      post_padding_seconds: 0.2,
+      speaker_check_mode: 'off',
+      speaker_model_directory: '',
+      min_speaker_similarity: 0.86,
+      unload_speaker_after_verify: true,
+      peak_limit_dbfs: -1,
+    }, `AID exact-dialogue ASR diagnostic turn ${turnIndex + 1}`);
+    const selectedAudioId = verifyId;
+    const selectedAcceptedId = verifyId;
+    const selectedReportId = verifyId;
+    return {
+      selectedAudioId,
+      selectedAcceptedId,
+      selectedAcceptedOutput: 4,
+      selectedReportId,
+      selectedReportOutput: 5,
+      turn,
     };
-
-    // Exact H3 speech is stochastic. Keep the first ASR gate non-throwing so
-    // ComfyUI's lazy switch can render a fresh candidate only when needed.
-    // The retry remains strict: no rejected speech can reach the video master.
-    const firstVerifyId = addSpeechCandidate(1, false);
-    const retryVerifyId = addSpeechCandidate(2, true);
-    const selectedAudioId = addPromptNode(prompt, 'ComfySwitchNode', {
-      switch: [firstVerifyId, 4],
-      on_false: [retryVerifyId, 0],
-      on_true: [firstVerifyId, 0],
-    }, `AID select accepted dialogue turn ${turnIndex + 1}`);
-    const selectedAcceptedId = addPromptNode(prompt, 'ComfySwitchNode', {
-      switch: [firstVerifyId, 4],
-      on_false: [retryVerifyId, 4],
-      on_true: [firstVerifyId, 4],
-    }, `AID accepted dialogue turn ${turnIndex + 1}`);
-    const selectedReportId = addPromptNode(prompt, 'ComfySwitchNode', {
-      switch: [firstVerifyId, 4],
-      on_false: [retryVerifyId, 5],
-      on_true: [firstVerifyId, 5],
-    }, `AID verification report turn ${turnIndex + 1}`);
-    return { selectedAudioId, selectedAcceptedId, selectedReportId, turn };
   });
 
   let assembledAudio: [string, number] | undefined;
@@ -1288,15 +1288,16 @@ export function injectH3ExactSpeechDrive(
   const finalizeId = addPromptNode(prompt, 'MiniMaxH3SpeechFinalizeT8', {
     audio: assembledAudio,
     release_policy: 'keep_loaded',
-    upstream_report: [finalTurn.selectedReportId, 0],
+    upstream_report: [finalTurn.selectedReportId, finalTurn.selectedReportOutput],
     speech_guard: [guardId, 0],
   }, 'AID exact-dialogue final');
-  // Every rejected first candidate is routed through a strict retry, so
-  // reaching the selected output means every turn passed ASR. Pad the verified
-  // sequence to the exact video clock before it is used as H3's drive track.
+  // ASR is diagnostic-only here: it may trim a confidently located exact
+  // target, but its model-dependent similarity score must not reject usable
+  // dialogue. Pad the assembled sequence to the exact video clock before it
+  // is used as H3's drive track.
   const speechMasterId = addPromptNode(prompt, 'MiniMaxH3DialogueSafeMasterT8', {
     speech_audio: [finalizeId, 0],
-    speech_accepted: [finalTurn.selectedAcceptedId, 0],
+    speech_accepted: [finalTurn.selectedAcceptedId, finalTurn.selectedAcceptedOutput],
     target_duration_seconds: renderSeconds,
     speech_start_seconds: 0,
     output_sample_rate: 32000,
@@ -1416,7 +1417,7 @@ export function injectH3ExactSpeechDrive(
     }, 'AID non-vocal ambience and Foley bed');
     const masterId = addPromptNode(prompt, 'MiniMaxH3DialogueSafeMasterT8', {
       speech_audio: [finalizeId, 0],
-      speech_accepted: [finalTurn.selectedAcceptedId, 0],
+      speech_accepted: [finalTurn.selectedAcceptedId, finalTurn.selectedAcceptedOutput],
       target_duration_seconds: renderSeconds,
       speech_start_seconds: 0,
       output_sample_rate: 32000,
