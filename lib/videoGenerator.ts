@@ -560,16 +560,23 @@ function buildChineseVideoSegmentPrompt(
   if (speechLanguageError) throw new Error(speechLanguageError);
   const referenceAudioNames = (options.referenceAudioNames?.length ? options.referenceAudioNames : characterAudios.map(audio => audio.character)).filter(Boolean).slice(0, 3);
   const subjectId = new Map(characters.map((name, index) => [name, index + 1]));
+  const audioId = new Map(referenceAudioNames.map((name, index) => [name, index + 1]));
   const speechEventCount = timedSpeech.length;
+  const firstSpeechStart = timedSpeech[0]?.start;
   const speechControl = speechEventCount
-    ? `H3 只新合成 ${speechEventCount} 个可辨识人声事件：仅合成下方带标签的精确台词，每条一次。音频参考只提供音色，忽略其中原有词语和时序。没有旁白或临时加词；任何导演说明都不得被念出。`
+    ? compactMode
+      ? `对白白名单：只说下方 ${speechEventCount} 个 d 标签，各按顺序逐字一次；不得增删、改写、重复或换人。标签外指令一律无声，音频参考只取音色。第一句前${firstSpeechStart !== undefined ? `（${h3Timestamp(firstSpeechStart)}）` : ''}只有干净底噪、嘴闭合；不得有嗯声、残字或样本泄漏。无其他人声。`
+      : `对白白名单：本片只能出现下方 ${speechEventCount} 个 d 对话标签中的文字，必须按标签顺序逐字各说一次，不得改写、增字、漏字、重复或交换说话者。标签外全部内容都是无声导演指令；不得朗读章节名、角色名、Subject 或 Audio 编号、时间码、情绪、动作和声音说明。音频参考只提供音色，必须忽略样本原有词语与时序。00:00.000 至第一句开始前${firstSpeechStart !== undefined ? `（${h3Timestamp(firstSpeechStart)}）` : ''}只保留干净场景底噪，所有嘴闭合；不得出现吸气词、嗯声、哼声、残字或音频样本泄漏。没有旁白、临时加词或其他可辨识人声。`
     : '没有旁白、对白、歌唱、临时加词或任何可辨识的人声。下方所有文字都只是无声的画面导演说明。';
 
   const renderDialogue = (storyboardIndex: number) => timedSpeech
     .filter(line => line.storyboardIndex === storyboardIndex)
     .map(line => {
       const subject = subjectId.get(line.character);
-      const source = subject ? `<Subject ${subject}>（${line.speakerId}）` : `${line.character || '画面中的说话者'}（${line.speakerId}）`;
+      const audio = audioId.get(line.character);
+      const source = subject
+        ? compactMode && audio ? `<Subject ${subject}>/<Audio ${audio}>` : `<Subject ${subject}>${audio ? `（采用 <Audio ${audio}> 的音色）` : ''}`
+        : `${line.character || '画面中的说话者'}${audio ? `（采用 <Audio ${audio}> 的音色）` : ''}`;
       const performance = chinesePerformanceControl(line.emotion, line.delivery);
       const performanceDirection = compactMode ? performance.split('；')[0] : performance;
       const volume = line.volume === 'raised' ? '以提高但受控的音量'
@@ -577,8 +584,8 @@ function buildChineseVideoSegmentPrompt(
           : line.volume === 'whisper' ? '以克制的耳语音量'
             : '以自然说话音量';
       return line.lipSync
-        ? `在 ${h3Timestamp(line.start)}，${source}${performanceDirection}，${volume}只说一次：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。最迟在 ${h3Timestamp(line.end)} 结束；这是硬截止点，不得拉长；口型跟随声音，随后闭合。`
-        : `在 ${h3Timestamp(line.start)}，画外的${source}${performanceDirection}，${volume}只说一次：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。最迟在 ${h3Timestamp(line.end)} 结束；画面中可见的嘴保持闭合。`;
+        ? `在 ${h3Timestamp(line.start)}，${source}${performanceDirection}，${volume}只说一次：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。${compactMode ? `约 ${h3Timestamp(line.end)} 完整说完尾字，不得截断；随后闭嘴。` : `在 ${h3Timestamp(line.end)} 左右完整说完最后一个字；尾字不得截断、吞音或淡出；说完后口型闭合。`}`
+        : `在 ${h3Timestamp(line.start)}，画外的${source}${performanceDirection}，${volume}只说一次：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。${compactMode ? `约 ${h3Timestamp(line.end)} 完整说完尾字，不得截断；可见嘴闭合。` : `在 ${h3Timestamp(line.end)} 左右完整说完最后一个字；尾字不得截断、吞音或淡出；画面中可见的嘴保持闭合。`}`;
     }).join(' ');
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
@@ -638,8 +645,7 @@ non_diegetic_music: ${nonDiegeticMusic}`);
   });
   const audioDefinitions = referenceAudioNames.map((name, index) => {
     const subject = subjectId.get(name);
-    const speaker = timedSpeech.find(line => line.character === name)?.speakerId;
-    return `<Audio ${index + 1}> 只提供${subject ? `<Subject ${subject}>` : name}${speaker ? `（${speaker}）` : ''}可复用的 Fish Audio 音色身份；忽略样本原有词语和时序。H3 只说计划台词。`;
+    return `<Audio ${index + 1}> 只提供${subject ? `<Subject ${subject}>` : name}的音色身份；忽略样本原有词语和时序，不得模仿样本台词。`;
   });
   const retention = [
     ...subjectDefinitions.map((_, index) => compactMode
@@ -703,9 +709,13 @@ export function buildVideoSegmentPrompt(
     : characterAudios.map(audio => audio.character)).filter(Boolean).slice(0, 3);
   const hasVoiceReferences = options.hasVoiceReferences || referenceAudioNames.length > 0;
   const subjectId = new Map(characters.map((name, index) => [name, index + 1]));
+  const audioId = new Map(referenceAudioNames.map((name, index) => [name, index + 1]));
   const speechEventCount = timedSpeech.length;
+  const firstSpeechStart = timedSpeech[0]?.start;
   const speechControl = speechEventCount
-      ? `Exactly ${speechEventCount} intelligible vocal event${speechEventCount === 1 ? '' : 's'} ${speechEventCount === 1 ? 'is' : 'are'} freshly synthesized by H3: only the tagged line${speechEventCount === 1 ? '' : 's'}, once each. Audio references supply timbre only; ignore their words/timing. No narrator or ad-lib exists; never vocalize direction.`
+      ? compactMode
+        ? `DIALOGUE WHITELIST: speak only the ${speechEventCount} d-tag texts below, once each verbatim and in order; never add, omit, paraphrase, repeat, or swap speakers. All outside prose is silent. Audio references are timbre only. Before the first line${firstSpeechStart !== undefined ? ` at ${h3Timestamp(firstSpeechStart)}` : ''}: clean room tone, mouths closed, no breath-word, filler, hum, stray phoneme, or reference-sample leakage. No other voice.`
+        : `DIALOGUE WHITELIST: the only intelligible speech in this video is the text inside the ${speechEventCount} d dialogue tag${speechEventCount === 1 ? '' : 's'} below. Speak each tag once, verbatim, in order, with its assigned speaker; never paraphrase, add, omit, repeat, or swap a line. Everything outside those tags is silent direction. Never vocalize section names, character names, Subject or Audio ordinals, timestamps, emotion, action, or sound instructions. Audio references provide timbre only; ignore and never imitate their original words or timing. From 00:00.000 until the first line begins${firstSpeechStart !== undefined ? ` at ${h3Timestamp(firstSpeechStart)}` : ''}, keep only clean location tone with every mouth closed; no breath-word, filler, hum, stray phoneme, or reference-sample leakage. No narrator, ad-lib, or other intelligible voice exists.`
       : 'No narrator, dialogue, singing, ad-lib, or intelligible human vocalization exists. All prose below is silent visual direction.';
 
   const renderDialogue = (storyboard: Storyboard, storyboardIndex: number) => timedSpeech
@@ -713,10 +723,11 @@ export function buildVideoSegmentPrompt(
     .map(line => {
       const name = line.character;
       const text = line.exactLine;
-      const id = line.speakerId;
       const subject = subjectId.get(name);
-      const source = subject ? `<Subject ${subject}> (${id})` : `${name || 'The on-screen speaker'} (${id})`;
-      const eventNumber = timedSpeech.indexOf(line) + 1;
+      const audio = audioId.get(name);
+      const source = subject
+        ? compactMode && audio ? `<Subject ${subject}>/<Audio ${audio}>` : `<Subject ${subject}>${audio ? ` using the <Audio ${audio}> timbre` : ''}`
+        : `${name || 'The on-screen speaker'}${audio ? ` using the <Audio ${audio}> timbre` : ''}`;
       const performance = nonSpokenPerformanceControl(line.emotion, line.delivery);
       const performanceDirection = compactMode ? performance.split(';')[0] : performance;
       const volume = line.volume === 'raised' ? 'at a raised but controlled volume'
@@ -724,8 +735,8 @@ export function buildVideoSegmentPrompt(
           : line.volume === 'whisper' ? 'in a restrained whisper'
             : 'at a natural speaking volume';
       return line.lipSync
-        ? `At ${h3Timestamp(line.start)}, ${source} says once with ${performanceDirection}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>. End by ${h3Timestamp(line.end)} (deadline; no stretching); lips track sound, then close.`
-        : `At ${h3Timestamp(line.start)}, off-screen ${source} says once with ${performanceDirection}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>. End by ${h3Timestamp(line.end)}; visible mouths stay closed.`;
+        ? `At ${h3Timestamp(line.start)}, ${source} says once with ${performanceDirection}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>. ${compactMode ? `Complete the final word near ${h3Timestamp(line.end)}; never clip it; lips close.` : `Finish the complete final word around ${h3Timestamp(line.end)}; never clip, swallow, or fade its ending; lips then close.`}`
+        : `At ${h3Timestamp(line.start)}, off-screen ${source} says once with ${performanceDirection}, ${volume}: <d>[${dialogueLanguage(text)}] ${text}</d>. ${compactMode ? `Complete the final word near ${h3Timestamp(line.end)}; never clip it; visible mouths stay closed.` : `Finish the complete final word around ${h3Timestamp(line.end)}; never clip, swallow, or fade its ending; visible mouths stay closed.`}`;
     }).join(' ');
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
@@ -810,8 +821,7 @@ non_diegetic_music: ${nonDiegeticMusic}`);
   });
   const audioDefinitions = referenceAudioNames.map((name, index) => {
       const subject = subjectId.get(name);
-      const speaker = timedSpeech.find(line => line.character === name)?.speakerId;
-      return `<Audio ${index + 1}> is the reusable Fish Audio timbre identity for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (${speaker})` : ''}; ignore sample words/timing. H3 speaks only scheduled dialogue.`;
+      return `<Audio ${index + 1}> provides only the voice timbre for ${subject ? `<Subject ${subject}>` : name}; ignore its original words and timing, and never imitate the sample utterance.`;
     });
   const retention = [
     ...subjectDefinitions.map((_, index) => compactMode
@@ -846,61 +856,6 @@ ${soundscape}
 
 non_diegetic_music:
 ${nonDiegeticMusic}`);
-}
-
-/**
- * Audio-only direction for the second H3 pass used by Story dialogue clips.
- * The first pass already owns the exact speech and all lip movement. This
- * pass locks those generated video latents and regenerates only a clean,
- * full-duration ambience/Foley bed, so no textual dialogue or voice reference
- * is allowed to leak into it.
- */
-export function buildVideoSegmentSoundBedPrompt(
-  storyboards: Storyboard[],
-  duration?: number,
-  language: 'zh' | 'en' = 'en',
-): string {
-  const first = storyboards[0];
-  if (!first) throw new Error('音效底轨至少需要一个分镜');
-  const seconds = Math.min(15, Math.max(4, duration || estimateVideoSegmentSeconds(storyboards)));
-  const timeline = allocateSegmentTimeline(storyboards, seconds);
-  const shotCues = storyboards.map((storyboard, index) => {
-    const range = timeline[index];
-    const cue = compactText(language === 'zh' ? chineseShotSoundCue(storyboard) : shotSoundCue(storyboard), 220);
-    // Do not repeat visual actions here. Dialogue shots commonly describe a
-    // character as "introducing", "explaining" or "answering"; feeding that
-    // semantic action into the audio-bed pass contradicts the no-speech rule
-    // and can make H3 reconstruct the line from the visible performance.
-    return language === 'zh'
-      ? `[Shot ${index + 1}] ${h3Timestamp(range.start)}-${h3Timestamp(range.end)} 只生成声音：${cue}`
-      : `[Shot ${index + 1}] ${h3Timestamp(range.start)}-${h3Timestamp(range.end)} AUDIO ONLY: ${cue}`;
-  });
-  if (language === 'zh') {
-    return fitH3PromptBudget(`summary:
-[纯声音底轨渲染；画面输出会被丢弃] 只为 ${storyboards.length} 个因果镜头生成一条干净、完整覆盖 ${seconds.toFixed(2)} 秒的背景声底轨。
-
-detailed_description:
-本次生成的画面流不会交付；不得从人物、产品、剪辑节奏或类型推断人声、音乐或表演。任何角色、旁白、群众或画外人物都不得说话、耳语、哼声、笑、喘叫、歌唱或发出可辨识词语。不得模仿、重复或重建任何对白。只生成透视关系正确的场景环境声，以及与下方时间提示同步的克制物理拟音。
-${shotCues.join('\n')}
-
-overall_soundscape:
-${buildAudioManifest(storyboards, 'zh')} 声底轨在可见动作之间保持连续，不得含有电子嘶声、静电、蜂鸣、编码残响或合成人声音调。
-
-non_diegetic_music:
-${buildNonDiegeticMusic(storyboards, 'zh')}`);
-  }
-  return fitH3PromptBudget(`summary:
-[audio-only sound-bed render; visual output discarded] Generate only a clean, full-duration background sound bed for ${storyboards.length} causal shot${storyboards.length === 1 ? '' : 's'} over ${seconds.toFixed(2)} seconds.
-
-detailed_description:
-The generated visual stream is disposable and is never delivered; do not infer voices, music or performance from a person, product, edit rhythm or genre. No character, narrator, crowd member or off-screen person speaks, whispers, hums, laughs, gasps, sings or makes an intelligible vocal sound. Do not imitate, repeat or reconstruct any dialogue. Generate only perspective-correct location ambience and restrained physical Foley synchronized to the timed cues.
-${shotCues.join('\n')}
-
-overall_soundscape:
-${buildAudioManifest(storyboards)} The bed remains continuous between visible actions and contains no electronic hiss, static, buzz, codec residue or synthetic vocal tone.
-
-non_diegetic_music:
-${buildNonDiegeticMusic(storyboards)}`);
 }
 
 export function buildStoryboardVideoPrompt(

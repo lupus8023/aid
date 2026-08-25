@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.71 - 2026-08-25
+
+### Changed
+
+- Story dialogue clips now use one native MiniMax H3 audiovisual generation. The delivered soundtrack comes directly from the main H3 AV decode instead of a separately synthesized speech drive, post-mastered dialogue track, or second full H3 ambience pass.
+- Fish Audio remains a timbre-only reference. Each scripted line appears exactly once inside an official H3 `d` dialogue tag, and internal Story speaker IDs are no longer exposed to H3.
+- Chinese and English prompts now carry an explicit dialogue whitelist: prose outside dialogue tags is silent direction and section labels, timestamps, actions, sound instructions, and reference-sample words must never be spoken.
+
+### Fixed
+
+- Removes the competing speech, drive-audio, source-separation, and mastering paths that could introduce duplicate voices, stray words, audio artifacts, or inconsistent dialogue.
+- The opening dialogue window now reserves clean location tone with closed mouths and explicitly rejects filler, hum, stray phonemes, and reference-sample leakage.
+- Dialogue scheduling reserves a longer natural tail, and the prompt requires the complete final word before the speaker closes their mouth instead of imposing a hard cutoff that could swallow the ending.
+- Companion validates that the final submitted H3 prompt contains exactly the screenplay's dialogue tags, in order and in the selected project language, before submitting the single native generation.
+
+### Verification
+
+- All 175 regression tests pass; TypeScript validation and the production Next.js build complete successfully.
+
 ## 0.1.70 - 2026-08-25
 
 ### Fixed

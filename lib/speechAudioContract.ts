@@ -14,8 +14,8 @@ const DEFAULT_AUDIO: StoryAudioPlan = {
   environment: [],
   foley: [],
   music: 'none',
-  silenceBefore: 0.8,
-  silenceAfter: 0.8,
+  silenceBefore: 0.9,
+  silenceAfter: 1,
 };
 
 function clean(value: unknown): string {
@@ -229,8 +229,8 @@ export function validateSpeechContract(storyboards: Storyboard[]): string | unde
     const plan = storyboardAudioPlan(storyboard);
     const required = shotLines.reduce((sum, line) => sum + speechSeconds(line.exactLine), 0)
       + Math.max(0, shotLines.length - 1) * 0.35
-      + Math.max(0.45, plan.silenceBefore)
-      + Math.max(0.55, plan.silenceAfter);
+      + Math.max(0.8, plan.silenceBefore)
+      + Math.max(1, plan.silenceAfter);
     return required > 15;
   });
   if (overloadedStoryboard) return `镜头 ${overloadedStoryboard.sceneNumber} 的多轮台词合计超过 H3 15 秒，请在剧本改编阶段拆成相邻镜头`;
@@ -258,8 +258,8 @@ export function compileTimedSpeech(
     const gap = lines.length > 1 ? 0.35 : 0;
     const speechDurations = lines.map(line => speechSeconds(line.exactLine));
     const totalSpeech = speechDurations.reduce((sum, seconds) => sum + seconds, 0) + gap * (lines.length - 1);
-    const lead = Math.min(Math.max(0.45, plan.silenceBefore), Math.max(0.45, (available - totalSpeech) * 0.55));
-    const tail = Math.min(Math.max(0.55, plan.silenceAfter), Math.max(0.4, available - lead - totalSpeech));
+    const lead = Math.min(Math.max(0.8, plan.silenceBefore), Math.max(0.8, (available - totalSpeech) * 0.55));
+    const tail = Math.min(Math.max(1, plan.silenceAfter), Math.max(0.8, available - lead - totalSpeech));
     if (lead + totalSpeech + tail > available + 0.05) {
       throw new Error(`镜头 ${storyboard.sceneNumber} 的台词时长不足，请拆分台词或延长该片段`);
     }

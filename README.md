@@ -117,12 +117,12 @@ CLOUDINARY_API_SECRET=your_cloudinary_secret
 
 视频生成通道可在 Settings 中切换为 `Cloud ComfyUI · SSH Private Workflow`。该通道沿用 J18IP 的 MiniMax H3 接口链路：
 
-1. aid 通过 SSH/SCP 上传首帧、可选尾帧和一条完整音轨；
+1. aid 通过 SSH/SCP 上传首帧、可选尾帧，以及可选的角色音色参考；
 2. 自动查找或读取单图、多图、首尾帧 4-step LoRA 工作流；
 3. 将前端工作流转换为 ComfyUI API prompt，通过 `/prompt` 提交；
 4. 使用 `/history/{prompt_id}` 轮询，完成后从 `/view` 下载并上传到 Cloudinary。
 
-运行 aid 的机器需要安装 `ssh` 和 `scp`，并能以无交互方式登录 ComfyUI 主机。ComfyUI H3 当前要求每个任务恰好一条音频；分镜模式请先点击“Generate Audio”。连接字段既可在 Settings 中填写，也可通过 `.env.local.example` 中的 `COMFYUI_*` 变量配置。若两处都填写，以 Settings 为准。
+运行 aid 的机器需要安装 `ssh` 和 `scp`，并能以无交互方式登录 ComfyUI 主机。H3 在一次原生音画生成中同步完成画面、口型、台词、环境声和拟音；Fish Audio 文件只作为可选音色参考，不作为成片台词音轨。连接字段既可在 Settings 中填写，也可通过 `.env.local.example` 中的 `COMFYUI_*` 变量配置。若两处都填写，以 Settings 为准。
 
 `pandais.beauty` 上的 ComfyUI 通道默认通过本机 aid companion 使用 SSH，不把私钥交给 Netlify。先在 aid 项目目录运行 `npm run companion`，保持 `http://127.0.0.1:3018` 可用；网页会把 ComfyUI 的测试、提交和轮询请求发给这个本地服务，由它使用 `~/.ssh`、ssh-agent 和持久控制连接完成 SSH/SFTP。长剧本规划、AI 扩写、MiniMax H3 视频以及 Z-Image-Turbo 图片任务都可通过 Companion 执行；APIMart 图片模型仍走 Netlify。companion 只允许 `pandais.beauty` 与本机 origin 跨域访问。
 
@@ -134,7 +134,7 @@ Story 长片生成采用分阶段流程：先锁定全片故事骨架和精确�
 
 视频阶段可把连续分镜组织为最长 15 秒的 H3 片段，但合并只改变生成批次：每个分镜仍独立保留时间窗、完整动作、运镜、逐字台词、动作声和电影化镜头衔接。首尾帧参考只锁定连续性与动作落点，不会把整段视频均匀拉成慢动作。
 
-有台词的 Story 片段使用“精确台词 + 独立声景”双轨流程：Fish Audio 每个角色只生成一次自然句音色参考，H3 单独生成并校验逐字台词与口型，再锁定画面生成全时长环境声、拟音和剧本明确要求的背景音乐。最终混音会在人声出现时自动压低背景层，并保留到剪辑点的自然环境尾音。
+有台词的 Story 片段使用单次 H3 原生音画流程：逐字台词只在官方 `d` 对话标签中出现一次，角色音频只绑定音色，标签外导演指令全部保持无声。成片直接采用主 H3 同步音轨，不再额外生成台词、重混人声、做人声分离或为环境声重复运行完整 H3。第一句前保留干净场景底噪，最后一句预留完整尾字和自然环境尾音。
 
 故事输入页的“改编剧本”会使用当前选择的目标镜头数和预计片长，把梗概、小说片段或既有剧本整理为精确编号的连续剧情节拍；用户明确指定的事实、事件顺序、结局和台词仍保持最高优先级。
 

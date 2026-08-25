@@ -118,7 +118,7 @@ test('timeline fills the entire H3 duration without gaps', () => {
   timeline.slice(1).forEach((item, index) => assert.equal(item.start, timeline[index].end));
 });
 
-test('segment duration reserves compiler lead and tail silence instead of rounding speech down', () => {
+test('segment duration reserves clean native-H3 lead-in and a complete final-word tail', () => {
   const segment = [
     shot(1, {
       characters: ['A'], clipType: 'action', durationHint: 5,
@@ -131,7 +131,7 @@ test('segment duration reserves compiler lead and tail silence instead of roundi
       audioPlan: { backgroundHuman: 'none', environment: [], foley: [], music: 'none', silenceBefore: 0, silenceAfter: 0.3 },
     }),
   ];
-  assert.equal(estimateVideoSegmentSeconds(segment), 10);
+  assert.equal(estimateVideoSegmentSeconds(segment), 11);
   assert.equal(validateVideoSegment(segment), undefined);
 });
 

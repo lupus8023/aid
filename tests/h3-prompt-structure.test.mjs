@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildVideoSegmentPrompt, buildVideoSegmentSoundBedPrompt } from '../lib/videoGenerator.ts';
+import { buildVideoSegmentPrompt } from '../lib/videoGenerator.ts';
 import { buildVideoStyleContract, PRODUCTION_STYLE_PRESETS } from '../lib/promptArchitecture.ts';
 
 const shot = (sceneNumber, extra = {}) => ({
@@ -45,8 +45,9 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   });
   assert.match(prompt, /<d>\[Chinese\] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S63\) says once/);
-  assert.match(prompt, /deadline; no stretching/);
+  assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1>\/<Audio 1> says once/);
+  assert.match(prompt, /Complete the final word near/);
+  assert.match(prompt, /no breath-word, filler, hum, stray phoneme, or reference-sample leakage/);
   assert.match(prompt, /no electronic hiss, static, buzz, digital residue, or abrupt audio cut/);
   const soundscape = prompt.split('overall_soundscape:')[1].split('non_diegetic_music:')[0];
   assert.doesNotMatch(soundscape, /<d>|线索就在这里|dialogue|speech/i);
@@ -128,11 +129,11 @@ test('binds multiple sequential dialogue lines to their matching H3 voice refere
   ], [], { duration: 12, referenceAudioNames: ['Lin', 'Mei'], hasVoiceReferences: true });
   assert.equal((prompt.match(/你看见了吗？/g) || []).length, 1);
   assert.equal((prompt.match(/就在门后。/g) || []).length, 1);
-  assert.match(prompt, /<Audio 1> is the reusable Fish Audio timbre identity for <Subject 1> \(S1\)/);
-  assert.match(prompt, /<Audio 2> is the reusable Fish Audio timbre identity for <Subject 2> \(S2\)/);
-  assert.match(prompt, /<Subject 1> \(S1\) says once with/);
-  assert.match(prompt, /<Subject 2> \(S2\) says once with/);
-  assert.match(prompt, /ignore sample words\/timing/);
+  assert.match(prompt, /<Audio 1> provides only the voice timbre for <Subject 1>/);
+  assert.match(prompt, /<Audio 2> provides only the voice timbre for <Subject 2>/);
+  assert.match(prompt, /<Subject 1> using the <Audio 1> timbre says once with/);
+  assert.match(prompt, /<Subject 2> using the <Audio 2> timbre says once with/);
+  assert.match(prompt, /ignore its original words and timing/);
   assert.match(prompt, /breath, eyeline and facial tension change once/);
   assert.match(prompt, /dialogue eyeline axis\/screen sides/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
@@ -154,8 +155,8 @@ test('keeps explanatory screenplay fields out of the H3 audiovisual description'
 
   assert.match(prompt, /Lin catches the falling report/);
   assert.doesNotMatch(prompt, /prior success causes|workload is more|praise is becoming a trap/);
-  assert.match(prompt, /No narrator or ad-lib exists/);
-  assert.match(prompt, /Exactly 1 intelligible vocal event/);
+  assert.match(prompt, /No narrator, ad-lib, or other intelligible voice exists/);
+  assert.match(prompt, /DIALOGUE WHITELIST: the only intelligible speech/);
   assert.match(prompt, /No narration, ad-lib, singing, or unscripted intelligible words/);
 });
 
@@ -402,32 +403,6 @@ test('writes first/last-frame H3 prompts in the official base-mode structure', (
   assert.match(prompt, /non_diegetic_music: No music is present\./);
   assert.doesNotMatch(prompt, /subject_definitions:/);
   assert.ok(prompt.length <= 7000);
-});
-
-test('keeps the H3 sound-bed prompt free of speaking actions and music permission', () => {
-  const prompt = buildVideoSegmentSoundBedPrompt([
-    shot(1, {
-      action: 'Dr. Pan begins introducing the mask and explains its benefits.',
-      audioPlan: { backgroundHuman: 'none', environment: ['quiet laboratory hum'], foley: ['page turn'], music: 'none' },
-    }),
-  ], 7);
-  assert.doesNotMatch(prompt, /introducing|explains its benefits/i);
-  assert.doesNotMatch(prompt, /locked picture|already generated video/i);
-  assert.match(prompt, /audio-only sound-bed render; visual output discarded/);
-  assert.match(prompt, /AUDIO ONLY: The audible layer is quiet laboratory hum/);
-  assert.match(prompt, /non_diegetic_music:\nNo music is present\./);
-  assert.match(prompt, /No score, melody, rhythmic bed, jingle, singing, instrumental performance, tonal pad, or musical transition/);
-
-  const chinesePrompt = buildVideoSegmentSoundBedPrompt([
-    shot(1, {
-      action: 'Dr. Pan 开始介绍面膜功效。',
-      audioPlan: { backgroundHuman: 'none', environment: ['实验室设备低沉运转声'], foley: ['翻页声'], music: 'none' },
-    }),
-  ], 7, 'zh');
-  assert.match(chinesePrompt, /纯声音底轨渲染；画面输出会被丢弃/);
-  assert.match(chinesePrompt, /只生成声音：可听声层为实验室设备低沉运转声/);
-  assert.match(chinesePrompt, /没有音乐。不得生成配乐/);
-  assert.doesNotMatch(chinesePrompt, /AUDIO ONLY|The audible layer|No music is present/);
 });
 
 test('applies distinct directing and sound rules for each production style', () => {

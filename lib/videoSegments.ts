@@ -119,11 +119,11 @@ export function estimateStoryboardBeatSeconds(storyboard: Storyboard): number {
   const spoken = lines.length
     ? lines.reduce((sum, line) => sum + speechSeconds(line.exactLine), 0)
       + Math.max(0, lines.length - 1) * 0.35
-      // compileTimedSpeech always reserves at least 0.45s before and 0.55s
+      // compileTimedSpeech always reserves at least 0.8s before and 1s
       // after speech. The estimator must use the same floor or proportional
       // allocation can give a beat less time than the compiler will accept.
-      + Math.max(0.45, plan.silenceBefore)
-      + Math.max(0.55, plan.silenceAfter)
+      + Math.max(0.8, plan.silenceBefore)
+      + Math.max(1, plan.silenceAfter)
     : 0;
   return Math.min(MAX_H3_SEGMENT_SECONDS, Math.max(visual, spoken));
 }

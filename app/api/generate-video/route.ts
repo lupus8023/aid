@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildStoryboardVideoPrompt, buildVideoSegmentPrompt, buildVideoSegmentSoundBedPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
+import { buildStoryboardVideoPrompt, buildVideoSegmentPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
 import { snapDurationToModel } from '@/lib/apimart';
 import { createComfyUIVideoTask } from '@/lib/comfyui';
 import { compileTimedSpeech, storyboardSpeech } from '@/lib/speechAudioContract';
@@ -107,13 +107,6 @@ export async function POST(request: NextRequest) {
             : undefined,
           language: language === 'en' ? 'en' : 'zh',
         }),
-        backgroundPrompt: speechTurns.length
-          ? buildVideoSegmentSoundBedPrompt(
-              isMultiBeatSegment ? videoStoryboards : [storyboard],
-              requestedDuration,
-              language === 'en' ? 'en' : 'zh',
-            )
-          : undefined,
         duration: requestedDuration,
         aspectRatio: aspectRatio || '16:9',
         settings: comfyui,
