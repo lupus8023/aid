@@ -64,3 +64,10 @@ test('isolates different creative revisions inside the same project', () => {
     scopedVideoCacheKey('project-1', 'scene-1', 'h3-v2-second'),
   );
 });
+
+test('isolates repeated renders of the same creative revision by paid task id', () => {
+  assert.notEqual(
+    scopedVideoCacheKey('project-1', 'scene-3', 'h3-v16-same', 'comfyui:old-task'),
+    scopedVideoCacheKey('project-1', 'scene-3', 'h3-v16-same', 'comfyui:new-task'),
+  );
+});

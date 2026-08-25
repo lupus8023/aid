@@ -105,6 +105,7 @@ test('keeps exact-dialogue video latents while regenerating and mixing a dialogu
     4,
   ]);
   assert.ok(Array.isArray(master.inputs.ambience_audio));
+  assert.equal(master.inputs.ambience_fit_policy, 'pad_or_trim');
   assert.deepEqual(prompt[13].inputs.audio, [
     Object.entries(prompt).find(([, node]) => node.class_type === 'MiniMaxH3DialogueSafeMasterT8')[0],
     0,

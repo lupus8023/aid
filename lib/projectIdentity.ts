@@ -6,6 +6,11 @@ export function createProjectId(): string {
   return `project-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function scopedVideoCacheKey(projectId: string, storyboardId: string, generationSignature?: string): string {
-  return `project-video:${projectId}:${storyboardId}${generationSignature ? `:${generationSignature}` : ''}`;
+export function scopedVideoCacheKey(
+  projectId: string,
+  storyboardId: string,
+  generationSignature?: string,
+  generationId?: string,
+): string {
+  return `project-video:${projectId}:${storyboardId}${generationSignature ? `:${generationSignature}` : ''}${generationId ? `:${generationId}` : ''}`;
 }

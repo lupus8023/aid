@@ -1318,7 +1318,11 @@ export function injectH3ExactSpeechDrive(
       speech_start_seconds: 0,
       output_sample_rate: 32000,
       music_fit_policy: 'strict',
-      ambience_fit_policy: 'strict',
+      // H3's audio clock is quantized independently from the requested master
+      // duration, so its decoded bed can differ by a few milliseconds after
+      // resampling. Make that harmless boundary adjustment explicit: preserve
+      // the bed when exact, silence-pad a short bed, or trim only its tail.
+      ambience_fit_policy: 'pad_or_trim',
       sfx_fit_policy: 'strict',
       loop_crossfade_seconds: 0.25,
       speech_gain_db: 0,

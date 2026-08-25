@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.63 - 2026-08-25
+
+### Fixed
+
+- H3 dialogue-safe mastering now explicitly pads or trims the independently generated ambience bed when its quantized audio clock differs from the requested master by a few milliseconds. This prevents strict sample-count failures without trimming dialogue or time-stretching audio.
+- Re-rendered ComfyUI segments now scope their persistent browser cache to the exact task ID. A refresh can no longer restore the previous render and stop polling a newer completed task when both renders share the same creative signature.
+
+### Verification
+
+- H3 audio and project-isolation regression suites pass, including coverage for the explicit ambience fit policy and repeated renders of one creative revision; the production Next.js build completes successfully.
+
 ## 0.1.62 - 2026-08-25
 
 ### Improved

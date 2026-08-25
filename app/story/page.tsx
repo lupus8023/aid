@@ -270,8 +270,9 @@ export default function StoryPage() {
     segmentStoryboardIds: string[] = [storyboardId],
     cacheProjectId = projectId,
     generationSignature?: string,
+    generationId?: string,
   ): Promise<string> => {
-    const cacheKey = videoCacheKeyForStoryboard(cacheProjectId, storyboardId, generationSignature);
+    const cacheKey = videoCacheKeyForStoryboard(cacheProjectId, storyboardId, generationSignature, generationId);
     if (cacheProjectId !== projectIdRef.current) return sourceUrl;
     commitStoryboards(prev => prev.map(sb => segmentStoryboardIds.includes(sb.id) ? {
       ...sb,
@@ -333,8 +334,49 @@ export default function StoryPage() {
       // had no project namespace, so a fresh project could restore another
       // project's clip simply because both contain `scene-1`.
       const generationSignature = storyboard.videoGenerationSignature;
-      const cacheKey = videoCacheKeyForStoryboard(cacheProjectId, storyboard.id, generationSignature);
+      const generationId = storyboard.videoTaskId && isComfyUIClientTask(storyboard.videoTaskId)
+        ? storyboard.videoTaskId
+        : undefined;
+      const cacheKey = videoCacheKeyForStoryboard(cacheProjectId, storyboard.id, generationSignature, generationId);
       try {
+        // A regenerated clip can have the same creative signature as its old
+        // render. Only trust a persisted cache when it was written for this
+        // exact paid task; otherwise resume the newer task before probing the
+        // old deterministic cache and accidentally restoring stale video.
+        if (generationId && storyboard.videoCacheKey !== cacheKey) {
+          if (cacheProjectId !== projectIdRef.current) continue;
+          setStoryboards(prev => {
+            const next = prev.map(sb => segmentIds.includes(sb.id) ? {
+              ...sb,
+              videoStatus: 'generating' as const,
+            } : sb);
+            storyboardsRef.current = next;
+            return next;
+          });
+          void pollVideoStatus(
+            storyboard.id,
+            generationId,
+            segmentIds,
+            cacheProjectId,
+            generationSignature,
+          ).catch(error => {
+            console.warn(`场景 ${storyboard.sceneNumber} 视频恢复失败:`, error);
+            if (cacheProjectId !== projectIdRef.current) return;
+            setStoryboards(prev => {
+              const next = prev.map(sb => segmentIds.includes(sb.id) ? {
+                ...sb,
+                videoStatus: 'failed' as const,
+                videoUrl: sb.videoUrl?.startsWith('blob:') ? undefined : sb.videoUrl,
+                videoCacheKey: cacheKey,
+                videoCacheStatus: 'failed' as const,
+              } : sb);
+              storyboardsRef.current = next;
+              return next;
+            });
+          });
+          continue;
+        }
+
         const cachedUrl = await cachedVideoObjectUrl(cacheKey);
         if (cachedUrl) {
           if (cacheProjectId !== projectIdRef.current) continue;
@@ -354,7 +396,7 @@ export default function StoryPage() {
         const remoteUrl = storyboard.videoSourceUrl
           || (storyboard.videoUrl?.startsWith('http') ? storyboard.videoUrl : undefined);
         if (remoteUrl) {
-          await cacheCompletedVideo(storyboard.id, remoteUrl, segmentIds, cacheProjectId, generationSignature);
+          await cacheCompletedVideo(storyboard.id, remoteUrl, segmentIds, cacheProjectId, generationSignature, generationId);
           continue;
         }
 
@@ -1817,11 +1859,11 @@ export default function StoryPage() {
 
           if (isComfyTask && data.status === 'completed' && data.readyForDownload) {
             const localVideoUrl = await downloadComfyUIVideo(taskId, currentSettings.comfyui, { smoothAudioTail: true });
-            await cacheCompletedVideo(storyboardId, localVideoUrl, segmentStoryboardIds, generationProjectId, generationSignature);
+            await cacheCompletedVideo(storyboardId, localVideoUrl, segmentStoryboardIds, generationProjectId, generationSignature, taskId);
             return;
           }
           if (data.status === 'completed' && data.videoUrl) {
-            await cacheCompletedVideo(storyboardId, data.videoUrl, segmentStoryboardIds, generationProjectId, generationSignature);
+            await cacheCompletedVideo(storyboardId, data.videoUrl, segmentStoryboardIds, generationProjectId, generationSignature, taskId);
             return;
           }
           if (data.status === 'failed') throw new TerminalVideoTaskError(data.error || '仙宫云视频任务执行失败');
