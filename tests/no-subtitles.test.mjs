@@ -39,5 +39,14 @@ test('provider boundary enforcement is idempotent', () => {
   const once = enforceNoSubtitles('Camera tracks left.');
   assert.equal(enforceNoSubtitles(once), once);
   assert.match(once, /CLEAN-FRAME PRESENTATION/);
+  assert.match(once, /Do not render subtitles, captions, titles, speech bubbles, logos, watermarks, UI, or any readable characters/);
   assert.equal((once.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
+});
+
+test('image-to-video sends the text-free policy to both ComfyUI and remote providers', async () => {
+  const source = await readFile(new URL('../app/api/image-to-video/route.ts', import.meta.url), 'utf8');
+  assert.match(source, /const safePrompt = enforceNoSubtitles\(prompt\)/);
+  assert.match(source, /prompt: safePrompt/);
+  assert.match(source, /let enhancedPrompt = safePrompt/);
+  assert.match(source, /createVideoTask\(\s*enhancedPrompt/s);
 });

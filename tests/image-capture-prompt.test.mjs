@@ -5,6 +5,7 @@ import { buildGridPrompt } from '../lib/gridSplitter.ts';
 import {
   buildCompactImageCaptureContract,
   buildImageCaptureContract,
+  buildSceneReferencePrompt,
 } from '../lib/promptArchitecture.ts';
 
 test('still capture contract models optical cause and effect instead of generic style words', () => {
@@ -12,9 +13,9 @@ test('still capture contract models optical cause and effect instead of generic 
 
   assert.match(contract, /camera-to-subject distance/i);
   assert.match(contract, /focus plane/i);
-  assert.match(contract, /motivated key\/practical light/i);
+  assert.match(contract, /motivated key or practical light/i);
   assert.match(contract, /highlight roll-off/i);
-  assert.match(contract, /material-specific diffuse\/specular response/i);
+  assert.match(contract, /material-specific diffuse\/specular or stylized surface response/i);
   assert.match(contract, /Do not stack random lens defects/i);
 });
 
@@ -42,6 +43,39 @@ test('grid image styles are materially distinct instead of generic style labels'
   assert.notEqual(natural, film);
   assert.notEqual(film, anime);
   assert.notEqual(anime, stopMotion);
+});
+
+test('full GPT Image reference contracts use medium-specific physics for non-photographic styles', () => {
+  const anime = buildImageCaptureContract('anime');
+  const cg = buildImageCaptureContract('3d-cg');
+  const stopMotion = buildImageCaptureContract('stop-motion');
+
+  assert.match(anime, /line-weight hierarchy|cel-shadow groups/i);
+  assert.match(anime, /exclude photographic skin|3D material drift/i);
+  assert.match(cg, /stable topology|physically based/i);
+  assert.match(cg, /unified global illumination|physical virtual-camera/i);
+  assert.match(stopMotion, /clay, fabric, paper|fingerprints/i);
+  assert.match(stopMotion, /tabletop light|miniature contact shadows/i);
+  assert.notEqual(anime, cg);
+  assert.notEqual(cg, stopMotion);
+});
+
+test('scene reference prompt states the visual goal before style and capture constraints', () => {
+  const prompt = buildSceneReferencePrompt('a compact skin-care laboratory with one west window', 'commercial', '16:9');
+  assert.ok(prompt.indexOf('Create a professional') < prompt.indexOf('PRODUCTION STYLE BIBLE'));
+  assert.ok(prompt.indexOf('PRODUCTION STYLE BIBLE') < prompt.indexOf('STILL IMAGE SPECIFICATION'));
+  assert.match(prompt, /precise surface response|specular/i);
+  assert.match(prompt, /no captions, labels, logos, watermark, or readable text/i);
+});
+
+test('storyboard image assembly assigns one explicit job to each GPT Image reference', async () => {
+  const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../lib/imageGenerator.ts', import.meta.url), 'utf8'));
+  assert.match(source, /IMAGE GOAL:/);
+  assert.match(source, /REFERENCE JOBS — each input has one job only/);
+  assert.match(source, /CHARACTER IDENTITY ONLY/);
+  assert.match(source, /ENVIRONMENT ONLY/);
+  assert.match(source, /OBJECT IDENTITY ONLY/);
+  assert.match(source, /Change only the action, composition, and viewpoint requested in IMAGE GOAL/);
 });
 
 test('grid prompts preserve structural line breaks at the provider boundary', async () => {

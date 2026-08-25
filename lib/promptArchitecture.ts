@@ -138,7 +138,7 @@ export function buildMediumLock(style?: VisualStyle): string {
     const preset = getProductionStylePreset(style);
     return `PRODUCTION STYLE BIBLE (authoritative): render the ENTIRE frame — every character, object, environment, light source and surface response — as ${preset.imageContract}. Apply this same camera family, color pipeline, contrast response and material language to every shot. This overrides generic style adjectives elsewhere in the prompt.`;
   }
-  return `STYLE LOCK (authoritative): the entire frame — every character, object, environment, and the lighting — must be rendered in the exact same visual medium as the character reference image. If the reference is anime/illustration, render the whole scene as anime/illustration (line art + cel shading); if it is 3D CG, render as 3D CG; if it is live action, render as realistic photography. Never render the character in one medium and the background in another — one medium, one style, whole frame.`;
+  return `STYLE LOCK (authoritative): infer one visual medium from the supplied style reference images and apply it to the entire frame — every character, object, environment, light source, and surface response. Use each reference only for its declared role. If the style reference is anime/illustration, preserve its line art, shading, and color script; if it is 3D CG, preserve its topology, materials, and render language; if it is live action, preserve its photographic capture language. Never mix media or import an unrelated reference background, pose, layout, label, or text.`;
 }
 
 // 静帧摄影契约：风格锁只解决「画成什么媒介」，这里补足真实摄影最容易
@@ -146,20 +146,31 @@ export function buildMediumLock(style?: VisualStyle): string {
 export function buildImageCaptureContract(style?: VisualStyle): string {
   const normalized = normalizeVisualStyle(style);
   const profile = normalized === 'cinematic-natural'
-    ? 'Choose one capture profile implied by the scene/reference — cinema or mirrorless location photography, OR direct modern-phone capture — and keep it coherent; never average them into a generic glossy image.'
+    ? 'Direct-captured natural live action. Choose one plausible cinema, mirrorless, or modern-phone capture profile implied by the scene and references; keep it coherent and never average them into generic glossy imagery.'
     : normalized === 'documentary'
-      ? 'Use an available-light observational camera profile with imperfect but plausible framing, finite exposure, mild sensor texture and optically caused focus falloff.'
+      ? 'Available-light observational photography. Use imperfect but purposeful framing, finite exposure, mild sensor texture, real contact shadows, and optically caused focus falloff; exclude commercial polish and staged hero posing.'
       : normalized === 'warm-film'
-        ? 'Use one warm photochemical camera and vintage spherical-prime response with organic falloff, fine grain and restrained halation.'
+        ? 'Photochemical warm-film photography. Use one vintage spherical-prime response with organic focus falloff, irregular fine grain, and restrained halation only around bright motivated sources; exclude digital vintage filters and synthetic HDR.'
         : normalized === 'neo-noir'
-          ? 'Use one close-proximity neo-noir lens family with motivated hard sources, dense textured shadows, controlled practical highlights and deliberate obstruction.'
+          ? 'Grounded neo-noir live action. Use one close-proximity lens family with a motivated hard key or edge source, strong negative fill, dense but textured shadows, controlled practical highlights, wet material response, and deliberate foreground obstruction; exclude flat fill light.'
           : normalized === 'commercial'
-            ? 'Use one premium commercial camera and lens family with precise surface response, controlled specular highlights and clean subject separation.'
+            ? 'Premium live-action commercial photography. Use one precise camera and lens family with shaped key and fill, deliberate specular placement, exact skin/glass/metal/liquid/fabric response, crisp focal hierarchy, and clean subject separation; exclude plastic CGI gloss.'
+            : normalized === 'anime'
+              ? 'Authored cinematic 2D anime frame. Preserve stable character-model linework, intentional line-weight hierarchy, graphic key-light shapes, controlled cel-shadow groups, hand-authored perspective, readable silhouettes, and layered parallax planes; exclude photographic skin, pasted bokeh, and 3D material drift.'
+              : normalized === '3d-cg'
+                ? 'Feature-quality cinematic 3D frame. Preserve stable topology and grooming, physically based skin/cloth/metal/environment materials, unified global illumination, motivated key sources, contact shadows, restrained volumetric depth, and a physical virtual-camera perspective; exclude plastic surfaces, 2D linework, and impossible lens behavior.'
+                : normalized === 'stop-motion'
+                  ? 'Photographed handmade stop-motion miniature. Preserve visible clay, fabric, paper, paint, seams, fingerprints, and tiny construction variation under scale-appropriate practical tabletop light, macro-lens perspective, hard miniature contact shadows, and purposeful miniature depth falloff; exclude smooth CG interpolation and synthetic surfaces.'
             : normalized === 'follow-reference'
-              ? 'Infer one coherent capture/rendering system from the supplied references and preserve its exact optical or medium-specific behavior.'
-              : 'Use one coherent camera/rendering system appropriate to the selected medium and preserve its depth, light and material logic.';
+              ? 'Infer exactly one coherent capture or rendering system from the supplied style reference. Preserve its palette, surface language, contrast, depth, light, and medium-specific imperfections; do not blend it with a second medium.'
+              : 'Use one coherent camera or rendering system appropriate to the selected medium and preserve its depth, light, and material logic.';
 
-  return `STILL-CAPTURE PHYSICS (authoritative): ${profile} Every shot must have physically related camera height, camera-to-subject distance and perspective; intentional subject placement and foreground/midground/background separation; one explicit focus plane with plausible near/far falloff; motivated key/practical light with direction, source size, bounce, shadow density and distance falloff; finite exposure, natural highlight roll-off and material-specific diffuse/specular response. Preserve only capture-appropriate imperfections such as mild grain/noise, edge softness, vignetting, flare/halation, chromatic fringing or phone sharpening when physically justified. Do not stack random lens defects, blur the whole frame, use synthetic HDR, beauty retouching, uniform fill light or generic "cinematic" gloss.`;
+  return `STILL IMAGE SPECIFICATION (authoritative):
+VISUAL MEDIUM: ${profile}
+COMPOSITION: State one camera height, camera-to-subject distance and viewpoint; place the subject intentionally with explicit negative space and foreground/midground/background separation. Show the complete required action geometry and object contact; do not add unrelated elements.
+FOCUS AND PERSPECTIVE: Use one explicit focus plane with plausible near/far falloff and medium-appropriate perspective. Do not blur the whole frame.
+LIGHT AND MATERIAL: Use motivated key or practical light with a clear direction, source size, bounce or negative fill, shadow density, and distance falloff. Preserve finite exposure, controlled highlight roll-off, and material-specific diffuse/specular or stylized surface response.
+QUALITY GUARD: Use only imperfections justified by the selected capture/rendering medium. Do not stack random lens defects, use synthetic HDR, beauty retouching, uniform fill light, mixed media, or generic "cinematic" gloss.`;
 }
 
 // 九宫格有更严格的提示词长度限制：保留成像因果的骨架，把逐镜差异留给 panel prompt。
@@ -236,7 +247,9 @@ CHARACTER DESCRIPTION RULES (Visual Specificity)
 - Example RIGHT: "woman in her early 20s, faded charcoal sleeveless crop top, high-waist light-wash denim jeans, black canvas sneakers, black woven cord necklace, black wavy long hair in messy side ponytail with wispy bangs, natural daily makeup"
 - Every character description must end with: "Consistent identity, costume, hairstyle and appearance throughout the video."
 
-${buildMediumLock(input.visualStyle)}`;
+${buildMediumLock(input.visualStyle)}
+
+${buildImageCaptureContract(input.visualStyle)}`;
 }
 
 export function buildCharacterConceptGridPrompt(input: {
@@ -276,7 +289,9 @@ Exactly ${input.candidateCount} equal cells, ${grid}, read left-to-right and top
 
 The sheet is a selection board, not the final turnaround. Prioritize clear identity, silhouette and production-ready design differences.
 
-${buildMediumLock(input.visualStyle)}`;
+${buildMediumLock(input.visualStyle)}
+
+${buildCompactImageCaptureContract(input.visualStyle)}`;
 }
 
 export function buildSceneReferencePrompt(sceneStyle?: string, style?: VisualStyle, aspectRatio: '16:9' | '9:16' | '1:1' = '16:9') {
@@ -284,7 +299,9 @@ export function buildSceneReferencePrompt(sceneStyle?: string, style?: VisualSty
   return `Create a professional ${aspectRatio} environment continuity bible with ${composition} for: ${clean(sceneStyle)}.
 Show one coherent location through a hero establishing view plus complementary wide, reverse-angle, and key-detail views. Lock architecture, geography, entrances, landmarks, practical props, time of day, weather, light direction, color temperature, and material palette. Empty location, no characters. Clean editorial board, high production detail, no captions, labels, logos, watermark, or readable text.
 
-${buildMediumLock(style)}`;
+${buildMediumLock(style)}
+
+${buildImageCaptureContract(style)}`;
 }
 
 export function buildVideoContinuityRules(hasAudioReference: boolean) {

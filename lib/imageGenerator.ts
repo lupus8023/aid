@@ -66,7 +66,7 @@ export async function generateStoryboardImage(
     // those labels avoids reference number drift when an entity has no image.
     const referenceDescriptions = effectiveReferences.map((_, index) => {
       const label = effectiveReferenceLabels[index];
-      return `Reference image ${index + 1}: ${label || `uploaded visual reference ${index + 1}`}. Match this reference exactly.`;
+      return `Reference image ${index + 1}: ${label || `uploaded visual reference ${index + 1}`}. Use only the role named here. Preserve its role-specific identity, design, medium, or environment cues; ignore unrelated pose, background, layout, borders, labels, and text.`;
     });
 
     // The official Z-Image-Turbo workflow is text-only. Preserve the semantic
@@ -158,14 +158,14 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     const usingCostume = Boolean(globalCostumeImages[char.name]);
     referenceEntries.push({
       image,
-      description: `"${char.name}" - ${usingCostume ? 'CHARACTER REFERENCE. Maintain consistent appearance, hairstyle, clothing, and visual style from this reference.' : `${char.description}. Match the character's appearance and clothing style from this reference image.`}`,
+      description: `CHARACTER IDENTITY ONLY — "${char.name}". ${usingCostume ? 'Preserve the exact face, body proportions, hairstyle, wardrobe, accessories, and visual medium.' : `${char.description}. Preserve this character's exact face, body, hair, wardrobe, and visual medium.`} Ignore the reference pose, camera, background, layout, duplicate views, labels, and text. Instantiate this identity exactly once when required by the cast contract.`,
       fallback: `Character requirement: "${char.name}" - ${char.description}. Preserve this identity exactly once.`,
     });
   });
   if (globalSceneImage) {
     referenceEntries.push({
       image: globalSceneImage,
-      description: 'SCENE REFERENCE - Use this as the environment/background style. Match the lighting, atmosphere, and setting exactly.',
+      description: 'ENVIRONMENT ONLY. Preserve architecture, geography, entrances, landmarks, time of day, motivated light direction, palette, atmosphere, and material language. Ignore any people, poses, framing, labels, or text in the reference.',
       fallback: 'Scene requirement: follow the environment, lighting and atmosphere described in the storyboard prompt.',
     });
   }
@@ -177,7 +177,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     if (img) {
       referenceEntries.push({
         image: img,
-        description: `"${obj.name}" - ${obj.description}. MUST reproduce exact shape, color, material, texture, text, and all details from this reference image.`,
+        description: `OBJECT IDENTITY ONLY — "${obj.name}". ${obj.description}. Preserve its exact shape, proportions, scale, color, material, texture, construction, and intentional markings. Ignore the reference background, layout, hands, labels, and unrelated text.`,
         fallback: `Object requirement: "${obj.name}" - ${obj.description}. Keep its appearance consistent.`,
       });
     } else {
@@ -197,7 +197,15 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     console.log(`Scene ${storyboard.sceneNumber} has no characters or objects, using text-to-image generation`);
 
     // 纯文生图也要清理 brackets
-    const cleanPrompt = `${buildMediumLock(visualStyle)}\n\n${buildImageCaptureContract(visualStyle)}\n\n${storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1')}`;
+    const cleanPrompt = `IMAGE GOAL:
+${storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1')}
+
+OUTPUT CONSTRAINTS:
+One complete standalone frame. No captions, subtitles, dialogue text, speech bubbles, titles, logos, watermark, UI, or readable text. Do not add unrelated people, objects, or decorative elements.
+
+${buildMediumLock(visualStyle)}
+
+${buildImageCaptureContract(visualStyle)}`;
 
     const taskId = await createProviderImageTask(
       cleanPrompt,
@@ -231,17 +239,22 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     );
   });
 
-  const enhancedPrompt = `${exactCastContract}
+  const enhancedPrompt = `IMAGE GOAL:
+${cleanedScenePrompt}
+
+OUTPUT CONSTRAINTS:
+${exactCastContract}
+One complete standalone frame. No captions, subtitles, dialogue text, speech bubbles, titles, logos, watermark, UI, or readable text. Do not add unrelated people, objects, scenery, or decorative elements.
+
+REFERENCE JOBS — each input has one job only; never blend their backgrounds, poses, or layouts:
+${referenceDescriptions.join('\n')}
 
 ${buildMediumLock(visualStyle)}
 
 ${buildImageCaptureContract(visualStyle)}
 
-${referenceDescriptions.join('\n')}
-
-${cleanedScenePrompt}
-
-Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. No captions, subtitles, dialogue text, speech bubbles, titles, logos, watermark, or UI. Maintain exact lighting and atmosphere from the scene reference.
+PRESERVE INVARIANTS:
+Obey EXACT CAST literally. Maintain exact face, body proportions, hairstyle, clothing, accessories, and visual medium for every character. Keep each referenced object's shape, scale, color, material, texture, and intentional markings unchanged. Preserve the scene reference's architecture, geography, motivated light, atmosphere, and material language while allowing the requested camera viewpoint. Change only the action, composition, and viewpoint requested in IMAGE GOAL.
 
 `;
 

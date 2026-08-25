@@ -6,7 +6,7 @@
  */
 export const NO_SUBTITLE_POLICY_MARKER = 'CLEAN-FRAME PRESENTATION';
 
-export const NO_SUBTITLE_POLICY = `${NO_SUBTITLE_POLICY_MARKER}: The video remains a clean photographic or animated frame. Spoken words exist only in the synchronized audio track; the generated picture contains no graphic text overlay.`;
+export const NO_SUBTITLE_POLICY = `${NO_SUBTITLE_POLICY_MARKER}: Keep every generated frame text-free. Spoken words exist only in the synchronized audio track. Do not render subtitles, captions, titles, speech bubbles, logos, watermarks, UI, or any readable characters.`;
 
 /** Add the clean-frame rule once, without wrapping or multiplying it. */
 export function enforceNoSubtitles(prompt: string): string {

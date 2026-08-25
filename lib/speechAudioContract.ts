@@ -277,7 +277,7 @@ export function compileTimedSpeech(
   return timed;
 }
 
-export function buildAudioManifest(storyboards: Storyboard[]): string {
+export function buildAudioManifest(storyboards: Storyboard[], language: 'zh' | 'en' = 'en'): string {
   const plans = storyboards.map(storyboardAudioPlan);
   // Per-shot cues already preserve the specific sources. The overall H3 field
   // is a compact bed summary; an unbounded union can consume hundreds of
@@ -285,6 +285,21 @@ export function buildAudioManifest(storyboards: Storyboard[]): string {
   const environment = [...new Set(plans.flatMap(plan => plan.environment))].slice(0, 4);
   const foley = [...new Set(plans.flatMap(plan => plan.foley))].slice(0, 4);
   const allowBackgroundPresence = plans.some(plan => plan.backgroundHuman === 'indistinct_nonverbal');
+  if (language === 'zh') {
+    return [
+      environment.length
+        ? `场景环境声包括：${environment.join('；')}。`
+        : '持续保留安静、透视关系正确的场景底噪。',
+      foley.length
+        ? `物理动作声包括：${foley.join('；')}；每个声音只与画面中可见的成因同步。`
+        : '只为画面中明确发生的接触生成克制的物理声音。',
+      allowBackgroundPresence
+        ? '背景人物只能形成低沉、模糊、不可辨词义的非语言人声。'
+        : '没有背景人声。',
+      '没有旁白、临时加词、歌唱或任何剧本外可辨识词语。',
+      '最后 0.35 秒只保留干净稳定的场景底噪并自然收束；不得出现电子嘶声、静电、蜂鸣、数字残响或突兀断音。',
+    ].join(' ');
+  }
   return [
     environment.length
       ? `The location ambience consists of ${environment.join('; ')}.`
@@ -300,8 +315,13 @@ export function buildAudioManifest(storyboards: Storyboard[]): string {
   ].join(' ');
 }
 
-export function buildNonDiegeticMusic(storyboards: Storyboard[]): string {
+export function buildNonDiegeticMusic(storyboards: Storyboard[], language: 'zh' | 'en' = 'en'): string {
   const music = [...new Set(storyboards.map(storyboard => storyboardAudioPlan(storyboard).music).filter(value => value && value !== 'none'))];
+  if (language === 'zh') {
+    return music.length
+      ? `观众可听见的非画内配乐使用：${music.join('；')}。配乐不得压过对白和画面动作造成的声音。`
+      : '没有音乐。不得生成配乐、旋律、节奏底、广告短曲、歌唱、器乐演奏、音调铺底或音乐转场。';
+  }
   return music.length
     ? `The audience-only score uses ${music.join('; ')}. It remains subordinate to dialogue and visibly caused sound.`
     : 'No music is present. No score, melody, rhythmic bed, jingle, singing, instrumental performance, tonal pad, or musical transition is generated.';

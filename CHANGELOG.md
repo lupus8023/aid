@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.69 - 2026-08-25
+
+### Improved
+
+- MiniMax H3 video prompts now use separate complete Chinese and English Context-IR renderers. Canonical field and reference tags remain intact, while directing, timing, performance, soundscape and music constraints stay in the selected project language.
+- GPT-Image-2 storyboard and reference prompts now lead with one visual goal, assign exactly one role to every character, environment and object reference, and explicitly separate requested changes from preserved identity, world and material invariants.
+- All nine production styles have more precise still-image capture contracts; anime, cinematic 3D and stop-motion now use their own line, topology, material, lighting, perspective and artifact exclusions instead of a generic rendering profile.
+
+### Fixed
+
+- Story Director's English still-image prompt and description no longer leak into H3 video direction, eliminating duplicated LOOK prose, mixed-language fragments and unrelated partial instructions such as `points to`.
+- English speech-directive cleanup now matches whole words, so product terms such as `mask` are no longer truncated by the `asks` detector.
+- Chinese H3 ambience/Foley-bed prompts and prompt-budget compaction remain Chinese, including long-action joiners and retention fallbacks.
+- Every image-to-video provider boundary now adds one explicit text-free frame contract prohibiting subtitles, captions, titles, speech bubbles, logos, watermarks, UI and readable characters.
+
+### Verification
+
+- All 178 regression tests pass; TypeScript validation and the production Next.js build complete successfully.
+
 ## 0.1.68 - 2026-08-25
 
 ### Fixed

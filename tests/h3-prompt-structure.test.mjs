@@ -81,6 +81,46 @@ test('locks H3 speech to the project language and rejects mismatched generated d
   ], [], { duration: 7, language: 'en' }), /项目对白语言为 English/);
 });
 
+test('keeps Chinese and English H3 templates separate and never reuses the English still-image prompt', () => {
+  const chinese = buildVideoSegmentPrompt([
+    shot(1, {
+      characters: ['Dr. Pan'],
+      objects: ['面膜', '成分表'],
+      action: 'Dr. Pan 展示一种新面膜及其成分表。',
+      consequence: '观众开始关注面膜成分的作用。',
+      description: '[中景，自然视平线] Dr. Pan 展示面膜，设备柔光照亮真实皮肤和包装材质。',
+      prompt: 'Dr. Pan(showcasing a face mask), points to. Premium English still-image direction that must never enter H3.',
+      cameraMove: '固定',
+      speech: [{
+        speakerId: 'S01', character: 'Dr. Pan',
+        exactLine: '面膜的核心在于它们丰富的成分，可以给肌肤提供足够的营养。',
+        emotion: '专业而克制', delivery: '自然', volume: 'normal', lipSync: true,
+        listenerState: '观众对面膜的成分产生兴趣', source: 'story_required',
+      }],
+      audioPlan: { backgroundHuman: 'none', environment: ['设备低沉运转声'], foley: ['翻页声', '塑料轻响'], music: 'none' },
+    }),
+  ], [], { duration: 14, language: 'zh', referenceAudioNames: ['Dr. Pan'] });
+
+  assert.match(chinese, /动作：Dr\. Pan 展示一种新面膜及其成分表。/);
+  assert.match(chinese, /<d>\[Chinese\] 面膜的核心在于/);
+  assert.equal((chinese.match(/面膜的核心在于/g) || []).length, 1);
+  assert.doesNotMatch(chinese, /showcasing a face mask|points to|Premium English still-image direction/);
+  assert.doesNotMatch(chinese, /Visible result:|Silent performance:|The camera uses|says once|End by|The audible layer|No music is present|CLEAN-FRAME PRESENTATION/);
+  assert.match(chinese, /没有音乐。不得生成配乐/);
+
+  const english = buildVideoSegmentPrompt([
+    shot(1, {
+      action: 'Dr. Pan displays a new face mask and its ingredient list.',
+      consequence: 'The viewer becomes curious about the ingredients.',
+      description: '[Medium shot, eye level] Dr. Pan presents the package under soft equipment light.',
+      prompt: 'Unrelated still-image prompt that must stay out of H3.',
+    }),
+  ], [], { duration: 8, language: 'en' });
+  assert.match(english, /ACTION: Dr\. Pan displays a new face mask/);
+  assert.doesNotMatch(english, /Unrelated still-image prompt/);
+  assert.doesNotMatch(english, /可见角色|动作：|没有音乐|不得生成配乐|最迟/);
+});
+
 test('binds multiple sequential dialogue lines to their matching H3 voice references', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1, { characters: ['Lin', 'Mei'], speech: [{ speakerId: 'S01', character: 'Lin', exactLine: '你看见了吗？', emotion: 'alert', delivery: 'quietly', volume: 'soft', lipSync: true, source: 'story_required' }] }),
@@ -139,7 +179,7 @@ test('drops model-written stage directions before they can become H3 dialogue', 
 
   assert.doesNotMatch(prompt, /无其他角色在场|其他角色保持沉默|<d>/);
   assert.doesNotMatch(prompt, /<d>/);
-  assert.match(prompt, /Visible cast, each exactly once: <Subject 1> \(Lin\)/);
+  assert.match(prompt, /可见角色各只出现一个：<Subject 1>（Lin）/);
 });
 
 test('does not send a line whose assigned character is absent from the visible action', () => {
@@ -174,7 +214,7 @@ test('keeps performance directions non-spoken and emits only exact dialogue insi
     }),
   ], [], { duration: 7, language: 'zh' });
 
-  assert.match(prompt, /with restrained determination, after one brief natural pause, at a natural conversational pace/);
+  assert.match(prompt, /克制而坚定，先有一次短暂自然停顿，使用自然对话语速/);
   assert.match(prompt, /<d>\[Chinese\] 女娲娘娘，请借我力量！<\/d>/);
   assert.doesNotMatch(prompt, /SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE/);
   assert.equal((prompt.match(/先短暂停顿，再以坚定语气说/g) || []).length, 0);
@@ -216,16 +256,16 @@ test('preserves every grouped storyboard as a complete timed action-camera-dialo
   ], [], { duration: 15, language: 'zh' });
 
   assert.match(prompt, /\[Shot 1\]/);
-  assert.match(prompt, /\[Shot 2\] At 00:\d{2}\.\d{3},/);
-  assert.match(prompt, /\[Shot 3\] At 00:\d{2}\.\d{3},/);
+  assert.match(prompt, /\[Shot 2\] 从 00:\d{2}\.\d{3} 开始，/);
+  assert.match(prompt, /\[Shot 3\] 从 00:\d{2}\.\d{3} 开始，/);
   for (const action of [
     'Lin snatches the red envelope from the moving bicycle.',
     'Lin tears the seal and recoils from the photograph.',
     'Lin pivots toward the station clock and breaks into a run.',
   ]) assert.equal((prompt.match(new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 1);
-  assert.equal((prompt.match(/(?:The camera uses|CAMERA:)/g) || []).length, 3);
-  assert.equal((prompt.match(/move into \[Shot/g) || []).length, 2);
-  assert.match(prompt, /authored story bridge: Match the red envelope crossing frame/);
+  assert.equal((prompt.match(/相机：/g) || []).length, 3);
+  assert.equal((prompt.match(/进入 \[Shot/g) || []).length, 2);
+  assert.match(prompt, /按剧本指定的视觉交接：Match the red envelope crossing frame/);
   assert.doesNotMatch(prompt, /DIALOGUE:|SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE/);
   assert.doesNotMatch(prompt, /cross-dissolve|fade from|fade into/i);
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
@@ -377,6 +417,17 @@ test('keeps the H3 sound-bed prompt free of speaking actions and music permissio
   assert.match(prompt, /AUDIO ONLY: The audible layer is quiet laboratory hum/);
   assert.match(prompt, /non_diegetic_music:\nNo music is present\./);
   assert.match(prompt, /No score, melody, rhythmic bed, jingle, singing, instrumental performance, tonal pad, or musical transition/);
+
+  const chinesePrompt = buildVideoSegmentSoundBedPrompt([
+    shot(1, {
+      action: 'Dr. Pan 开始介绍面膜功效。',
+      audioPlan: { backgroundHuman: 'none', environment: ['实验室设备低沉运转声'], foley: ['翻页声'], music: 'none' },
+    }),
+  ], 7, 'zh');
+  assert.match(chinesePrompt, /纯声音底轨渲染；画面输出会被丢弃/);
+  assert.match(chinesePrompt, /只生成声音：可听声层为实验室设备低沉运转声/);
+  assert.match(chinesePrompt, /没有音乐。不得生成配乐/);
+  assert.doesNotMatch(chinesePrompt, /AUDIO ONLY|The audible layer|No music is present/);
 });
 
 test('applies distinct directing and sound rules for each production style', () => {

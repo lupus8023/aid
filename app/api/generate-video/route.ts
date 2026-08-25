@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
           ? buildVideoSegmentSoundBedPrompt(
               isMultiBeatSegment ? videoStoryboards : [storyboard],
               requestedDuration,
+              language === 'en' ? 'en' : 'zh',
             )
           : undefined,
         duration: requestedDuration,
