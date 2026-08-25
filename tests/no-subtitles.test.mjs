@@ -19,11 +19,13 @@ const storyboard = {
   visualStyle: 'cinematic-natural',
 };
 
-test('H3 prompts use one compact clean-frame rule inside the official structure', async () => {
+test('H3 prompts use a structured text-free contract inside the official structure', async () => {
   const source = await readFile(new URL('../lib/videoGenerator.ts', import.meta.url), 'utf8');
   assert.match(source, /subject_definitions:/);
   assert.match(source, /integrated_multimodal_description:/);
-  assert.match(source, /NO_SUBTITLE_POLICY/);
+  assert.match(source, /frame_text_policy: h3FrameTextContract\(\)/);
+  assert.match(source, /subtitles: false/);
+  assert.match(source, /readable_text: false/);
   assert.match(source, /visualOverride: storyboard\.videoPrompt\.trim\(\)/);
   assert.match(source, /This direction is visual-only/);
 });

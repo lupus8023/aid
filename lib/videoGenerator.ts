@@ -2,7 +2,6 @@ import { createVideoTask, getVideoTaskStatus } from './apimart';
 import type { Storyboard } from '@/types';
 import { buildVideoContinuityRules, getProductionStylePreset } from './promptArchitecture';
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds } from './videoSegments';
-import { NO_SUBTITLE_POLICY } from './videoTextPolicy';
 import { buildAudioManifest, buildNonDiegeticMusic, compileTimedSpeech, isDirectingInstructionDialogue, storyboardAudioPlan, storyboardSpeech, validateSpeechLanguage } from './speechAudioContract';
 
 function h3Timestamp(seconds: number): string {
@@ -19,9 +18,69 @@ function compactText(value: unknown, limit = 220): string {
   return `${text.slice(0, cut > limit * 0.65 ? cut : limit).trim()}${/[\u3400-\u9fff]/.test(text) ? '。' : '.'}`;
 }
 
+type H3TimelineDialogueEvent = {
+  window: string;
+  speaker: string;
+  kind: 'on_screen' | 'off_screen';
+  spoken_once: string;
+  first_word_at: string;
+  final_word_complete_by: string;
+  outside_window: string;
+  delivery: string;
+};
+
+function h3TimelineJson(value: Record<string, unknown>, compact = false): string {
+  // H3's published prompt contract is section-based Context-IR rather than a
+  // JSON API. Keep those official outer sections, but serialize the dense
+  // shot timeline as valid JSON so dialogue, camera, action and sound cannot
+  // collapse into one ambiguous prose sentence. Compact JSON is used for
+  // multi-shot clips to preserve H3's 7000-character prompt ceiling.
+  return JSON.stringify(value, null, compact ? 0 : 2);
+}
+
+function h3VoiceContract(eventCount: number, firstSpeechStart?: number): Record<string, unknown> {
+  if (!eventCount) {
+    return {
+      intelligible_human_voice: false,
+      dialogue_events: 0,
+      narrator: false,
+      ad_lib: false,
+      singing: false,
+    };
+  }
+  return {
+    dialogue_events: eventCount,
+    vocalize_only: 'shots[].dialogue_events[].spoken_once',
+    exact_verbatim_once: true,
+    preserve_event_order: true,
+    vocalize_json_keys_or_direction_values: false,
+    narrator: false,
+    ad_lib: false,
+    reference_audio_role: 'timbre_only_ignore_source_words_and_timing',
+    before_first_dialogue: {
+      range: `00:00.000-${h3Timestamp(firstSpeechStart || 0)}`,
+      intelligible_voice: false,
+      mouths_closed: true,
+      room_tone_only: true,
+      filler_or_reference_sample_leakage: false,
+    },
+  };
+}
+
+function h3FrameTextContract(): Record<string, boolean> {
+  return {
+    subtitles: false,
+    captions: false,
+    titles_or_speech_bubbles: false,
+    logos_watermarks_or_ui: false,
+    readable_text: false,
+    spoken_words_audio_only: true,
+  };
+}
+
 function fitH3PromptBudget(prompt: string): string {
   if (prompt.length <= 7000) return prompt;
-  const chineseTemplate = prompt.includes('画面始终保持干净的摄影或动画画幅');
+  const chineseTemplate = prompt.includes('叙事弧：') || prompt.includes('没有音乐。不得生成配乐');
   // Still images already carry appearance. Under pressure, discard only the
   // duplicated static LOOK sentence, never action, dialogue, timing or sound.
   let fitted = prompt.replace(/ LOOK:[^\n]*? ACTION:/g, ' ACTION:');
@@ -607,13 +666,9 @@ function buildChineseVideoSegmentPrompt(
   const audioId = new Map(referenceAudioNames.map((name, index) => [name, index + 1]));
   const speechEventCount = timedSpeech.length;
   const firstSpeechStart = timedSpeech[0]?.start;
-  const speechControl = speechEventCount
-    ? compactMode
-      ? `对白白名单：只说下方 ${speechEventCount} 个 d 标签，各按顺序逐字一次；不得增删、改写、重复或换人。标签外指令一律无声，音频参考只取音色。第一句前${firstSpeechStart !== undefined ? `（${h3Timestamp(firstSpeechStart)}）` : ''}只有干净底噪、嘴闭合；不得有嗯声、残字或样本泄漏。无其他人声。`
-      : `对白白名单：本片只能出现下方 ${speechEventCount} 个 d 对话标签中的文字，必须按标签顺序逐字各说一次，不得改写、增字、漏字、重复或交换说话者。标签外全部内容都是无声导演指令；不得朗读章节名、角色名、Subject 或 Audio 编号、时间码、情绪、动作和声音说明。音频参考只提供音色，必须忽略样本原有词语与时序。00:00.000 至第一句开始前${firstSpeechStart !== undefined ? `（${h3Timestamp(firstSpeechStart)}）` : ''}只保留干净场景底噪，所有嘴闭合；不得出现吸气词、嗯声、哼声、残字或音频样本泄漏。没有旁白、临时加词或其他可辨识人声。`
-    : '没有旁白、对白、歌唱、临时加词或任何可辨识的人声。下方所有文字都只是无声的画面导演说明。';
+  const voiceContract = h3VoiceContract(speechEventCount, firstSpeechStart);
 
-  const renderDialogue = (storyboardIndex: number) => timedSpeech
+  const renderDialogue = (storyboardIndex: number): H3TimelineDialogueEvent[] => timedSpeech
     .filter(line => line.storyboardIndex === storyboardIndex)
     .map(line => {
       const subject = subjectId.get(line.character);
@@ -629,14 +684,17 @@ function buildChineseVideoSegmentPrompt(
             : '以自然说话音量';
       const start = h3Timestamp(line.start);
       const end = h3Timestamp(line.end);
-      return line.lipSync
-        ? compactMode
-          ? `[对白时间窗 ${start}–${end}] ${source}：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。首字准时对齐 ${start}，尾字在 ${end} 前完整结束；窗外无人声、嘴闭合。${volume}，${performanceDirection}。`
-          : `[对白时间窗 ${start}–${end}] ${source}：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。第一个字必须在 ${start} 准时起声，最后一个字必须在 ${end} 前完整结束；窗口外无人声且嘴闭合。${volume}；表演${performanceDirection}。`
-        : compactMode
-          ? `[画外对白时间窗 ${start}–${end}] ${source}：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。首字准时对齐 ${start}，尾字在 ${end} 前完整结束；窗外无人声、可见嘴闭合。${volume}，${performanceDirection}。`
-          : `[画外对白时间窗 ${start}–${end}] ${source}：<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>。第一个字必须在 ${start} 准时起声，最后一个字必须在 ${end} 前完整结束；窗口外无人声，画面中可见的嘴始终闭合。${volume}；表演${performanceDirection}。`;
-    }).join(' ');
+      return {
+        window: `${start}-${end}`,
+        speaker: source,
+        kind: line.lipSync ? 'on_screen' : 'off_screen',
+        spoken_once: `<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>`,
+        first_word_at: start,
+        final_word_complete_by: end,
+        outside_window: line.lipSync ? 'no_voice_mouth_closed' : 'no_voice_visible_mouths_closed',
+        delivery: `${volume}；${performanceDirection}`,
+      };
+    });
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
     const range = timeline[index];
@@ -655,25 +713,57 @@ function buildChineseVideoSegmentPrompt(
     const handoff = index < storyboards.length - 1
       ? `在 ${h3Timestamp(range.end)}，通过${chineseTransition(storyboard, storyboards[index + 1])}进入 [Shot ${index + 2}]。`
       : `到 ${h3Timestamp(range.end)}，保留一个有动机的动作、视线或后果，不得停成僵死画面。`;
-    const shotHeader = index === 0 ? '[Shot 1]' : `[Shot ${index + 1}] 从 ${h3Timestamp(range.start)} 开始，`;
     const props = (storyboard.objects || []).length ? `可见故事道具为：${(storyboard.objects || []).join('、')}。` : '';
-    const dialogue = renderDialogue(index);
+    const dialogueEvents = renderDialogue(index);
     if (compactMode) {
       const compactCast = beatCharacters.length
         ? `角色各一次：${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}>（${name}）` : name).join('、')}；无额外角色。`
         : '没有角色。';
-      return `${shotHeader}${pictureAnchor}${compactCast}${props}构图：${chineseShotFraming(storyboard)}。${dialogue} 动作：${chineseShotSchedule(storyboard, range, true)} 相机：${compactText(chineseCameraMotion(storyboard, index), 90)}。声音：${compactText(chineseShotSoundCue(storyboard), 72)} ${compactText(handoff, 220)}`;
+      return {
+        shot: index + 1,
+        range: `${h3Timestamp(range.start)}-${h3Timestamp(range.end)}`,
+        visual_reference: pictureAnchor,
+        cast: compactCast,
+        framing: chineseShotFraming(storyboard),
+        dialogue_events: dialogueEvents,
+        visual_action: chineseShotSchedule(storyboard, range, true),
+        camera: compactText(chineseCameraMotion(storyboard, index), 90),
+        transition_or_end: compactText(handoff, 180),
+      };
     }
-    return `${shotHeader}${entry}${pictureAnchor}${cast}${props}使用${chineseShotFraming(storyboard)}。${dialogue} 动作：${chineseShotSchedule(storyboard, range)} 相机使用${chineseCameraMotion(storyboard, index)}。${chineseShotSoundCue(storyboard)} ${handoff}`;
+    return {
+      shot: index + 1,
+      range: `${h3Timestamp(range.start)}-${h3Timestamp(range.end)}`,
+      entry,
+      visual_reference: pictureAnchor,
+      cast,
+      props,
+      framing: chineseShotFraming(storyboard),
+      dialogue_events: dialogueEvents,
+      visual_action: chineseShotSchedule(storyboard, range),
+      camera: chineseCameraMotion(storyboard, index),
+      synchronized_sound: chineseShotSoundCue(storyboard),
+      transition_or_end: handoff,
+    };
   });
 
   const visualOverride = compactActionArc(sanitizeVisualDirection(options.visualOverride, timedSpeech.map(line => line.exactLine)), compactMode ? 360 : 720);
-  const styleOpening = `${CHINESE_H3_STYLE[String(first.visualStyle || 'cinematic-natural')] || CHINESE_H3_STYLE['cinematic-natural']}${visualOverride ? ` 补充画面要求：${visualOverride}。这段补充只影响画面，不得改变动作、对白或声音。` : ''} 画面始终保持干净的摄影或动画画幅；说出的词只存在于同步音轨中，画面不得出现字幕、标题、气泡、标志、水印或任何可读文字。剪辑必须由物理动作或因果推动，不得淡入淡出或叠化。`;
+  const styleOpening = `${CHINESE_H3_STYLE[String(first.visualStyle || 'cinematic-natural')] || CHINESE_H3_STYLE['cinematic-natural']}${visualOverride ? ` 补充画面要求：${visualOverride}。这段补充只影响画面，不得改变动作、对白或声音。` : ''} 剪辑必须由物理动作或因果推动，不得淡入淡出或叠化。`;
   const fittedPhysics = compactMode
     ? '保持因果、身份、服装、空间、光线、银幕方向、身体与布料及道具重量和对白视线轴。所有带时间的字段具有最高约束力；不得舞台化表演或慢动作。'
     : '保持连续因果和可信的身体、布料与道具重量。保持空间、光线、银幕方向以及对白视线轴和人物画面侧；只有通过可见的中性运动才能越轴。每个身份只出现一次，脸、身体、头发、服装保持稳定。所有带时间的字段具有最高约束力。表演通过呼吸、视线、面部张力和重心变化推进；不得舞台化表演或持续喊叫。';
   const soundscape = buildAudioManifest(storyboards, 'zh');
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards, 'zh');
+  const timelineJson = h3TimelineJson({
+    schema: 'aid_h3_timeline_v1',
+    duration: `${duration.toFixed(3)}s`,
+    silent_direction_data: true,
+    voice_contract: voiceContract,
+    frame_text_policy: h3FrameTextContract(),
+    visual_style: compactMode ? compactText(styleOpening, 70) : styleOpening,
+    shots: shotDescriptions,
+    continuity: fittedPhysics,
+  }, compactMode || storyboards.length > 1);
 
   if (isFirstLastMode) {
     const firstLastBindings = [
@@ -685,7 +775,9 @@ function buildChineseVideoSegmentPrompt(
     ].join(' ');
     return fitH3PromptBudget(`参考图片与目标视频的时间对齐——Picture 1（来自 Shot 1）对应目标视频 0.00 秒；Picture 2（来自 Shot 1）对应目标视频 ${duration.toFixed(2)} 秒。
 
-integrated_multimodal_description: ${firstLastBindings} ${styleOpening} ${speechControl} ${shotDescriptions.join(' ')} ${fittedPhysics}
+integrated_multimodal_description: ${firstLastBindings}
+timeline_json:
+${timelineJson}
 
 overall_soundscape: ${soundscape}
 
@@ -724,10 +816,8 @@ retention_analysis:
 ${retention.join('\n')}
 
 detailed_description:
-${styleOpening}
-${speechControl}
-${shotDescriptions.join('\n')}
-${fittedPhysics}
+timeline_json:
+${timelineJson}
 
 overall_soundscape:
 ${soundscape}
@@ -769,13 +859,9 @@ export function buildVideoSegmentPrompt(
   const audioId = new Map(referenceAudioNames.map((name, index) => [name, index + 1]));
   const speechEventCount = timedSpeech.length;
   const firstSpeechStart = timedSpeech[0]?.start;
-  const speechControl = speechEventCount
-      ? compactMode
-        ? `DIALOGUE WHITELIST: speak only the ${speechEventCount} d-tag texts below, once each verbatim and in order; never add, omit, paraphrase, repeat, or swap speakers. All outside prose is silent. Audio references are timbre only. Before the first line${firstSpeechStart !== undefined ? ` at ${h3Timestamp(firstSpeechStart)}` : ''}: clean room tone, mouths closed, no breath-word, filler, hum, stray phoneme, or reference-sample leakage. No other voice.`
-        : `DIALOGUE WHITELIST: the only intelligible speech in this video is the text inside the ${speechEventCount} d dialogue tag${speechEventCount === 1 ? '' : 's'} below. Speak each tag once, verbatim, in order, with its assigned speaker; never paraphrase, add, omit, repeat, or swap a line. Everything outside those tags is silent direction. Never vocalize section names, character names, Subject or Audio ordinals, timestamps, emotion, action, or sound instructions. Audio references provide timbre only; ignore and never imitate their original words or timing. From 00:00.000 until the first line begins${firstSpeechStart !== undefined ? ` at ${h3Timestamp(firstSpeechStart)}` : ''}, keep only clean location tone with every mouth closed; no breath-word, filler, hum, stray phoneme, or reference-sample leakage. No narrator, ad-lib, or other intelligible voice exists.`
-      : 'No narrator, dialogue, singing, ad-lib, or intelligible human vocalization exists. All prose below is silent visual direction.';
+  const voiceContract = h3VoiceContract(speechEventCount, firstSpeechStart);
 
-  const renderDialogue = (storyboard: Storyboard, storyboardIndex: number) => timedSpeech
+  const renderDialogue = (storyboard: Storyboard, storyboardIndex: number): H3TimelineDialogueEvent[] => timedSpeech
     .filter(line => line.storyboardIndex === storyboardIndex)
     .map(line => {
       const name = line.character;
@@ -793,14 +879,17 @@ export function buildVideoSegmentPrompt(
             : 'at a natural speaking volume';
       const start = h3Timestamp(line.start);
       const end = h3Timestamp(line.end);
-      return line.lipSync
-        ? compactMode
-          ? `[DIALOGUE WINDOW ${start}–${end}] ${source}: <d>[${dialogueLanguage(text)}] ${text}</d>. First word exactly at ${start}; final word complete by ${end}; no voice or lip motion outside. ${volume}; ${performanceDirection}.`
-          : `[DIALOGUE WINDOW ${start}–${end}] ${source}: <d>[${dialogueLanguage(text)}] ${text}</d>. The first word starts exactly at ${start}; the complete final word ends by ${end}. Outside this window there is no voice and the mouth stays closed. Speak ${volume}; performance is ${performanceDirection}.`
-        : compactMode
-          ? `[OFF-SCREEN DIALOGUE WINDOW ${start}–${end}] ${source}: <d>[${dialogueLanguage(text)}] ${text}</d>. First word exactly at ${start}; final word complete by ${end}; no voice outside and visible mouths stay closed. ${volume}; ${performanceDirection}.`
-          : `[OFF-SCREEN DIALOGUE WINDOW ${start}–${end}] ${source}: <d>[${dialogueLanguage(text)}] ${text}</d>. The first word starts exactly at ${start}; the complete final word ends by ${end}. Outside this window there is no voice and every visible mouth stays closed. Speak ${volume}; performance is ${performanceDirection}.`;
-    }).join(' ');
+      return {
+        window: `${start}-${end}`,
+        speaker: source,
+        kind: line.lipSync ? 'on_screen' : 'off_screen',
+        spoken_once: `<d>[${dialogueLanguage(text)}] ${text}</d>`,
+        first_word_at: start,
+        final_word_complete_by: end,
+        outside_window: line.lipSync ? 'no_voice_mouth_closed' : 'no_voice_visible_mouths_closed',
+        delivery: `${volume}; ${performanceDirection}`,
+      };
+    });
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
     const range = timeline[index];
@@ -815,7 +904,7 @@ export function buildVideoSegmentPrompt(
         ? 'The inherited opening frame is already moving; continue its momentum, eyeline and camera inertia.'
         : 'Start directly on visible action and establish the necessary geography within one second.'
       : `Continue from [Shot ${index}] through its motivated physical transition.`;
-    const dialogue = renderDialogue(storyboard, index);
+    const dialogueEvents = renderDialogue(storyboard, index);
     const pictureAnchor = isFirstLastMode
       ? index === storyboards.length - 1
         ? `<Picture 2> is final composition only. Finish primary action by ${h3Timestamp(range.start + shotSeconds * 0.84)}; use final 16% to resolve into it; do not uniformly interpolate or slow one gesture.`
@@ -824,7 +913,6 @@ export function buildVideoSegmentPrompt(
     const handoff = index < storyboards.length - 1
       ? `At ${h3Timestamp(range.end)}, move into [Shot ${index + 2}] by ${cinematicTransition(storyboard, storyboards[index + 1])}.`
       : `By ${h3Timestamp(range.end)}, leave a motivated motion, eyeline or consequence rather than a dead hold.`;
-    const shotHeader = index === 0 ? '[Shot 1]' : `[Shot ${index + 1}] At ${h3Timestamp(range.start)},`;
     const props = (storyboard.objects || []).length
       ? `The visible story props are ${(storyboard.objects || []).join(', ')}.`
       : '';
@@ -836,9 +924,32 @@ export function buildVideoSegmentPrompt(
       // four-shot segment this per-shot cue only needs the synchronized cause;
       // keeping another 135 characters per shot could push a valid causal
       // prompt over H3's 7000-character ceiling.
-      return `${shotHeader} ${pictureAnchor} ${compactCast} ${props} ${officialShotFraming(storyboard)}. ${dialogue} ACTION: ${shotActionSchedule(storyboard, range, true)} CAMERA: ${compactText(officialCameraMotion(storyboard, index), 90)}. SOUND: ${compactText(shotSoundCue(storyboard), 72)} ${compactText(handoff, 220)}`;
+      return {
+        shot: index + 1,
+        range: `${h3Timestamp(range.start)}-${h3Timestamp(range.end)}`,
+        visual_reference: pictureAnchor,
+        cast: compactCast,
+        framing: officialShotFraming(storyboard),
+        dialogue_events: dialogueEvents,
+        visual_action: shotActionSchedule(storyboard, range, true),
+        camera: compactText(officialCameraMotion(storyboard, index), 90),
+        transition_or_end: compactText(handoff, 180),
+      };
     }
-    return `${shotHeader} ${entry} ${pictureAnchor} ${cast} ${props} Use ${officialShotFraming(storyboard)}. ${dialogue} ACTION: ${shotActionSchedule(storyboard, range)} The camera uses ${officialCameraMotion(storyboard, index)}. ${shotSoundCue(storyboard)} ${handoff}`;
+    return {
+      shot: index + 1,
+      range: `${h3Timestamp(range.start)}-${h3Timestamp(range.end)}`,
+      entry,
+      visual_reference: pictureAnchor,
+      cast,
+      props,
+      framing: officialShotFraming(storyboard),
+      dialogue_events: dialogueEvents,
+      visual_action: shotActionSchedule(storyboard, range),
+      camera: officialCameraMotion(storyboard, index),
+      synchronized_sound: shotSoundCue(storyboard),
+      transition_or_end: handoff,
+    };
   });
 
   // A refreshed/model-edited prompt is supplementary visual direction. The
@@ -850,7 +961,7 @@ export function buildVideoSegmentPrompt(
     sanitizeVisualDirection(options.visualOverride, timedSpeech.map(line => line.exactLine)),
     compactMode ? 360 : 720,
   );
-  const styleOpening = `${style.h3Direction}${visualOverride ? ` Visual-only override: ${visualOverride} This direction is visual-only.` : ''} ${NO_SUBTITLE_POLICY} Cuts are physical and motivated, never fades or dissolves.`;
+  const styleOpening = `${style.h3Direction}${visualOverride ? ` Visual-only override: ${visualOverride} This direction is visual-only.` : ''} Cuts are physical and motivated, never fades or dissolves.`;
   const physics = buildVideoContinuityRules(hasVoiceReferences)
     .replace(/\n+/g, ' ')
     .replace(/PHYSICS:|CONSTRAINTS:/g, '')
@@ -863,6 +974,16 @@ export function buildVideoSegmentPrompt(
   // overall_soundscape contains ambience, Foley and non-verbal human sound only.
   const soundscape = buildAudioManifest(storyboards);
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
+  const timelineJson = h3TimelineJson({
+    schema: 'aid_h3_timeline_v1',
+    duration: `${duration.toFixed(3)}s`,
+    silent_direction_data: true,
+    voice_contract: voiceContract,
+    frame_text_policy: h3FrameTextContract(),
+    visual_style: compactMode ? compactText(styleOpening, 70) : styleOpening,
+    shots: shotDescriptions,
+    continuity: fittedPhysics,
+  }, compactMode || storyboards.length > 1);
 
   if (isFirstLastMode) {
     const firstLastBindings = [
@@ -874,7 +995,9 @@ export function buildVideoSegmentPrompt(
     ].join(' ');
     return fitH3PromptBudget(`How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.
 
-integrated_multimodal_description: ${firstLastBindings} ${styleOpening} ${speechControl} ${shotDescriptions.join(' ')} ${fittedPhysics}
+integrated_multimodal_description: ${firstLastBindings}
+timeline_json:
+${timelineJson}
 
 overall_soundscape: ${soundscape}
 
@@ -916,10 +1039,8 @@ retention_analysis:
 ${retention.join('\n')}
 
 detailed_description:
-${styleOpening}
-${speechControl}
-${shotDescriptions.join('\n')}
-${fittedPhysics}
+timeline_json:
+${timelineJson}
 
 overall_soundscape:
 ${soundscape}

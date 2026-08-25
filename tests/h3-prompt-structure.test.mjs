@@ -18,6 +18,20 @@ const shot = (sceneNumber, extra = {}) => ({
   ...extra,
 });
 
+function timelineJson(prompt) {
+  const marker = 'timeline_json:\n';
+  const start = prompt.indexOf(marker);
+  assert.ok(start >= 0, 'timeline_json block is missing');
+  const jsonStart = start + marker.length;
+  const jsonEnd = prompt.indexOf('\n\noverall_soundscape:', jsonStart);
+  assert.ok(jsonEnd > jsonStart, 'timeline_json block is not terminated by overall_soundscape');
+  return JSON.parse(prompt.slice(jsonStart, jsonEnd));
+}
+
+function dialogueEvents(prompt) {
+  return timelineJson(prompt).shots.flatMap(item => item.dialogue_events || []);
+}
+
 test('rejects one rewritten storyboard whose multi-line exchange cannot fit H3 15 seconds', () => {
   assert.throws(() => buildVideoSegmentPrompt([shot(4, {
     dialogueLines: [
@@ -45,15 +59,29 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   });
   assert.match(prompt, /<d>\[Chinese\] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /\[DIALOGUE WINDOW 00:\d{2}\.\d{3}–00:\d{2}\.\d{3}\] <Subject 1>\/<Audio 1>:/);
-  assert.match(prompt, /First word exactly at .*final word complete by/);
-  assert.match(prompt, /no breath-word, filler, hum, stray phoneme, or reference-sample leakage/);
+  const timeline = timelineJson(prompt);
+  const [event] = dialogueEvents(prompt);
+  assert.equal(timeline.schema, 'aid_h3_timeline_v1');
+  assert.equal(timeline.silent_direction_data, true);
+  assert.equal(timeline.voice_contract.vocalize_only, 'shots[].dialogue_events[].spoken_once');
+  assert.match(event.window, /^00:\d{2}\.\d{3}-00:\d{2}\.\d{3}$/);
+  assert.equal(event.speaker, '<Subject 1>/<Audio 1>');
+  assert.equal(event.first_word_at, event.window.split('-')[0]);
+  assert.equal(event.final_word_complete_by, event.window.split('-')[1]);
+  assert.equal(timeline.voice_contract.before_first_dialogue.filler_or_reference_sample_leakage, false);
   assert.match(prompt, /no electronic hiss, static, buzz, digital residue, or abrupt audio cut/);
   const soundscape = prompt.split('overall_soundscape:')[1].split('non_diegetic_music:')[0];
   assert.doesNotMatch(soundscape, /<d>|线索就在这里|dialogue|speech/i);
-  assert.match(prompt, /(?:The camera uses|CAMERA:) .*moderate/i);
+  assert.match(timeline.shots[0].camera, /moderate/i);
   assert.doesNotMatch(prompt, /SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE|DIALOGUE:/);
-  assert.equal((prompt.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
+  assert.deepEqual(timeline.frame_text_policy, {
+    subtitles: false,
+    captions: false,
+    titles_or_speech_bubbles: false,
+    logos_watermarks_or_ui: false,
+    readable_text: false,
+    spoken_words_audio_only: true,
+  });
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
 });
 
@@ -102,7 +130,8 @@ test('keeps Chinese and English H3 templates separate and never reuses the Engli
     }),
   ], [], { duration: 14, language: 'zh', referenceAudioNames: ['Dr. Pan'] });
 
-  assert.match(chinese, /动作：Dr\. Pan 展示一种新面膜及其成分表。/);
+  const chineseTimeline = timelineJson(chinese);
+  assert.match(chineseTimeline.shots[0].visual_action, /Dr\. Pan 展示一种新面膜及其成分表。/);
   assert.match(chinese, /<d>\[Chinese\] 面膜的核心在于/);
   assert.equal((chinese.match(/面膜的核心在于/g) || []).length, 1);
   assert.doesNotMatch(chinese, /showcasing a face mask|points to|Premium English still-image direction/);
@@ -117,7 +146,7 @@ test('keeps Chinese and English H3 templates separate and never reuses the Engli
       prompt: 'Unrelated still-image prompt that must stay out of H3.',
     }),
   ], [], { duration: 8, language: 'en' });
-  assert.match(english, /ACTION: Dr\. Pan displays a new face mask/);
+  assert.match(timelineJson(english).shots[0].visual_action, /Dr\. Pan displays a new face mask/);
   assert.doesNotMatch(english, /Unrelated still-image prompt/);
   assert.doesNotMatch(english, /可见角色|动作：|没有音乐|不得生成配乐|最迟/);
 });
@@ -131,10 +160,11 @@ test('binds multiple sequential dialogue lines to their matching H3 voice refere
   assert.equal((prompt.match(/就在门后。/g) || []).length, 1);
   assert.match(prompt, /<Audio 1> provides only the voice timbre for <Subject 1>/);
   assert.match(prompt, /<Audio 2> provides only the voice timbre for <Subject 2>/);
-  assert.match(prompt, /\[DIALOGUE WINDOW [^\]]+\] <Subject 1> using the <Audio 1> timbre:/);
-  assert.match(prompt, /\[DIALOGUE WINDOW [^\]]+\] <Subject 2> using the <Audio 2> timbre:/);
+  const events = dialogueEvents(prompt);
+  assert.equal(events[0].speaker, '<Subject 1> using the <Audio 1> timbre');
+  assert.equal(events[1].speaker, '<Subject 2> using the <Audio 2> timbre');
   assert.match(prompt, /ignore its original words and timing/);
-  assert.match(prompt, /breath, eyeline and facial tension change once/);
+  assert.match(events[0].delivery, /breath, eyeline and facial tension change once/);
   assert.match(prompt, /dialogue eyeline axis\/screen sides/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
   assert.ok(prompt.length <= 7000);
@@ -155,8 +185,10 @@ test('keeps explanatory screenplay fields out of the H3 audiovisual description'
 
   assert.match(prompt, /Lin catches the falling report/);
   assert.doesNotMatch(prompt, /prior success causes|workload is more|praise is becoming a trap/);
-  assert.match(prompt, /No narrator, ad-lib, or other intelligible voice exists/);
-  assert.match(prompt, /DIALOGUE WHITELIST: the only intelligible speech/);
+  const timeline = timelineJson(prompt);
+  assert.equal(timeline.voice_contract.narrator, false);
+  assert.equal(timeline.voice_contract.ad_lib, false);
+  assert.equal(timeline.voice_contract.vocalize_only, 'shots[].dialogue_events[].spoken_once');
   assert.match(prompt, /No narration, ad-lib, singing, or unscripted intelligible words/);
 });
 
@@ -176,11 +208,13 @@ test('quarantines dialogue meaning from visual prose and places one exact speech
     }),
   ], [], { duration: 9, language: 'zh', referenceAudioNames: ['Dr. Pan'] });
 
-  assert.match(prompt, /\[对白时间窗 00:\d{2}\.\d{3}–00:\d{2}\.\d{3}\]/);
-  assert.match(prompt, /动作：Dr\. Pan拿起一款护肤面膜并指向成分表/);
+  const timeline = timelineJson(prompt);
+  const [event] = dialogueEvents(prompt);
+  assert.match(event.window, /^00:\d{2}\.\d{3}-00:\d{2}\.\d{3}$/);
+  assert.match(timeline.shots[0].visual_action, /Dr\. Pan拿起一款护肤面膜并指向成分表/);
   assert.doesNotMatch(prompt, /将优越性落到具体成分上|核心价值被定义为|观众将面膜的价值与成分供给联系起来/);
   assert.equal((prompt.match(/面膜的核心在于它们丰富的成分/g) || []).length, 1);
-  assert.ok(prompt.indexOf('</d>') < prompt.indexOf('动作：'), 'the exact dialogue window must be more salient than visual prose');
+  assert.ok(prompt.indexOf('"dialogue_events"') < prompt.indexOf('"visual_action"'), 'the exact dialogue event must be more salient than visual prose');
 });
 
 test('drops model-written stage directions before they can become H3 dialogue', () => {
@@ -279,15 +313,15 @@ test('preserves every grouped storyboard as a complete timed action-camera-dialo
     shot(3, { action: 'Lin pivots toward the station clock and breaks into a run.', cameraMove: '横移', dialogueLines: [] }),
   ], [], { duration: 15, language: 'zh' });
 
-  assert.match(prompt, /\[Shot 1\]/);
-  assert.match(prompt, /\[Shot 2\] 从 00:\d{2}\.\d{3} 开始，/);
-  assert.match(prompt, /\[Shot 3\] 从 00:\d{2}\.\d{3} 开始，/);
+  const timeline = timelineJson(prompt);
+  assert.deepEqual(timeline.shots.map(item => item.shot), [1, 2, 3]);
+  timeline.shots.forEach(item => assert.match(item.range, /^00:\d{2}\.\d{3}-00:\d{2}\.\d{3}$/));
   for (const action of [
     'Lin snatches the red envelope from the moving bicycle.',
     'Lin tears the seal and recoils from the photograph.',
     'Lin pivots toward the station clock and breaks into a run.',
   ]) assert.equal((prompt.match(new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 1);
-  assert.equal((prompt.match(/相机：/g) || []).length, 3);
+  assert.equal(timeline.shots.filter(item => item.camera).length, 3);
   assert.equal((prompt.match(/进入 \[Shot/g) || []).length, 2);
   assert.match(prompt, /按剧本指定的视觉交接：Match the red envelope crossing frame/);
   assert.doesNotMatch(prompt, /DIALOGUE:|SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE/);
@@ -313,7 +347,7 @@ test('compacts only duplicated look prose when a dense four-shot prompt approach
   assert.ok(prompt.length <= 7000);
   shots.slice(0, 3).forEach((_, index) => assert.match(prompt, new RegExp(`Gate ${index + 1} is holding now\\.`)));
   assert.equal((prompt.match(/<d>/g) || []).length, 3);
-  assert.match(prompt, /ACTION:/);
+  assert.equal(timelineJson(prompt).shots.filter(item => item.visual_action).length, 4);
 });
 
 test('fits a verbose one-shot visual override without dropping timed action or exact dialogue', () => {
@@ -401,10 +435,13 @@ test('schedules two connected lines inside one storyboard in order', () => {
   ], [], { duration: 10, language: 'en', referenceAudioNames: ['Lin', 'Mei'], hasVoiceReferences: true });
   assert.equal((prompt.match(/<d>/g) || []).length, 2);
   assert.ok(prompt.indexOf('You should open it.') < prompt.indexOf('Then stay with me.'));
-  assert.equal((prompt.match(/\[DIALOGUE WINDOW /g) || []).length, 2);
-  assert.match(prompt, /first word starts exactly at/i);
-  assert.match(prompt, /complete final word ends by/i);
-  assert.ok(prompt.lastIndexOf('</d>') < prompt.indexOf('ACTION:'));
+  const events = dialogueEvents(prompt);
+  assert.equal(events.length, 2);
+  events.forEach(event => {
+    assert.equal(event.first_word_at, event.window.split('-')[0]);
+    assert.equal(event.final_word_complete_by, event.window.split('-')[1]);
+  });
+  assert.ok(prompt.lastIndexOf('</d>') < prompt.indexOf('"visual_action"'));
 });
 
 test('turns contact actions into load, release and local rebound instead of uniform slow motion', () => {

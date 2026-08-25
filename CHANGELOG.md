@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.74 - 2026-08-26
+
+### Changed
+
+- MiniMax H3 keeps its official outer Context-IR section order while each segment's dense shot timeline is now serialized as valid JSON. Shot range, visual action, camera, transition, synchronized sound, and dialogue are no longer compressed into one ambiguous prose stream.
+- Exact dialogue is isolated in `shots[].dialogue_events[].spoken_once`; first-word and complete-final-word boundaries are independent fields, and all JSON keys plus non-dialogue values are explicitly non-vocal control data.
+- The text-free frame policy is now a structured boolean contract covering subtitles, captions, titles, speech bubbles, logos, watermarks, UI, and readable text.
+
+### Fixed
+
+- Multi-shot segments no longer place dialogue tags beside long natural-language director instructions that H3 could misread as extra speech, especially in later compact segments.
+- Compact JSON remains within H3's 7000-character limit without dropping exact dialogue, dialogue timing, causal action, camera intent, or inter-shot transitions.
+
+### Verification
+
+- All 177 automated tests, TypeScript validation, and the production build pass.
+
 ## 0.1.73 - 2026-08-26
 
 ### Changed
