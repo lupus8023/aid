@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.70 - 2026-08-25
+
+### Fixed
+
+- The Image Creation console no longer deadlocks at `0/0 REFERENCES` when ComfyUI Z-Image-Turbo is selected. Its text-only workflow now accepts a prompt without requiring or uploading a reference image.
+- Z-Image-Turbo now has a dedicated prompt-only interface and backend validation, while reference-capable models continue to require at least one image.
+- Switching temporarily to Z-Image-Turbo no longer erases uploaded reference images; they remain available when switching back to an image-editing model.
+- Prompt construction now explicitly separates reference-guided studio editing from reference-free Z-Image generation, so the local workflow is never told to use images it did not receive.
+
+### Verification
+
+- All 180 regression tests pass; TypeScript validation and the production Next.js build complete successfully.
+
 ## 0.1.69 - 2026-08-25
 
 ### Improved

@@ -7,6 +7,7 @@ import DevToolsLayout from '@/components/DevToolsLayout';
 import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
 import { readApiJson } from '@/lib/apiResponse';
+import { imageCreationInputError } from '@/lib/imageCreation';
 import { getImageModelCapabilities, imageModelRequiresApiKey, isComfyUIZImageTurbo } from '@/lib/imageModels';
 import { imageApiUrl, localComfyUISettings } from '@/lib/comfyuiClient';
 
@@ -61,6 +62,7 @@ async function compressReferenceImage(file: File): Promise<string> {
 export default function ImageToImagePage() {
   const { settings, saveSettings } = useSettings();
   const referenceLimit = getImageModelCapabilities(settings.imageModel).maxReferenceImages;
+  const isTextOnlyModel = isComfyUIZImageTurbo(settings.imageModel);
   const [showSettings, setShowSettings] = useState(false);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
   const [userIntent, setUserIntent] = useState('');
@@ -72,6 +74,7 @@ export default function ImageToImagePage() {
   const [statusText, setStatusText] = useState('');
 
   useEffect(() => {
+    if (referenceLimit === 0) return;
     setReferenceImages(previous => previous.length > referenceLimit
       ? previous.slice(0, referenceLimit)
       : previous);
@@ -128,14 +131,13 @@ export default function ImageToImagePage() {
   };
 
   const handleGenerate = async () => {
-    if (referenceImages.length === 0) {
-      alert('Please upload at least one reference image first');
-      return;
-    }
-
-    if (isComfyUIZImageTurbo(settings.imageModel)) {
-      alert('Z-Image-Turbo 官方基础工作流仅支持文生图；图生图请切换 APIMart 模型');
-      setShowSettings(true);
+    const inputError = imageCreationInputError({
+      model: settings.imageModel,
+      referenceCount: referenceImages.length,
+      userIntent,
+    });
+    if (inputError) {
+      alert(inputError);
       return;
     }
     if (imageModelRequiresApiKey(settings.imageModel) && !settings.apiKey) {
@@ -150,13 +152,14 @@ export default function ImageToImagePage() {
 
     try {
       const uploadedReferences: string[] = [];
-      for (let index = 0; index < referenceImages.length; index += 1) {
-        const reference = referenceImages[index];
+      const referencesToUpload = isTextOnlyModel ? [] : referenceImages;
+      for (let index = 0; index < referencesToUpload.length; index += 1) {
+        const reference = referencesToUpload[index];
         if (/^https?:\/\//i.test(reference)) {
           uploadedReferences.push(reference);
           continue;
         }
-        setStatusText(`正在上传参考图片 ${index + 1}/${referenceImages.length}…`);
+        setStatusText(`正在上传参考图片 ${index + 1}/${referencesToUpload.length}…`);
         const uploadResponse = await fetch('/api/upload-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -166,7 +169,7 @@ export default function ImageToImagePage() {
         if (!url) throw new Error(`参考图片 ${index + 1} 上传后没有返回 URL`);
         uploadedReferences.push(url);
       }
-      setReferenceImages(uploadedReferences);
+      if (!isTextOnlyModel) setReferenceImages(uploadedReferences);
       setStatusText('Creating image generation task...');
       const response = await fetch(imageApiUrl('/api/image-to-image', settings.comfyui, settings.imageModel), {
         method: 'POST',
@@ -193,6 +196,12 @@ export default function ImageToImagePage() {
       setIsGenerating(false);
     }
   };
+
+  const generateInputError = imageCreationInputError({
+    model: settings.imageModel,
+    referenceCount: referenceImages.length,
+    userIntent,
+  });
 
   const handleDownload = async () => {
     if (!imageUrl) return;
@@ -254,13 +263,19 @@ export default function ImageToImagePage() {
           <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-6 p-4 md:p-7 xl:grid-cols-[minmax(0,1fr)_480px]">
             <div className="aid-form-stack space-y-5">
               <header className="aid-page-lead !border-0 !bg-transparent !p-0 !shadow-none">
-                <div><p className="aid-eyebrow">Image creation console</p><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">用参考图控制创意结果</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">上传主体与风格参考，补充创意方向和尺寸关系，生成更稳定的商业视觉。</p></div>
-                <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-1.5 font-mono text-[10px] text-[var(--text-secondary)]">{referenceImages.length}/{referenceLimit} REFERENCES</span>
+                <div><p className="aid-eyebrow">Image creation console</p><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">{isTextOnlyModel ? '用文字生成创意画面' : '用参考图控制创意结果'}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">{isTextOnlyModel ? 'Z-Image-Turbo 使用纯文字提示词生成图片，无需上传参考图。' : '上传主体与风格参考，补充创意方向和尺寸关系，生成更稳定的商业视觉。'}</p></div>
+                <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-1.5 font-mono text-[10px] text-[var(--text-secondary)]">{isTextOnlyModel ? 'TEXT ONLY' : `${referenceImages.length}/${referenceLimit} REFERENCES`}</span>
               </header>
 
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3"><div><p className="aid-step-kicker">01 · 素材</p><h2 className="mt-1 text-base font-semibold text-white">参考图片</h2></div><span className="text-xs text-[var(--text-muted)]">最多 4 张 · 单张 8MB</span></div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="flex items-center justify-between gap-3"><div><p className="aid-step-kicker">01 · 素材</p><h2 className="mt-1 text-base font-semibold text-white">{isTextOnlyModel ? '文生图模式' : '参考图片'}</h2></div><span className="text-xs text-[var(--text-muted)]">{isTextOnlyModel ? '无需参考图' : `最多 ${referenceLimit} 张 · 单张 8MB`}</span></div>
+                {isTextOnlyModel ? (
+                  <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-5">
+                    <p className="text-sm font-medium text-[var(--text-primary)]">Z-Image-Turbo 可直接用文字生成</p>
+                    <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">官方基础工作流不读取参考图片，请在下方填写“场景与创意方向”后直接提交。需要使用参考图时，请在设置中切换到支持图生图的模型。</p>
+                    {referenceImages.length > 0 && <p className="mt-2 text-xs text-[var(--accent-orange)]">已保留 {referenceImages.length} 张参考图；切回支持参考图的模型后会恢复显示。</p>}
+                  </div>
+                ) : <div className="grid grid-cols-2 gap-3">
                   {referenceImages.map((image, index) => (
                     <div key={`${image.slice(0, 32)}-${index}`} className="relative border border-[var(--border-color)] rounded-lg overflow-hidden bg-[var(--bg-primary)]">
                       <img src={image} alt={`Reference ${index + 1}`} className="w-full h-40 object-contain" />
@@ -291,7 +306,7 @@ export default function ImageToImagePage() {
                       />
                     </label>
                   )}
-                </div>
+                </div>}
               </div>
 
               <div className="space-y-5">
@@ -334,12 +349,14 @@ export default function ImageToImagePage() {
 
                 <button
                   onClick={handleGenerate}
-                  disabled={isGenerating || referenceImages.length === 0}
+                  disabled={isGenerating || Boolean(generateInputError)}
+                  title={generateInputError || undefined}
                   className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-mono bg-[var(--accent-blue)] hover:bg-[#006bb3] text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
                   {isGenerating ? statusText || '正在生成…' : '生成视觉图片'}
                 </button>
+                {generateInputError && <p className="text-center text-xs text-[var(--text-muted)]">{generateInputError}</p>}
               </div>
             </div>
 
@@ -386,7 +403,7 @@ export default function ImageToImagePage() {
               </div>
 
               <div className="aid-panel divide-y divide-[var(--border-color)] px-4">
-                <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Layers3 size={14} />参考素材</span><span className="font-mono text-white">{referenceImages.length} / {referenceLimit}</span></div>
+                <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Layers3 size={14} />参考素材</span><span className="font-mono text-white">{isTextOnlyModel ? '无需' : `${referenceImages.length} / ${referenceLimit}`}</span></div>
                 <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Ratio size={14} />输出比例</span><span className="font-mono text-white">{aspectRatio}</span></div>
               </div>
               {generatedPrompt && (

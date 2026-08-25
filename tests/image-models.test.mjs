@@ -7,6 +7,7 @@ import {
   getImageModelCapabilities,
   imageModelRequiresApiKey,
 } from '../lib/imageModels.ts';
+import { buildStudioImagePrompt, imageCreationInputError } from '../lib/imageCreation.ts';
 
 test('exposes both new providers in the global image-model selector', () => {
   const models = APIMART_IMAGE_MODEL_OPTIONS.map(option => option.value);
@@ -20,6 +21,37 @@ test('advertises Z-Image-Turbo as a local text-only provider', () => {
   assert.equal(capabilities.maxReferenceImages, 0);
   assert.equal(capabilities.maxResolution, '2K');
   assert.equal(imageModelRequiresApiKey('comfyui-z-image-turbo'), false);
+});
+
+test('allows Z-Image-Turbo generation without references once a prompt is provided', () => {
+  assert.equal(imageCreationInputError({
+    model: 'comfyui-z-image-turbo',
+    referenceCount: 0,
+    userIntent: 'A red ceramic vase in window light',
+  }), '');
+  assert.match(imageCreationInputError({
+    model: 'comfyui-z-image-turbo',
+    referenceCount: 0,
+    userIntent: '   ',
+  }), /描述目标画面/);
+  assert.match(imageCreationInputError({
+    model: 'gpt-image-2',
+    referenceCount: 0,
+    userIntent: 'A red ceramic vase',
+  }), /参考图片/);
+});
+
+test('builds a reference-free prompt for Z-Image-Turbo', () => {
+  const prompt = buildStudioImagePrompt({
+    userIntent: 'A red ceramic vase in window light',
+    scaleNotes: 'The vase is 30 cm tall',
+    usesReferenceImages: false,
+  });
+
+  assert.match(prompt, /A red ceramic vase in window light/);
+  assert.match(prompt, /30 cm tall/);
+  assert.doesNotMatch(prompt, /provided reference images/i);
+  assert.match(prompt, /No random text, watermark, subtitles/);
 });
 
 test('builds the official Grok Imagine 2.0 generation payload', () => {
