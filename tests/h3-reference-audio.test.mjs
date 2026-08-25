@@ -110,6 +110,7 @@ test('uses one native H3 pass and delivers its synchronized audio unchanged', ()
   ), true);
   const nodes = Object.values(prompt);
   assert.equal(prompt[2].inputs.audio_mode, 'native');
+  assert.equal(prompt[2].inputs.audio_denoise_strength, 1);
   assert.equal(prompt[2].inputs.task_type, 'Ref2VA');
   assert.equal('drive_audio' in prompt[2].inputs, false);
   assert.ok(Array.isArray(prompt[2].inputs['ref_audios.ref_audio_0']));

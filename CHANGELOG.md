@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.72 - 2026-08-26
+
+### Fixed
+
+- Native MiniMax H3 dialogue conditioning now always supplies the workflow-required `audio_denoise_strength` field with the full-native value `1`, fixing task submission failures from `MiniMaxH3AudioConditioningT8` after the one-pass dialogue migration.
+- Added a regression assertion that the one-pass native graph keeps `audio_denoise_strength: 1` while omitting the removed `drive_audio` path.
+
+### Verification
+
+- All 175 automated tests, TypeScript validation, and the production build pass.
+
 ## 0.1.71 - 2026-08-25
 
 ### Changed

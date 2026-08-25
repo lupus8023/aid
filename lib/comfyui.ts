@@ -1061,7 +1061,10 @@ export function injectH3NativeDialogue(
   const inputs = conditioningNode(prompt).inputs;
   delete inputs.drive_audio;
   delete inputs.final_audio;
-  delete inputs.audio_denoise_strength;
+  // The cloud MiniMaxH3AudioConditioningT8 schema requires this field even in
+  // native mode. A value of 1 keeps audio fully native instead of carrying the
+  // low denoise value formerly used by the removed drive-audio remix path.
+  inputs.audio_denoise_strength = 1;
   Object.assign(inputs, h3ReferenceAudioPolicy(remoteAudios.length));
   inputs.strict_prompt_tags = true;
   return true;

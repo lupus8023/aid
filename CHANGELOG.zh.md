@@ -1,5 +1,16 @@
 # 更新日志
 
+## 0.1.72 - 2026-08-26
+
+### 修复
+
+- MiniMax H3 原生台词条件节点现在始终携带工作流必填的 `audio_denoise_strength` 字段，并固定为完全原生生成值 `1`，修复单次 H3 迁移后 `MiniMaxH3AudioConditioningT8` 缺少字段导致的任务创建失败。
+- 新增回归断言，确保单次原生工作流保留 `audio_denoise_strength: 1`，同时不再带入已经移除的 `drive_audio` 路径。
+
+### 验证
+
+- 全部 175 项自动化测试、TypeScript 校验和生产构建均通过。
+
 ## 0.1.71 - 2026-08-25
 
 ### 调整
