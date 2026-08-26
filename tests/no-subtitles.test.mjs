@@ -19,15 +19,15 @@ const storyboard = {
   visualStyle: 'cinematic-natural',
 };
 
-test('H3 prompts use a structured text-free contract inside the official structure', async () => {
+test('H3 prompts use natural-language text-free direction inside the official structure', async () => {
   const source = await readFile(new URL('../lib/videoGenerator.ts', import.meta.url), 'utf8');
   assert.match(source, /subject_definitions:/);
   assert.match(source, /integrated_multimodal_description:/);
-  assert.match(source, /frame_text_policy: h3FrameTextContract\(\)/);
-  assert.match(source, /subtitles: false/);
-  assert.match(source, /readable_text: false/);
+  assert.match(source, /No subtitles, captions, titles, speech bubbles, logos, watermarks, interface graphics, or readable text/);
+  assert.match(source, /画面不得出现字幕、标题、气泡、标志、水印、界面或任何可读文字/);
+  assert.doesNotMatch(source, /timeline_json|aid_h3_timeline|frame_text_policy/);
   assert.match(source, /visualOverride: storyboard\.videoPrompt\.trim\(\)/);
-  assert.match(source, /This direction is visual-only/);
+  assert.match(source, /sanitizeVisualDirection\(options\.visualOverride/);
 });
 
 test('legacy beat bridge no longer repeats visual-text vocabulary', () => {

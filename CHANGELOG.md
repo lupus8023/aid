@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.83 - 2026-08-26
+
+### Changed
+
+- H3 Ref2VA prompts now follow the official six-section natural-language format; custom `timeline_json`, schemas, contracts, and pseudo-API fields have been removed from the submitted prompt.
+- Each shot is written as an official `[Shot N]` paragraph with a concrete reference frame, framing, visible cast and objects, physical action, expression, camera, and spatial continuity.
+- Dialogue is placed directly in its matching shot with one onset timestamp and one official `<d>[Language] exact text</d>` tag; no speech end timestamp or duration target is sent.
+- First/last-frame generation now uses the official three-field base format, and no-score clips use `non_diegetic_music: N/A`.
+- The H3 prompt cache contract is bumped to `h3-v26`, preventing reuse of clips generated from the previous JSON prompt format.
+
+### Fixed
+
+- Removed abstract screenplay outcomes, audience interpretation, relationship meaning, and model-readable JSON labels that H3 could mistake for dialogue.
+- Subtitle, caption, title, logo, watermark, interface, and readable-text prohibitions remain explicit natural-language visual direction.
+- Reference-audio definitions now bind timbre to the local H3 speaker alias while excluding source words, pauses, and timing.
+
+### Verification
+
+- H3 prompt, reference-audio, no-subtitle, and video-segment regression suites pass, together with TypeScript validation and the production build.
+
 ## 0.1.82 - 2026-08-26
 
 ### Changed
