@@ -1619,7 +1619,7 @@ export async function createComfyUIVideoTask(input: {
   speechTurns?: H3NativeDialogueTurn[];
   language?: 'zh' | 'en';
   settings?: ComfyUIClientSettings;
-}): Promise<{ taskId: string; promptId: string; workflow: ComfyUIWorkflow; workflowPath: string }> {
+}): Promise<{ taskId: string; promptId: string; workflow: ComfyUIWorkflow; workflowPath: string; prompt: string }> {
   const config = getComfyUIConfig(input.settings);
   try {
     if (!config.sshHost) throw new ComfyUIError('ComfyUI SSH Host 未配置');
@@ -1662,10 +1662,17 @@ export async function createComfyUIVideoTask(input: {
       const remoteAudios: string[] = [];
       for (const audio of localAudios) remoteAudios.push(await uploadAsset(config, audio, subfolder));
 
+      const finalPrompt = taggedPrompt(
+        input.prompt,
+        variant,
+        variant === 'aid_multi_reference' ? auxiliaryImages.length : 0,
+        referenceAudios.length,
+        input.referenceAudioNames,
+      );
       patchWorkflow(workflow, {
         variant,
         imageRefs: remoteImages,
-        prompt: taggedPrompt(input.prompt, variant, variant === 'aid_multi_reference' ? auxiliaryImages.length : 0, referenceAudios.length, input.referenceAudioNames),
+        prompt: finalPrompt,
         duration: renderDuration,
         aspectRatio: input.aspectRatio || '9:16',
         seed: Number(BigInt(`0x${randomBytes(7).toString('hex')}`)),
@@ -1695,7 +1702,7 @@ export async function createComfyUIVideoTask(input: {
         if (!submittedId) throw new ComfyUIError(`ComfyUI 提交响应没有 prompt_id：${JSON.stringify(response).slice(0, 1000)}`);
         return submittedId;
       });
-      return { taskId: `${COMFYUI_TASK_PREFIX}${promptId}`, promptId, workflow: variant, workflowPath };
+      return { taskId: `${COMFYUI_TASK_PREFIX}${promptId}`, promptId, workflow: variant, workflowPath, prompt: finalPrompt };
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

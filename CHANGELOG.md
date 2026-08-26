@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.77 - 2026-08-26
+
+### Changed
+
+- H3 dialogue-active timeline rows now contain only non-vocal enum controls such as `D1_START_ONCE` and `D1_CONTINUE_NO_RESTART`; readable action, expression, and transition prose lives in separate visual shot contracts.
+- The Step 5 prompt editor now displays the complete prompt that is actually sent to ComfyUI. Opening an empty editor generates it first, and an explicitly saved edit is submitted verbatim instead of being nested as a visual-only supplement.
+- ComfyUI returns the final post-sanitization prompt with the task response, so the persisted project and editor reflect the exact provider payload.
+
+### Fixed
+
+- Prevented H3 from vocalizing `timeline[].boundary`, action-phase, expression, or transition prose in the middle of a continuous same-speaker line.
+- Filtered story-planning scaffold names such as `centralDramaticQuestion`, `causal trigger`, and `audienceInference` from Chinese video transitions before they reach H3.
+- Temporary SSH/status polling failures now preserve the already-submitted ComfyUI task id and reattach after backoff instead of marking the render failed or purchasing a duplicate task.
+- Prompt previews now account for continuity-first-frame reference numbering, matching the image ordering used by the final H3 request.
+
+### Verification
+
+- H3 prompt, no-subtitle, video-segment, auto-production, TypeScript, and production-build checks pass.
+
 ## 0.1.76 - 2026-08-26
 
 ### Changed

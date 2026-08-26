@@ -1617,6 +1617,16 @@ export default function StoryPage() {
       .filter(item => segmentIds.includes(item.id))
       .sort((a, b) => a.sceneNumber - b.sceneNumber)
       .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), visualStyle }));
+    const leader = segmentStoryboards[0];
+    const leaderIndex = storyboardsRef.current.findIndex(item => item.id === leader?.id);
+    const immediatePrevious = leaderIndex > 0 ? storyboardsRef.current[leaderIndex - 1] : undefined;
+    const shouldContinuePreviousSegment = Boolean(leader?.continuousFromPrev || (leader && immediatePrevious
+      && immediatePrevious.sequenceId === leader.sequenceId
+      && immediatePrevious.locationId === leader.locationId
+      && immediatePrevious.transition !== 'fade'));
+    const hasFirstFrame = shouldContinuePreviousSegment && leaderIndex > 0
+      ? storyboardsRef.current.slice(0, leaderIndex).some(item => Boolean(item.videoUrl))
+      : false;
     const referenceAudioNames = [...new Set(segmentStoryboards
       .flatMap(item => storyboardSpeech(item).map(line => line.character)))]
       .filter(name => Boolean(name && voiceReferencesRef.current?.[name]))
@@ -1626,18 +1636,19 @@ export default function StoryPage() {
       const response = await fetch('/api/generate-video-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle }, segmentStoryboards, referenceAudioNames, language: projectLanguageRef.current, apiKey: settings.apiKey })
+        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle }, segmentStoryboards, referenceAudioNames, language: projectLanguageRef.current, hasFirstFrame })
       });
       const data = await readApiJson<{ videoPrompt: string }>(response, '视频提示词生成失败');
       if (generationProjectId !== projectIdRef.current) return;
-      // Generated previews are informative. The final H3 request is rebuilt
-      // with the current segment members and runtime voice references unless
-      // the user explicitly edits and saves an override.
+      // This is the complete H3 prompt. If the user edits and saves it, the
+      // generation route submits the edited text verbatim.
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: data.videoPrompt, videoPromptOverride: false } : sb));
+      return data.videoPrompt;
     } catch (error) {
       if (generationProjectId !== projectIdRef.current) return;
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: '' } : sb));
       alert(`视频提示词生成失败：${error instanceof Error ? error.message : '未知错误'}`);
+      return undefined;
     }
   };
 
@@ -1738,6 +1749,7 @@ export default function StoryPage() {
         };
       });
     });
+    let submittedTaskId: string | undefined;
     try {
       const portableSegment = await Promise.all(segment.map(async item => ({
         ...item,
@@ -1815,11 +1827,13 @@ export default function StoryPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), videoProvider, comfyui: localComfyUISettings(activeSettings.comfyui) })
       });
-      const data = await readApiJson<{ taskId: string }>(response, '视频任务创建失败');
+      const data = await readApiJson<{ taskId: string; videoPrompt?: string }>(response, '视频任务创建失败');
+      submittedTaskId = data.taskId;
       if (generationProjectId !== projectIdRef.current) return;
       const submittedStoryboards = storyboardsRef.current.map(sb => segmentIds.includes(sb.id) ? {
         ...sb,
         videoTaskId: sb.id === leader.id ? data.taskId : undefined,
+        ...(sb.id === leader.id && data.videoPrompt ? { videoPrompt: data.videoPrompt } : {}),
       } : sb);
       storyboardsRef.current = submittedStoryboards;
       setStoryboards(submittedStoryboards);
@@ -1846,6 +1860,24 @@ export default function StoryPage() {
     } catch (error) {
       console.error('Video generation failed:', error);
       if (generationProjectId !== projectIdRef.current) return;
+      if (submittedTaskId && !(error instanceof TerminalVideoTaskError)) {
+        // The paid ComfyUI job already exists. A temporary SSH tunnel/status
+        // failure does not prove that the render failed, so keep its durable id
+        // and let auto-production reattach to the same task after backoff.
+        // Clearing it here used to submit a duplicate H3 render while the first
+        // one was still running (or had already completed successfully).
+        const resumableStoryboards = storyboardsRef.current.map(sb => segmentIds.includes(sb.id) ? {
+          ...sb,
+          videoStatus: 'generating' as const,
+          videoTaskId: sb.id === leader.id ? submittedTaskId : undefined,
+        } : sb);
+        storyboardsRef.current = resumableStoryboards;
+        setStoryboards(resumableStoryboards);
+        persistCurrentProject(resumableStoryboards);
+        if (options.throwOnError) throw error;
+        alert(`视频任务已提交，但状态查询暂时失败；任务号已保留，可稍后自动恢复：${error instanceof Error ? error.message : '未知错误'}`);
+        return;
+      }
       // Do not rely on the 30-second autosave after a pre-enqueue failure.
       // Synchronize state/ref/storage immediately so refresh cannot resurrect
       // the optimistic generating lock without a recoverable task id.

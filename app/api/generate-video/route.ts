@@ -84,6 +84,19 @@ export async function POST(request: NextRequest) {
         ? (firstFrameUrl ? videoStoryboards : videoStoryboards.slice(1)).map((shot: any) => shot.imageUrl)
         : [];
       console.log(`[comfyui] scene ${storyboard.sceneNumber || '?'} frame input: ${firstFrame.startsWith('data:') ? 'data-url' : 'url'}; continuity=${Boolean(firstFrameUrl)}; beats=${videoStoryboards.length}`);
+      const generatedPrompt = buildVideoSegmentPrompt(isMultiBeatSegment ? videoStoryboards : [storyboard], [], {
+        firstFrameUrl,
+        duration: requestedDuration,
+        hasVoiceReferences: referenceAudios.length > 0,
+        referenceAudioNames,
+        language: language === 'en' ? 'en' : 'zh',
+      });
+      // The editor shows a complete H3 prompt. When the user explicitly saves
+      // an edit, submit that exact prompt instead of nesting it as a vague
+      // visual-only paragraph inside a newly generated prompt.
+      const submittedPrompt = storyboard.videoPromptOverride && String(storyboard.videoPrompt || '').trim()
+        ? String(storyboard.videoPrompt).trim()
+        : generatedPrompt;
       const result = await createComfyUIVideoTask({
         firstFrame,
         auxiliaryImages,
@@ -97,16 +110,7 @@ export async function POST(request: NextRequest) {
         language: language === 'en' ? 'en' : 'zh',
         // H3 generates the synchronized soundtrack natively. Voice samples are
         // optional references, so APIMart's URL-tag syntax must not enter the prompt.
-        prompt: buildVideoSegmentPrompt(isMultiBeatSegment ? videoStoryboards : [storyboard], [], {
-          firstFrameUrl,
-          duration: requestedDuration,
-          hasVoiceReferences: referenceAudios.length > 0,
-          referenceAudioNames,
-          visualOverride: storyboard.videoPromptOverride && String(storyboard.videoPrompt || '').trim()
-            ? String(storyboard.videoPrompt).trim()
-            : undefined,
-          language: language === 'en' ? 'en' : 'zh',
-        }),
+        prompt: submittedPrompt,
         duration: requestedDuration,
         aspectRatio: aspectRatio || '16:9',
         settings: comfyui,
@@ -116,6 +120,7 @@ export async function POST(request: NextRequest) {
         status: 'processing',
         provider: 'comfyui',
         workflow: result.workflow,
+        videoPrompt: result.prompt,
       });
     }
     if (!apiKey) return NextResponse.json({ error: 'API key is required' }, { status: 400 });

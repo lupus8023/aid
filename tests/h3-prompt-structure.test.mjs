@@ -162,10 +162,10 @@ test('binds multiple sequential dialogue lines to their matching H3 voice refere
   assert.match(prompt, /<Audio 1> provides only the voice timbre for <Subject 1>/);
   assert.match(prompt, /<Audio 2> provides only the voice timbre for <Subject 2>/);
   const events = dialogueEvents(prompt);
-  assert.equal(events[0].speaker, '<Subject 1> using the <Audio 1> timbre');
-  assert.equal(events[1].speaker, '<Subject 2> using the <Audio 2> timbre');
+  assert.equal(events[0].speaker, '<Subject 1>/<Audio 1>');
+  assert.equal(events[1].speaker, '<Subject 2>/<Audio 2>');
   assert.match(prompt, /ignore its original words and timing/);
-  assert.match(events[0].delivery, /breath, eyeline and facial tension change once/);
+  assert.equal(events[0].delivery, 'SOFT_CONVERSATIONAL_RESTRAINED_ONE_ARC');
   assert.match(prompt, /dialogue eyeline axis\/screen sides/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
   assert.ok(prompt.length <= 7000);
@@ -273,7 +273,7 @@ test('keeps performance directions non-spoken and emits only exact dialogue insi
     }),
   ], [], { duration: 7, language: 'zh' });
 
-  assert.match(prompt, /克制而坚定，先有一次短暂自然停顿，使用自然对话语速/);
+  assert.equal(dialogueEvents(prompt)[0].delivery, 'CONTROLLED_RAISED_CONVERSATIONAL_RESTRAINED_ONE_ARC');
   assert.match(prompt, /<d>\[Chinese\] 女娲娘娘，请借我力量！<\/d>/);
   assert.doesNotMatch(prompt, /SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE/);
   assert.equal((prompt.match(/先短暂停顿，再以坚定语气说/g) || []).length, 0);
@@ -323,8 +323,8 @@ test('preserves every grouped storyboard as a complete timed action-camera-dialo
     'Lin pivots toward the station clock and breaks into a run.',
   ]) assert.equal((prompt.match(new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 1);
   assert.equal(timeline.shot_contracts.filter(item => item.camera).length, 3);
-  assert.equal(timeline.timeline.filter(item => item.boundary).length, 3);
-  assert.match(prompt, /按剧本指定的视觉交接：Match the red envelope crossing frame/);
+  assert.equal(timeline.shot_contracts.filter(item => item.visual_transition).length, 3);
+  assert.doesNotMatch(prompt, /Match the red envelope crossing frame/);
   assert.doesNotMatch(prompt, /DIALOGUE:|SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE/);
   assert.doesNotMatch(prompt, /cross-dissolve|fade from|fade into/i);
   assert.ok(prompt.length <= 7000, `prompt exceeds H3's 7000-character limit: ${prompt.length}`);
@@ -469,8 +469,12 @@ test('merges every same-character line in a segment into one long uninterrupted 
   assert.match(timeline.dialogue_events[0].spoken_once, /final result shows/);
   assert.equal(timeline.audio_event_lock.one_continuous_event_per_character, true);
   assert.equal(timeline.audio_event_lock.visual_cuts_are_audio_events, false);
-  assert.equal(timeline.timeline.filter(block => block.voice.includes('starts once')).length, 1);
+  assert.equal(timeline.timeline.filter(block => block.voice.includes('START_ONCE')).length, 1);
   assert.equal(timeline.timeline.filter(block => block.dialogue === 'D1').length >= 1, true);
+  timeline.timeline.filter(block => block.dialogue === 'D1').forEach(block => {
+    assert.doesNotMatch(JSON.stringify(block), /[㐀-鿿]/, 'active dialogue rows must not contain readable director prose');
+    assert.equal('boundary' in block, false);
+  });
 });
 
 test('rejects A-B-A dialogue because the same character would need a second onset', () => {

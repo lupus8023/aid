@@ -90,11 +90,8 @@ function roundedTimelineBoundary(value: number): number {
 }
 
 function buildAuthoritativeTimeBlocks(
-  storyboards: Storyboard[],
   timeline: Array<{ start: number; end: number }>,
   timedSpeech: ReturnType<typeof compileTimedSpeech>,
-  shotDescriptions: Array<Record<string, unknown>>,
-  language: 'zh' | 'en',
 ): Array<Record<string, unknown>> {
   if (!timeline.length) return [];
   const boundaries = [...new Set([
@@ -111,45 +108,38 @@ function buildAuthoritativeTimeBlocks(
       midpoint >= range.start - 0.001
       && (midpoint < range.end - 0.001 || rangeIndex === timeline.length - 1)
     )));
-    const storyboard = storyboards[shotIndex];
-    const shot = shotDescriptions[shotIndex] || {};
     const speechIndex = timedSpeech.findIndex(line => line.start < end - 0.001 && line.end > start + 0.001);
     const speech = speechIndex >= 0 ? timedSpeech[speechIndex] : undefined;
     const eventId = speech ? `D${speechIndex + 1}` : null;
     const startsSpeech = Boolean(speech && Math.abs(start - roundedTimelineBoundary(speech.start)) < 0.002);
     const endsSpeech = Boolean(speech && Math.abs(end - roundedTimelineBoundary(speech.end)) < 0.002);
+    // H3 has been observed vocalizing natural-language director prose placed
+    // inside an active dialogue time block (especially transition/boundary
+    // sentences). Timeline rows therefore contain only non-verbal control
+    // enums. Human-readable action, expression and transition prose lives in
+    // the referenced shot_contract, away from dialogue_events[].spoken_once.
     const speechPhase = !speech
-      ? (language === 'zh' ? '无人声；闭口' : 'no voice; mouths closed')
+      ? 'ZERO_VOICE_MOUTH_CLOSED'
       : startsSpeech && endsSpeech
-        ? (language === 'zh' ? `${eventId} 一次起声并完整说完` : `${eventId} starts once; completes here`)
+        ? `${eventId}_START_ONCE_COMPLETE_HERE`
         : startsSpeech
-          ? (language === 'zh' ? `${eventId} 只起声一次` : `${eventId} starts once`)
+          ? `${eventId}_START_ONCE`
           : endsSpeech
-            ? (language === 'zh' ? `${eventId} 连续至尾字完整结束` : `${eventId} continues; final word complete`)
-            : (language === 'zh' ? `${eventId} 连续；不重新起声` : `${eventId} continues; no restart`);
-    const expression = speech
-      ? compactText(language === 'zh'
-        ? `${speech.character}：${speech.emotion || '克制'}；呼吸/视线/表情/口型沿同一发声弧`
-        : `${speech.character}: ${speech.emotion || 'restrained'}; breath/gaze/expression/lips follow one vocal arc`, 68)
-      : (language === 'zh' ? '闭口；呼吸/视线/重心作无声反应' : 'mouths closed; silent breath/gaze/weight reaction');
+            ? `${eventId}_CONTINUE_TO_FINAL_WORD`
+            : `${eventId}_CONTINUE_NO_RESTART`;
     const isFirstBlockOfShot = !startedShots.has(shotIndex);
     startedShots.add(shotIndex);
     const atShotEnd = Math.abs(end - timeline[shotIndex].end) < 0.002;
-    const actionPhase = language === 'zh'
-      ? (isFirstBlockOfShot && atShotEnd ? `执行完成 S${shotIndex + 1}`
-        : isFirstBlockOfShot ? `启动 S${shotIndex + 1}`
-          : atShotEnd ? `完成交接 S${shotIndex + 1}` : `连续推进 S${shotIndex + 1}；不重置`)
-      : (isFirstBlockOfShot && atShotEnd ? `execute and complete S${shotIndex + 1} action`
-        : isFirstBlockOfShot ? `begin S${shotIndex + 1}`
-          : atShotEnd ? `complete/handoff S${shotIndex + 1}` : `continue S${shotIndex + 1}; no reset`);
+    const actionPhase = isFirstBlockOfShot && atShotEnd ? `VISUAL_S${shotIndex + 1}_EXECUTE_COMPLETE`
+      : isFirstBlockOfShot ? `VISUAL_S${shotIndex + 1}_BEGIN`
+        : atShotEnd ? `VISUAL_S${shotIndex + 1}_COMPLETE_HANDOFF` : `VISUAL_S${shotIndex + 1}_CONTINUE_NO_RESET`;
     return [{
       window: `${h3Timestamp(start)}-${h3Timestamp(end)}`,
       shot_contract: `S${shotIndex + 1}`,
       action_phase: actionPhase,
-      expression,
+      expression: speech ? `LIPS_FOLLOW_${eventId}_ONLY` : 'MOUTH_CLOSED_SILENT_REACTION',
       dialogue: eventId,
       voice: speechPhase,
-      boundary: atShotEnd ? compactText(shot.transition_or_end, 65) : undefined,
     }];
   });
 }
@@ -187,6 +177,7 @@ function buildShotContracts(
       framing: shot.framing,
       camera: shot.camera,
       action: compactActionArc(fullAction, actionLimit),
+      visual_transition: compactText(shot.transition_or_end, compact ? 180 : 260),
       motion_physics: motionPhysics,
       blocking_relation: compact
         ? (language === 'zh' ? `${cast || '无角色'}：关系/视线轴/银幕侧锁定；动作走位` : `${cast || 'no character'}: relation/axis/side locked; action-led blocking`)
@@ -695,7 +686,14 @@ function chineseShotSoundCue(storyboard: Storyboard): string {
 }
 
 function chineseTransition(previous: Storyboard, next: Storyboard): string {
-  const authoredBridge = compactText(previous.editBridge, 160);
+  const rawBridge = compactText(previous.editBridge, 160);
+  // Story-planning scaffold keys are useful to the writer but are not visual
+  // directions. Never leak placeholders such as `centralDramaticQuestion` or
+  // English `causal trigger / audienceInference` labels into a Chinese H3
+  // prompt; H3 may both mis-stage them and attempt to vocalize them.
+  const authoredBridge = /(?:[A-Za-z]{3,}|[a-z]+_[a-z_]+)/.test(rawBridge)
+    ? ''
+    : rawBridge;
   if (authoredBridge) return `按剧本指定的视觉交接：${authoredBridge}`;
   const previousCharacters = new Set(previous.characters || []);
   const sharedCharacters = (next.characters || []).filter(name => previousCharacters.has(name));
@@ -803,14 +801,12 @@ function buildChineseVideoSegmentPrompt(
       const subject = subjectId.get(line.character);
       const audio = audioId.get(line.character);
       const source = subject
-        ? compactMode && audio ? `<Subject ${subject}>/<Audio ${audio}>` : `<Subject ${subject}>${audio ? `（采用 <Audio ${audio}> 的音色）` : ''}`
-        : `${line.character || '画面中的说话者'}${audio ? `（采用 <Audio ${audio}> 的音色）` : ''}`;
-      const performance = chinesePerformanceControl(line.emotion, line.delivery);
-      const performanceDirection = compactMode ? performance.split('；')[0] : performance;
-      const volume = line.volume === 'raised' ? '以提高但受控的音量'
-        : line.volume === 'soft' ? '轻声'
-          : line.volume === 'whisper' ? '以克制的耳语音量'
-            : '以自然说话音量';
+        ? `<Subject ${subject}>${audio ? `/<Audio ${audio}>` : ''}`
+        : audio ? `<Audio ${audio}>` : 'ON_SCREEN_SPEAKER';
+      const volume = line.volume === 'raised' ? 'CONTROLLED_RAISED'
+        : line.volume === 'soft' ? 'SOFT'
+          : line.volume === 'whisper' ? 'RESTRAINED_WHISPER'
+            : 'NATURAL';
       const start = h3Timestamp(line.start);
       const end = h3Timestamp(line.end);
       return {
@@ -822,7 +818,7 @@ function buildChineseVideoSegmentPrompt(
         first_word_at: start,
         final_word_complete_by: end,
         outside_window: line.lipSync ? 'no_voice_mouth_closed' : 'no_voice_visible_mouths_closed',
-        delivery: `${volume}；${performanceDirection}`,
+        delivery: `${volume}_CONVERSATIONAL_RESTRAINED_ONE_ARC`,
       };
     });
   const dialogueEvents = renderDialogue();
@@ -875,7 +871,7 @@ function buildChineseVideoSegmentPrompt(
     };
   });
   const shotContracts = buildShotContracts(storyboards, shotDescriptions, 'zh', compactMode || storyboards.length > 1);
-  const timeBlocks = buildAuthoritativeTimeBlocks(storyboards, timeline, timedSpeech, shotDescriptions, 'zh');
+  const timeBlocks = buildAuthoritativeTimeBlocks(timeline, timedSpeech);
 
   const visualOverride = compactActionArc(sanitizeVisualDirection(options.visualOverride, timedSpeech.map(line => line.exactLine)), compactMode ? 360 : 720);
   const styleOpening = `${CHINESE_H3_STYLE[String(first.visualStyle || 'cinematic-natural')] || CHINESE_H3_STYLE['cinematic-natural']}${visualOverride ? ` 补充画面要求：${visualOverride}。这段补充只影响画面，不得改变动作、对白或声音。` : ''} 剪辑必须由物理动作或因果推动，不得淡入淡出或叠化。`;
@@ -1001,14 +997,12 @@ export function buildVideoSegmentPrompt(
       const subject = subjectId.get(name);
       const audio = audioId.get(name);
       const source = subject
-        ? compactMode && audio ? `<Subject ${subject}>/<Audio ${audio}>` : `<Subject ${subject}>${audio ? ` using the <Audio ${audio}> timbre` : ''}`
-        : `${name || 'The on-screen speaker'}${audio ? ` using the <Audio ${audio}> timbre` : ''}`;
-      const performance = nonSpokenPerformanceControl(line.emotion, line.delivery);
-      const performanceDirection = compactMode ? performance.split(';')[0] : performance;
-      const volume = line.volume === 'raised' ? 'at a raised but controlled volume'
-        : line.volume === 'soft' ? 'softly'
-          : line.volume === 'whisper' ? 'in a restrained whisper'
-            : 'at a natural speaking volume';
+        ? `<Subject ${subject}>${audio ? `/<Audio ${audio}>` : ''}`
+        : audio ? `<Audio ${audio}>` : 'ON_SCREEN_SPEAKER';
+      const volume = line.volume === 'raised' ? 'CONTROLLED_RAISED'
+        : line.volume === 'soft' ? 'SOFT'
+          : line.volume === 'whisper' ? 'RESTRAINED_WHISPER'
+            : 'NATURAL';
       const start = h3Timestamp(line.start);
       const end = h3Timestamp(line.end);
       return {
@@ -1020,7 +1014,7 @@ export function buildVideoSegmentPrompt(
         first_word_at: start,
         final_word_complete_by: end,
         outside_window: line.lipSync ? 'no_voice_mouth_closed' : 'no_voice_visible_mouths_closed',
-        delivery: `${volume}; ${performanceDirection}`,
+        delivery: `${volume}_CONVERSATIONAL_RESTRAINED_ONE_ARC`,
       };
     });
   const dialogueEvents = renderDialogue();
@@ -1083,7 +1077,7 @@ export function buildVideoSegmentPrompt(
     };
   });
   const shotContracts = buildShotContracts(storyboards, shotDescriptions, 'en', compactMode || storyboards.length > 1);
-  const timeBlocks = buildAuthoritativeTimeBlocks(storyboards, timeline, timedSpeech, shotDescriptions, 'en');
+  const timeBlocks = buildAuthoritativeTimeBlocks(timeline, timedSpeech);
 
   // A refreshed/model-edited prompt is supplementary visual direction. The
   // screenplay action, camera, timing, exact dialogue and sound manifest are
