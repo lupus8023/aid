@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.79 - 2026-08-26
+
+### Changed
+
+- H3 dialogue timing is now represented only by `dialogue_events[].first_word_at`; visual timeline intervals contain only their shot contract and visual action phase.
+- The prompt schema is upgraded to `aid_h3_timeline_v5`, and the cache contract is bumped to `h3-v22` so previous clips with implicit speech windows are never reused.
+
+### Fixed
+
+- Removed `dialogue`, `voice`, and lip-expression state from visual interval rows, preventing a visual window such as `00:00.800-00:10.300` from being interpreted as a required speech duration.
+- A line now starts once at its exact onset, runs for the natural duration of its tagged text, and returns to room tone without any explicit or implicit end boundary.
+- Speaking shots whose semantic prose is removed for vocal safety now receive a restrained observable performance fallback instead of emitting an empty `action` contract.
+
+### Verification
+
+- 55 H3 prompt, no-subtitle, video-segment, and auto-production tests pass together with TypeScript validation and the production build.
+
 ## 0.1.78 - 2026-08-26
 
 ### Changed

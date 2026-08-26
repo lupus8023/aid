@@ -61,7 +61,7 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
   const timeline = timelineJson(prompt);
   const [event] = dialogueEvents(prompt);
-  assert.equal(timeline.schema, 'aid_h3_timeline_v4');
+  assert.equal(timeline.schema, 'aid_h3_timeline_v5');
   assert.equal(timeline.silent_direction_data, true);
   assert.equal(timeline.audio_event_lock.vocalize_only, 'dialogue_events[].spoken_once');
   assert.equal(event.speaker, '<Subject 1>/<Audio 1>');
@@ -451,7 +451,11 @@ test('schedules two connected lines inside one storyboard in order', () => {
   const firstStart = Number(events[0].first_word_at.slice(3));
   const secondStart = Number(events[1].first_word_at.slice(3));
   assert.ok(secondStart > firstStart, 'speaker onsets must remain ordered');
-  assert.equal(timelineJson(prompt).timeline.filter(block => block.voice.includes('START_ONCE')).length, 2);
+  timelineJson(prompt).timeline.forEach(block => {
+    assert.equal('dialogue' in block, false);
+    assert.equal('voice' in block, false);
+    assert.equal('expression' in block, false);
+  });
   assert.doesNotMatch(prompt, /CONTINUE_TO_FINAL_WORD|COMPLETE_HERE/);
   assert.ok(prompt.lastIndexOf('</d>') < prompt.indexOf('"shot_contracts"'));
 });
@@ -477,12 +481,28 @@ test('merges every same-character line in a segment into one long uninterrupted 
   assert.match(timeline.dialogue_events[0].spoken_once, /final result shows/);
   assert.equal(timeline.audio_event_lock.one_continuous_event_per_character, true);
   assert.equal(timeline.audio_event_lock.visual_cuts_are_audio_events, false);
-  assert.equal(timeline.timeline.filter(block => block.voice.includes('START_ONCE')).length, 1);
-  assert.equal(timeline.timeline.filter(block => block.dialogue === 'D1').length >= 1, true);
-  timeline.timeline.filter(block => block.dialogue === 'D1').forEach(block => {
-    assert.doesNotMatch(JSON.stringify(block), /[㐀-鿿]/, 'active dialogue rows must not contain readable director prose');
-    assert.equal('boundary' in block, false);
+  timeline.timeline.forEach(block => {
+    assert.equal('dialogue' in block, false, 'visual intervals must not imply a dialogue duration');
+    assert.equal('voice' in block, false, 'visual intervals must not carry a voice duration');
+    assert.equal('expression' in block, false, 'visual intervals must not carry a lip duration');
   });
+});
+
+test('never emits an empty visual action when a speaking shot has only semantic prose', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      characters: ['Dr. Pan'],
+      action: 'Dr. Pan介绍面膜的核心价值。',
+      description: '',
+      speech: [{
+        speakerId: 'S01', character: 'Dr. Pan', exactLine: '面膜可以给肌肤补充营养。',
+        emotion: '自然', delivery: '自然', volume: 'normal', lipSync: true, source: 'story_required',
+      }],
+    }),
+  ], [], { duration: 8, language: 'zh' });
+  const [contract] = timelineJson(prompt).shot_contracts;
+  assert.match(contract.action, /Dr\. Pan面对既定交流对象/);
+  assert.notEqual(contract.action.trim(), '');
 });
 
 test('rejects A-B-A dialogue because the same character would need a second onset', () => {
@@ -512,9 +532,9 @@ test('covers the full clip with adjacent authoritative time blocks and no uninde
   blocks.forEach(block => {
     assert.ok(block.shot_contract);
     assert.ok(block.action_phase);
-    assert.ok(block.expression);
-    assert.ok('dialogue' in block);
-    assert.ok(block.voice);
+    assert.equal('expression' in block, false);
+    assert.equal('dialogue' in block, false);
+    assert.equal('voice' in block, false);
   });
 });
 

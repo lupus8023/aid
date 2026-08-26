@@ -114,23 +114,11 @@ function buildAuthoritativeTimeBlocks(
       midpoint >= range.start - 0.001
       && (midpoint < range.end - 0.001 || rangeIndex === timeline.length - 1)
     )));
-    const speechIndex = timedSpeech.findIndex(line => Math.abs(start - roundedTimelineBoundary(line.start)) < 0.002);
-    const startsSpeech = speechIndex >= 0;
-    const eventId = startsSpeech ? `D${speechIndex + 1}` : null;
-    // H3 has been observed vocalizing natural-language director prose placed
-    // inside an active dialogue time block (especially transition/boundary
-    // sentences). Timeline rows therefore contain only non-verbal control
-    // enums. Human-readable action, expression and transition prose lives in
-    // the referenced shot_contract, away from dialogue_events[].spoken_once.
-    const hasAnySpeech = timedSpeech.length > 0;
-    const hasPriorOnset = timedSpeech.some(line => roundedTimelineBoundary(line.start) < start + 0.002);
-    const speechPhase = startsSpeech
-      ? `${eventId}_START_ONCE_NATURAL_DURATION_THEN_STOP`
-      : !hasAnySpeech
-        ? 'ZERO_VOICE_MOUTH_CLOSED'
-        : hasPriorOnset
-          ? 'NO_NEW_ONSET_FINISH_NATURALLY_THEN_SILENCE'
-          : 'WAIT_FOR_ONSET_MOUTH_CLOSED';
+    // Dialogue timing exists only in dialogue_events[].first_word_at. Never
+    // attach an event id, lip state or voice state to one of these interval
+    // rows: a 00:00.800-00:10.300 visual block can otherwise look like a
+    // 9.5-second speech target even when the actual line lasts four seconds.
+    // These intervals are exclusively a visual shot/action index.
     const isFirstBlockOfShot = !startedShots.has(shotIndex);
     startedShots.add(shotIndex);
     const atShotEnd = Math.abs(end - timeline[shotIndex].end) < 0.002;
@@ -141,15 +129,6 @@ function buildAuthoritativeTimeBlocks(
       window: `${h3Timestamp(start)}-${h3Timestamp(end)}`,
       shot_contract: `S${shotIndex + 1}`,
       action_phase: actionPhase,
-      expression: startsSpeech
-        ? `LIPS_FOLLOW_${eventId}_UNTIL_EXACT_TEXT_END_THEN_CLOSE`
-        : !hasAnySpeech
-          ? 'MOUTH_CLOSED_ZERO_VOICE'
-          : hasPriorOnset
-            ? 'LIPS_FINISH_NATURALLY_NO_RESTART_THEN_CLOSE'
-            : 'MOUTH_CLOSED_WAIT_FOR_ONSET',
-      dialogue: eventId,
-      voice: speechPhase,
     }];
   });
 }
@@ -430,12 +409,14 @@ function authoritativeShotAction(storyboard: Storyboard): string {
   // rather than repeating it as explanatory text.
   const visibleResult = spokenLines.length ? '' : sanitizeVisualDirection(storyboard.consequence || '', spokenLines);
   const includesResult = visibleResult && action.toLocaleLowerCase().includes(visibleResult.toLocaleLowerCase());
+  const cast = (storyboard.characters || []).join(', ') || 'The visible subject';
+  const fallbackAction = `${cast} performs one natural, restrained gesture with a single eyeline and weight shift while addressing the established listener`;
   return compactActionArc(
     // The screenplay action owns what happens. The image prompt is only a
     // static visual anchor and must never replace causal action. Preserve the
     // separately locked visible consequence too: this is what makes a shot
     // advance the story instead of ending on an attractive but empty pose.
-    `${action}${visibleResult && !includesResult ? ` Visible result: ${visibleResult}` : ''}`,
+    `${action || fallbackAction}${visibleResult && !includesResult ? ` Visible result: ${visibleResult}` : ''}`,
     320,
   );
 }
@@ -731,7 +712,9 @@ function chineseAuthoritativeAction(storyboard: Storyboard): string {
   const action = dialogueSafeVisualAction(storyboard.action || storyboard.description, spokenLines, 'zh');
   const result = spokenLines.length ? '' : sanitizeVisualDirection(storyboard.consequence || '', spokenLines);
   const includesResult = result && action.toLocaleLowerCase().includes(result.toLocaleLowerCase());
-  return compactActionArc(`${action}${result && !includesResult ? ` 可见后果：${result}` : ''}`, 320);
+  const cast = (storyboard.characters || []).join('、') || '画面主体';
+  const fallbackAction = `${cast}面对既定交流对象，以一次自然克制的手势、视线变化和重心转移完成可见表演`;
+  return compactActionArc(`${action || fallbackAction}${result && !includesResult ? ` 可见后果：${result}` : ''}`, 320);
 }
 
 function chineseSilentPerformance(storyboard: Storyboard): string {
@@ -889,7 +872,7 @@ function buildChineseVideoSegmentPrompt(
   const soundscape = buildAudioManifest(storyboards, 'zh');
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards, 'zh');
   const timelineJson = h3TimelineJson({
-    schema: 'aid_h3_timeline_v4',
+    schema: 'aid_h3_timeline_v5',
     duration: `${duration.toFixed(3)}s`,
     silent_direction_data: true,
     audio_event_lock: voiceContract,
@@ -1108,7 +1091,7 @@ export function buildVideoSegmentPrompt(
   const soundscape = buildAudioManifest(storyboards);
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
   const timelineJson = h3TimelineJson({
-    schema: 'aid_h3_timeline_v4',
+    schema: 'aid_h3_timeline_v5',
     duration: `${duration.toFixed(3)}s`,
     silent_direction_data: true,
     audio_event_lock: voiceContract,
