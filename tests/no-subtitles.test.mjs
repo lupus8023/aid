@@ -23,8 +23,8 @@ test('H3 prompts use natural-language text-free direction inside the official st
   const source = await readFile(new URL('../lib/videoGenerator.ts', import.meta.url), 'utf8');
   assert.match(source, /subject_definitions:/);
   assert.match(source, /integrated_multimodal_description:/);
-  assert.match(source, /No subtitles, captions, titles, speech bubbles, logos, watermarks, interface graphics, or readable text/);
-  assert.match(source, /画面里不要出现字幕、文字、标志、水印或界面/);
+  assert.match(source, /The photographic frame remains clean and text-free/);
+  assert.doesNotMatch(source, /画面里不要出现字幕、文字、标志、水印或界面/);
   assert.doesNotMatch(source, /timeline_json|aid_h3_timeline|frame_text_policy/);
   assert.match(source, /visualOverride: storyboard\.videoPrompt\.trim\(\)/);
   assert.match(source, /sanitizeVisualDirection\(options\.visualOverride/);

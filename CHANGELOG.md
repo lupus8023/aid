@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.85 - 2026-08-26
+
+### Changed
+
+- Rebuilt video prompts around MiniMax's official `h3-prompt-writing` guidance: Ref2VA uses the six-section English structure, first/last-frame prompts use the three-section structure, and only `<d>` retains the dialogue's original language.
+- Dialogue now carries only an onset timestamp and one `<d>` tag; speech end times, duration filling, “say once,” mouth-closing, and stop-speaking directions are no longer submitted.
+- Chinese shot material is converted into concise English physical action at the video-prompt stage, reducing the chance that H3 vocalizes directing prose as extra dialogue.
+- The H3 prompt cache contract is bumped to `h3-v28`, and the minimum Story video Companion version is now v0.1.85.
+
+### Fixed
+
+- The final submission boundary removes legacy controls such as `final word`, `mouth closes`, `stop speaking`, and their Chinese equivalents while preserving exact dialogue inside `<d>`.
+- Saved legacy JSON, Chinese control contracts, and other stale prompt overrides are regenerated through the new prompt builder instead of being submitted unchanged.
+- Corrected first/last-frame reference alignment so `Picture 1` is the opening frame and `Picture 2` is the ending frame.
+
+### Verification
+
+- H3 prompt, reference-audio, no-subtitle, video-segment, and story-delivery suites pass together with TypeScript validation and the production build.
+
 ## 0.1.84 - 2026-08-26
 
 ### Changed

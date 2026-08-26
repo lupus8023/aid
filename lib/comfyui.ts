@@ -1103,7 +1103,7 @@ function sanitizeUnavailablePictureOrdinals(prompt: string, availableCount: numb
   ));
 }
 
-function removeChineseVisibleCueFromSubmittedPrompt(prompt: string): string {
+export function sanitizeSubmittedH3Prompt(prompt: string): string {
   return String(prompt || '').split(/(<d>[\s\S]*?<\/d>)/gi).map(part => {
     if (/^<d>/i.test(part)) return part;
     return part
@@ -1115,8 +1115,17 @@ function removeChineseVisibleCueFromSubmittedPrompt(prompt: string): string {
       .replace(/跟随可见动作/g, '跟随画面动作')
       .replace(/完成可见表演/g, '完成镜头内表演')
       .replace(/不可见/g, '画面不呈现')
-      .replace(/可见/g, '画面呈现');
-  }).join('');
+      .replace(/可见/g, '画面呈现')
+      // H3 may perform stop-control prose as an additional vocal event. The
+      // closing </d> tag is the sole dialogue boundary; never supplement it
+      // with instructions about mouths, final words, silence, or filling time.
+      .replace(/(?:说完|念完|读完)[^。！？\n]{0,80}(?:闭嘴|闭口|嘴巴闭合|口型闭合|停止说话|停止人声)[。！？.!]?/gi, ' ')
+      .replace(/(?:闭嘴|闭口|嘴巴闭合|口型闭合|停止说话|停止人声)[。！？.!]?/gi, ' ')
+      .replace(/\b(?:the\s+|his\s+|her\s+)?(?:mouth|lips|jaw)\s+(?:closes?|close|meet|meets|ceases?\s+(?:speaking\s+)?motion)[^.!?\n]*[.!?]?/gi, ' ')
+      .replace(/\b(?:stop(?:s|ped)?\s+(?:speaking|voice)|zero\s+human\s+voice|room\s+tone\s+only|only\s+say\s+once|says?\s+once|final\s+word)[^.!?\n]*[.!?]?/gi, ' ')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\s+([,.!?;，。！？；])/g, '$1');
+  }).join('').trim();
 }
 
 export function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, auxiliaryCount: number, referenceAudioCount: number, referenceAudioNames?: string[]): string {
@@ -1125,7 +1134,7 @@ export function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, aux
     : variant === 'aid_multi_reference'
       ? 1 + Math.max(0, auxiliaryCount)
       : 1;
-  const prompt = removeChineseVisibleCueFromSubmittedPrompt(
+  const prompt = sanitizeSubmittedH3Prompt(
     sanitizeUnavailablePictureOrdinals(visualPrompt, availablePictureCount),
   );
   // The Story prompt builder now emits MiniMax's official base or Ref2VA

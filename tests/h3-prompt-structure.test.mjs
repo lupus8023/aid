@@ -47,11 +47,12 @@ test('writes Ref2VA prompts in the official six-section natural-language format'
     cursor = next;
   }
   assert.doesNotMatch(prompt, /timeline_json|aid_h3_timeline|audio_event_lock|shot_contracts|dialogue_events|first_word_at|final_word_complete_by/);
-  assert.match(prompt, /\[Shot 1] The shot begins from <Picture 1>/);
+  assert.match(prompt, /\[Shot 1] The shot follows <Picture 1> as its composition reference/);
   assert.match(prompt, /\[Shot 2] At 00:\d{2}\.\d{3}, the camera cuts to/);
-  assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(Lin\) \(S1\).*<d>\[Chinese] 线索就在这里。<\/d>/);
+  assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S1\) begins speaking.*<d>\[Chinese] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /No subtitles, captions, titles, speech bubbles, logos, watermarks/);
+  assert.match(prompt, /photographic frame remains clean and text-free/);
+  assert.doesNotMatch(prompt, /闭嘴|嘴巴闭合|说完最后一个字|mouth closes|final word|says once/i);
   assert.match(prompt, /non_diegetic_music:\s+N\/A/);
   assert.ok(prompt.length <= 7000);
 });
@@ -63,7 +64,7 @@ test('keeps silent clips free of dialogue and quarantines refreshed-prompt speec
   });
   assert.match(prompt, /Camera pushes in/);
   assert.doesNotMatch(prompt, /临时加一句|Mei whispers|<d>/);
-  assert.match(prompt, /overall_soundscape:\s+A quiet, perspective-correct location room tone/);
+  assert.match(prompt, /overall_soundscape:\s+A quiet natural location room tone/);
 });
 
 test('locks generated speech to the project language', () => {
@@ -76,19 +77,19 @@ test('locks generated speech to the project language', () => {
   })], [], { duration: 7, language: 'en' }), /项目对白语言为 English/);
 });
 
-test('keeps localized natural-language templates separate from still-image prompts', () => {
+test('writes all directing prose in English while preserving Chinese dialogue', () => {
   const chinese = buildVideoSegmentPrompt([shot(1, {
     characters: ['Dr. Pan'], objects: ['面膜', '成分表'],
     action: 'Dr. Pan展示一种新面膜及其成分表。',
     consequence: '观众开始关注面膜成分的作用。',
-    prompt: 'Premium English still-image direction that must never enter H3.',
+    prompt: 'Dr. Pan raises a face-mask package and points to the printed ingredient panel. A medium eye-level camera frames his hands and the package.',
     cameraMove: '固定',
     speech: [{ speakerId: 'S01', character: 'Dr. Pan', exactLine: '这些成分可以给肌肤补充营养。', emotion: '专业而克制', delivery: '自然', volume: 'normal', lipSync: true, source: 'story_required' }],
   })], [], { duration: 8, language: 'zh', referenceAudioNames: ['Dr. Pan'] });
-  assert.match(chinese, /\[Shot 1] <Picture 1> 是本镜头的起始画面/);
-  assert.match(chinese, /Dr\. Pan展示一种新面膜及其成分表/);
+  assert.match(chinese, /Dr\. Pan raises a face-mask package and points to the printed ingredient panel/);
   assert.match(chinese, /<d>\[Chinese] 这些成分可以给肌肤补充营养。<\/d>/);
-  assert.doesNotMatch(chinese, /Premium English still-image direction|观众开始关注/);
+  assert.doesNotMatch(chinese.replace(/<d>[\s\S]*?<\/d>/g, ''), /[㐀-鿿]/);
+  assert.doesNotMatch(chinese, /观众开始关注|闭嘴|mouth closes|final word/i);
 
   const english = buildVideoSegmentPrompt([shot(1, {
     action: 'Lin raises the package and points to its label.', prompt: 'Unrelated still-image prompt.',
@@ -104,8 +105,8 @@ test('binds sequential speakers to stable subjects and audio references', () => 
   ], [], { duration: 12, referenceAudioNames: ['Lin', 'Mei'] });
   assert.match(prompt, /<Audio 1> is the voice-timbre reference for <Subject 1> \(S1\)/);
   assert.match(prompt, /<Audio 2> is the voice-timbre reference for <Subject 2> \(S2\)/);
-  assert.match(prompt, /<Subject 1> \(Lin\) \(S1\), using the voice timbre from <Audio 1>/);
-  assert.match(prompt, /<Subject 2> \(Mei\) \(S2\), using the voice timbre from <Audio 2>/);
+  assert.match(prompt, /<Subject 1> \(S1\) begins speaking using the voice timbre referenced from <Audio 1>/);
+  assert.match(prompt, /<Subject 2> \(S2\) begins speaking using the voice timbre referenced from <Audio 2>/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
   assert.equal(dialogueTags(prompt).length, 2);
 });
@@ -114,12 +115,13 @@ test('keeps abstract meaning and relationship prose out of shot descriptions', (
   const leaked = 'Dr. Pan回应疑问，观众暂时接受营养供给依据，但继续等待输送机制。';
   const prompt = buildVideoSegmentPrompt([shot(1, {
     characters: ['Dr. Pan'], action: 'Dr. Pan抬起面膜包装，用食指点向成分表。',
+    prompt: 'Dr. Pan raises the face-mask package and points one index finger toward the ingredient panel.',
     consequence: '功效解释从抽象宣传转向成分依据。', informationGain: '观众理解产品价值。',
     stateBefore: { relationships: leaked, emotion: '专业而克制' }, stateAfter: { relationships: leaked, emotion: '专业而克制' },
     editBridge: `${leaked} audienceInference: waiting`,
     speech: [{ speakerId: 'S01', character: 'Dr. Pan', exactLine: '这些成分可以给肌肤补充营养。', emotion: '专业而克制', delivery: '自然', volume: 'normal', lipSync: true, source: 'story_required' }],
   })], [], { duration: 8, language: 'zh', referenceAudioNames: ['Dr. Pan'] });
-  assert.match(prompt, /Dr\. Pan抬起面膜包装，用食指点向成分表/);
+  assert.match(prompt, /Dr\. Pan raises the face-mask package and points one index finger toward the ingredient panel/);
   assert.doesNotMatch(prompt, /暂时接受营养供给依据|继续等待输送机制|功效解释从抽象宣传|观众理解产品价值|audienceInference|可见后果[:：]/);
 });
 
@@ -129,15 +131,15 @@ test('removes the Chinese visible cue and abstract summary prose from every dire
     objects: ['线雕面膜'],
     action: '熊猫博士总结面膜价值。',
     description: '熊猫博士总结面膜价值。',
+    prompt: 'Dr. Pan holds the face mask at chest height and turns the package toward the camera.',
     cameraMove: '摇镜，跟随可见动作',
     audioPlan: {
-      backgroundHuman: 'none', environment: ['实验室底噪'], foley: ['包装摩擦'],
+      backgroundHuman: 'none', environment: ['low laboratory room tone'], foley: ['soft package rustle'],
       music: 'none', silenceBefore: 0.8, silenceAfter: 1,
     },
   })], [], { duration: 7, language: 'zh' });
   assert.doesNotMatch(prompt, /可见|总结面膜价值/);
-  assert.match(prompt, /熊猫博士自然站稳，做一次简单手势，视线改变一次/);
-  assert.match(prompt, /画面里还有线雕面膜/);
+  assert.match(prompt, /Dr\. Pan holds the face mask at chest height/);
   assert.doesNotMatch(prompt, /物体包括|动作走位|画面侧/);
 });
 
@@ -169,10 +171,10 @@ test('preserves grouped storyboards as official timed shot paragraphs', () => {
     shot(3, { action: 'Lin pivots toward the station clock and runs.', cameraMove: '横移' }),
   ], [], { duration: 15, language: 'zh' });
   assert.equal((prompt.match(/\[Shot \d+]/g) || []).length >= 3, true);
-  assert.match(prompt, /\[Shot 2] 00:\d{2}\.\d{3} 切到 <Picture 2>/);
+  assert.match(prompt, /\[Shot 2] At 00:\d{2}\.\d{3}, the camera cuts to the composition referenced by <Picture 2>/);
   for (const action of ['Lin snatches the red envelope', 'Lin tears the seal', 'Lin pivots toward the station clock']) assert.match(prompt, new RegExp(action));
   assert.doesNotMatch(prompt, /timeline_json|\{"schema"/);
-  assert.doesNotMatch(prompt, /fully_preserved|reference——|物体包括|既定|视线轴|画面侧|动作走位|决定性|透视关系/);
+  assert.doesNotMatch(prompt, /reference——|物体包括|既定|视线轴|画面侧|动作走位|决定性|透视关系/);
 });
 
 test('merges one character into one tagged line without an end timestamp', () => {
@@ -182,7 +184,7 @@ test('merges one character into one tagged line without an end timestamp', () =>
   ], [], { duration: 12, language: 'en', referenceAudioNames: ['Lin'] });
   assert.equal(dialogueTags(prompt).length, 1);
   assert.match(dialogueTags(prompt)[0].text, /first result confirms.*final result shows/i);
-  assert.doesNotMatch(prompt, /end by|complete by|final_word|duration_policy|speech window/i);
+  assert.doesNotMatch(prompt, /end by|complete by|final_word|duration_policy|speech window|final word|mouth|lips|jaw|stop speaking|says once/i);
 });
 
 test('preserves physical action without screenplay consequence labels', () => {
@@ -200,8 +202,8 @@ test('uses the official three-field base format for first-and-last-frame generat
   });
   assert.match(prompt, /^How the reference pictures align with the target video/);
   assert.match(prompt, /integrated_multimodal_description:/);
-  assert.match(prompt, /<Picture 1> and <Picture 2>/);
-  assert.match(prompt, /naturally reaches the composition in <Picture 2>/);
+  assert.match(prompt, /begins from <Picture 1>/);
+  assert.match(prompt, /reaches the pose and composition in <Picture 2>/);
   assert.doesNotMatch(prompt, /subject_definitions:|timeline_json|aid_h3_timeline/);
   assert.match(prompt, /overall_soundscape:/);
   assert.match(prompt, /non_diegetic_music: N\/A/);

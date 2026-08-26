@@ -10,6 +10,7 @@ import {
   h3ReferenceAudioPolicy,
   h3VisualTaskType,
   injectH3NativeDialogue,
+  sanitizeSubmittedH3Prompt,
   selectComfyUIVideoOutput,
   comfyUIQueueContainsPrompt,
   taggedPrompt,
@@ -251,6 +252,14 @@ test('removes the Chinese visible cue at the final submission boundary without c
   assert.doesNotMatch(submitted.replace(/<d>[\s\S]*?<\/d>/g, ''), /可见/);
   assert.match(submitted, /镜头内物体包括线雕面膜/);
   assert.match(submitted, /<d>\[Chinese] 这是肉眼可见的变化。<\/d>/);
+});
+
+test('removes stop-speaking prose at submission while preserving exact dialogue', () => {
+  const prompt = `detailed_description:\nAt 00:00.800, <Subject 1> (S1) says: <d>[Chinese] 说完最后一个字就闭嘴。<\/d> 说完最后一个字就闭嘴。 The mouth closes naturally when the final word is complete.\n\noverall_soundscape:\nRoom tone.\n\nnon_diegetic_music:\nN/A`;
+  const submitted = sanitizeSubmittedH3Prompt(prompt);
+  assert.match(submitted, /<d>\[Chinese] 说完最后一个字就闭嘴。<\/d>/);
+  const outsideDialogue = submitted.replace(/<d>[\s\S]*?<\/d>/g, '');
+  assert.doesNotMatch(outsideDialogue, /说完最后一个字|闭嘴|mouth closes|final word/i);
 });
 
 test('preserves Picture 2 in official first/last prompts even without auxiliary images', () => {
