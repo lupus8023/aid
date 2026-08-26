@@ -100,7 +100,7 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
 
 🎬 分镜可视化要求：
 1. description：必须以「[景别，机位角度]」开头，包含动作主体、环境、情绪氛围、运镜方式、物理细节（布料/水流/光影）。
-   - 先写触发，再写角色的选择/反应，最后写可见后果；镜尾构图必须把 informationGain 或 audienceQuestion 落到一个能看懂的状态上。
+   - 先写触发，再写角色的选择/反应，最后写可见物理后果；只描述镜头能拍到的身体、表情、道具、位置与物理状态，禁止把 informationGain、audienceQuestion、功效、价值或观众理解直接改写成画面句子。
 2. prompt（英文图像提示词）：
    - 可用角色与已上传物体用 [名称](2-3 个外观关键词) 格式；无名临时角色/物体直接描述。
    - 不要写成关键词堆砌。使用紧凑的摄影因果链，顺序固定为：SUBJECT/ACTION → CAMERA POSITION & DISTANCE → LENS PERSPECTIVE → COMPOSITION & OCCLUSION → FOCUS PLANE & DEPTH LAYERS → MOTIVATED LIGHT → EXPOSURE/COLOR/MATERIAL RESPONSE。

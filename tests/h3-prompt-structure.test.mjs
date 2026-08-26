@@ -61,11 +61,13 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
   const timeline = timelineJson(prompt);
   const [event] = dialogueEvents(prompt);
-  assert.equal(timeline.schema, 'aid_h3_timeline_v7');
+  assert.equal(timeline.schema, 'aid_h3_timeline_v8');
   assert.equal(timeline.silent_direction_data, true);
   assert.equal(timeline.audio_event_lock.vocalize_only, 'dialogue_events[].spoken_once');
   assert.equal(event.speaker, '<Subject 1>/<Audio 1>');
   assert.match(event.first_word_at, /^00:\d{2}\.\d{3}$/);
+  assert.equal(event.before_first_word_at, 'ZERO_HUMAN_VOICE_MOUTH_CLOSED');
+  assert.equal(event.at_first_word_at, 'START_SPOKEN_ONCE_EXACTLY');
   assert.equal('duration_policy' in event, false);
   assert.equal('after_spoken_once' in event, false);
   assert.equal('window' in event, false);
@@ -456,15 +458,49 @@ test('keeps causal story meaning in observable action without explanatory exposi
   assert.match(prompt, /<d>\[English\] There is nothing inside\.<\/d>/);
 });
 
-test('delivers the screenplay visible consequence instead of ending on an empty pose', () => {
+test('keeps physical outcomes in action but never appends screenplay consequence prose', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1, {
-      action: 'Lin turns the valve with both hands.',
-      consequence: 'The red pressure lamp switches to green and Mei lowers her raised alarm hand.',
+      action: 'Lin turns the valve with both hands; the red pressure lamp switches to green and Mei lowers her raised alarm hand.',
+      consequence: 'The audience understands that the system is safe again.',
     }),
   ], [], { duration: 6 });
-  assert.match(prompt, /Visible result: The red pressure lamp switches to green and Mei lowers her raised alarm hand/);
-  assert.equal((prompt.match(/Lin turns the valve with both hands\./g) || []).length, 1);
+  assert.match(timelineJson(prompt).shot_contracts[0].action, /red pressure lamp switches to green/);
+  assert.doesNotMatch(prompt, /Visible result|audience understands|system is safe again/i);
+});
+
+test('removes abstract Chinese consequence prose from an otherwise physical action', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      characters: ['Dr. Pan'],
+      objects: ['护肤面膜', '成分表'],
+      action: 'Dr. Pan拿起护肤面膜并展示其成分表。 可见后果：功效解释从抽象宣传转向成分依据。',
+      consequence: '功效解释从抽象宣传转向成分依据。',
+      speech: [],
+      dialogueLines: [],
+    }),
+  ], [], { duration: 8, language: 'zh' });
+
+  const contract = timelineJson(prompt).shot_contracts[0];
+  assert.match(contract.action, /^Dr\. Pan拿起护肤面膜并展示其成分表。?$/);
+  assert.doesNotMatch(prompt, /可见后果|功效解释|抽象宣传|成分依据/);
+});
+
+test('treats every visible-result label as a hard truncation boundary', () => {
+  const chinese = buildVideoSegmentPrompt([
+    shot(1, {
+      action: 'Dr. Pan抬起面膜包装。可见后果：红色指示灯变绿，Dr. Pan随后放下面膜。',
+      characters: ['Dr. Pan'],
+    }),
+  ], [], { duration: 6, language: 'zh' });
+  assert.equal(timelineJson(chinese).shot_contracts[0].action, 'Dr. Pan抬起面膜包装。');
+  assert.doesNotMatch(chinese, /红色指示灯变绿|随后放下面膜/);
+
+  const english = buildVideoSegmentPrompt([
+    shot(1, { action: 'Lin raises the package. Visible result: the lamp turns green and Lin lowers it.' }),
+  ], [], { duration: 6, language: 'en' });
+  assert.equal(timelineJson(english).shot_contracts[0].action, 'Lin raises the package.');
+  assert.doesNotMatch(english, /lamp turns green|Lin lowers it/);
 });
 
 test('schedules two connected lines inside one storyboard in order', () => {
@@ -487,6 +523,8 @@ test('schedules two connected lines inside one storyboard in order', () => {
   assert.equal(events.length, 2);
   events.forEach(event => {
     assert.match(event.first_word_at, /^00:\d{2}\.\d{3}$/);
+    assert.equal(event.before_first_word_at, 'ZERO_HUMAN_VOICE_MOUTH_CLOSED');
+    assert.equal(event.at_first_word_at, 'START_SPOKEN_ONCE_EXACTLY');
     assert.equal('duration_policy' in event, false);
     assert.equal('after_spoken_once' in event, false);
     assert.equal('window' in event, false);

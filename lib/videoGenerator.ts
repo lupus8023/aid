@@ -24,6 +24,8 @@ type H3TimelineDialogueEvent = {
   kind: 'on_screen' | 'off_screen';
   spoken_once: string;
   first_word_at: string;
+  before_first_word_at: 'ZERO_HUMAN_VOICE_MOUTH_CLOSED';
+  at_first_word_at: 'START_SPOKEN_ONCE_EXACTLY';
   delivery: string;
 };
 
@@ -295,7 +297,12 @@ function regexpEscape(value: string): string {
 }
 
 export function sanitizeVisualDirection(value: unknown, exactSpokenLines: string[] = []): string {
-  const withoutDialogueTags = String(value || '').replace(/<d>[\s\S]*?<\/d>/gi, ' ');
+  const withoutDialogueTags = String(value || '')
+    .replace(/<d>[\s\S]*?<\/d>/gi, ' ')
+    // H3 has repeatedly vocalized every phrase placed after these screenplay
+    // labels. Treat the label as a hard truncation boundary everywhere. Any
+    // truly visible outcome must be authored earlier as an ordinary action.
+    .replace(/(?:可见后果|画面结果|visible result)\s*[:：][\s\S]*$/i, ' ');
   const visualLines = withoutDialogueTags.split(/\r?\n/).filter(line => !(
     /(?:overall_soundscape|non_diegetic_music|speech contract|speech gate|spoken_words_only|non_spoken_performance|foreground speech|background human|audio manifest|voice[- ]?timbre)/i.test(line)
     || /(?:台词|对白|配音|旁白|画外音|说话内容)\s*[:：]/.test(line)
@@ -336,21 +343,24 @@ function sanitizeNarrativeDirection(value: unknown, exactSpokenLines: string[] =
 
 function dialogueSafeVisualAction(value: unknown, exactSpokenLines: string[], language: 'zh' | 'en'): string {
   const visual = sanitizeVisualDirection(value, exactSpokenLines);
-  if (!exactSpokenLines.length || !visual) return visual;
+  if (!visual) return visual;
 
-  // Native H3 can treat semantic screenplay prose as another utterance even
-  // when the real line is correctly wrapped in <d>. Keep only observable
-  // physical clauses in a speaking shot. In particular, never restate what a
-  // product "means", what the audience learns, or what the line establishes.
+  // JSON is not a hard non-vocal channel for H3. Apply this filter to every
+  // shot, including segment-reference shots whose local `speech` is empty.
+  // Only camera-observable physical clauses belong in `action`; screenplay
+  // meaning and audience interpretation stay upstream.
   const semanticClause = language === 'zh'
-    ? /(?:观众|受众|用户|听者|核心价值|优越性|产品价值|意义|观点|结论|真相|信息|定义为|理解|明白|意识到|认识到|相信|期待|好奇|关注|联想到|联系起来|说明|解释|强调|揭示|告诉|介绍|讲解|表达|传达)/i
-    : /(?:audience|viewer|listener|meaning|core value|product value|benefit|message|conclusion|truth|information|understands?|realizes?|learns?|believes?|expects?|becomes? curious|focuses? on|connects?|explains?|emphasizes?|reveals?|tells?|introduces?|describes?|communicates?|establishes? that)/i;
-  const clauses = visual
-    // Do not split on an ASCII period: names such as "Dr. Pan" are common in
-    // these prompts and must remain intact. Semantic tails are normally
-    // separated by commas/semicolons; Chinese sentence punctuation is safe.
-    .split(/(?<=[。！？；;])|\s*[,，]\s*/)
-    .map(clause => clause.trim().replace(/[,，;；]+$/, ''))
+    ? /(?:观众|受众|用户|听者|核心价值|优越性|产品价值|功效|宣传|依据|意义|观点|结论|真相|信息|认知|疑问|期待|机制|定义为|理解|明白|意识到|认识到|相信|接受|好奇|关注|联想到|联系起来|说明|解释|强调|揭示|告诉|介绍|讲解|表达|传达)/i
+    : /(?:audience|viewer|listener|meaning|core value|product value|benefit|efficacy|promotion|claim|evidence|rationale|message|conclusion|truth|information|understands?|realizes?|learns?|believes?|accepts?|expects?|question|mechanism|becomes? curious|focuses? on|connects?|explains?|emphasizes?|reveals?|tells?|introduces?|describes?|communicates?|establishes? that)/i;
+  // Protect common title abbreviations before splitting English sentences so
+  // a name such as "Dr. Pan" remains one physical clause.
+  const protectedVisual = visual.replace(/\b(Dr|Mr|Mrs|Ms|Prof)\./gi, '$1<NAME_PERIOD>');
+  const clauses = protectedVisual
+    .split(/(?<=[。！？；;!?])|\.(?=\s+)|\s*[,，]\s*/)
+    .map(clause => clause
+      .replace(/<NAME_PERIOD>/g, '.')
+      .trim()
+      .replace(/[,，;；]+$/, ''))
     .filter(Boolean)
     .filter(clause => !semanticClause.test(clause));
   const joined = clauses.join(language === 'zh' ? '，' : ', ')
@@ -439,20 +449,14 @@ function authoritativeShotAction(storyboard: Storyboard): string {
   // It is intentionally not a video-direction fallback: feeding it to H3 was
   // the source of mixed-language fragments and duplicated visual commands.
   const action = dialogueSafeVisualAction(storyboard.action || storyboard.description, spokenLines, 'en');
-  // Consequence/listener fields often paraphrase the spoken proposition. H3
-  // has demonstrably vocalized that prose before the tagged line, so a shot
-  // with dialogue must express its result visually through the physical action
-  // rather than repeating it as explanatory text.
-  const visibleResult = spokenLines.length ? '' : sanitizeVisualDirection(storyboard.consequence || '', spokenLines);
-  const includesResult = visibleResult && action.toLocaleLowerCase().includes(visibleResult.toLocaleLowerCase());
   const cast = (storyboard.characters || []).join(', ') || 'The visible subject';
   const fallbackAction = `${cast} performs one natural, restrained gesture with a single eyeline and weight shift while addressing the established listener`;
   return compactActionArc(
     // The screenplay action owns what happens. The image prompt is only a
     // static visual anchor and must never replace causal action. Preserve the
-    // separately locked visible consequence too: this is what makes a shot
-    // advance the story instead of ending on an attractive but empty pose.
-    `${action || fallbackAction}${visibleResult && !includesResult ? ` Visible result: ${visibleResult}` : ''}`,
+    // separately authored `consequence` as screenplay metadata only. It may
+    // describe meaning rather than pixels and must never be auto-appended here.
+    action || fallbackAction,
     320,
   );
 }
@@ -746,11 +750,12 @@ function chineseTransition(previous: Storyboard, next: Storyboard): string {
 function chineseAuthoritativeAction(storyboard: Storyboard): string {
   const spokenLines = storyboardSpeech(storyboard).map(line => line.exactLine);
   const action = dialogueSafeVisualAction(storyboard.action || storyboard.description, spokenLines, 'zh');
-  const result = spokenLines.length ? '' : sanitizeVisualDirection(storyboard.consequence || '', spokenLines);
-  const includesResult = result && action.toLocaleLowerCase().includes(result.toLocaleLowerCase());
   const cast = (storyboard.characters || []).join('、') || '画面主体';
   const fallbackAction = `${cast}面对既定交流对象，以一次自然克制的手势、视线变化和重心转移完成可见表演`;
-  return compactActionArc(`${action || fallbackAction}${result && !includesResult ? ` 可见后果：${result}` : ''}`, 320);
+  // `consequence` belongs to the screenplay contract. Even when local speech
+  // is empty it may be an abstract information change, so never append it to
+  // the model-facing physical action.
+  return compactActionArc(action || fallbackAction, 320);
 }
 
 function chineseSilentPerformance(storyboard: Storyboard): string {
@@ -843,6 +848,8 @@ function buildChineseVideoSegmentPrompt(
         kind: line.lipSync ? 'on_screen' : 'off_screen',
         spoken_once: `<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>`,
         first_word_at: start,
+        before_first_word_at: 'ZERO_HUMAN_VOICE_MOUTH_CLOSED',
+        at_first_word_at: 'START_SPOKEN_ONCE_EXACTLY',
         delivery: `${volume}_CONVERSATIONAL_RESTRAINED_ONE_ARC`,
       };
     });
@@ -867,7 +874,7 @@ function buildChineseVideoSegmentPrompt(
   const soundscape = buildAudioManifest(storyboards, 'zh');
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards, 'zh');
   const timelineJson = h3TimelineJson({
-    schema: 'aid_h3_timeline_v7',
+    schema: 'aid_h3_timeline_v8',
     duration: `${duration.toFixed(3)}s`,
     silent_direction_data: true,
     audio_event_lock: voiceContract,
@@ -994,6 +1001,8 @@ export function buildVideoSegmentPrompt(
         kind: line.lipSync ? 'on_screen' : 'off_screen',
         spoken_once: `<d>[${dialogueLanguage(text)}] ${text}</d>`,
         first_word_at: start,
+        before_first_word_at: 'ZERO_HUMAN_VOICE_MOUTH_CLOSED',
+        at_first_word_at: 'START_SPOKEN_ONCE_EXACTLY',
         delivery: `${volume}_CONVERSATIONAL_RESTRAINED_ONE_ARC`,
       };
     });
@@ -1028,7 +1037,7 @@ export function buildVideoSegmentPrompt(
   const soundscape = buildAudioManifest(storyboards);
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
   const timelineJson = h3TimelineJson({
-    schema: 'aid_h3_timeline_v7',
+    schema: 'aid_h3_timeline_v8',
     duration: `${duration.toFixed(3)}s`,
     silent_direction_data: true,
     audio_event_lock: voiceContract,

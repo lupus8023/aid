@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.82 - 2026-08-26
+
+### Changed
+
+- Dialogue timing remains onset-only: `first_word_at` contains a pure timestamp, with compact non-vocal enums defining silence before onset and one exact start at onset.
+- The prompt schema is upgraded to `aid_h3_timeline_v8`, and the cache contract is bumped to `h3-v25` so previously generated clips with result prose are not reused.
+
+### Fixed
+
+- `可见后果:` and `Visible result:` are now hard truncation boundaries; the label and everything after it are removed before any visual direction reaches H3.
+- Abstract screenplay consequences are never appended to model-facing actions, including segment-reference shots whose local `speech` array is empty.
+- Every action is filtered to camera-observable body, expression, prop, position, and physical-state changes; story-writing prompts now keep efficacy, value, rationale, and audience interpretation in screenplay metadata only.
+
+### Verification
+
+- 74 H3 prompt, video-segment, and staged-story tests pass together with TypeScript validation and the production build.
+
 ## 0.1.81 - 2026-08-26
 
 ### Changed
