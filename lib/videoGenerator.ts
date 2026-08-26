@@ -19,6 +19,7 @@ function compactText(value: unknown, limit = 220): string {
 }
 
 type H3TimelineDialogueEvent = {
+  id: string;
   window: string;
   speaker: string;
   kind: 'on_screen' | 'off_screen';
@@ -38,33 +39,163 @@ function h3TimelineJson(value: Record<string, unknown>, compact = false): string
   return JSON.stringify(value, null, compact ? 0 : 2);
 }
 
-function h3VoiceContract(eventCount: number, firstSpeechStart?: number): Record<string, unknown> {
+function h3VoiceContract(eventCount: number): Record<string, unknown> {
   if (!eventCount) {
     return {
+      priority: 'HIGHEST',
       intelligible_human_voice: false,
-      dialogue_events: 0,
+      legal_vocal_events: 0,
+      every_moment: 'ROOM_TONE_ONLY_ZERO_VOICE',
+      visual_cuts_are_audio_events: false,
       narrator: false,
       ad_lib: false,
       singing: false,
     };
   }
   return {
-    dialogue_events: eventCount,
-    vocalize_only: 'shots[].dialogue_events[].spoken_once',
+    priority: 'HIGHEST',
+    legal_vocal_events: eventCount,
+    vocalize_only: 'dialogue_events[].spoken_once',
     exact_verbatim_once: true,
-    preserve_event_order: true,
-    vocalize_json_keys_or_direction_values: false,
+    one_continuous_event_per_character: true,
+    event_order_locked: true,
+    direction_data_vocalized: false,
     narrator: false,
     ad_lib: false,
-    reference_audio_role: 'timbre_only_ignore_source_words_and_timing',
-    before_first_dialogue: {
-      range: `00:00.000-${h3Timestamp(firstSpeechStart || 0)}`,
-      intelligible_voice: false,
-      mouths_closed: true,
-      room_tone_only: true,
-      filler_or_reference_sample_leakage: false,
-    },
+    singing: false,
+    every_other_moment: 'ROOM_TONE_ONLY_ZERO_VOICE',
+    visual_cuts_are_audio_events: false,
+    vocal_extras_or_reference_sample_leakage: false,
   };
+}
+
+function h3ReferenceAudioContract(): Record<string, unknown> {
+  return {
+    purpose: 'identity_timbre_only',
+    ignore_source: 'words_phonemes_pauses_timing_semantics',
+    reproduce_source_fragments: false,
+  };
+}
+
+function h3FinalPriorityContract(): Record<string, unknown> {
+  return {
+    spoken_content: 'dialogue_events_only',
+    other_time: 'nonvocal',
+    conflicts: 'audio_event_lock_wins',
+  };
+}
+
+function roundedTimelineBoundary(value: number): number {
+  return Math.round(Math.max(0, value) * 1000) / 1000;
+}
+
+function buildAuthoritativeTimeBlocks(
+  storyboards: Storyboard[],
+  timeline: Array<{ start: number; end: number }>,
+  timedSpeech: ReturnType<typeof compileTimedSpeech>,
+  shotDescriptions: Array<Record<string, unknown>>,
+  language: 'zh' | 'en',
+): Array<Record<string, unknown>> {
+  if (!timeline.length) return [];
+  const boundaries = [...new Set([
+    ...timeline.flatMap(range => [roundedTimelineBoundary(range.start), roundedTimelineBoundary(range.end)]),
+    ...timedSpeech.flatMap(line => [roundedTimelineBoundary(line.start), roundedTimelineBoundary(line.end)]),
+  ])].sort((a, b) => a - b);
+  const startedShots = new Set<number>();
+
+  return boundaries.slice(0, -1).flatMap((start, index) => {
+    const end = boundaries[index + 1];
+    if (end - start < 0.001) return [];
+    const midpoint = start + (end - start) / 2;
+    const shotIndex = Math.max(0, timeline.findIndex((range, rangeIndex) => (
+      midpoint >= range.start - 0.001
+      && (midpoint < range.end - 0.001 || rangeIndex === timeline.length - 1)
+    )));
+    const storyboard = storyboards[shotIndex];
+    const shot = shotDescriptions[shotIndex] || {};
+    const speechIndex = timedSpeech.findIndex(line => line.start < end - 0.001 && line.end > start + 0.001);
+    const speech = speechIndex >= 0 ? timedSpeech[speechIndex] : undefined;
+    const eventId = speech ? `D${speechIndex + 1}` : null;
+    const startsSpeech = Boolean(speech && Math.abs(start - roundedTimelineBoundary(speech.start)) < 0.002);
+    const endsSpeech = Boolean(speech && Math.abs(end - roundedTimelineBoundary(speech.end)) < 0.002);
+    const speechPhase = !speech
+      ? (language === 'zh' ? '无人声；闭口' : 'no voice; mouths closed')
+      : startsSpeech && endsSpeech
+        ? (language === 'zh' ? `${eventId} 一次起声并完整说完` : `${eventId} starts once; completes here`)
+        : startsSpeech
+          ? (language === 'zh' ? `${eventId} 只起声一次` : `${eventId} starts once`)
+          : endsSpeech
+            ? (language === 'zh' ? `${eventId} 连续至尾字完整结束` : `${eventId} continues; final word complete`)
+            : (language === 'zh' ? `${eventId} 连续；不重新起声` : `${eventId} continues; no restart`);
+    const expression = speech
+      ? compactText(language === 'zh'
+        ? `${speech.character}：${speech.emotion || '克制'}；呼吸/视线/表情/口型沿同一发声弧`
+        : `${speech.character}: ${speech.emotion || 'restrained'}; breath/gaze/expression/lips follow one vocal arc`, 68)
+      : (language === 'zh' ? '闭口；呼吸/视线/重心作无声反应' : 'mouths closed; silent breath/gaze/weight reaction');
+    const isFirstBlockOfShot = !startedShots.has(shotIndex);
+    startedShots.add(shotIndex);
+    const atShotEnd = Math.abs(end - timeline[shotIndex].end) < 0.002;
+    const actionPhase = language === 'zh'
+      ? (isFirstBlockOfShot && atShotEnd ? `执行完成 S${shotIndex + 1}`
+        : isFirstBlockOfShot ? `启动 S${shotIndex + 1}`
+          : atShotEnd ? `完成交接 S${shotIndex + 1}` : `连续推进 S${shotIndex + 1}；不重置`)
+      : (isFirstBlockOfShot && atShotEnd ? `execute and complete S${shotIndex + 1} action`
+        : isFirstBlockOfShot ? `begin S${shotIndex + 1}`
+          : atShotEnd ? `complete/handoff S${shotIndex + 1}` : `continue S${shotIndex + 1}; no reset`);
+    return [{
+      window: `${h3Timestamp(start)}-${h3Timestamp(end)}`,
+      shot_contract: `S${shotIndex + 1}`,
+      action_phase: actionPhase,
+      expression,
+      dialogue: eventId,
+      voice: speechPhase,
+      boundary: atShotEnd ? compactText(shot.transition_or_end, 65) : undefined,
+    }];
+  });
+}
+
+function buildShotContracts(
+  storyboards: Storyboard[],
+  shotDescriptions: Array<Record<string, unknown>>,
+  language: 'zh' | 'en',
+  compact = false,
+): Array<Record<string, unknown>> {
+  return storyboards.map((storyboard, index) => {
+    const shot = shotDescriptions[index] || {};
+    const relationship = compactText(
+      storyboard.stateBefore?.relationships
+        || storyboard.stateAfter?.relationships
+        || (language === 'zh' ? '保持已建立的人物关系、视线轴和银幕侧' : 'preserve established relationship, eyeline axis and screen sides'),
+      70,
+    );
+    const cast = (storyboard.characters || []).join(language === 'zh' ? '、' : ', ');
+    const hasContact = /(?:抓|握|按|压|推|拉|撞|触|夹|捏|踩|落地|击|碰|grip|grab|press|push|pull|strike|impact|touch|pinch|land|contact)/i
+      .test(`${storyboard.action || ''} ${storyboard.description || ''}`);
+    const motionPhysics = hasContact
+      ? (language === 'zh'
+          ? (compact ? '接近→接触→受力→释放→局部回弹' : '接近→接触→可见受力/压缩→增力→短暂保持→逐渐释放→局部回弹；只让受力区变形')
+          : (compact ? 'approach→contact→load→release→local rebound' : 'approach, contact, visible load/compression, increase force, brief hold, gradual release, local rebound; deform only the loaded region'))
+      : (language === 'zh'
+          ? (compact ? '可信质量/加速度/跟随；不漂移' : '保持可信质量、加速度和跟随；不得匀速漂移')
+          : (compact ? 'mass/acceleration/follow-through; no drift' : 'believable mass, acceleration and follow-through; no uniform drift'));
+    const fullAction = language === 'zh' ? chineseAuthoritativeAction(storyboard) : authoritativeShotAction(storyboard);
+    const actionLimit = compact && fullAction.length > 180 ? 120 : 240;
+    return {
+      id: `S${index + 1}`,
+      reference: shot.visual_reference,
+      cast: compact ? compactText(shot.cast, 58) : shot.cast,
+      framing: shot.framing,
+      camera: shot.camera,
+      action: compactActionArc(fullAction, actionLimit),
+      motion_physics: motionPhysics,
+      blocking_relation: compact
+        ? (language === 'zh' ? `${cast || '无角色'}：关系/视线轴/银幕侧锁定；动作走位` : `${cast || 'no character'}: relation/axis/side locked; action-led blocking`)
+        : (language === 'zh'
+            ? `${relationship}；${cast || '无角色'}只按动作走位，不漂移/瞬移`
+            : `${relationship}; ${cast || 'no character'} blocks only through action; no drift/teleport`),
+      sound: shot.synchronized_sound,
+    };
+  });
 }
 
 function h3FrameTextContract(): Record<string, boolean> {
@@ -665,12 +796,10 @@ function buildChineseVideoSegmentPrompt(
   const subjectId = new Map(characters.map((name, index) => [name, index + 1]));
   const audioId = new Map(referenceAudioNames.map((name, index) => [name, index + 1]));
   const speechEventCount = timedSpeech.length;
-  const firstSpeechStart = timedSpeech[0]?.start;
-  const voiceContract = h3VoiceContract(speechEventCount, firstSpeechStart);
+  const voiceContract = h3VoiceContract(speechEventCount);
 
-  const renderDialogue = (storyboardIndex: number): H3TimelineDialogueEvent[] => timedSpeech
-    .filter(line => line.storyboardIndex === storyboardIndex)
-    .map(line => {
+  const renderDialogue = (): H3TimelineDialogueEvent[] => timedSpeech
+    .map((line, lineIndex) => {
       const subject = subjectId.get(line.character);
       const audio = audioId.get(line.character);
       const source = subject
@@ -685,6 +814,7 @@ function buildChineseVideoSegmentPrompt(
       const start = h3Timestamp(line.start);
       const end = h3Timestamp(line.end);
       return {
+        id: `D${lineIndex + 1}`,
         window: `${start}-${end}`,
         speaker: source,
         kind: line.lipSync ? 'on_screen' : 'off_screen',
@@ -695,6 +825,7 @@ function buildChineseVideoSegmentPrompt(
         delivery: `${volume}；${performanceDirection}`,
       };
     });
+  const dialogueEvents = renderDialogue();
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
     const range = timeline[index];
@@ -714,7 +845,6 @@ function buildChineseVideoSegmentPrompt(
       ? `在 ${h3Timestamp(range.end)}，通过${chineseTransition(storyboard, storyboards[index + 1])}进入 [Shot ${index + 2}]。`
       : `到 ${h3Timestamp(range.end)}，保留一个有动机的动作、视线或后果，不得停成僵死画面。`;
     const props = (storyboard.objects || []).length ? `可见故事道具为：${(storyboard.objects || []).join('、')}。` : '';
-    const dialogueEvents = renderDialogue(index);
     if (compactMode) {
       const compactCast = beatCharacters.length
         ? `角色各一次：${beatCharacters.map(name => subjectId.get(name) ? `<Subject ${subjectId.get(name)}>（${name}）` : name).join('、')}；无额外角色。`
@@ -725,7 +855,6 @@ function buildChineseVideoSegmentPrompt(
         visual_reference: pictureAnchor,
         cast: compactCast,
         framing: chineseShotFraming(storyboard),
-        dialogue_events: dialogueEvents,
         visual_action: chineseShotSchedule(storyboard, range, true),
         camera: compactText(chineseCameraMotion(storyboard, index), 90),
         transition_or_end: compactText(handoff, 180),
@@ -739,13 +868,14 @@ function buildChineseVideoSegmentPrompt(
       cast,
       props,
       framing: chineseShotFraming(storyboard),
-      dialogue_events: dialogueEvents,
       visual_action: chineseShotSchedule(storyboard, range),
       camera: chineseCameraMotion(storyboard, index),
       synchronized_sound: chineseShotSoundCue(storyboard),
       transition_or_end: handoff,
     };
   });
+  const shotContracts = buildShotContracts(storyboards, shotDescriptions, 'zh', compactMode || storyboards.length > 1);
+  const timeBlocks = buildAuthoritativeTimeBlocks(storyboards, timeline, timedSpeech, shotDescriptions, 'zh');
 
   const visualOverride = compactActionArc(sanitizeVisualDirection(options.visualOverride, timedSpeech.map(line => line.exactLine)), compactMode ? 360 : 720);
   const styleOpening = `${CHINESE_H3_STYLE[String(first.visualStyle || 'cinematic-natural')] || CHINESE_H3_STYLE['cinematic-natural']}${visualOverride ? ` 补充画面要求：${visualOverride}。这段补充只影响画面，不得改变动作、对白或声音。` : ''} 剪辑必须由物理动作或因果推动，不得淡入淡出或叠化。`;
@@ -755,14 +885,18 @@ function buildChineseVideoSegmentPrompt(
   const soundscape = buildAudioManifest(storyboards, 'zh');
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards, 'zh');
   const timelineJson = h3TimelineJson({
-    schema: 'aid_h3_timeline_v1',
+    schema: 'aid_h3_timeline_v3',
     duration: `${duration.toFixed(3)}s`,
     silent_direction_data: true,
-    voice_contract: voiceContract,
-    frame_text_policy: h3FrameTextContract(),
+    audio_event_lock: voiceContract,
+    dialogue_events: dialogueEvents,
+    reference_audio_contract: h3ReferenceAudioContract(),
     visual_style: compactMode ? compactText(styleOpening, 70) : styleOpening,
-    shots: shotDescriptions,
+    frame_text_policy: h3FrameTextContract(),
+    shot_contracts: shotContracts,
+    timeline: timeBlocks,
     continuity: fittedPhysics,
+    final_priority: h3FinalPriorityContract(),
   }, compactMode || storyboards.length > 1);
 
   if (isFirstLastMode) {
@@ -858,12 +992,10 @@ export function buildVideoSegmentPrompt(
   const subjectId = new Map(characters.map((name, index) => [name, index + 1]));
   const audioId = new Map(referenceAudioNames.map((name, index) => [name, index + 1]));
   const speechEventCount = timedSpeech.length;
-  const firstSpeechStart = timedSpeech[0]?.start;
-  const voiceContract = h3VoiceContract(speechEventCount, firstSpeechStart);
+  const voiceContract = h3VoiceContract(speechEventCount);
 
-  const renderDialogue = (storyboard: Storyboard, storyboardIndex: number): H3TimelineDialogueEvent[] => timedSpeech
-    .filter(line => line.storyboardIndex === storyboardIndex)
-    .map(line => {
+  const renderDialogue = (): H3TimelineDialogueEvent[] => timedSpeech
+    .map((line, lineIndex) => {
       const name = line.character;
       const text = line.exactLine;
       const subject = subjectId.get(name);
@@ -880,6 +1012,7 @@ export function buildVideoSegmentPrompt(
       const start = h3Timestamp(line.start);
       const end = h3Timestamp(line.end);
       return {
+        id: `D${lineIndex + 1}`,
         window: `${start}-${end}`,
         speaker: source,
         kind: line.lipSync ? 'on_screen' : 'off_screen',
@@ -890,6 +1023,7 @@ export function buildVideoSegmentPrompt(
         delivery: `${volume}; ${performanceDirection}`,
       };
     });
+  const dialogueEvents = renderDialogue();
 
   const shotDescriptions = storyboards.map((storyboard, index) => {
     const range = timeline[index];
@@ -904,7 +1038,6 @@ export function buildVideoSegmentPrompt(
         ? 'The inherited opening frame is already moving; continue its momentum, eyeline and camera inertia.'
         : 'Start directly on visible action and establish the necessary geography within one second.'
       : `Continue from [Shot ${index}] through its motivated physical transition.`;
-    const dialogueEvents = renderDialogue(storyboard, index);
     const pictureAnchor = isFirstLastMode
       ? index === storyboards.length - 1
         ? `<Picture 2> is final composition only. Finish primary action by ${h3Timestamp(range.start + shotSeconds * 0.84)}; use final 16% to resolve into it; do not uniformly interpolate or slow one gesture.`
@@ -930,7 +1063,6 @@ export function buildVideoSegmentPrompt(
         visual_reference: pictureAnchor,
         cast: compactCast,
         framing: officialShotFraming(storyboard),
-        dialogue_events: dialogueEvents,
         visual_action: shotActionSchedule(storyboard, range, true),
         camera: compactText(officialCameraMotion(storyboard, index), 90),
         transition_or_end: compactText(handoff, 180),
@@ -944,13 +1076,14 @@ export function buildVideoSegmentPrompt(
       cast,
       props,
       framing: officialShotFraming(storyboard),
-      dialogue_events: dialogueEvents,
       visual_action: shotActionSchedule(storyboard, range),
       camera: officialCameraMotion(storyboard, index),
       synchronized_sound: shotSoundCue(storyboard),
       transition_or_end: handoff,
     };
   });
+  const shotContracts = buildShotContracts(storyboards, shotDescriptions, 'en', compactMode || storyboards.length > 1);
+  const timeBlocks = buildAuthoritativeTimeBlocks(storyboards, timeline, timedSpeech, shotDescriptions, 'en');
 
   // A refreshed/model-edited prompt is supplementary visual direction. The
   // screenplay action, camera, timing, exact dialogue and sound manifest are
@@ -975,14 +1108,18 @@ export function buildVideoSegmentPrompt(
   const soundscape = buildAudioManifest(storyboards);
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
   const timelineJson = h3TimelineJson({
-    schema: 'aid_h3_timeline_v1',
+    schema: 'aid_h3_timeline_v3',
     duration: `${duration.toFixed(3)}s`,
     silent_direction_data: true,
-    voice_contract: voiceContract,
-    frame_text_policy: h3FrameTextContract(),
+    audio_event_lock: voiceContract,
+    dialogue_events: dialogueEvents,
+    reference_audio_contract: h3ReferenceAudioContract(),
     visual_style: compactMode ? compactText(styleOpening, 70) : styleOpening,
-    shots: shotDescriptions,
+    frame_text_policy: h3FrameTextContract(),
+    shot_contracts: shotContracts,
+    timeline: timeBlocks,
     continuity: fittedPhysics,
+    final_priority: h3FinalPriorityContract(),
   }, compactMode || storyboards.length > 1);
 
   if (isFirstLastMode) {

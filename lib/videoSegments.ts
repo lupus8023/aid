@@ -1,12 +1,12 @@
 import type { Storyboard } from '@/types';
-import { speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechContract, validateSpeechLanguage, validateVoiceBindings } from './speechAudioContract';
+import { consolidateSegmentSpeech, H3_SPEAKER_HANDOFF_SECONDS, speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechContract, validateSpeechLanguage, validateVoiceBindings } from './speechAudioContract';
 
 export const MAX_H3_SEGMENT_SECONDS = 15;
 export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v16';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v18';
 
 export interface VideoSegmentPlan {
   version: 1;
@@ -103,7 +103,14 @@ function storyboardSignature(storyboards: Storyboard[]): string {
 }
 
 export function estimateStoryboardBeatSeconds(storyboard: Storyboard): number {
-  const lines = storyboardSpeech(storyboard);
+  const rawLines = storyboardSpeech(storyboard);
+  let lines = rawLines;
+  try {
+    lines = consolidateSegmentSpeech([storyboard]);
+  } catch {
+    // Keep the raw order for an invalid A-B-A exchange so the estimator stays
+    // conservative; validation will surface the actionable contract error.
+  }
   const plan = storyboardAudioPlan(storyboard);
   const hint = Number(storyboard.durationHint || storyboard.videoDuration || 5);
   const typeFloor: Record<string, number> = {
@@ -118,7 +125,7 @@ export function estimateStoryboardBeatSeconds(storyboard: Storyboard): number {
   const visual = Math.min(typeCeiling[clipType] || 6, Math.max(typeFloor[clipType] || 2.8, hint * 0.6));
   const spoken = lines.length
     ? lines.reduce((sum, line) => sum + speechSeconds(line.exactLine), 0)
-      + Math.max(0, lines.length - 1) * 0.35
+      + Math.max(0, lines.length - 1) * H3_SPEAKER_HANDOFF_SECONDS
       // compileTimedSpeech always reserves at least 0.8s before and 1s
       // after speech. The estimator must use the same floor or proportional
       // allocation can give a beat less time than the compiler will accept.
@@ -185,9 +192,7 @@ export function suggestVideoSegments(storyboards: Storyboard[]): Storyboard[][] 
         || current.length + upcomingUnit.length > MAX_H3_STORYBOARDS_PER_SEGMENT)) {
       flush();
     }
-    const projectedSpeech = [...current, storyboard].flatMap(storyboardSpeech);
-    const speechLimitExceeded = projectedSpeech.length > 3
-      || new Set(projectedSpeech.map(line => line.character)).size > 3;
+    const speechLimitExceeded = Boolean(validateSpeechContract([...current, storyboard]));
     const wouldOverflow = currentSeconds + seconds > MAX_H3_SEGMENT_SECONDS;
     const previous = current[current.length - 1];
     const previousRole = String(previous?.montageRole || '').toLowerCase();

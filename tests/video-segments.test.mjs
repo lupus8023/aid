@@ -86,16 +86,16 @@ test('persists and restores a manual director segment plan', () => {
   assert.deepEqual(resolveVideoSegmentGroups([...storyboards].reverse(), plan).map(group => group.map(item => item.sceneNumber)), [[4, 3, 2, 1]]);
 });
 
-test('keeps up to three timed dialogue beats together and splits before the fourth', () => {
+test('splits before a same-speaker second onset and caps each segment at three speaker blocks', () => {
   const groups = suggestVideoSegments([
     shot(1, { characters: ['A'], speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: '第一句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
     shot(2, { characters: ['B'], speech: [{ speakerId: 'S2', character: 'B', voiceId: 'voice-b', exactLine: '第二句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
     shot(3, { characters: ['A'], speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: '第三句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
     shot(4, { characters: ['C'], speech: [{ speakerId: 'S3', character: 'C', voiceId: 'voice-c', exactLine: '第四句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
   ]);
-  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2, 3], [4]]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
   assert.equal(validateVideoSegment(groups[0]), undefined);
-  assert.match(validateVideoSegment([shot(1, { characters: ['A'], imageUrl: 'x', dialogueLines: [{ character: 'A', text: '一。' }] }), shot(2, { characters: ['B'], imageUrl: 'x', dialogueLines: [{ character: 'B', text: '二。' }] }), shot(3, { characters: ['C'], imageUrl: 'x', dialogueLines: [{ character: 'C', text: '三。' }] }), shot(4, { characters: ['D'], imageUrl: 'x', dialogueLines: [{ character: 'D', text: '四。' }] })]), /最多安排 3 条/);
+  assert.match(validateVideoSegment([shot(1, { characters: ['A'], imageUrl: 'x', dialogueLines: [{ character: 'A', text: '一。' }] }), shot(2, { characters: ['B'], imageUrl: 'x', dialogueLines: [{ character: 'B', text: '二。' }] }), shot(3, { characters: ['C'], imageUrl: 'x', dialogueLines: [{ character: 'C', text: '三。' }] }), shot(4, { characters: ['D'], imageUrl: 'x', dialogueLines: [{ character: 'D', text: '四。' }] })]), /最多绑定 3 个/);
 });
 
 test('rejects non-contiguous or oversized manual groups', () => {

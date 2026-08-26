@@ -57,7 +57,11 @@ export function validateAdaptedStoryScript(
       return;
     }
     if (turns.length > 3) {
-      errors.push(`镜头 ${shotIndex || expectedIndex} 有 ${turns.length} 轮台词，H3 单段最多安排 3 轮；请拆到相邻镜头`);
+      errors.push(`镜头 ${shotIndex || expectedIndex} 有 ${turns.length} 个说话人物，H3 单段最多绑定 3 人；请拆到相邻镜头`);
+    }
+    const repeatedSpeaker = turns.find((turn, turnIndex) => turns.slice(0, turnIndex).some(previous => previous.speaker === turn.speaker));
+    if (repeatedSpeaker) {
+      errors.push(`镜头 ${shotIndex || expectedIndex} 的角色“${repeatedSpeaker.speaker}”出现多段台词；每个人物每个片段只能有一段连续台词，请合并成长台词`);
     }
     const directingTurn = turns.find(turn => isDirectingInstructionDialogue(turn.text));
     if (directingTurn) {
@@ -65,9 +69,9 @@ export function validateAdaptedStoryScript(
     }
     const speechDuration = turns.reduce((total, turn) => total + speechSeconds(turn.text), 0);
     const requiredDuration = speechDuration
-      + Math.max(0, turns.length - 1) * 0.35
-      + 0.45
-      + 0.55;
+      + Math.max(0, turns.length - 1) * 0.12
+      + 0.8
+      + 1;
     if (requiredDuration > 15) {
       errors.push(`镜头 ${shotIndex || expectedIndex} 的 ${turns.length} 轮台词至少需要 ${requiredDuration.toFixed(1)} 秒，超过 H3 15 秒；压缩新增台词，原文则按标点连续拆到相邻镜头`);
     }
@@ -81,7 +85,7 @@ export function validateAdaptedStoryScript(
 }
 
 export function buildStoryAdaptationCorrection(errors: string[]): string {
-  return `\n\n上一次改编稿未通过 AID 视频 JSON 生产校验：\n${errors.slice(0, 12).map((error, index) => `${index + 1}. ${error}`).join('\n')}\n请从用户原始输入重新输出完整改编稿，不要只修补局部。普通原稿台词可在不改变剧情事实、意图和回应关系的前提下压缩改写；只有用户明确标注“必须逐字保留/不可改”的台词才保持原字词和顺序，必要时沿自然标点拆成连续片段分配到相邻镜头。最终每镜最多 3 轮对白，含轮间 0.35 秒、开头 0.45 秒和结尾 0.55 秒后必须不超过 15 秒。只输出完整改编剧本。`;
+  return `\n\n上一次改编稿未通过 AID 视频 JSON 生产校验：\n${errors.slice(0, 12).map((error, index) => `${index + 1}. ${error}`).join('\n')}\n请从用户原始输入重新输出完整改编稿，不要只修补局部。普通原稿台词可在不改变剧情事实、意图和回应关系的前提下压缩、扩写或合并；只有用户明确标注“必须逐字保留/不可改”的台词才保持原字词和顺序。同一人物在同一镜头只能有一段连续台词，原本分散的同人物多句必须合并成长台词，不能写成二次起声。最多 3 个说话人物，人物交接仅 0.12 秒，并保留开头至少 0.8 秒、结尾至少 1 秒，总计不得超过 15 秒。只输出完整改编剧本。`;
 }
 
 export function buildStoryAdaptationPrompt(input: {
@@ -97,8 +101,8 @@ export function buildStoryAdaptationPrompt(input: {
     ? `Write the entire adapted screenplay in English. Output exactly ${targetShots} numbered story beats, from SHOT ${String(1).padStart(shotDigits, '0')} through SHOT ${targetShots}.`
     : `使用中文输出完整改编剧本。严格输出 ${targetShots} 个编号剧情节拍，从“镜头 ${String(1).padStart(shotDigits, '0')}”连续写到“镜头 ${targetShots}”。`;
   const lineFormat = language === 'en'
-    ? `SHOT NN | sequence/location | one visible action that changes the situation | dialogue: Character: “complete playable line” Character: “ordered response” or NONE`
-    : `镜头 NN｜场次/地点｜一个会改变局面的可见动作｜台词：角色：“完整、可表演的台词” 角色：“按顺序回应的台词”或“无”`;
+    ? `SHOT NN | sequence/location | one visible action that changes the situation | dialogue: each Character appears at most once with one complete continuous line, or NONE`
+    : `镜头 NN｜场次/地点｜一个会改变局面的可见动作｜台词：每个角色最多出现一次并只写一段完整连续台词，或“无”`;
 
   return `你是一位影视改编编剧。用户提供的可能是一句话构想、故事梗概、小说片段或详细剧本。你的任务不是泛化扩写，而是把原文改编成符合 AID 制作规格、能继续生成分镜的镜头节拍剧本。
 
@@ -119,8 +123,9 @@ AID 制作规格（最高优先级）：
 - 用户未要求对白、旁白或口播时，仍优先以动作和表情叙事；但私人目标、误解、关系转折、承诺、拒绝、决定和回收若仅靠画面会含混，就必须写足以理解剧情的必要对白。不得添加画外音、路人台词、笑声、哼唱或无来源人声。
 - 普通原稿台词允许压缩、重写或合并，使它更自然、更可表演并满足 H3 时长，但必须保留说话者、剧情事实、意图、回应关系和关键称谓。只有用户明确写明“必须逐字保留”“不可改”“原句照读”等锁定要求时，才把对应台词视为逐字权威文本。
 - 对明确锁定的逐字台词，以全片连续台词为准：若一条锁定台词无法装入一个 H3 片段，必须沿自然标点把原句连续拆到相邻镜头，保持原字词、说话者和先后顺序，不得硬塞进一镜，也不得删改或重复。
-- 新增或改写台词必须自然、具体、有对象并推进局面；不限制为“一句很短的话”。同一镜可有 1–3 条按顺序发生的短对答，只要预计能在 15 秒内完成并留出说后反应。
-- 输出会直接转换为 Story JSON。每镜最多 3 轮台词；按中文约 4.2 字/秒、英文约 2.4 词/秒估算，并计入轮间 0.35 秒、开头至少 0.45 秒、结尾至少 0.55 秒，总计不得超过 H3 15 秒。预计超时就压缩普通台词；明确锁定的逐字台词则连续拆到相邻镜头。
+- 新增或改写台词必须自然、具体、有对象并推进局面；允许把同一人物的多个信息点写成一段较长而自然的台词。中文通常 24–48 个汉字，英文通常 12–28 个单词；仍须按自然语速装入时长。
+- 每个人物在同一镜头、以及后续可能合并为同一 H3 片段的连续镜头中，只能有一个连续发声块。同一人物的多句必须合并成一段长台词，不得出现 A→A 的分段起声或 A→B→A 的返回说话结构。
+- 输出会直接转换为 Story JSON。每镜最多 3 个说话人物；按中文约 4.2 字/秒、英文约 2.4 词/秒估算，仅在不同人物交接时留 0.12 秒，并保留开头至少 0.8 秒、结尾至少 1 秒，总计不得超过 H3 15 秒。预计超时就压缩普通台词；明确锁定的逐字台词则把整个 H3 片段拆开，不能在同段内制造第二次起声。
 - “先停顿再说”“以坚定语气说”“无其他角色在场”等属于表演/场面指令，绝不能放进引号成为可朗读台词；本阶段需要的信息应写进可见动作，台词引号内只能出现角色真正说出口的字词。
 - 禁止孤立口号和失去指代的碎片，如“再来”“不行”“快了”“不能停”或英文 Again/No/Almost，除非它所回应的问题、对象或动作明确保留在同一镜的前一句里。若跨镜或跨片段，台词必须自足，让观众只听这一句也知道角色在回应什么、决定什么。
 - 每个有对白的场次至少形成一个完整对白单元；问题不能永远没有回答，承诺/谎言/关键词必须在后镜变化或回收。不能让连续镜头各说互不相干的漂亮句子。

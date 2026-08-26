@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.75 - 2026-08-26
+
+### Changed
+
+- MiniMax H3 prompts now use the `aid_h3_timeline_v3` contract: the authoritative audio-event lock and exact dialogue events come first, followed by reference-audio rules, visual contracts, shot contracts, and one continuous second-indexed timeline.
+- Every timeline interval explicitly binds its time window, shot, action phase, expression, dialogue state, voice state, camera, blocking, and boundary behavior. The intervals cover the complete segment without implicit gaps.
+- Story writing, adaptation, speech compilation, and video segmentation now keep each character to one continuous speech block per H3 segment. Consecutive lines from the same character are merged into a longer natural line, while alternating recurrence such as A-B-A is rejected or split into another segment.
+- Chinese generated dialogue targets 24–48 Han characters per speaking block and English dialogue targets 12–28 words, giving H3 a single coherent delivery instead of several short starts and stops.
+
+### Fixed
+
+- Removed silent gaps between consecutive lines from the same character, which could make H3 continue with invented words, reference-audio fragments, or filler sounds.
+- Speaker handoffs use a short 0.12-second transition rather than a long silent hole, while each speaker's first word still cannot precede the source shot and the segment retains clean opening and ending headroom.
+- Exact dialogue is declared only once at the top level and referenced by event ID from the timeline, preventing action, expression, camera, or sound directions from becoming a second competing speech instruction.
+
+### Verification
+
+- All 181 automated tests, TypeScript validation, and the production build pass.
+
 ## 0.1.74 - 2026-08-26
 
 ### Changed

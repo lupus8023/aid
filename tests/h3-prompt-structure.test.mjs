@@ -29,7 +29,7 @@ function timelineJson(prompt) {
 }
 
 function dialogueEvents(prompt) {
-  return timelineJson(prompt).shots.flatMap(item => item.dialogue_events || []);
+  return timelineJson(prompt).dialogue_events || [];
 }
 
 test('rejects one rewritten storyboard whose multi-line exchange cannot fit H3 15 seconds', () => {
@@ -39,7 +39,7 @@ test('rejects one rewritten storyboard whose multi-line exchange cannot fit H3 1
       { character: 'Lin', text: 'I cannot leave while the whole city still believes only I can hold back the sea.' },
       { character: 'Lin', text: 'Then trust us long enough to learn that the city can stand beside you.' },
     ],
-  })], [], { duration: 15, referenceAudioNames: ['Lin'], language: 'en' }), /多轮台词合计超过 H3 15 秒/);
+  })], [], { duration: 15, referenceAudioNames: ['Lin'], language: 'en' }), /连续台词过长/);
 });
 
 test('writes multi-reference H3 prompts in the official six-section order', () => {
@@ -61,18 +61,19 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
   const timeline = timelineJson(prompt);
   const [event] = dialogueEvents(prompt);
-  assert.equal(timeline.schema, 'aid_h3_timeline_v1');
+  assert.equal(timeline.schema, 'aid_h3_timeline_v3');
   assert.equal(timeline.silent_direction_data, true);
-  assert.equal(timeline.voice_contract.vocalize_only, 'shots[].dialogue_events[].spoken_once');
+  assert.equal(timeline.audio_event_lock.vocalize_only, 'dialogue_events[].spoken_once');
   assert.match(event.window, /^00:\d{2}\.\d{3}-00:\d{2}\.\d{3}$/);
   assert.equal(event.speaker, '<Subject 1>/<Audio 1>');
   assert.equal(event.first_word_at, event.window.split('-')[0]);
   assert.equal(event.final_word_complete_by, event.window.split('-')[1]);
-  assert.equal(timeline.voice_contract.before_first_dialogue.filler_or_reference_sample_leakage, false);
+  assert.equal(timeline.audio_event_lock.vocal_extras_or_reference_sample_leakage, false);
+  assert.equal(timeline.reference_audio_contract.reproduce_source_fragments, false);
   assert.match(prompt, /no electronic hiss, static, buzz, digital residue, or abrupt audio cut/);
   const soundscape = prompt.split('overall_soundscape:')[1].split('non_diegetic_music:')[0];
   assert.doesNotMatch(soundscape, /<d>|线索就在这里|dialogue|speech/i);
-  assert.match(timeline.shots[0].camera, /moderate/i);
+  assert.match(timeline.shot_contracts[0].camera, /moderate/i);
   assert.doesNotMatch(prompt, /SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE|DIALOGUE:/);
   assert.deepEqual(timeline.frame_text_policy, {
     subtitles: false,
@@ -131,7 +132,7 @@ test('keeps Chinese and English H3 templates separate and never reuses the Engli
   ], [], { duration: 14, language: 'zh', referenceAudioNames: ['Dr. Pan'] });
 
   const chineseTimeline = timelineJson(chinese);
-  assert.match(chineseTimeline.shots[0].visual_action, /Dr\. Pan 展示一种新面膜及其成分表。/);
+  assert.match(chineseTimeline.shot_contracts[0].action, /Dr\. Pan 展示一种新面膜及其成分表。/);
   assert.match(chinese, /<d>\[Chinese\] 面膜的核心在于/);
   assert.equal((chinese.match(/面膜的核心在于/g) || []).length, 1);
   assert.doesNotMatch(chinese, /showcasing a face mask|points to|Premium English still-image direction/);
@@ -146,7 +147,7 @@ test('keeps Chinese and English H3 templates separate and never reuses the Engli
       prompt: 'Unrelated still-image prompt that must stay out of H3.',
     }),
   ], [], { duration: 8, language: 'en' });
-  assert.match(timelineJson(english).shots[0].visual_action, /Dr\. Pan displays a new face mask/);
+  assert.match(timelineJson(english).shot_contracts[0].action, /Dr\. Pan displays a new face mask/);
   assert.doesNotMatch(english, /Unrelated still-image prompt/);
   assert.doesNotMatch(english, /可见角色|动作：|没有音乐|不得生成配乐|最迟/);
 });
@@ -186,9 +187,9 @@ test('keeps explanatory screenplay fields out of the H3 audiovisual description'
   assert.match(prompt, /Lin catches the falling report/);
   assert.doesNotMatch(prompt, /prior success causes|workload is more|praise is becoming a trap/);
   const timeline = timelineJson(prompt);
-  assert.equal(timeline.voice_contract.narrator, false);
-  assert.equal(timeline.voice_contract.ad_lib, false);
-  assert.equal(timeline.voice_contract.vocalize_only, 'shots[].dialogue_events[].spoken_once');
+  assert.equal(timeline.audio_event_lock.narrator, false);
+  assert.equal(timeline.audio_event_lock.ad_lib, false);
+  assert.equal(timeline.audio_event_lock.vocalize_only, 'dialogue_events[].spoken_once');
   assert.match(prompt, /No narration, ad-lib, singing, or unscripted intelligible words/);
 });
 
@@ -211,10 +212,10 @@ test('quarantines dialogue meaning from visual prose and places one exact speech
   const timeline = timelineJson(prompt);
   const [event] = dialogueEvents(prompt);
   assert.match(event.window, /^00:\d{2}\.\d{3}-00:\d{2}\.\d{3}$/);
-  assert.match(timeline.shots[0].visual_action, /Dr\. Pan拿起一款护肤面膜并指向成分表/);
+  assert.match(timeline.shot_contracts[0].action, /Dr\. Pan拿起一款护肤面膜并指向成分表/);
   assert.doesNotMatch(prompt, /将优越性落到具体成分上|核心价值被定义为|观众将面膜的价值与成分供给联系起来/);
   assert.equal((prompt.match(/面膜的核心在于它们丰富的成分/g) || []).length, 1);
-  assert.ok(prompt.indexOf('"dialogue_events"') < prompt.indexOf('"visual_action"'), 'the exact dialogue event must be more salient than visual prose');
+  assert.ok(prompt.indexOf('"dialogue_events"') < prompt.indexOf('"shot_contracts"'), 'the exact dialogue event must be more salient than visual prose');
 });
 
 test('drops model-written stage directions before they can become H3 dialogue', () => {
@@ -237,7 +238,7 @@ test('drops model-written stage directions before they can become H3 dialogue', 
 
   assert.doesNotMatch(prompt, /无其他角色在场|其他角色保持沉默|<d>/);
   assert.doesNotMatch(prompt, /<d>/);
-  assert.match(prompt, /可见角色各只出现一个：<Subject 1>（Lin）/);
+  assert.match(timelineJson(prompt).shot_contracts[0].cast, /<Subject 1>（Lin）/);
 });
 
 test('does not send a line whose assigned character is absent from the visible action', () => {
@@ -314,15 +315,15 @@ test('preserves every grouped storyboard as a complete timed action-camera-dialo
   ], [], { duration: 15, language: 'zh' });
 
   const timeline = timelineJson(prompt);
-  assert.deepEqual(timeline.shots.map(item => item.shot), [1, 2, 3]);
-  timeline.shots.forEach(item => assert.match(item.range, /^00:\d{2}\.\d{3}-00:\d{2}\.\d{3}$/));
+  assert.deepEqual(timeline.shot_contracts.map(item => item.id), ['S1', 'S2', 'S3']);
+  timeline.timeline.forEach(item => assert.match(item.window, /^00:\d{2}\.\d{3}-00:\d{2}\.\d{3}$/));
   for (const action of [
     'Lin snatches the red envelope from the moving bicycle.',
     'Lin tears the seal and recoils from the photograph.',
     'Lin pivots toward the station clock and breaks into a run.',
   ]) assert.equal((prompt.match(new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 1);
-  assert.equal(timeline.shots.filter(item => item.camera).length, 3);
-  assert.equal((prompt.match(/进入 \[Shot/g) || []).length, 2);
+  assert.equal(timeline.shot_contracts.filter(item => item.camera).length, 3);
+  assert.equal(timeline.timeline.filter(item => item.boundary).length, 3);
   assert.match(prompt, /按剧本指定的视觉交接：Match the red envelope crossing frame/);
   assert.doesNotMatch(prompt, /DIALOGUE:|SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE/);
   assert.doesNotMatch(prompt, /cross-dissolve|fade from|fade into/i);
@@ -346,8 +347,8 @@ test('compacts only duplicated look prose when a dense four-shot prompt approach
   const prompt = buildVideoSegmentPrompt(shots, [], { duration: 15, language: 'en', referenceAudioNames: ['Lin'], hasVoiceReferences: true });
   assert.ok(prompt.length <= 7000);
   shots.slice(0, 3).forEach((_, index) => assert.match(prompt, new RegExp(`Gate ${index + 1} is holding now\\.`)));
-  assert.equal((prompt.match(/<d>/g) || []).length, 3);
-  assert.equal(timelineJson(prompt).shots.filter(item => item.visual_action).length, 4);
+  assert.equal((prompt.match(/<d>/g) || []).length, 1, 'the same speaker must have one continuous event across the segment');
+  assert.equal(timelineJson(prompt).shot_contracts.filter(item => item.action).length, 4);
 });
 
 test('fits a verbose one-shot visual override without dropping timed action or exact dialogue', () => {
@@ -441,16 +442,77 @@ test('schedules two connected lines inside one storyboard in order', () => {
     assert.equal(event.first_word_at, event.window.split('-')[0]);
     assert.equal(event.final_word_complete_by, event.window.split('-')[1]);
   });
-  assert.ok(prompt.lastIndexOf('</d>') < prompt.indexOf('"visual_action"'));
+  const firstEnd = Number(events[0].window.split('-')[1].slice(3));
+  const secondStart = Number(events[1].window.split('-')[0].slice(3));
+  assert.ok(secondStart - firstEnd <= 0.121, 'speaker handoff must not leave a fillable silence gap');
+  assert.ok(prompt.lastIndexOf('</d>') < prompt.indexOf('"shot_contracts"'));
+});
+
+test('merges every same-character line in a segment into one long uninterrupted H3 event', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      durationHint: 5,
+      action: 'Lin opens the report and points to the first result.',
+      dialogueLines: [{ character: 'Lin', text: 'The first result confirms the material remained stable.' }],
+    }),
+    shot(2, {
+      durationHint: 5,
+      action: 'Lin turns the page and points to the final result.',
+      dialogueLines: [{ character: 'Lin', text: 'The final result shows it also recovered after the load was removed.' }],
+    }),
+  ], [], { duration: 12, language: 'en', referenceAudioNames: ['Lin'] });
+
+  const timeline = timelineJson(prompt);
+  assert.equal(timeline.dialogue_events.length, 1);
+  assert.equal((prompt.match(/<d>/g) || []).length, 1);
+  assert.match(timeline.dialogue_events[0].spoken_once, /first result confirms/);
+  assert.match(timeline.dialogue_events[0].spoken_once, /final result shows/);
+  assert.equal(timeline.audio_event_lock.one_continuous_event_per_character, true);
+  assert.equal(timeline.audio_event_lock.visual_cuts_are_audio_events, false);
+  assert.equal(timeline.timeline.filter(block => block.voice.includes('starts once')).length, 1);
+  assert.equal(timeline.timeline.filter(block => block.dialogue === 'D1').length >= 1, true);
+});
+
+test('rejects A-B-A dialogue because the same character would need a second onset', () => {
+  assert.throws(() => buildVideoSegmentPrompt([
+    shot(1, {
+      characters: ['Lin', 'Mei'],
+      speech: [
+        { speakerId: 'S01', character: 'Lin', exactLine: 'I found the key.', emotion: 'focused', delivery: 'natural', volume: 'normal', lipSync: true, source: 'story_required' },
+        { speakerId: 'S02', character: 'Mei', exactLine: 'Then open the door.', emotion: 'steady', delivery: 'natural', volume: 'normal', lipSync: true, source: 'story_required' },
+        { speakerId: 'S01', character: 'Lin', exactLine: 'I will do it now.', emotion: 'resolved', delivery: 'natural', volume: 'normal', lipSync: true, source: 'story_required' },
+      ],
+    }),
+  ], [], { duration: 12, language: 'en' }), /只能有一段连续台词/);
+});
+
+test('covers the full clip with adjacent authoritative time blocks and no unindexed gap', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, { dialogueLines: [{ character: 'Lin', text: 'This is the complete continuous line.' }] }),
+  ], [], { duration: 8, language: 'en' });
+  const blocks = timelineJson(prompt).timeline;
+  const seconds = value => Number(value.slice(3));
+  assert.equal(seconds(blocks[0].window.split('-')[0]), 0);
+  blocks.slice(1).forEach((block, index) => {
+    assert.equal(seconds(blocks[index].window.split('-')[1]), seconds(block.window.split('-')[0]));
+  });
+  assert.equal(seconds(blocks.at(-1).window.split('-')[1]), 8);
+  blocks.forEach(block => {
+    assert.ok(block.shot_contract);
+    assert.ok(block.action_phase);
+    assert.ok(block.expression);
+    assert.ok('dialogue' in block);
+    assert.ok(block.voice);
+  });
 });
 
 test('turns contact actions into load, release and local rebound instead of uniform slow motion', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1, { action: 'She grips the wet rope, pulls hard, then releases it as the hook lands.' }),
   ], [], { duration: 6 });
-  assert.match(prompt, /approach, touch, visible compression\/load, increase force, brief hold, gradual release/);
-  assert.match(prompt, /only the loaded region deforms/);
-  assert.match(prompt, /no slow motion\/extended holds/);
+  assert.match(prompt, /approach, contact, visible load\/compression, increase force, brief hold, gradual release/);
+  assert.match(prompt, /deform only the loaded region/);
+  assert.match(prompt, /never default to slow motion/);
   assert.ok(prompt.length <= 7000);
 });
 

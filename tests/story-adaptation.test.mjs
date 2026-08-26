@@ -18,7 +18,9 @@ test('adapts the brief to the selected exact shot count and runtime', () => {
   assert.match(prompt, /每个有对白的场次至少形成一个完整对白单元/);
   assert.match(prompt, /禁止孤立口号和失去指代的碎片/);
   assert.match(prompt, /连续拆到相邻镜头/);
-  assert.match(prompt, /每镜最多 3 轮台词/);
+  assert.match(prompt, /每镜最多 3 个说话人物/);
+  assert.match(prompt, /每个人物.*只能有一个连续发声块/);
+  assert.match(prompt, /中文通常 24–48 个汉字/);
   assert.match(prompt, /总计不得超过 H3 15 秒/);
   assert.match(prompt, /普通原稿台词允许压缩、重写或合并/);
   assert.match(prompt, /明确写明“必须逐字保留”“不可改”“原句照读”/);
@@ -77,6 +79,17 @@ test('rejects skipped shot numbers, excessive turns and spoken directing instruc
   const validation = validateAdaptedStoryScript(script, 9);
   assert.equal(validation.valid, false);
   assert.match(validation.errors.join('\n'), /必须连续编号为 2/);
-  assert.match(validation.errors.join('\n'), /最多安排 3 轮/);
+  assert.match(validation.errors.join('\n'), /最多绑定 3 人/);
   assert.match(validation.errors.join('\n'), /表演指令/);
+});
+
+test('rejects repeated same-speaker onsets and asks for one merged long line', () => {
+  const script = [
+    '镜头 01｜场次/地点｜动作｜台词：A：“我先说明第一件事。” A：“再补充第二件事。”',
+    ...Array.from({ length: 8 }, (_, offset) => `镜头 ${String(offset + 2).padStart(2, '0')}｜场次/地点｜动作｜台词：无`),
+  ].join('\n');
+  const validation = validateAdaptedStoryScript(script, 9);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('\n'), /每个人物每个片段只能有一段连续台词/);
+  assert.match(buildStoryAdaptationCorrection(validation.errors), /合并成长台词/);
 });

@@ -441,6 +441,12 @@ export function normalizeStoryOutline(
           if (dialogueTurns.length > MAX_H3_SPEECH_TURNS) {
             throw new Error(`镜头 ${nextIndex + 1} 规划了超过 ${MAX_H3_SPEECH_TURNS} 轮台词，请拆到相邻镜头`);
           }
+          const repeatedTurnSpeaker = dialogueTurns.find((turn, turnIndex) => (
+            dialogueTurns.slice(0, turnIndex).some(previous => previous.speaker === turn.speaker)
+          ));
+          if (repeatedTurnSpeaker) {
+            throw new Error(`镜头 ${nextIndex + 1} 的角色“${repeatedTurnSpeaker.speaker}”规划了多段台词；同一人物必须合并为一个连续长台词 turn`);
+          }
           requiredSpeaker = requiredSpeaker
             || requiredDialogueLines[0]?.character
             || dialogueTurns[0]?.speaker
@@ -912,6 +918,13 @@ export function sanitizeStoryPlan(
       if (dialogueTurns.length > MAX_H3_SPEECH_TURNS || speech.length > MAX_H3_SPEECH_TURNS) {
         throw new Error(`镜头 ${index} 超过 H3 的 ${MAX_H3_SPEECH_TURNS} 轮台词上限，请拆到相邻镜头`);
       }
+      const repeatedGeneratedSpeaker = speech.find((line, lineIndex) => (
+        line.source !== 'user_exact'
+        && speech.slice(0, lineIndex).some(previous => previous.character === line.character)
+      ));
+      if (repeatedGeneratedSpeaker) {
+        throw new Error(`镜头 ${index} 的角色“${repeatedGeneratedSpeaker.character}”生成了多段台词；必须合并为一个连续长台词`);
+      }
       previousBeatSpeechSignatures = new Set(speech.map(line => `${line.character}\u0000${line.exactLine}`));
       const rawAudio = b?.audioPlan && typeof b.audioPlan === 'object' ? b.audioPlan : {};
       const audioPlan: StoryAudioPlan = {
@@ -925,7 +938,7 @@ export function sanitizeStoryPlan(
       const clipType = CLIP_TYPES.includes(b?.clipType) ? b.clipType : (speech.length ? 'dialogue' : 'action');
       const speechDuration = speech.reduce((total, line) => total + speechSeconds(line.exactLine), 0);
       const minimumPlayableDuration = speech.length
-        ? speechDuration + Math.max(0, speech.length - 1) * 0.35 + audioPlan.silenceBefore + audioPlan.silenceAfter
+        ? speechDuration + Math.max(0, speech.length - 1) * 0.12 + audioPlan.silenceBefore + audioPlan.silenceAfter
         : 0;
       const durationHint = Math.min(15, Math.max(
         clampDuration(b?.durationHint),
@@ -1318,6 +1331,15 @@ export async function generateStoryPlan(input: {
           if (rawSpeech.length > MAX_H3_SPEECH_TURNS) {
             throw new Error(`镜头 ${authority.index} 返回超过 ${MAX_H3_SPEECH_TURNS} 条台词，请拆到相邻镜头`);
           }
+          const repeatedGeneratedSpeaker = rawSpeech.find((line: any, lineIndex: number) => (
+            line?.source !== 'user_exact'
+            && rawSpeech.slice(0, lineIndex).some((previous: any) => (
+              asString(previous?.character || previous?.speaker).trim() === asString(line?.character || line?.speaker).trim()
+            ))
+          ));
+          if (repeatedGeneratedSpeaker) {
+            throw new Error(`镜头 ${authority.index} 的角色“${asString(repeatedGeneratedSpeaker?.character || repeatedGeneratedSpeaker?.speaker)}”返回多段台词；必须合并为一个连续长台词`);
+          }
           rawSpeech.forEach((line: any, lineIndex: number) => {
             const exactLine = sanitizeGeneratedSpeechText(line?.exactLine || line?.text);
             const storyFunction = asString(line?.storyFunction).trim();
@@ -1340,9 +1362,9 @@ export async function generateStoryPlan(input: {
               total + speechSeconds(sanitizeGeneratedSpeechText(line?.exactLine || line?.text))
             ), 0);
             const requiredDuration = speechDuration
-              + Math.max(0, rawSpeech.length - 1) * 0.35
-              + Math.max(0.45, Number(beat?.audioPlan?.silenceBefore) || 0)
-              + Math.max(0.55, Number(beat?.audioPlan?.silenceAfter) || 0);
+              + Math.max(0, rawSpeech.length - 1) * 0.12
+              + Math.max(0.8, Number(beat?.audioPlan?.silenceBefore) || 0)
+              + Math.max(1, Number(beat?.audioPlan?.silenceAfter) || 0);
             if (requiredDuration > 15) {
               throw new Error(`镜头 ${authority.index} 的多轮台词至少需要 ${requiredDuration.toFixed(1)} 秒，超过 H3 15 秒；请缩短自行创作台词，用户原台词则必须在故事骨架阶段拆到相邻镜头`);
             }

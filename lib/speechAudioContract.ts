@@ -1,12 +1,21 @@
 import type { StoryAudioPlan, Storyboard, StorySpeechLine } from '@/types';
 
 export const MAX_H3_SPEECH_TURNS = 3;
+export const H3_SPEAKER_HANDOFF_SECONDS = 0.12;
+const H3_MIN_LEAD_SECONDS = 0.8;
+const H3_MIN_TAIL_SECONDS = 1;
+const H3_MAX_SPEECH_SECONDS = 15 - H3_MIN_LEAD_SECONDS - H3_MIN_TAIL_SECONDS;
 
 export interface TimedSpeechLine extends StorySpeechLine {
   storyboardIndex: number;
   sceneNumber: number;
   start: number;
   end: number;
+}
+
+export interface IndexedSpeechLine extends StorySpeechLine {
+  storyboardIndex: number;
+  sceneNumber: number;
 }
 
 const DEFAULT_AUDIO: StoryAudioPlan = {
@@ -152,10 +161,56 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
       && (line.source === 'user_exact' || !isDirectingInstructionDialogue(line.exactLine))
       && !seen.has(`${line.character}\u0000${line.exactLine}`)
       && Boolean(seen.add(`${line.character}\u0000${line.exactLine}`)))
-    // Keep exactly one overflow sentinel so validateSpeechContract can reject
-    // a fourth turn explicitly. Slicing to MAX_H3_SPEECH_TURNS here would
-    // silently delete the invalid turn before the validator can see it.
-    .slice(0, MAX_H3_SPEECH_TURNS + 1);
+    // Do not truncate here. Segment compilation may legally combine several
+    // same-speaker screenplay lines into one continuous H3 vocal event.
+}
+
+function joinContinuousSpeech(previous: string, next: string): string {
+  if (!previous) return next;
+  if (!next) return previous;
+  const containsHan = /[\u3400-\u9fff]/.test(previous + next);
+  if (containsHan) {
+    return /[，。！？；：、,.!?;:]$/.test(previous)
+      ? `${previous}${next}`
+      : `${previous}，${next}`;
+  }
+  return `${previous}${/\s$/.test(previous) ? '' : ' '}${next}`;
+}
+
+/**
+ * H3 is materially more reliable when one identity has one uninterrupted
+ * vocal event. Consecutive screenplay lines from that identity are therefore
+ * compiled into one longer exact line, even when the picture cuts underneath
+ * it. A-B-A would require that A start twice, so it is rejected explicitly.
+ */
+export function consolidateSegmentSpeech(storyboards: Storyboard[]): IndexedSpeechLine[] {
+  const source = storyboards.flatMap((storyboard, storyboardIndex) => storyboardSpeech(storyboard).map(line => ({
+    ...line,
+    storyboardIndex,
+    sceneNumber: storyboard.sceneNumber,
+  })));
+  const consolidated: IndexedSpeechLine[] = [];
+  const completedSpeakers = new Set<string>();
+
+  for (const line of source) {
+    const previous = consolidated[consolidated.length - 1];
+    if (previous?.character === line.character) {
+      previous.exactLine = joinContinuousSpeech(previous.exactLine, line.exactLine);
+      previous.listenerState = line.listenerState || previous.listenerState;
+      previous.storyFunction = [previous.storyFunction, line.storyFunction].filter(Boolean).join('+');
+      previous.contentGoal = [previous.contentGoal, line.contentGoal].filter(Boolean).join('；');
+      previous.source = previous.source === 'user_exact' && line.source === 'user_exact'
+        ? 'user_exact'
+        : 'story_required';
+      continue;
+    }
+    if (previous) completedSpeakers.add(previous.character);
+    if (completedSpeakers.has(line.character)) {
+      throw new Error(`同一人物在一个 H3 片段中只能有一段连续台词；角色“${line.character}”在其他人物之后再次开口，请拆分片段或在剧本阶段合并台词`);
+    }
+    consolidated.push({ ...line });
+  }
+  return consolidated;
 }
 
 export function storyboardSpeechWarnings(storyboard: Storyboard): string[] {
@@ -218,22 +273,20 @@ export function validateSpeechLanguage(storyboards: Storyboard[], language?: 'zh
 }
 
 export function validateSpeechContract(storyboards: Storyboard[]): string | undefined {
-  const lines = storyboards.flatMap(storyboardSpeech);
-  if (lines.length > MAX_H3_SPEECH_TURNS) return `一个 H3 片段最多安排 ${MAX_H3_SPEECH_TURNS} 条顺序台词，请拆成独立片段`;
-  if (new Set(lines.map(line => line.character)).size > MAX_H3_SPEECH_TURNS) return `一个 H3 片段最多绑定 ${MAX_H3_SPEECH_TURNS} 个说话角色，请拆成独立片段`;
-  const overlong = lines.find(line => speechSeconds(line.exactLine) > 11.5);
-  if (overlong) return `台词过长，无法在 15 秒内保留开场留白和说后反应：${overlong.character}`;
-  const overloadedStoryboard = storyboards.find(storyboard => {
-    const shotLines = storyboardSpeech(storyboard);
-    if (!shotLines.length) return false;
-    const plan = storyboardAudioPlan(storyboard);
-    const required = shotLines.reduce((sum, line) => sum + speechSeconds(line.exactLine), 0)
-      + Math.max(0, shotLines.length - 1) * 0.35
-      + Math.max(0.8, plan.silenceBefore)
-      + Math.max(1, plan.silenceAfter);
-    return required > 15;
-  });
-  if (overloadedStoryboard) return `镜头 ${overloadedStoryboard.sceneNumber} 的多轮台词合计超过 H3 15 秒，请在剧本改编阶段拆成相邻镜头`;
+  let lines: IndexedSpeechLine[];
+  try {
+    lines = consolidateSegmentSpeech(storyboards);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  if (lines.length > MAX_H3_SPEECH_TURNS) return `一个 H3 片段最多绑定 ${MAX_H3_SPEECH_TURNS} 个说话角色，请拆成独立片段`;
+  const overlong = lines.find(line => speechSeconds(line.exactLine) > H3_MAX_SPEECH_SECONDS);
+  if (overlong) return `角色“${overlong.character}”的连续台词过长，无法在 15 秒内完整说完并保留首尾画面，请缩短或拆分片段`;
+  const required = lines.reduce((sum, line) => sum + speechSeconds(line.exactLine), 0)
+    + Math.max(0, lines.length - 1) * H3_SPEAKER_HANDOFF_SECONDS
+    + (lines.length ? Math.max(H3_MIN_LEAD_SECONDS, storyboardAudioPlan(storyboards[lines[0].storyboardIndex]).silenceBefore) : 0)
+    + (lines.length ? Math.max(H3_MIN_TAIL_SECONDS, storyboardAudioPlan(storyboards[lines[lines.length - 1].storyboardIndex]).silenceAfter) : 0);
+  if (required > 15) return `该 H3 片段的连续台词至少需要 ${required.toFixed(1)} 秒，超过 15 秒；请缩短台词或拆分片段`;
   return undefined;
 }
 
@@ -248,33 +301,43 @@ export function compileTimedSpeech(
 ): TimedSpeechLine[] {
   const error = validateSpeechContract(storyboards);
   if (error) throw new Error(error);
-  const timed: TimedSpeechLine[] = [];
-  storyboards.forEach((storyboard, index) => {
-    const lines = storyboardSpeech(storyboard);
-    if (!lines.length) return;
-    const range = timeline[index];
-    const plan = storyboardAudioPlan(storyboard);
-    const available = Math.max(0.8, range.end - range.start);
-    const gap = lines.length > 1 ? 0.35 : 0;
-    const speechDurations = lines.map(line => speechSeconds(line.exactLine));
-    const totalSpeech = speechDurations.reduce((sum, seconds) => sum + seconds, 0) + gap * (lines.length - 1);
-    const lead = Math.min(Math.max(0.8, plan.silenceBefore), Math.max(0.8, (available - totalSpeech) * 0.55));
-    const tail = Math.min(Math.max(1, plan.silenceAfter), Math.max(0.8, available - lead - totalSpeech));
-    if (lead + totalSpeech + tail > available + 0.05) {
-      throw new Error(`镜头 ${storyboard.sceneNumber} 的台词时长不足，请拆分台词或延长该片段`);
-    }
-    let cursor = range.start + lead;
-    lines.forEach((line, lineIndex) => {
-      const start = cursor;
-      const end = Math.min(range.end - tail, start + speechDurations[lineIndex]);
-      if (end - start < Math.min(0.8, speechDurations[lineIndex] * 0.85)) {
-        throw new Error(`镜头 ${storyboard.sceneNumber} 的第 ${lineIndex + 1} 条台词时长不足，请拆分台词或延长该片段`);
-      }
-      timed.push({ ...line, storyboardIndex: index, sceneNumber: storyboard.sceneNumber, start, end });
-      cursor = end + gap;
-    });
+  if (!timeline.length) return [];
+  const lines = consolidateSegmentSpeech(storyboards);
+  if (!lines.length) return [];
+  const segmentStart = timeline[0].start;
+  const segmentEnd = timeline[timeline.length - 1].end;
+  const firstPlan = storyboardAudioPlan(storyboards[lines[0].storyboardIndex]);
+  const lastPlan = storyboardAudioPlan(storyboards[lines[lines.length - 1].storyboardIndex]);
+  const lead = Math.max(H3_MIN_LEAD_SECONDS, firstPlan.silenceBefore);
+  const tail = Math.max(H3_MIN_TAIL_SECONDS, lastPlan.silenceAfter);
+  const speechDurations = lines.map(line => speechSeconds(line.exactLine));
+  const totalSpeech = speechDurations.reduce((sum, seconds) => sum + seconds, 0)
+    + H3_SPEAKER_HANDOFF_SECONDS * Math.max(0, lines.length - 1);
+  const prefixOffsets: number[] = [];
+  speechDurations.reduce((offset, seconds) => {
+    prefixOffsets.push(offset);
+    return offset + seconds + H3_SPEAKER_HANDOFF_SECONDS;
+  }, 0);
+  // Keep the whole dialogue train continuous, but shift it late enough that
+  // each new speaker begins no earlier than the visual shot that introduced
+  // that speaker's line. This avoids both fillable silence gaps and a voice
+  // starting over a preceding shot where that identity may not be visible.
+  const speechStart = Math.max(
+    segmentStart + lead,
+    ...lines.map((line, index) => (timeline[line.storyboardIndex]?.start || segmentStart) - prefixOffsets[index]),
+  );
+  const available = segmentEnd - segmentStart;
+  if (speechStart + totalSpeech + tail > segmentEnd + 0.05) {
+    const requiredFromSegmentStart = speechStart - segmentStart + totalSpeech + tail;
+    throw new Error(`该片段只有 ${available.toFixed(1)} 秒，按首个对白镜头起声后至少需要 ${requiredFromSegmentStart.toFixed(1)} 秒；请延长片段、缩短台词或拆分片段`);
+  }
+  let cursor = speechStart;
+  return lines.map((line, index) => {
+    const start = cursor;
+    const end = start + speechDurations[index];
+    cursor = end + H3_SPEAKER_HANDOFF_SECONDS;
+    return { ...line, start, end };
   });
-  return timed;
 }
 
 export function buildAudioManifest(storyboards: Storyboard[], language: 'zh' | 'en' = 'en'): string {
