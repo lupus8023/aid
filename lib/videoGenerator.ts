@@ -24,8 +24,6 @@ type H3TimelineDialogueEvent = {
   kind: 'on_screen' | 'off_screen';
   spoken_once: string;
   first_word_at: string;
-  duration_policy: 'natural_from_exact_text';
-  after_spoken_once: string;
   delivery: string;
 };
 
@@ -58,8 +56,9 @@ function h3VoiceContract(eventCount: number): Record<string, unknown> {
     exact_verbatim_once: true,
     one_continuous_event_per_character: true,
     event_order_locked: true,
-    duration_policy: 'NATURAL_FROM_EXACT_TEXT_NO_END_TIMESTAMP',
-    after_each_event: 'STOP_AFTER_EXACT_FINAL_WORD_THEN_ROOM_TONE',
+    closing_d_tag_ends_voice_immediately: true,
+    after_closing_d_tag: 'ZERO_HUMAN_VOICE_ROOM_TONE_ONLY',
+    continue_or_improvise_after_closing_d_tag: false,
     fill_to_timeline_boundary: false,
     direction_data_vocalized: false,
     narrator: false,
@@ -550,8 +549,8 @@ function shotActionSchedule(storyboard: Storyboard, range: { start: number; end:
     const action = authoritativeShotAction(storyboard);
     const actionSentence = /[.!?。！？]$/.test(action) ? action : `${action}.`;
     return compact
-      ? `${actionSentence} Real time. Start once at first_word_at; natural pace; stop and close mouth after the exact tagged text. No end time or fill. Residual motion; no slow motion.`
-      : `${actionSentence} Keep the visible action continuous at real-time speed. Start the tagged line only at first_word_at, speak the exact text once at a natural conversational pace, and stop immediately after its natural final word; there is no target end timestamp to fill. Then close the mouth and preserve a motivated reaction or residual motion through the end of the shot; no slow motion or extended hold.`;
+      ? `${actionSentence} Real time. At first_word_at speak the tagged text once at conversational pace. Its closing dialogue-tag boundary stops all human voice and closes the mouth; never continue or fill the clip. Residual motion; no slow motion.`
+      : `${actionSentence} Keep the visible action continuous at real-time speed. At first_word_at, speak only the exact text inside the d tag once at conversational pace. The closing dialogue-tag boundary is the absolute voice stop: immediately end all human vocalization and close the mouth there. Never continue, improvise, add syllables, or fill the remaining clip beyond that boundary. Preserve a motivated reaction or residual motion through the end of the shot; no slow motion or extended hold.`;
   }
   if (compact) {
     return `${authoritativeShotAction(storyboard)} Start by ${h3Timestamp(initiation)}; one peak/consequence by ${h3Timestamp(consequence)}; recover by ${h3Timestamp(recovery)} with 0.2–0.4s residual. Stagger channels 0.1–0.3s; ${hasContact ? 'contact→load→release→local rebound' : 'preserve mass/acceleration'}. Real time; no slow motion.`;
@@ -740,8 +739,8 @@ function chineseShotSchedule(storyboard: Storyboard, range: { start: number; end
   if (storyboardSpeech(storyboard).length) {
     const actionSentence = /[。！？]$/.test(action) ? action : `${action}。`;
     return compact
-      ? `${actionSentence}真实速度；只在 first_word_at 开始一次，自然语速说完准确标签文字后立即停声闭嘴；无结束时间，不填充。保留残余动作；不得慢动作。`
-      : `${actionSentence}可见动作按真实速度连续完成；只在 first_word_at 开始标签中的准确台词，以自然对话语速完整说一次，说完自然的最后一个字立即停止，不得为了对齐时间补音、加字或拖长；提示词不规定台词结束时间。随后嘴闭合，只保留有动机的反应或残余动作直到镜头结束；不得慢动作或延长停顿。`;
+      ? `${actionSentence}真实速度；在 first_word_at 以正常对话语速只说一次标签文字；对白标签闭合边界立即终止全部人声并闭嘴，绝不续说或填满片长。保留残余动作；不得慢动作。`
+      : `${actionSentence}可见动作按真实速度连续完成；在 first_word_at 开始，以正常对话语速只说一次 d 标签内的准确文字。对白标签闭合边界是绝对停声标记：到达该边界立即终止全部人声并闭嘴；之后不得续说、即兴、补音、加字或为了填满剩余片长继续发声。随后只保留有动机的反应、残余动作和场景底噪直到镜头结束；不得慢动作或延长停顿。`;
   }
   if (compact) {
     return `${action} 最迟 ${h3Timestamp(initiation)} 启动；在 ${h3Timestamp(consequence)} 前完成一个动作峰值及其后果；到 ${h3Timestamp(recovery)} 恢复，并保留 0.2–0.4 秒残余状态。各动作通道错开 0.1–0.3 秒；${hasContact ? '接近→接触→受力→释放→局部回弹' : '保持可信的质量与加速度'}。真实速度，不得慢动作。`;
@@ -807,8 +806,6 @@ function buildChineseVideoSegmentPrompt(
         kind: line.lipSync ? 'on_screen' : 'off_screen',
         spoken_once: `<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>`,
         first_word_at: start,
-        duration_policy: 'natural_from_exact_text',
-        after_spoken_once: line.lipSync ? 'stop_voice_and_close_mouth' : 'stop_voice_keep_visible_mouths_closed',
         delivery: `${volume}_CONVERSATIONAL_RESTRAINED_ONE_ARC`,
       };
     });
@@ -872,7 +869,7 @@ function buildChineseVideoSegmentPrompt(
   const soundscape = buildAudioManifest(storyboards, 'zh');
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards, 'zh');
   const timelineJson = h3TimelineJson({
-    schema: 'aid_h3_timeline_v5',
+    schema: 'aid_h3_timeline_v6',
     duration: `${duration.toFixed(3)}s`,
     silent_direction_data: true,
     audio_event_lock: voiceContract,
@@ -1001,8 +998,6 @@ export function buildVideoSegmentPrompt(
         kind: line.lipSync ? 'on_screen' : 'off_screen',
         spoken_once: `<d>[${dialogueLanguage(text)}] ${text}</d>`,
         first_word_at: start,
-        duration_policy: 'natural_from_exact_text',
-        after_spoken_once: line.lipSync ? 'stop_voice_and_close_mouth' : 'stop_voice_keep_visible_mouths_closed',
         delivery: `${volume}_CONVERSATIONAL_RESTRAINED_ONE_ARC`,
       };
     });
@@ -1091,7 +1086,7 @@ export function buildVideoSegmentPrompt(
   const soundscape = buildAudioManifest(storyboards);
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
   const timelineJson = h3TimelineJson({
-    schema: 'aid_h3_timeline_v5',
+    schema: 'aid_h3_timeline_v6',
     duration: `${duration.toFixed(3)}s`,
     silent_direction_data: true,
     audio_event_lock: voiceContract,

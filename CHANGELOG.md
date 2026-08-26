@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.80 - 2026-08-26
+
+### Changed
+
+- H3 dialogue events no longer contain `duration_policy`, `natural_from_exact_text`, or any other open-ended natural-duration instruction.
+- The prompt schema is upgraded to `aid_h3_timeline_v6`, and the cache contract is bumped to `h3-v23` so outputs created under the natural-duration policy are not reused.
+
+### Fixed
+
+- The closing dialogue-tag boundary is now the absolute voice stop: all human vocalization ends immediately, the mouth closes, and only room tone may remain.
+- Explicitly forbids continuing, improvising, adding syllables or words, or filling the remaining clip after the exact tagged text.
+- Special dialogue closing tokens occur only inside `spoken_once`, preventing duplicated control tokens in readable director instructions.
+
+### Verification
+
+- 55 H3 prompt, no-subtitle, video-segment, and auto-production tests pass together with TypeScript validation and the production build.
+
 ## 0.1.79 - 2026-08-26
 
 ### Changed

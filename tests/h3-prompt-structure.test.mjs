@@ -61,15 +61,18 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
   const timeline = timelineJson(prompt);
   const [event] = dialogueEvents(prompt);
-  assert.equal(timeline.schema, 'aid_h3_timeline_v5');
+  assert.equal(timeline.schema, 'aid_h3_timeline_v6');
   assert.equal(timeline.silent_direction_data, true);
   assert.equal(timeline.audio_event_lock.vocalize_only, 'dialogue_events[].spoken_once');
   assert.equal(event.speaker, '<Subject 1>/<Audio 1>');
   assert.match(event.first_word_at, /^00:\d{2}\.\d{3}$/);
-  assert.equal(event.duration_policy, 'natural_from_exact_text');
-  assert.equal(event.after_spoken_once, 'stop_voice_and_close_mouth');
+  assert.equal('duration_policy' in event, false);
+  assert.equal('after_spoken_once' in event, false);
   assert.equal('window' in event, false);
   assert.equal('final_word_complete_by' in event, false);
+  assert.equal(timeline.audio_event_lock.closing_d_tag_ends_voice_immediately, true);
+  assert.equal(timeline.audio_event_lock.after_closing_d_tag, 'ZERO_HUMAN_VOICE_ROOM_TONE_ONLY');
+  assert.equal(timeline.audio_event_lock.continue_or_improvise_after_closing_d_tag, false);
   assert.equal(timeline.audio_event_lock.fill_to_timeline_boundary, false);
   assert.equal(timeline.audio_event_lock.vocal_extras_or_reference_sample_leakage, false);
   assert.equal(timeline.reference_audio_contract.reproduce_source_fragments, false);
@@ -444,7 +447,8 @@ test('schedules two connected lines inside one storyboard in order', () => {
   assert.equal(events.length, 2);
   events.forEach(event => {
     assert.match(event.first_word_at, /^00:\d{2}\.\d{3}$/);
-    assert.equal(event.duration_policy, 'natural_from_exact_text');
+    assert.equal('duration_policy' in event, false);
+    assert.equal('after_spoken_once' in event, false);
     assert.equal('window' in event, false);
     assert.equal('final_word_complete_by' in event, false);
   });
@@ -457,6 +461,7 @@ test('schedules two connected lines inside one storyboard in order', () => {
     assert.equal('expression' in block, false);
   });
   assert.doesNotMatch(prompt, /CONTINUE_TO_FINAL_WORD|COMPLETE_HERE/);
+  assert.equal((prompt.match(/<\/d>/g) || []).length, events.length, 'closing dialogue tokens must occur only inside spoken_once');
   assert.ok(prompt.lastIndexOf('</d>') < prompt.indexOf('"shot_contracts"'));
 });
 
