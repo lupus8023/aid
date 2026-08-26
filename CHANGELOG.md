@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.81 - 2026-08-26
+
+### Changed
+
+- H3 shot contracts now contain only observable expression, action, dialogue-event references, composition, camera, and spatial relation.
+- Dialogue text remains exclusively in `dialogue_events[].spoken_once`; shot contracts refer to `D1`/`D2` IDs without duplicating readable speech.
+- The prompt schema is upgraded to `aid_h3_timeline_v7`, and the cache contract is bumped to `h3-v24` so clips created with narrative-heavy visual contracts are not reused.
+
+### Fixed
+
+- Narrative relationship prose such as audience understanding, acceptance, questions, or expectations can no longer leak from `stateBefore`, `stateAfter`, or `editBridge` into the H3 payload and be vocalized as dialogue.
+- Removed `blocking_relation`, `motion_physics`, duplicated per-shot sound, narrative transitions, and verbose continuity prose from model-facing shot contracts.
+- Story generation now limits relationship state to directly visible distance, orientation, eyeline axis, and screen side.
+
+### Verification
+
+- 93 H3 prompt, reference-audio, video-segment, and staged-story tests pass together with TypeScript validation and the production build.
+
 ## 0.1.80 - 2026-08-26
 
 ### Changed

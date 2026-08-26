@@ -61,7 +61,7 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
   const timeline = timelineJson(prompt);
   const [event] = dialogueEvents(prompt);
-  assert.equal(timeline.schema, 'aid_h3_timeline_v6');
+  assert.equal(timeline.schema, 'aid_h3_timeline_v7');
   assert.equal(timeline.silent_direction_data, true);
   assert.equal(timeline.audio_event_lock.vocalize_only, 'dialogue_events[].spoken_once');
   assert.equal(event.speaker, '<Subject 1>/<Audio 1>');
@@ -80,6 +80,9 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   const soundscape = prompt.split('overall_soundscape:')[1].split('non_diegetic_music:')[0];
   assert.doesNotMatch(soundscape, /<d>|线索就在这里|dialogue|speech/i);
   assert.match(timeline.shot_contracts[0].camera, /moderate/i);
+  assert.deepEqual(Object.keys(timeline.shot_contracts[0]), [
+    'id', 'expression', 'action', 'dialogue_event_ids', 'composition', 'camera', 'spatial_relation',
+  ]);
   assert.doesNotMatch(prompt, /SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE|DIALOGUE:/);
   assert.deepEqual(timeline.frame_text_policy, {
     subtitles: false,
@@ -172,7 +175,13 @@ test('binds multiple sequential dialogue lines to their matching H3 voice refere
   assert.equal(events[1].speaker, '<Subject 2>/<Audio 2>');
   assert.match(prompt, /ignore its original words and timing/);
   assert.equal(events[0].delivery, 'SOFT_CONVERSATIONAL_RESTRAINED_ONE_ARC');
-  assert.match(prompt, /dialogue eyeline axis\/screen sides/);
+  assert.deepEqual(timelineJson(prompt).shot_contracts[0].spatial_relation, {
+    eyeline_axis: 'LOCKED',
+    screen_side: 'LOCKED',
+    blocking: 'VISIBLE_ACTION_ONLY',
+    drift: false,
+    teleport: false,
+  });
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
   assert.ok(prompt.length <= 7000);
 });
@@ -197,6 +206,37 @@ test('keeps explanatory screenplay fields out of the H3 audiovisual description'
   assert.equal(timeline.audio_event_lock.ad_lib, false);
   assert.equal(timeline.audio_event_lock.vocalize_only, 'dialogue_events[].spoken_once');
   assert.match(prompt, /No narration, ad-lib, singing, or unscripted intelligible words/);
+});
+
+test('never copies narrative relationship prose into the H3 visual contract', () => {
+  const leakedRelationship = 'Dr. Pan用具体成分回应了观众对面膜优选价值的第一层疑问，观众暂时接受营养供给依据，但继续等待输送机制。';
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, {
+      characters: ['Dr. Pan'],
+      objects: ['面膜', '成分表'],
+      action: 'Dr. Pan抬起面膜包装，用食指点向成分表。',
+      stateBefore: { relationships: leakedRelationship, emotion: '专业而克制' },
+      stateAfter: { relationships: leakedRelationship, emotion: '专业而克制' },
+      editBridge: `${leakedRelationship} audienceInference: 观众继续等待解释。`,
+      speech: [{
+        speakerId: 'S01', character: 'Dr. Pan', exactLine: '这些成分可以给肌肤补充营养。',
+        emotion: '专业而克制', delivery: '自然', volume: 'normal', lipSync: true, source: 'story_required',
+      }],
+    }),
+  ], [], { duration: 8, language: 'zh', referenceAudioNames: ['Dr. Pan'] });
+
+  const contract = timelineJson(prompt).shot_contracts[0];
+  assert.deepEqual(Object.keys(contract), [
+    'id', 'expression', 'action', 'dialogue_event_ids', 'composition', 'camera', 'spatial_relation',
+  ]);
+  assert.deepEqual(contract.dialogue_event_ids, ['D1']);
+  assert.match(contract.action, /抬起面膜包装/);
+  assert.doesNotMatch(prompt, /暂时接受营养供给依据|继续等待输送机制|audienceInference|观众继续等待解释/);
+  assert.equal('blocking_relation' in contract, false);
+  assert.equal('motion_physics' in contract, false);
+  assert.equal('sound' in contract, false);
+  assert.equal('visual_transition' in contract, false);
+  assert.equal('continuity' in timelineJson(prompt), false);
 });
 
 test('quarantines dialogue meaning from visual prose and places one exact speech window before action', () => {
@@ -245,7 +285,7 @@ test('drops model-written stage directions before they can become H3 dialogue', 
 
   assert.doesNotMatch(prompt, /无其他角色在场|其他角色保持沉默|<d>/);
   assert.doesNotMatch(prompt, /<d>/);
-  assert.match(timelineJson(prompt).shot_contracts[0].cast, /<Subject 1>（Lin）/);
+  assert.deepEqual(timelineJson(prompt).shot_contracts[0].composition.visible_subjects, ['<Subject 1> (Lin)']);
 });
 
 test('does not send a line whose assigned character is absent from the visible action', () => {
@@ -330,7 +370,7 @@ test('preserves every grouped storyboard as a complete timed action-camera-dialo
     'Lin pivots toward the station clock and breaks into a run.',
   ]) assert.equal((prompt.match(new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 1);
   assert.equal(timeline.shot_contracts.filter(item => item.camera).length, 3);
-  assert.equal(timeline.shot_contracts.filter(item => item.visual_transition).length, 3);
+  assert.equal(timeline.shot_contracts.filter(item => item.camera).length, 3);
   assert.doesNotMatch(prompt, /Match the red envelope crossing frame/);
   assert.doesNotMatch(prompt, /DIALOGUE:|SPEECH GATE|SPOKEN_WORDS_ONLY|NON_SPOKEN_PERFORMANCE/);
   assert.doesNotMatch(prompt, /cross-dissolve|fade from|fade into/i);
@@ -547,8 +587,8 @@ test('turns contact actions into load, release and local rebound instead of unif
   const prompt = buildVideoSegmentPrompt([
     shot(1, { action: 'She grips the wet rope, pulls hard, then releases it as the hook lands.' }),
   ], [], { duration: 6 });
-  assert.match(prompt, /approach, contact, visible load\/compression, increase force, brief hold, gradual release/);
-  assert.match(prompt, /deform only the loaded region/);
+  assert.match(timelineJson(prompt).shot_contracts[0].action, /grips the wet rope, pulls hard, then releases it/);
+  assert.equal('motion_physics' in timelineJson(prompt).shot_contracts[0], false);
   assert.match(prompt, /never default to slow motion/);
   assert.ok(prompt.length <= 7000);
 });
@@ -558,8 +598,8 @@ test('writes first/last-frame H3 prompts in the official base-mode structure', (
   assert.match(prompt, /^How the reference pictures align with the target video/);
   assert.match(prompt, /integrated_multimodal_description:/);
   assert.match(prompt, /Picture 2 .* 8\.00-second mark/);
-  assert.match(prompt, /final 16% to resolve into it/);
-  assert.match(prompt, /do not uniformly interpolate or slow one gesture/);
+  assert.equal(timelineJson(prompt).shot_contracts[0].composition.reference_frame, '<Picture 2>');
+  assert.equal(timelineJson(prompt).shot_contracts[0].composition.reference_role, 'FINAL_COMPOSITION');
   assert.match(prompt, /non_diegetic_music: No music is present\./);
   assert.doesNotMatch(prompt, /subject_definitions:/);
   assert.ok(prompt.length <= 7000);
