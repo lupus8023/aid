@@ -5,7 +5,7 @@ export const DEFAULT_COMFYUI_COMPANION_URL = 'http://127.0.0.1:3018';
 // Story generation runs inside the packaged Companion so long 27–81 shot jobs
 // are not cut off by the hosting gateway. Keep this gate aligned with the
 // screenplay schema: older builds silently drop newer narrative fields.
-export const STORY_COMPANION_MIN_VERSION = [0, 1, 36] as const;
+export const STORY_COMPANION_MIN_VERSION = [0, 1, 86] as const;
 export const SEGMENT_VIDEO_COMPANION_MIN_VERSION = [0, 1, 85] as const;
 export const LOCAL_EXPORT_COMPANION_MIN_VERSION = [0, 1, 19] as const;
 
@@ -46,7 +46,7 @@ function supportsStoryGeneration(version: string): boolean {
 /**
  * Long screenplay calls exceed Netlify's non-configurable 60-second function
  * limit. Prefer the local Companion when it supports Story routes, while
- * retaining the hosted endpoint for users without Companion.
+ * retaining the hosted endpoint only when users explicitly disable Companion.
  */
 export async function fetchStoryApi(
   pathname: string,
@@ -54,36 +54,53 @@ export async function fetchStoryApi(
   settings?: Partial<ComfyUISettings>,
 ): Promise<Response> {
   if (settings?.useLocalCompanion !== false) {
-    try {
-      const statusResponse = await fetch(comfyUIApiUrl('/api/companion/status', settings), {
-        cache: 'no-store',
-        signal: AbortSignal.timeout(1800),
-      });
-      const status = statusResponse.ok ? await statusResponse.json() : undefined;
-      if (status?.ok && !supportsStoryGeneration(String(status.version || ''))) {
-        return new Response(JSON.stringify({
-          error: `当前 Companion v${status.version || '未知'} 不支持分阶段剧本生成；请更新到 v${STORY_COMPANION_MIN_VERSION.join('.')} 或更高版本。`,
-        }), {
-          status: 426,
-          headers: { 'Content-Type': 'application/json' },
+    let status: any;
+    let statusError = '';
+    for (let attempt = 1; attempt <= 2 && !status?.ok; attempt += 1) {
+      try {
+        const statusResponse = await fetch(comfyUIApiUrl('/api/companion/status', settings), {
+          cache: 'no-store',
+          signal: AbortSignal.timeout(3500),
         });
+        if (!statusResponse.ok) throw new Error(`HTTP ${statusResponse.status}`);
+        status = await statusResponse.json();
+        if (!status?.ok) throw new Error('状态响应缺少 ok=true');
+      } catch (error) {
+        statusError = error instanceof Error ? error.message : String(error);
+        if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 350));
       }
-      if (status?.ok) {
-        try {
-          return await fetch(comfyUIApiUrl(pathname, settings), init);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          console.warn(`Local Companion Story request failed: ${message}`);
-          return new Response(JSON.stringify({
-            error: `本地 Companion 剧本接口连接中断：${message}。请确认 Companion v${STORY_COMPANION_MIN_VERSION.join('.')} 正在运行后重试。`,
-          }), {
-            status: 502,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-      }
-    } catch {
-      // Companion is optional; hosted API remains available for short jobs.
+    }
+    if (!status?.ok) {
+      // Never silently reroute a multi-stage screenplay to Netlify: the hosted
+      // function has a hard ceiling and eventually replaces the useful error
+      // with an HTML 504 page. Users who explicitly disable Companion may still
+      // choose the hosted route for small diagnostic jobs.
+      return new Response(JSON.stringify({
+        error: `网页无法访问本地 Companion（${statusError || '连接失败'}）。请确认 AID Companion 正在运行，并在浏览器的网站权限中允许 pandais.beauty 访问“本地网络”，然后刷新页面重试。`,
+      }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (!supportsStoryGeneration(String(status.version || ''))) {
+      return new Response(JSON.stringify({
+        error: `当前 Companion v${status.version || '未知'} 不支持分阶段剧本生成；请更新到 v${STORY_COMPANION_MIN_VERSION.join('.')} 或更高版本。`,
+      }), {
+        status: 426,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    try {
+      return await fetch(comfyUIApiUrl(pathname, settings), init);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Local Companion Story request failed: ${message}`);
+      return new Response(JSON.stringify({
+        error: `本地 Companion 剧本接口连接中断：${message}。请保持 Companion v${STORY_COMPANION_MIN_VERSION.join('.')} 或更高版本运行，并允许浏览器访问本地网络后重试。`,
+      }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
   }
   return await fetch(pathname, init);

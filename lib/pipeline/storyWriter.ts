@@ -3,7 +3,7 @@ import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryDial
 import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
 import { normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from './shotCount';
-import type { NarrativeState, StoryAudioPlan, Storyboard, StoryClipType, StoryDialogueTurn, StorySpeechLine } from '@/types';
+import type { NarrativeState, StoryAudioPlan, Storyboard, StoryClipType, StoryDialogueTurn, StoryPerformanceCue, StorySpeechLine } from '@/types';
 import { MAX_H3_SPEECH_TURNS, generatedSpeakerMatchesVisibleAction, isDirectingInstructionDialogue, sanitizeGeneratedSpeechText, speechSeconds } from '@/lib/speechAudioContract';
 import { castStoryVoices, resolveGeneratedStoryIdentity } from '@/lib/voiceCasting';
 import type { VoiceAgeGroup, VoiceGender } from '@/types';
@@ -372,6 +372,34 @@ function narrativeState(value: unknown): NarrativeState | undefined {
     emotion: asString(raw.emotion).trim(),
   };
   return Object.values(state).some(Boolean) ? state : undefined;
+}
+
+function performanceCues(
+  value: unknown,
+  visibleCharacters: string[],
+  fallback: { action: string; objective: string; emotion: string },
+): StoryPerformanceCue[] {
+  const submitted = Array.isArray(value) ? value : [];
+  const englishFallback = Boolean(fallback.action.trim()) && !/\p{Script=Han}/u.test(fallback.action);
+  const byCharacter = new Map<string, any>();
+  for (const cue of submitted) {
+    const character = asString(cue?.character).trim();
+    if (visibleCharacters.includes(character) && !byCharacter.has(character)) byCharacter.set(character, cue);
+  }
+  return visibleCharacters.map(character => {
+    const cue = byCharacter.get(character) || {};
+    return {
+      character,
+      objective: asString(cue?.objective, fallback.objective).trim() || fallback.objective || (englishFallback ? 'complete the immediate dramatic objective' : '完成本镜的直接戏剧目标'),
+      blocking: asString(cue?.blocking, fallback.action).trim() || fallback.action || (englishFallback ? 'settle into one playable action and visible result' : '完成一次可表演动作并落到可见结果'),
+      gesture: asString(cue?.gesture, englishFallback ? 'one restrained, story-motivated hand or body gesture' : '手部与身体保持符合当前动作的克制、单一主手势').trim(),
+      expression: asString(cue?.expression, fallback.emotion || (englishFallback ? 'the eyes and facial tension change once with the action, then settle' : '眼神与面部张力随动作发生一次清晰变化后落定')).trim(),
+      gaze: asString(cue?.gaze, englishFallback ? 'the gaze reaches the action target before the head and settles on the result' : '视线先于头部转向当前行动对象，并在结果落定时停住').trim(),
+      breath: asString(cue?.breath, englishFallback ? 'breath changes once with pressure or choice, then releases naturally' : '呼吸随施力或决定短暂改变，随后自然回落').trim(),
+      reaction: asString(cue?.reaction, englishFallback ? 'one restrained, visible reaction to the trigger or scene partner' : '对本镜触发或对手行为作出一次可见但克制的即时反应').trim(),
+      subtext: asString(cue?.subtext, englishFallback ? 'the immediate action conceals a deeper need or fear' : '表面行动服务眼前目标，内在需求通过迟疑、克制或选择显露').trim(),
+    };
+  });
 }
 
 function clampSilence(value: unknown, fallback: number): number {
@@ -944,6 +972,8 @@ export function sanitizeStoryPlan(
         clampDuration(b?.durationHint),
         Math.ceil(minimumPlayableDuration * 2) / 2,
       ));
+      const action = asString(b?.action);
+      const characterChange = asString(b?.characterChange);
       return {
         index,
         sourceShotRefs: (Array.isArray(b?.sourceShotRefs) ? b.sourceShotRefs : [])
@@ -953,7 +983,12 @@ export function sanitizeStoryPlan(
         shotSize: asString(b?.shotSize, '中景'),
         cameraMove: asString(b?.cameraMove, '静止'),
         angle: asString(b?.angle, '平视'),
-        action: asString(b?.action),
+        action,
+        performance: performanceCues(b?.performance, beatCharacters, {
+          action,
+          objective: asString(b?.choice, asString(b?.dramaticPurpose, action)).trim(),
+          emotion: characterChange || asString(b?.stateAfter?.emotion, asString(b?.stateBefore?.emotion)).trim(),
+        }),
         characters: beatCharacters,
         objects: filterNames(b?.objects, allowedObjects),
         dialogueLines: speech.map(line => ({ character: line.character, text: line.exactLine })),
@@ -965,7 +1000,7 @@ export function sanitizeStoryPlan(
         conflict: asString(b?.conflict),
         choice: asString(b?.choice),
         consequence: asString(b?.consequence),
-        characterChange: asString(b?.characterChange),
+        characterChange,
         nextCause: asString(b?.nextCause),
         informationGain: asString(b?.informationGain),
         dialoguePurpose: asString(b?.dialoguePurpose, speech.length ? 'story_progression' : 'visual_only'),

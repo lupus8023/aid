@@ -67,6 +67,41 @@ test('normalizes the global map to exact continuous indexes and rejects a wrong 
   assert.throws(() => normalizeStoryOutline(outlineDocument([outlineSequence('seq-1', 1, 8)]), 9), /返回了 8 个镜头地图/);
 });
 
+test('detailed screenplay contract creates actor-facing performance cues per visible character', () => {
+  const prompt = buildStoryBeatBatchPrompt({
+    synopsis: 'A refuses to abandon B at the locked gate.',
+    outline: outlineDocument([outlineSequence('seq-1', 1, 9)]),
+    sequence: outlineSequence('seq-1', 1, 1),
+    beatMap: [outlineSequence('seq-1', 1, 1).beatMap[0]],
+    characters: [{ name: 'A', description: 'determined adult' }, { name: 'B', description: 'wary adult' }],
+    objects: [],
+    language: 'en',
+  });
+  assert.match(prompt, /"performance"/);
+  assert.match(prompt, /micro|微表情/i);
+
+  const plan = sanitizeStoryPlan({
+    title: 'Performance',
+    characters: [{ name: 'A' }],
+    sequences: [{
+      id: 'seq-1',
+      beats: [{
+        characters: ['A'],
+        action: 'A plants one foot at the gate and holds the latch.',
+        dramaticPurpose: 'A refuses to leave.',
+        characterChange: 'fear settles into resolve',
+        performance: [{
+          character: 'A', objective: 'keep B inside', blocking: 'steps in and braces', gesture: 'one hand closes on the latch',
+          expression: 'eyes flick to B, brow tightens, jaw settles', gaze: 'B to latch', breath: 'one held breath releases',
+          reaction: 'does not yield when B pulls away', subtext: 'I will not lose you too',
+        }],
+      }],
+    }],
+  }, ['A'], [], '', 9);
+  assert.equal(plan.sequences[0].beats[0].performance[0].character, 'A');
+  assert.match(plan.sequences[0].beats[0].performance[0].expression, /brow tightens/);
+});
+
 test('normalizes common provider wrappers around the screenplay outline', () => {
   const outline = outlineDocument([outlineSequence('seq-1', 1, 9)]);
   for (const wrapped of [

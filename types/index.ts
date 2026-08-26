@@ -73,11 +73,27 @@ export interface NarrativeState {
   emotion?: string;
 }
 
+// Actor-facing direction for one visible character in one shot. These cues
+// stay separate from dialogue so video prompts never accidentally vocalize
+// stage directions.
+export interface StoryPerformanceCue {
+  character: string;
+  objective: string;
+  blocking: string;
+  gesture: string;
+  expression: string;
+  gaze: string;
+  breath: string;
+  reaction: string;
+  subtext: string;
+}
+
 // 分镜类型
 export interface Storyboard {
   id: string;
   sceneNumber: number;
   action?: string; // 编剧阶段锁定的权威可见动作；H3 必须逐镜按时间表执行
+  performance?: StoryPerformanceCue[]; // 每个出场角色的动作、微表情、视线、呼吸和反应调度
   description: string;
   prompt: string;
   characters: string[]; // 角色名称列表

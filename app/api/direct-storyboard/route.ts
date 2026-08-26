@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { directStoryboard } from '@/lib/pipeline/storyDirector';
+import { streamingJsonResponse } from '@/lib/streamingJsonResponse';
 
 export const maxDuration = 300;
 
@@ -39,20 +40,21 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const storyboards = await directStoryboard({
-      storyPlan,
-      characters: directorCharacters,
-      objects: objects || [],
-      apiKey,
-      aspectRatio: aspectRatio || '16:9',
-      language: language || 'zh',
-      visualStyle,
-      scriptProvider,
-      scriptModel,
-      dmxApiKey,
+    return streamingJsonResponse(async () => {
+      const storyboards = await directStoryboard({
+        storyPlan,
+        characters: directorCharacters,
+        objects: objects || [],
+        apiKey,
+        aspectRatio: aspectRatio || '16:9',
+        language: language || 'zh',
+        visualStyle,
+        scriptProvider,
+        scriptModel,
+        dmxApiKey,
+      });
+      return { storyboards };
     });
-
-    return NextResponse.json({ storyboards });
   } catch (error: any) {
     console.error('direct-storyboard error:', error);
     return NextResponse.json(

@@ -160,6 +160,7 @@ function officialVisibleExpression(storyboard: Storyboard): string {
   const source = [
     storyboard.stateBefore?.emotion,
     storyboard.stateAfter?.emotion,
+    ...(storyboard.performance || []).flatMap(cue => [cue.expression, cue.gaze, cue.breath, cue.reaction]),
     ...storyboardSpeech(storyboard).flatMap(line => [line.emotion, line.delivery]),
   ].filter(Boolean).join(' ').toLowerCase();
   if (/害怕|恐惧|紧张|fear|afraid|tense|anxious/.test(source)) return 'The breath tightens once; the eyes and brow tense briefly, then release.';
@@ -168,6 +169,17 @@ function officialVisibleExpression(storyboard: Storyboard): string {
   if (/喜悦|开心|温柔|happy|warm|gentle|joy/.test(source)) return 'The gaze warms and the mouth corners rise slightly once, then recover.';
   if (/坚定|果断|决心|determined|firm|resolute/.test(source)) return 'The gaze locks once and the jaw steadies, then the tension releases after the action.';
   return 'The gaze and facial tension change once with the action, then recover.';
+}
+
+function officialPerformanceDirection(storyboard: Storyboard): string {
+  const cues = (storyboard.performance || []).slice(0, 3);
+  if (!cues.length) return '';
+  return cues.map((cue, index) => {
+    const pieces = [cue.blocking, cue.gesture, cue.expression, cue.gaze, cue.breath, cue.reaction]
+      .map(value => String(value || '').trim())
+      .filter(value => value && !containsHan(value));
+    return pieces.length ? `Visible character ${index + 1}: ${pieces.join('; ')}` : '';
+  }).filter(Boolean).join(' ');
 }
 
 function officialDialogueDelivery(line: ReturnType<typeof compileTimedSpeech>[number]): string {
@@ -334,6 +346,7 @@ function buildOfficialGuidePrompt(
     const action = officialH3PhysicalAction(storyboard, primarySubject);
     const framing = officialShotFraming(storyboard);
     const expression = officialVisibleExpression(storyboard);
+    const performance = officialPerformanceDirection(storyboard);
     const camera = officialH3CameraSentence(storyboard, index);
     const dialogue = (dialogueByShot.get(index) || []).join(' ');
     let opening: string;
@@ -354,6 +367,7 @@ function buildOfficialGuidePrompt(
       opening,
       castSentence,
       /[.!?]$/.test(action) ? action : `${action}.`,
+      performance,
       expression,
       camera,
       'The established positions and eyelines remain consistent.',

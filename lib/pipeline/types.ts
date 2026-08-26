@@ -1,4 +1,4 @@
-import type { Character, NarrativeState, ObjectItem, StoryAudioPlan, Storyboard, StoryClipType, StoryDialogueTurn, StorySpeechLine, VoiceAgeGroup, VoiceGender } from '@/types';
+import type { Character, NarrativeState, ObjectItem, StoryAudioPlan, Storyboard, StoryClipType, StoryDialogueTurn, StoryPerformanceCue, StorySpeechLine, VoiceAgeGroup, VoiceGender } from '@/types';
 
 // 编剧阶段：把「一句话梗概」变成「有欲望/冲突/转折/潜台词/母题」的结构化故事。
 // 这是「全自动」的关键契约——阶段之间传结构化 JSON，而非自由文本。
@@ -26,6 +26,7 @@ export interface Beat {
   cameraMove: string; // 运镜：推/拉/摇/移/跟/静止/手持
   angle: string; // 机位：平视/仰拍/俯拍/过肩/FPV
   action: string; // 动作描述（一个明确动作单元，含情绪氛围）
+  performance: StoryPerformanceCue[]; // 演员调度：目标、走位、手势、微表情、视线、呼吸、反应、潜台词
   characters: string[]; // 本镜头出现的角色（上传角色或用户原文明确命名的文字角色）
   objects: string[]; // 本镜头出现的道具（精确匹配上传物件名）
   dialogueLines: { character: string; text: string }[]; // 有序台词；用户明确给出的同镜多轮短对答必须完整保留

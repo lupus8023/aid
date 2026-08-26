@@ -96,8 +96,14 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
   return (
     <div className="space-y-6">
       <div className="aid-page-lead">
-        <div><p className="aid-eyebrow">Step 02 · Story brief</p><h2 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">输入故事构想</h2><p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">粘贴故事梗概或上传文本，AID 会整理为可执行的分镜剧本。</p></div>
+        <div><p className="aid-eyebrow">Step 02 · Story brief</p><h2 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">输入故事构想</h2><p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">一句话也可以。AID 会先完成故事创作，再交付每镜动作、微表情、逐字台词与导演分镜。</p></div>
       </div>
+
+      <section className="rounded-lg border border-[var(--accent-purple)]/25 bg-[var(--accent-purple)]/5 p-4">
+        <p className="text-sm font-semibold text-white">智能编剧模式</p>
+        <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">你只需要提供人物和一个核心念头；系统会补全人物欲望、阻碍、转折、高潮选择和结局，并把每个剧情节拍变成演员能执行、视频模型能理解的镜头。</p>
+        <div className="mt-3 flex flex-wrap gap-2">{['故事结构', '动作走位', '微表情与视线', '逐字台词', '镜头与剪辑'].map(label => <span key={label} className="rounded-full border border-white/10 bg-black/10 px-2.5 py-1 text-[10px] text-[var(--text-secondary)]">{label}</span>)}</div>
+      </section>
 
       <div className="flex items-center gap-3 mb-4">
         <span className="text-xs font-mono text-[var(--text-secondary)]">输出语言</span>
@@ -179,7 +185,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
           <textarea
             value={textInput}
             onChange={(e) => handleTextChange(e.target.value)}
-            placeholder="输入故事梗概、人物关系和关键情节；可直接写明“必须”“不要”“结尾是”“镜头数/时长”等硬性要求…"
+            placeholder="例如：一位从不说谎的律师，为救女儿必须在法庭上撒一次谎。其余人物欲望、冲突、动作、表情和台词由系统完成。也可继续写明“必须”“不要”“结尾是”等硬性要求…"
             className="w-full h-64 p-4 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded text-sm font-mono text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-blue)] resize-none"
           />
           {(apiKey || dmxApiKey) && (
@@ -212,7 +218,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
           disabled={!textInput.trim() || isLoading}
           className="ml-auto bg-[var(--accent-blue)] text-white px-6 py-2.5 rounded font-mono text-sm hover:bg-[#0098ff] disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:cursor-not-allowed transition-colors"
         >
-          {isLoading ? <span className="animate-pulse">正在生成剧本…</span> : '生成分镜剧本 →'}
+          {isLoading ? <span className="animate-pulse">正在创作故事与演员调度…</span> : '智能生成电影级剧本 →'}
         </button>
       </div>
     </div>

@@ -20,7 +20,17 @@ export async function readApiJson<T>(response: Response, context: string): Promi
 
   if (body.trim()) {
     try {
-      data = JSON.parse(body);
+      if (contentType.includes('text/event-stream')) {
+        const events = body
+          .split(/\r?\n/)
+          .filter(line => line.startsWith('data:'))
+          .map(line => line.slice(5).trim())
+          .filter(Boolean);
+        if (!events.length) throw new Error('missing SSE data event');
+        data = JSON.parse(events[events.length - 1]);
+      } else {
+        data = JSON.parse(body);
+      }
     } catch {
       if (looksLikeHtml(body, contentType)) {
         throw new Error(`${context}：${statusHint(response.status)}，服务器返回了错误网页而不是数据。请重试；若持续发生，请检查本地 Companion 或切换剧本 API。`);
@@ -36,6 +46,12 @@ export async function readApiJson<T>(response: Response, context: string): Promi
         ? data.message
         : statusHint(response.status);
     throw new Error(`${context}：${message}`);
+  }
+
+  // Streaming responses have already committed HTTP 200 before the long task
+  // finishes, so task failures arrive as a structured final event.
+  if (typeof data?.error === 'string' && data.error.trim()) {
+    throw new Error(`${context}：${data.error}`);
   }
 
   if (data === undefined) throw new Error(`${context}：服务器返回了空响应`);

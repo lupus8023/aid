@@ -63,6 +63,7 @@ export function buildDirectorPrompt(input: {
 🎯 最高原则：忠实于 StoryPlan，不重新创作
 - 本批分镜数量必须等于 ${beats.length}，顺序与 index ${firstIndex}–${lastIndex} 完全一致，不得增删或重排。
 - 台词、动作、时长、转场和连续关系来自 beat；你负责设计景别、运镜、机位、场景成像基线与正式图片 prompt。
+- performance 是演员执行合同：description 必须逐个落实其中的 objective、blocking、gesture、expression、gaze、breath、reaction 与 subtext，但不得把字段名或心理说明直接写成画面文字。微表情要通过眼球、眉眼、嘴角、下颌、呼吸、重心和距离的可见变化表现。
 - 必须让 dramaticPurpose、cause、conflict、choice、consequence 和 stateBefore/stateAfter 在画面中可见；镜头必须改变信息、关系、决定或物理状态，不能只制造氛围。
 - informationGain 是本镜必须交付给观众的理解；用人物阻挡、视线、反应、道具状态与结果构图让它可读。audienceQuestion 决定镜尾要保留什么悬念，montageRole 决定它与相邻镜的语义关系。
 - editBridge 是编剧锁定的剪辑交棒：本镜镜尾必须留下其中指定的动作、视线、物体、声音或因果结果，让下一镜接住，并让两镜并置后产生指定的观众推论。不得改成淡入淡出、叠化等后期特效。
@@ -165,6 +166,7 @@ function mergeBeats(
       id: `scene-${i + 1}`,
       sceneNumber: i + 1,
       action: beat.action,
+      performance: beat.performance,
       sequenceId: beat.sequenceId,
       locationId: beat.locationId,
       description: typeof raw?.description === 'string' ? raw.description : beat.action,

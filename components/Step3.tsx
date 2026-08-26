@@ -233,6 +233,33 @@ export default function Step3({ storyPlan, storyboards, characters, objects, cos
                 )}
               </div>
               <p className="text-sm text-[var(--text-primary)] mb-2">{sb.description}</p>
+              <div className="mb-3 grid gap-2 lg:grid-cols-2">
+                <div className="rounded-lg border border-white/5 bg-black/10 p-3">
+                  <p className="text-[9px] font-mono uppercase tracking-[0.14em] text-[var(--accent-yellow)]">动作调度</p>
+                  <p className="mt-1 text-[11px] leading-5 text-[var(--text-primary)]">{sb.action || '—'}</p>
+                </div>
+                <div className="rounded-lg border border-white/5 bg-black/10 p-3">
+                  <p className="text-[9px] font-mono uppercase tracking-[0.14em] text-[var(--accent-green)]">逐字台词</p>
+                  {(sb.speech || []).length ? <div className="mt-1 space-y-1.5">{(sb.speech || []).map((line, index) => (
+                    <div key={`${line.character}-${index}`} className="text-[11px] leading-5 text-[var(--text-primary)]"><span className="font-semibold text-white">{line.character}</span>：{line.exactLine}<span className="ml-2 text-[9px] text-[var(--text-muted)]">{line.emotion} · {line.delivery}</span></div>
+                  ))}</div> : <p className="mt-1 text-[11px] text-[var(--text-muted)]">纯视觉镜头</p>}
+                </div>
+              </div>
+              {(sb.performance || []).length > 0 && (
+                <div className="mb-3 rounded-lg border border-[var(--accent-purple)]/20 bg-[var(--accent-purple)]/5 p-3">
+                  <p className="text-[9px] font-mono uppercase tracking-[0.14em] text-[var(--accent-purple)]">演员表演卡</p>
+                  <div className="mt-2 grid gap-2 xl:grid-cols-2">{(sb.performance || []).map(cue => (
+                    <div key={cue.character} className="rounded border border-white/5 bg-black/10 p-2.5">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><span className="text-[11px] font-semibold text-white">{cue.character}</span><span className="text-[9px] text-[var(--text-muted)]">目标：{cue.objective}</span></div>
+                      <p className="mt-1 text-[10px] leading-4 text-[var(--text-secondary)]"><span className="text-white/70">走位动作</span> {cue.blocking}</p>
+                      <p className="mt-1 text-[10px] leading-4 text-[var(--text-secondary)]"><span className="text-white/70">手势</span> {cue.gesture}</p>
+                      <p className="mt-1 text-[10px] leading-4 text-[var(--text-secondary)]"><span className="text-white/70">微表情</span> {cue.expression}</p>
+                      <p className="mt-1 text-[10px] leading-4 text-[var(--text-secondary)]"><span className="text-white/70">视线/呼吸</span> {cue.gaze}；{cue.breath}</p>
+                      <p className="mt-1 text-[10px] leading-4 text-[var(--text-secondary)]"><span className="text-white/70">反应/潜台词</span> {cue.reaction}；{cue.subtext}</p>
+                    </div>
+                  ))}</div>
+                </div>
+              )}
               {editingId === sb.id ? (
                 <div className="space-y-2">
                   <textarea

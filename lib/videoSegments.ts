@@ -116,6 +116,7 @@ export function videoSegmentGenerationSignature(storyboards: Storyboard[]): stri
     description: storyboard.description,
     prompt: storyboard.prompt,
     action: storyboard.action || '',
+    performance: storyboard.performance || [],
     videoPrompt: storyboard.videoPromptOverride ? storyboard.videoPrompt || '' : '',
     speech: storyboard.speech || storyboard.dialogueLines || storyboard.dialogue || null,
     audioPlan: storyboard.audioPlan || null,

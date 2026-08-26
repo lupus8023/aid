@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateStoryPlan } from '@/lib/pipeline/storyWriter';
+import { streamingJsonResponse } from '@/lib/streamingJsonResponse';
 
 export const maxDuration = 300;
 
@@ -20,19 +21,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'apiKey or dmxApiKey is required' }, { status: 400 });
     }
 
-    const storyPlan = await generateStoryPlan({
-      synopsis: synopsis.trim(),
-      characters: characters || [],
-      objects: objects || [],
-      apiKey,
-      language: language || 'zh',
-      scriptProvider,
-      scriptModel,
-      dmxApiKey,
-      targetShotCount,
+    return streamingJsonResponse(async () => {
+      const storyPlan = await generateStoryPlan({
+        synopsis: synopsis.trim(),
+        characters: characters || [],
+        objects: objects || [],
+        apiKey,
+        language: language || 'zh',
+        scriptProvider,
+        scriptModel,
+        dmxApiKey,
+        targetShotCount,
+      });
+      return { storyPlan };
     });
-
-    return NextResponse.json({ storyPlan });
   } catch (error: any) {
     console.error('generate-story-plan error:', error);
     return NextResponse.json(

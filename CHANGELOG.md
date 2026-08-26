@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.86 - 2026-08-27
+
+### Added
+
+- A one-sentence brief can now expand into a complete cinematic screenplay with character objectives, conflict, turning points, choices, and a resolved ending.
+- Every visible character receives shot-specific performance direction for blocking, gesture, micro-expression, gaze, breath, reaction, and subtext.
+- The storyboard review screen now exposes executable action direction, exact dialogue, and actor performance cards before image or video generation.
+
+### Changed
+
+- Long story-planning and directing responses now stream keep-alive events and a final structured payload instead of waiting for one monolithic JSON response.
+- Character gender and age-group metadata now remain available to the screenplay writer for more consistent characterization and voice casting.
+- Story generation now requires Companion v0.1.86 so the website and local screenplay engine always share the same schema and routing behavior.
+
+### Fixed
+
+- When the browser cannot reach the local Companion, screenplay generation now stops with a precise local-network permission message instead of silently falling back to a hosted request that later returns an HTML gateway error.
+- Companion availability is retried before failure, and mid-request connection loss returns a structured error that the Story interface can display safely.
+
+### Verification
+
+- Production build, staged screenplay, story engine, story delivery, H3 prompt, streaming-response, and Companion-routing tests pass.
+
 ## 0.1.85 - 2026-08-26
 
 ### Changed

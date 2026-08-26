@@ -423,6 +423,8 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - 每镜必须落实 beatMap.informationGain 和 audienceQuestion。dramaticPurpose 说明局面为何改变，informationGain 说明观众因此理解了什么，两者不能互相复制。
 - editBridge 逐字沿用 beatMap。它说明本镜结果如何成为下一镜的剪辑触发和观众推论；不能改成淡入淡出等后期特效。
 - 每个 action 都要包含“触发→表演/动作→可见物理结果”，且只能写摄像机能直接记录的身体、表情、道具、位置和物理状态变化。禁止在 action 中写“解释从……转向……”“价值被定义为……”“观众理解/接受/等待……”等信息结论；这些只能留在 dramaticPurpose、informationGain、audienceQuestion 或 consequence。
+- 每个出场角色都必须有一条 performance 演员调度。objective 写角色此刻想从对方/环境得到什么；blocking 写可拍的起始姿态→重心/走位→动作峰值→落点；gesture 只给一个有意义的主手势；expression 必须写成“眼球/眉眼/嘴角/下颌的起点→细微变化→落定”，禁止只写“悲伤、开心、震惊”；gaze、breath、reaction 和 subtext 都要具体，并与台词或对手动作互相影响。
+- 微表演要错峰：通常视线/呼吸先变，眉眼随后，嘴角/下颌再落定，身体重心最后带出动作；不要让所有五官与四肢同时启动。听者不能木站，reaction 必须说明他听到/看到之后哪一处表情、视线、距离或决定发生变化。
 - 每镜只承担一个主动作弧：进入动作→加速/施力→明确触点或决定→0.25–0.6 秒可读结果。速度变化来自物理加速度和阻力，不得把整段动作默认写成匀速慢动作。
 - 相邻镜头的动作和能量要形成长短交替；关键信息落定后给短呼吸，普通动作不能用无意义停顿拖时长。除非剧情明确要求时间主观化，否则禁止 slow motion、长时间悬停和空镜漂移。
 - 每个镜尾必须留下一个可被下一镜接住的具体交棒：身体/道具运动方向、视线、前景遮挡、焦点变化、可见结果或由动作产生的声音；一个接缝只用一种交棒逻辑，并保持矢量、速度与银幕方向连续。
@@ -444,6 +446,7 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
   "beats": [{
     "index": ${firstIndex},
     "action": "一个明确、可见、可表演的动作单元",
+    "performance": [{ "character": "当前镜头出场角色", "objective": "此刻想从对方或环境得到什么", "blocking": "起始姿态→重心/走位→动作峰值→落点", "gesture": "唯一有意义的手势或身体细节", "expression": "眼球/眉眼/嘴角/下颌的微表情起点→变化→落定", "gaze": "视线对象、转移时机与落点", "breath": "呼吸节奏如何随压力或决定改变", "reaction": "对触发、对手或台词的即时可见反应", "subtext": "没有直说的真实意图" }],
     "characters": ["允许角色名"],
     "objects": ["允许物体名"],
     "clipType": "insert|reaction|establishing|action|dialogue|performance|montage|long_take",

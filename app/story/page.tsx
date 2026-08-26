@@ -997,7 +997,7 @@ export default function StoryPage() {
     const voiceLockedCharacters = castStoryVoices(characters, language);
     charactersRef.current = voiceLockedCharacters;
     setCharacters(voiceLockedCharacters);
-    const writerCharacters = voiceLockedCharacters.map(({ name, description, voiceId, voiceProfile, voiceSource }) => ({ name, description, voiceId, voiceProfile, voiceSource }));
+    const writerCharacters = voiceLockedCharacters.map(({ name, description, voiceId, voiceProfile, voiceSource, gender, ageGroup }) => ({ name, description, voiceId, voiceProfile, voiceSource, gender, ageGroup }));
     const writerObjects = objects.map(({ name, description }) => ({ name, description }));
     const activeSettings = settingsRef.current;
     // Older Companion builds ignore the structured field below, so append the
