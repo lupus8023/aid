@@ -81,9 +81,35 @@ test('persists and restores a manual director segment plan', () => {
   const storyboards = [1, 2, 3, 4].map(number => shot(number, { durationHint: 3 }));
   const plan = createVideoSegmentPlan(storyboards, [storyboards.slice(0, 2), storyboards.slice(2)], 'manual');
   const restored = resolveVideoSegmentGroups(storyboards, JSON.parse(JSON.stringify(plan)));
+  assert.equal(plan.version, 2);
   assert.equal(plan.source, 'manual');
   assert.deepEqual(restored.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
   assert.deepEqual(resolveVideoSegmentGroups([...storyboards].reverse(), plan).map(group => group.map(item => item.sceneNumber)), [[4, 3, 2, 1]]);
+});
+
+test('makes segment dialogue authoritative while storyboards remain visual references', () => {
+  const storyboards = [
+    shot(1, { characters: ['A'], speech: [{ character: 'A', exactLine: '第一部分说明。', source: 'story_required' }] }),
+    shot(2, { characters: ['A'], speech: [{ character: 'A', exactLine: '第二部分结论。', source: 'story_required' }] }),
+  ];
+  const plan = createVideoSegmentPlan(storyboards, [storyboards]);
+  assert.equal(plan.segments[0].speech.length, 1);
+  assert.equal(plan.segments[0].speech[0].exactLine, '第一部分说明，第二部分结论。');
+  const [resolved] = resolveVideoSegmentGroups(storyboards, plan);
+  assert.equal(resolved[0].speech.length, 1);
+  assert.deepEqual(resolved[1].speech, []);
+  assert.equal(resolved[0].speech[0].sourceStoryboardId, 'scene-1');
+});
+
+test('keeps ordered multi-speaker dialogue at segment level with one block per identity', () => {
+  const storyboards = [
+    shot(1, { characters: ['A'], speech: [{ character: 'A', exactLine: '你确认入口安全吗？', source: 'story_required' }] }),
+    shot(2, { characters: ['B'], speech: [{ character: 'B', exactLine: '我已经检查过两次。', source: 'story_required' }] }),
+  ];
+  const plan = createVideoSegmentPlan(storyboards, [storyboards]);
+  assert.deepEqual(plan.segments[0].speech.map(line => line.character), ['A', 'B']);
+  const [resolved] = resolveVideoSegmentGroups(storyboards, plan);
+  assert.deepEqual(resolved.flatMap(item => item.speech).map(line => line.exactLine), ['你确认入口安全吗？', '我已经检查过两次。']);
 });
 
 test('splits before a same-speaker second onset and caps each segment at three speaker blocks', () => {
@@ -131,7 +157,7 @@ test('segment duration reserves clean native-H3 lead-in and a complete final-wor
       audioPlan: { backgroundHuman: 'none', environment: [], foley: [], music: 'none', silenceBefore: 0, silenceAfter: 0.3 },
     }),
   ];
-  assert.equal(estimateVideoSegmentSeconds(segment), 11);
+  assert.equal(estimateVideoSegmentSeconds(segment), 9);
   assert.equal(validateVideoSegment(segment), undefined);
 });
 

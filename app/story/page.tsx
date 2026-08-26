@@ -24,7 +24,7 @@ import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
-import { estimateVideoSegmentSeconds, isCompletedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
+import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedVideoSegment, normalizeVideoSegmentPlan, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
@@ -671,14 +671,26 @@ export default function StoryPage() {
       setSceneImages(savedSceneImages);
       setStoryPlan(savedStoryPlan);
       storyPlanRef.current = savedStoryPlan;
-      setVideoSegmentPlan(savedProject.videoSegmentPlan);
-      videoSegmentPlanRef.current = savedProject.videoSegmentPlan;
+      const savedVideoSegmentPlan = savedStoryboards.length
+        ? normalizeVideoSegmentPlan(savedStoryboards, savedProject.videoSegmentPlan, savedLanguageForVoice)
+        : undefined;
+      setVideoSegmentPlan(savedVideoSegmentPlan);
+      videoSegmentPlanRef.current = savedVideoSegmentPlan;
+      if (savedVideoSegmentPlan && JSON.stringify(savedVideoSegmentPlan) !== JSON.stringify(savedProject.videoSegmentPlan)) {
+        saveProject({
+          ...savedProject,
+          name: savedProject.name,
+          storyboards: savedStoryboards,
+          videoSegmentPlan: savedVideoSegmentPlan,
+          createdAt: savedProject.createdAt,
+        });
+      }
       const savedAuto = savedAutoProduction();
       if (savedAuto && savedAuto.projectId === savedProject.id) {
         if (savedAuto.status === 'running') setAutoResumeRequested(true);
         else setAutoPaused(true);
       }
-      if (savedProject.storyboards?.length > 0) setCurrentStep(restoredStoryStep(savedStoryboards, savedProject.videoSegmentPlan));
+      if (savedProject.storyboards?.length > 0) setCurrentStep(restoredStoryStep(savedStoryboards, savedVideoSegmentPlan));
       else if (savedProject.storyContent && savedProject.characters?.length > 0) setCurrentStep(2);
     }
   }, [loadProject]);
@@ -777,6 +789,20 @@ export default function StoryPage() {
     const nextStoryboards = lockStoryboardVoiceIds(storyboardsRef.current, effectiveCast);
     storyboardsRef.current = nextStoryboards;
     setStoryboards(nextStoryboards);
+    const currentVideoPlan = videoSegmentPlanRef.current;
+    const nextVideoPlan = currentVideoPlan ? {
+      ...currentVideoPlan,
+      segments: currentVideoPlan.segments.map(segment => ({
+        ...segment,
+        speech: segment.speech.map(line => line.character === characterName ? {
+          ...line,
+          voiceId: resolved.voiceId || undefined,
+        } : line),
+      })),
+      updatedAt: new Date().toISOString(),
+    } : undefined;
+    videoSegmentPlanRef.current = nextVideoPlan;
+    setVideoSegmentPlan(nextVideoPlan);
 
     const previousVoiceId = uploaded?.voiceId || planned?.voiceId;
     let nextVoiceReferences = voiceReferencesRef.current;
@@ -801,7 +827,7 @@ export default function StoryPage() {
       costumeImages: costumeImagesRef.current,
       sceneImages: sceneImagesRef.current,
       storyPlan: nextPlan,
-      videoSegmentPlan: videoSegmentPlanRef.current,
+      videoSegmentPlan: nextVideoPlan,
       createdAt: new Date().toISOString(),
     });
   };
@@ -866,8 +892,11 @@ export default function StoryPage() {
         setSceneImages(importedSceneImages);
         setStoryPlan(importedStoryPlan);
         storyPlanRef.current = importedStoryPlan;
-        setVideoSegmentPlan(data.videoSegmentPlan);
-        videoSegmentPlanRef.current = data.videoSegmentPlan;
+        const importedVideoSegmentPlan = importedStoryboards.length
+          ? normalizeVideoSegmentPlan(importedStoryboards, data.videoSegmentPlan, importedLanguage)
+          : undefined;
+        setVideoSegmentPlan(importedVideoSegmentPlan);
+        videoSegmentPlanRef.current = importedVideoSegmentPlan;
         // Import is an explicit project replacement. Persist it immediately so
         // a refresh or a background tab cannot resurrect the project that was
         // open before the file chooser completed.
@@ -887,7 +916,7 @@ export default function StoryPage() {
           costumeImages: importedCostumeImages,
           sceneImages: importedSceneImages,
           storyPlan: importedStoryPlan,
-          videoSegmentPlan: data.videoSegmentPlan,
+          videoSegmentPlan: importedVideoSegmentPlan,
           createdAt: data.createdAt || new Date().toISOString(),
         });
         if (data.storyboards?.length > 0) setCurrentStep(4);
@@ -1018,8 +1047,13 @@ export default function StoryPage() {
     if (deliveryAudit.errors.length) {
       throw new Error(`故事交付校验失败：${deliveryAudit.errors.slice(0, 4).join('；')}`);
     }
-    setVideoSegmentPlan(undefined);
-    videoSegmentPlanRef.current = undefined;
+    const initialVideoSegmentPlan = createVideoSegmentPlan(
+      styledStoryboards,
+      suggestVideoSegments(styledStoryboards),
+      'auto',
+    );
+    setVideoSegmentPlan(initialVideoSegmentPlan);
+    videoSegmentPlanRef.current = initialVideoSegmentPlan;
     setStoryboards(styledStoryboards);
     storyboardsRef.current = styledStoryboards;
     persistCurrentProject(styledStoryboards);
@@ -1578,10 +1612,11 @@ export default function StoryPage() {
   const handleGenerateVideoPrompt = async (storyboard: Storyboard, requestedSegment?: Storyboard[]) => {
     const generationProjectId = projectIdRef.current;
     const segmentIds = (requestedSegment?.length ? requestedSegment : [storyboard]).map(item => item.id);
+    const requestedById = new Map((requestedSegment || []).map(item => [item.id, item]));
     const segmentStoryboards = storyboardsRef.current
       .filter(item => segmentIds.includes(item.id))
       .sort((a, b) => a.sceneNumber - b.sceneNumber)
-      .map(item => ({ ...item, visualStyle }));
+      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), visualStyle }));
     const referenceAudioNames = [...new Set(segmentStoryboards
       .flatMap(item => storyboardSpeech(item).map(line => line.character)))]
       .filter(name => Boolean(name && voiceReferencesRef.current?.[name]))
@@ -1625,7 +1660,11 @@ export default function StoryPage() {
     }
     const currentShots = storyboardsRef.current;
     const requestedIds = (requestedSegment?.length ? requestedSegment : [storyboard]).map(item => item.id);
-    const segment = currentShots.filter(item => requestedIds.includes(item.id)).sort((a, b) => a.sceneNumber - b.sceneNumber);
+    const requestedById = new Map((requestedSegment || []).map(item => [item.id, item]));
+    const segment = currentShots
+      .filter(item => requestedIds.includes(item.id))
+      .sort((a, b) => a.sceneNumber - b.sceneNumber)
+      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}) }));
     const validationError = validateVideoSegment(segment, projectLanguageRef.current);
     if (validationError) {
       failBeforeSubmission(validationError);

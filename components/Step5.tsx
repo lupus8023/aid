@@ -108,9 +108,10 @@ export default function Step5({
     setVideoAspects(current => current[url] === detected ? current : { ...current, [url]: detected });
   };
 
-  const groups = groupIds
-    .map(ids => ids.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item)))
-    .filter(group => group.length);
+  // Resolved groups are materialized from the segment plan. Each ordered
+  // dialogue event is anchored once to its visual start beat; all other beats
+  // remain visual references and cannot revive legacy per-shot dialogue.
+  const groups = plannedGroups;
   const safeActiveIndex = Math.min(Math.max(0, activeIndex), Math.max(0, groups.length - 1));
   const activeGroup = groups[safeActiveIndex] || [];
   const activeLeader = activeGroup[0];
@@ -193,7 +194,7 @@ export default function Step5({
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--workspace-accent)]">05 · Segment edit</p>
           <h2 className="mt-2 text-xl font-semibold text-white"><span className="text-[var(--workspace-accent)]">{withImages.length}</span> 分镜 → <span className="text-[var(--workspace-accent)]">{groups.length}</span> 个视频片段 · 预计 {Math.floor(totalSeconds / 60)}m{String(totalSeconds % 60).padStart(2, '0')}s</h2>
-          <p className="mt-2 text-xs text-[var(--text-secondary)]">MiniMax H3 · {language === 'en' ? 'English dialogue' : '中文对白'} · 每段 1–4 个节拍 · 最长 15s · AI 已按剧情、地点、台词与节奏自动分组</p>
+          <p className="mt-2 text-xs text-[var(--text-secondary)]">MiniMax H3 · {language === 'en' ? 'English dialogue' : '中文对白'} · 片段先锁定有序台词，再用 1–4 个分镜承载画面 · 最长 15s</p>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><HardDrive size={13} />本地缓存 {cachedCount}/{completedCount}</div>
       </header>
@@ -261,7 +262,7 @@ export default function Step5({
               <div className="mt-4 space-y-2 border-t border-[var(--border-color)] pt-4 text-[11px]"><div className="flex justify-between"><span className="text-[var(--text-secondary)]">时长分配</span><span className="text-white">自动 · {estimateVideoSegmentSeconds(activeGroup)}s</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">连续性检查</span><span className={`inline-flex items-center gap-1 ${activeValidationError ? 'text-red-300' : 'text-emerald-300'}`}><CheckCircle2 size={12} />{activeValidationError || '通过'}</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">权威台词</span><span className="text-white">{activeSpeech.length} 条</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">画面文字</span><span className="text-white">干净画面</span></div><div className="flex justify-between"><span className="text-[var(--text-secondary)]">参考图预处理</span><span className="text-emerald-300">高清压缩</span></div></div>
 
               <div className="mt-4 rounded-lg border border-[var(--border-color)] bg-black/10 p-3 text-[10px]">
-                <p className="font-semibold text-white">台词与声音白名单</p>
+                <p className="font-semibold text-white">片段级台词与声音白名单</p>
                 {activeSpeech.length ? activeSpeech.map(line => { const hasVoice = Boolean(line.voiceId || voiceReferences[line.character]); return <div key={`${line.speakerId}-${line.exactLine}`} className="mt-2 rounded border border-white/5 p-2"><div className="flex justify-between gap-2"><span className="text-[var(--workspace-accent)]">{line.speakerId} · {line.character}</span><span className={hasVoice ? 'text-emerald-300' : 'text-amber-300'}>{hasVoice ? '音色已绑定' : '未绑定角色音色'}</span></div><p className="mt-1 leading-5 text-white">“{line.exactLine}”</p><p className="mt-1 text-[var(--text-muted)]">仅该角色按上方文字发声一次</p></div>; }) : <p className="mt-2 text-[var(--text-secondary)]">本片段没有授权台词。</p>}
                 {activeSpeechWarnings.length > 0 && <div className="mt-2 rounded border border-amber-300/20 bg-amber-300/5 px-2 py-1.5 text-amber-200">{[...new Set(activeSpeechWarnings)].join('；')}</div>}
                 <div className="mt-3 space-y-1 text-[var(--text-secondary)]"><p>背景人声：{allowsBackgroundHuman ? '仅不可辨识的非语言存在感' : '禁止'}</p><p>环境声：{activeEnvironment.length ? activeEnvironment.join('、') : '仅安静场底'}</p><p>拟音：{activeFoley.length ? activeFoley.join('、') : '仅画面可见接触声'}</p><p>音乐：{activeGroup.some(item => storyboardAudioPlan(item).music !== 'none') ? '按剧本指定' : '禁止'}</p></div>

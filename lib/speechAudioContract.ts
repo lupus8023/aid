@@ -116,7 +116,7 @@ export function speechSeconds(text: string): number {
 export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
   const visible = new Set(storyboard.characters || []);
   const seen = new Set<string>();
-  const source = storyboard.speech?.length
+  const source = Array.isArray(storyboard.speech)
     ? storyboard.speech
     : (storyboard.dialogueLines?.length
         ? storyboard.dialogueLines
@@ -165,14 +165,20 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
     // same-speaker screenplay lines into one continuous H3 vocal event.
 }
 
-function joinContinuousSpeech(previous: string, next: string): string {
+function joinContinuousSpeech(previous: string, next: string, preserveSentenceBoundary = false): string {
   if (!previous) return next;
   if (!next) return previous;
   const containsHan = /[\u3400-\u9fff]/.test(previous + next);
   if (containsHan) {
+    if (!preserveSentenceBoundary) {
+      return `${previous.replace(/[。！？!?；;：:，,、\s]+$/u, '')}，${next.replace(/^[。！？!?；;：:，,、\s]+/u, '')}`;
+    }
     return /[，。！？；：、,.!?;:]$/.test(previous)
       ? `${previous}${next}`
       : `${previous}，${next}`;
+  }
+  if (!preserveSentenceBoundary) {
+    return `${previous.replace(/[.!?;:,\s]+$/u, '')}, ${next.replace(/^[.!?;:,\s]+/u, '')}`;
   }
   return `${previous}${/\s$/.test(previous) ? '' : ' '}${next}`;
 }
@@ -184,18 +190,29 @@ function joinContinuousSpeech(previous: string, next: string): string {
  * it. A-B-A would require that A start twice, so it is rejected explicitly.
  */
 export function consolidateSegmentSpeech(storyboards: Storyboard[]): IndexedSpeechLine[] {
-  const source = storyboards.flatMap((storyboard, storyboardIndex) => storyboardSpeech(storyboard).map(line => ({
-    ...line,
-    storyboardIndex,
-    sceneNumber: storyboard.sceneNumber,
-  })));
+  const source = storyboards.flatMap((storyboard, storyboardIndex) => storyboardSpeech(storyboard).map(line => {
+    const sourceIndex = line.sourceStoryboardId
+      ? storyboards.findIndex(candidate => candidate.id === line.sourceStoryboardId)
+      : storyboardIndex;
+    const resolvedIndex = sourceIndex >= 0 ? sourceIndex : storyboardIndex;
+    return {
+      ...line,
+      sourceStoryboardId: line.sourceStoryboardId || storyboard.id,
+      storyboardIndex: resolvedIndex,
+      sceneNumber: storyboards[resolvedIndex]?.sceneNumber || storyboard.sceneNumber,
+    };
+  }));
   const consolidated: IndexedSpeechLine[] = [];
   const completedSpeakers = new Set<string>();
 
   for (const line of source) {
     const previous = consolidated[consolidated.length - 1];
     if (previous?.character === line.character) {
-      previous.exactLine = joinContinuousSpeech(previous.exactLine, line.exactLine);
+      previous.exactLine = joinContinuousSpeech(
+        previous.exactLine,
+        line.exactLine,
+        previous.source === 'user_exact' && line.source === 'user_exact',
+      );
       previous.listenerState = line.listenerState || previous.listenerState;
       previous.storyFunction = [previous.storyFunction, line.storyFunction].filter(Boolean).join('+');
       previous.contentGoal = [previous.contentGoal, line.contentGoal].filter(Boolean).join('；');

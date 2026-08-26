@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.76 - 2026-08-26
+
+### Changed
+
+- Dialogue now belongs to the video segment plan. A segment first locks one ordered dialogue list; its storyboards only supply visual beats, action, camera, blocking, and timing references.
+- One segment may contain several speakers in order, including A→B and A→B→C. Each identity still receives one continuous speech block, while A→B→A is split or rejected because it would require the same voice to restart.
+- Consecutive generated lines for the same speaker are authored as one natural long utterance rather than retaining sentence endings that H3 could interpret as separate starts.
+- Segment duration and automatic grouping now budget one continuous dialogue train against the visual timeline instead of adding a separate speech allowance to every storyboard.
+
+### Fixed
+
+- Multi-storyboard clips can no longer revive old per-storyboard dialogue or submit two same-speaker lines with a silent hole between them.
+- Saved v1 segment plans are migrated to v2 on load while retaining valid manual boundaries; current voice changes are also written into the authoritative segment dialogue.
+- Prompt previews, H3 submission, generation signatures, validation, and the Step 5 dialogue whitelist now consume the same materialized segment-level dialogue.
+
+### Verification
+
+- All 183 automated tests, TypeScript validation, and the production build pass.
+
 ## 0.1.75 - 2026-08-26
 
 ### Changed

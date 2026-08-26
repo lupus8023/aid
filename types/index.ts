@@ -53,6 +53,7 @@ export interface StorySpeechLine {
   respondsTo?: string; // 与前一句或前一镜信息的关系，避免孤立短句
   contentGoal?: string; // 来自故事骨架的语义合同；逐字台词必须完整交付它
   source: 'user_exact' | 'story_required';
+  sourceStoryboardId?: string; // 片段级台词的画面起点；逐字台词本身不再归属于该分镜
 }
 
 export interface StoryAudioPlan {

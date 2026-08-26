@@ -346,7 +346,7 @@ test('compacts only duplicated look prose when a dense four-shot prompt approach
   }));
   const prompt = buildVideoSegmentPrompt(shots, [], { duration: 15, language: 'en', referenceAudioNames: ['Lin'], hasVoiceReferences: true });
   assert.ok(prompt.length <= 7000);
-  shots.slice(0, 3).forEach((_, index) => assert.match(prompt, new RegExp(`Gate ${index + 1} is holding now\\.`)));
+  assert.match(prompt, /Gate 1 is holding now, Gate 2 is holding now, Gate 3 is holding now\./);
   assert.equal((prompt.match(/<d>/g) || []).length, 1, 'the same speaker must have one continuous event across the segment');
   assert.equal(timelineJson(prompt).shot_contracts.filter(item => item.action).length, 4);
 });

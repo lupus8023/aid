@@ -372,7 +372,8 @@ test('outline and screenplay prompts keep story architecture separate from visua
   assert.match(batchPrompt, /不生成摄影内容/);
   assert.doesNotMatch(batchPrompt, /UNRELATED_FULL_SOURCE_MARKER/);
   assert.match(batchPrompt, /严格输出 9 个 beats/);
-  assert.match(batchPrompt, /一镜通常有 0–2 个说话人物/);
+  assert.match(batchPrompt, /先把相邻 beat 看成待装入同一个 H3 片段的视觉参考/);
+  assert.match(batchPrompt, /一段允许多个不同人物依次说话/);
   assert.match(batchPrompt, /每个人物只能对应一个连续 speech 条目/);
   assert.match(batchPrompt, /requiredDialogueLines/);
   assert.match(batchPrompt, /进入动作→加速\/施力→明确触点或决定→0\.25–0\.6 秒可读结果/);

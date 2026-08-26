@@ -308,7 +308,7 @@ ${JSON.stringify(roadmap, null, 2)}
 - 每一句都要改变信息、关系、策略或决定。禁止重复画面、重复上一句、总结主题、解释观众已经看见的动作，禁止把每个人都写成同一种“漂亮金句”口气。
 - 对白有潜台词：角色为达到当场目标而说，不直接朗读作者结论。只有高潮/回收允许把主题说得更清楚，但仍要落在角色当前选择上。
 - 跨镜回应若可能被拆成不同 H3 片段，exactLine 必须带清楚的名词、对象或决定，不能只用失去指代的“它/那件事/这样”。
-- 中文生成台词通常 24–48 个汉字；英文通常 12–28 个单词。允许用一段较长台词完整交付同一人物的多个相关信息点，避免碎句和二次起声；更短只允许作为立即可懂的回答/拒绝。每个人物在同一 beat 只能有一个 exactLine，多人物台词合计必须能在约 13 秒内自然说完并留下反应。
+- 中文生成台词通常 24–48 个汉字；英文通常 12–28 个单词。按视频片段而非按分镜创作：同一人物跨相邻画面的相关信息必须写成一个连贯 exactLine，只在片段台词表出现一次；镜头切换不会生成第二条台词。片段可以包含多个不同说话者，但每人只出现一次，全部台词必须能在约 13 秒内自然说完并留下反应。
 - exactLine 只包含真正说出口的字词。停顿、语气、表情、动作、无其他人在场等导演说明分别写入 subtext/listenerResult，绝不能进入 exactLine。
 - meaningEvidence 必须逐字摘自 exactLine，是实际承载 contentGoal 的连续片段；中文至少 4 个汉字，英文至少 3 个单词。listenerResult 写台词落下后听者可见地改变了什么。
 
@@ -431,7 +431,7 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - 台词必须承接上下文：用 storyFunction 标明 question/answer/reveal/refusal/decision/promise/callback/payoff；用 respondsTo 指向它回应的前一句信息或伏笔。不得写重复画面、孤立口号、通用感叹或没有对象的短句。
 - beatMap.dialogueTurns 是全片台词稿锁定的逐条合同：speech 条数、说话者顺序和 storyFunction 必须逐项一致；exactLine 必须逐字等于 dialogueTurns.exactLine，不能改写、缩短或重新创作。contentGoal、respondsTo、meaningEvidence、subtext 和 listenerResult 都要原样保留为非朗读元数据。
 - beatMap.dialogueUnitId、dialogueObligation、dialogueContext 是权威对白契约，逐项沿用。required 必须写 speech，不能因为动作可见而降为 visual_only；同一 dialogueUnitId 的问答/承诺/回收必须语义相接，听者的 listenerState 要写出听后发生的具体变化。
-- 一镜通常有 0–2 个说话人物；每个人物只能对应一个连续 speech 条目。同一人物原本分散的多个 story_required 信息点必须合并成一段较长、自然、完整的 exactLine，禁止 A→A 分段和 A→B→A 返回说话。用户锁定的 requiredDialogueLines 仍逐字保留，若同一人物有多条则按原顺序无缝合并为一个发声块；总台词时长加首尾留白必须装入 durationHint。不要为了凑数量写台词。
+- 先把相邻 beat 看成待装入同一个 H3 片段的视觉参考，再安排片段级台词。一段允许多个不同人物依次说话，但每个人物只能对应一个连续 speech 条目；同一人物原本分散在多个 beat 的 story_required 信息点必须在首个发声 beat 合并成一段较长、自然、完整的 exactLine，后续 beat 的 speech=[]，禁止 A→A 分段和 A→B→A 返回说话。用户锁定的 requiredDialogueLines 仍逐字保留，若同一人物有多条则按原顺序无缝合并为一个发声块；总台词时长加首尾留白必须装入片段时长。不要为了凑数量写台词。
 - 只有 dialogueObligation=optional 且没有 requiredLine 时，若本镜信息已经能靠动作完整、无歧义地交付，才可将 dialoguePurpose 明确改成 visual_only 并保持 speech=[]；dialogueObligation=required 或 requiredLine 非空时绝不能降级，也不能把一个角色的原话转嫁给另一个角色。
 - beatMap.requiredDialogueLines 非空时，speech 必须逐条、逐字、按顺序等于该数组；requiredLine/requiredSpeaker 是首句兼容字段。绝不能漏句、串角色、合并旁白或把临时人物的话转嫁给主角。
 - 自行创作 story_required 台词时，说话者必须在 characters 中以已上传精确名称出现；action 还要用当前输出语言清楚表现该可见角色正在开口。不要因为英文叙述使用自然称呼而改写 characters / speech.character 中的精确库名称。
@@ -520,7 +520,8 @@ export function buildStoryPlanPrompt(input: {
 - 台词必须有潜台词（subtext）：嘴上说的 ≠ 心里想的，不直说。
 - 台词必须有叙事功能：能由动作清楚表达的内容不用重复说；但目标、关系、选择、承诺、谎言与回收若仅靠画面会含混，必须写必要台词。speech=[] 只代表这一镜确实适合纯视觉叙事，不能把“克制”执行成全片禁言。
 - 不得为了“电影感”添加旁白、画外音、路人说话、感叹词、笑声、哼唱或无来源的人声。用户给出的指定台词必须逐字保留，不改写、不扩写。
-- speech 是全片唯一权威台词源。每个 beat 最多三个说话人物，并且每个人物只能有一个连续 speech 条目；同一人物的多个信息点合并成一段较长台词，禁止分成多句后重新起声。speaker 必须在当前 characters 中；exactLine 只能包含角色真正说出口的逐字内容，绝不能填写“无人说话”“无其他角色在场”“其他角色沉默/闭嘴/无声反应”“先短暂停顿，再以坚定语气说”等导演或表演指令。情绪和说话方式写入 emotion/delivery，其他角色状态写进 action 或 state；不要用 silenceBefore 在同一人物的句子中间制造空档。
+- 视频片段是对白骨架，beat 只是片段内部的画面参考。预计会连续装入同一个 15 秒 H3 片段的 1–3 个相邻 beat，必须先共同确定一组有序台词事件，再分配画面动作；不得先给每个 beat 各写一句、最后再拼接。同一片段允许 A→B、A→B→C 等多人对白，但每个人物只能有一个连续发声块，禁止 A→A 分段或 A→B→A 再次起声。
+- speech 是全片唯一权威台词源。一个片段中同一人物的多个信息点必须在第一个发声 beat 合并成一段较长、自然、完整的 speech；后续 beat 只用动作、反应、景别和走位承接该连续声音，speech=[]。speaker 必须在当前 characters 中；exactLine 只能包含角色真正说出口的逐字内容，绝不能填写“无人说话”“无其他角色在场”“其他角色沉默/闭嘴/无声反应”“先短暂停顿，再以坚定语气说”等导演或表演指令。情绪和说话方式写入 emotion/delivery，其他角色状态写进 action 或 state；不要用 silenceBefore 在同一人物的句子中间制造空档。
 - audioPlan 是唯一权威声音源。backgroundHuman 默认 none；只有剧情明确需要人群存在感时才可用 indistinct_nonverbal，且绝不能产生可辨识词语。环境、拟音、音乐必须分层，未要求音乐时 music 写 none。
 - 视觉母题（visualMotif）：一个反复出现的意象/道具，承载主题，首尾呼应（如一把伞、一盏灯、一封信）。
 
