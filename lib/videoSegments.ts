@@ -6,7 +6,7 @@ export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v26';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v27';
 
 export interface VideoSegmentDefinition {
   id: string;

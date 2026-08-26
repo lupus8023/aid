@@ -245,6 +245,14 @@ test('keeps an official structured H3 prompt free of a second appended contract'
   assert.equal(taggedPrompt(official, 'aid_single_reference', 0, 0), official);
 });
 
+test('removes the Chinese visible cue at the final submission boundary without changing dialogue', () => {
+  const official = `subject_definitions:\n<Picture 1> 是镜头参考。\n\nsummary:\n一个镜头。\n\nretention_analysis:\n保留主体。\n\ndetailed_description:\n[Shot 1] 画面中可见熊猫博士。可见物体为线雕面膜。熊猫博士说：<d>[Chinese] 这是肉眼可见的变化。<\/d>\n\noverall_soundscape:\n场景底噪。\n\nnon_diegetic_music:\nN/A`;
+  const submitted = taggedPrompt(official, 'aid_single_reference', 0, 0);
+  assert.doesNotMatch(submitted.replace(/<d>[\s\S]*?<\/d>/g, ''), /可见/);
+  assert.match(submitted, /镜头内物体包括线雕面膜/);
+  assert.match(submitted, /<d>\[Chinese] 这是肉眼可见的变化。<\/d>/);
+});
+
 test('preserves Picture 2 in official first/last prompts even without auxiliary images', () => {
   const official = `参考图片与目标视频的时间对齐——Picture 1 对应 0.00 秒；Picture 2 对应 9.00 秒。\n\nintegrated_multimodal_description: <Picture 1> 是起点，<Picture 2> 是终点。\n\noverall_soundscape: 场景底噪。\n\nnon_diegetic_music: 没有音乐。`;
   const tagged = taggedPrompt(official, 'aid_first_last', 0, 1, ['Dr. Pan']);

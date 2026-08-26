@@ -1103,13 +1103,31 @@ function sanitizeUnavailablePictureOrdinals(prompt: string, availableCount: numb
   ));
 }
 
+function removeChineseVisibleCueFromSubmittedPrompt(prompt: string): string {
+  return String(prompt || '').split(/(<d>[\s\S]*?<\/d>)/gi).map(part => {
+    if (/^<d>/i.test(part)) return part;
+    return part
+      .replace(/画面中可见的成因/g, '画面中的对应动作')
+      .replace(/画面中可见/g, '画面中有')
+      .replace(/可见物体为/g, '镜头内物体包括')
+      .replace(/上述可见动作/g, '上述动作')
+      .replace(/只由可见动作/g, '只由画面动作')
+      .replace(/跟随可见动作/g, '跟随画面动作')
+      .replace(/完成可见表演/g, '完成镜头内表演')
+      .replace(/不可见/g, '画面不呈现')
+      .replace(/可见/g, '画面呈现');
+  }).join('');
+}
+
 export function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, auxiliaryCount: number, referenceAudioCount: number, referenceAudioNames?: string[]): string {
   const availablePictureCount = variant === 'aid_first_last'
     ? 2
     : variant === 'aid_multi_reference'
       ? 1 + Math.max(0, auxiliaryCount)
       : 1;
-  const prompt = sanitizeUnavailablePictureOrdinals(visualPrompt, availablePictureCount);
+  const prompt = removeChineseVisibleCueFromSubmittedPrompt(
+    sanitizeUnavailablePictureOrdinals(visualPrompt, availablePictureCount),
+  );
   // The Story prompt builder now emits MiniMax's official base or Ref2VA
   // structure, including picture/audio labels and subject bindings. Appending
   // a second free-form contract would break the documented field order and

@@ -24,7 +24,7 @@ test('H3 prompts use natural-language text-free direction inside the official st
   assert.match(source, /subject_definitions:/);
   assert.match(source, /integrated_multimodal_description:/);
   assert.match(source, /No subtitles, captions, titles, speech bubbles, logos, watermarks, interface graphics, or readable text/);
-  assert.match(source, /画面不得出现字幕、标题、气泡、标志、水印、界面或任何可读文字/);
+  assert.match(source, /画面里不要出现字幕、文字、标志、水印或界面/);
   assert.doesNotMatch(source, /timeline_json|aid_h3_timeline|frame_text_policy/);
   assert.match(source, /visualOverride: storyboard\.videoPrompt\.trim\(\)/);
   assert.match(source, /sanitizeVisualDirection\(options\.visualOverride/);

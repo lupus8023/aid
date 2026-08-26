@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.84 - 2026-08-26
+
+### Changed
+
+- Chinese H3 prompts now use short, literal production language for people, objects, actions, expressions, framing, camera movement, continuity, and sound instead of contract-like terminology.
+- Shot prose now reads like direct on-set instructions, such as “the panda doctor holds the mask,” “the camera stays fixed,” and “do not suddenly change position.”
+- Dialogue timing remains onset-only and is stated plainly: start once at the timestamp, speak only the tagged line, and close the mouth after the final word.
+- The H3 prompt cache contract is bumped to `h3-v27`, preventing reuse of clips created with the previous verbose wording.
+- The minimum Story video Companion version is now v0.1.84 so the website cannot silently submit prompts through an older local generator.
+
+### Fixed
+
+- Removed every generated Chinese directing phrase containing `可见`; the final ComfyUI submission boundary also strips the cue from saved or cached prompts while preserving exact `<d>` dialogue.
+- Abstract action prose such as “summarizes the mask's value” is removed instead of being sent as a filmable action and accidentally vocalized.
+- Replaced terms such as object contracts, eyeline axes, screen sides, blocking, perspective relations, and decisive consequences with simple camera-observable sentences.
+
+### Verification
+
+- H3 prompt, reference-audio, story-delivery, and no-subtitle regression suites pass together with TypeScript validation and the production build.
+
 ## 0.1.83 - 2026-08-26
 
 ### Changed

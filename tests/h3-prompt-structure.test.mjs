@@ -123,6 +123,24 @@ test('keeps abstract meaning and relationship prose out of shot descriptions', (
   assert.doesNotMatch(prompt, /暂时接受营养供给依据|继续等待输送机制|功效解释从抽象宣传|观众理解产品价值|audienceInference|可见后果[:：]/);
 });
 
+test('removes the Chinese visible cue and abstract summary prose from every directing section', () => {
+  const prompt = buildVideoSegmentPrompt([shot(1, {
+    characters: ['熊猫博士'],
+    objects: ['线雕面膜'],
+    action: '熊猫博士总结面膜价值。',
+    description: '熊猫博士总结面膜价值。',
+    cameraMove: '摇镜，跟随可见动作',
+    audioPlan: {
+      backgroundHuman: 'none', environment: ['实验室底噪'], foley: ['包装摩擦'],
+      music: 'none', silenceBefore: 0.8, silenceAfter: 1,
+    },
+  })], [], { duration: 7, language: 'zh' });
+  assert.doesNotMatch(prompt, /可见|总结面膜价值/);
+  assert.match(prompt, /熊猫博士自然站稳，做一次简单手势，视线改变一次/);
+  assert.match(prompt, /画面里还有线雕面膜/);
+  assert.doesNotMatch(prompt, /物体包括|动作走位|画面侧/);
+});
+
 test('drops directing instructions, absent-speaker lines, and quoted visual dialogue', () => {
   const directing = buildVideoSegmentPrompt([shot(1, {
     speech: [{ speakerId: 'S01', character: 'Lin', exactLine: '无其他角色在场', emotion: 'neutral', delivery: 'plainly', volume: 'normal', lipSync: true, source: 'story_required' }],
@@ -151,9 +169,10 @@ test('preserves grouped storyboards as official timed shot paragraphs', () => {
     shot(3, { action: 'Lin pivots toward the station clock and runs.', cameraMove: '横移' }),
   ], [], { duration: 15, language: 'zh' });
   assert.equal((prompt.match(/\[Shot \d+]/g) || []).length >= 3, true);
-  assert.match(prompt, /\[Shot 2] 在 00:\d{2}\.\d{3}，镜头切到/);
+  assert.match(prompt, /\[Shot 2] 00:\d{2}\.\d{3} 切到 <Picture 2>/);
   for (const action of ['Lin snatches the red envelope', 'Lin tears the seal', 'Lin pivots toward the station clock']) assert.match(prompt, new RegExp(action));
   assert.doesNotMatch(prompt, /timeline_json|\{"schema"/);
+  assert.doesNotMatch(prompt, /fully_preserved|reference——|物体包括|既定|视线轴|画面侧|动作走位|决定性|透视关系/);
 });
 
 test('merges one character into one tagged line without an end timestamp', () => {
