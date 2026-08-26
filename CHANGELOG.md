@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.78 - 2026-08-26
+
+### Changed
+
+- H3 dialogue events now publish only an exact `first_word_at` onset. Estimated speech endings remain internal capacity checks and are no longer sent to the model.
+- The H3 timeline contract is upgraded to `aid_h3_timeline_v4`, and the cache contract is bumped to `h3-v21` so clips created under the old end-timestamp rules cannot be reused.
+
+### Fixed
+
+- Removed `window`, `final_word_complete_by`, `CONTINUE_TO_FINAL_WORD`, and completion-boundary controls that could make H3 prolong speech or invent syllables and words to fill an estimated duration.
+- Dialogue now runs once at its natural pace, stops immediately after the exact tagged text, closes the mouth, and returns to room tone without a target end timestamp.
+- Visual shot boundaries no longer terminate or restart an ongoing line; they can only schedule a new dialogue onset at an explicit `first_word_at`.
+
+### Verification
+
+- H3 prompt, no-subtitle, video-segment, auto-production, TypeScript, and production-build checks pass.
+
 ## 0.1.77 - 2026-08-26
 
 ### Changed

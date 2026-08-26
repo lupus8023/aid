@@ -20,13 +20,12 @@ function compactText(value: unknown, limit = 220): string {
 
 type H3TimelineDialogueEvent = {
   id: string;
-  window: string;
   speaker: string;
   kind: 'on_screen' | 'off_screen';
   spoken_once: string;
   first_word_at: string;
-  final_word_complete_by: string;
-  outside_window: string;
+  duration_policy: 'natural_from_exact_text';
+  after_spoken_once: string;
   delivery: string;
 };
 
@@ -59,6 +58,9 @@ function h3VoiceContract(eventCount: number): Record<string, unknown> {
     exact_verbatim_once: true,
     one_continuous_event_per_character: true,
     event_order_locked: true,
+    duration_policy: 'NATURAL_FROM_EXACT_TEXT_NO_END_TIMESTAMP',
+    after_each_event: 'STOP_AFTER_EXACT_FINAL_WORD_THEN_ROOM_TONE',
+    fill_to_timeline_boundary: false,
     direction_data_vocalized: false,
     narrator: false,
     ad_lib: false,
@@ -96,7 +98,11 @@ function buildAuthoritativeTimeBlocks(
   if (!timeline.length) return [];
   const boundaries = [...new Set([
     ...timeline.flatMap(range => [roundedTimelineBoundary(range.start), roundedTimelineBoundary(range.end)]),
-    ...timedSpeech.flatMap(line => [roundedTimelineBoundary(line.start), roundedTimelineBoundary(line.end)]),
+    // Speech end estimates remain an internal capacity check only. Publishing
+    // them made H3 treat the estimate as a duration target and occasionally
+    // invent syllables or words to fill the remaining time. Only the exact
+    // onset is part of the model-facing timeline.
+    ...timedSpeech.map(line => roundedTimelineBoundary(line.start)),
   ])].sort((a, b) => a - b);
   const startedShots = new Set<number>();
 
@@ -108,25 +114,23 @@ function buildAuthoritativeTimeBlocks(
       midpoint >= range.start - 0.001
       && (midpoint < range.end - 0.001 || rangeIndex === timeline.length - 1)
     )));
-    const speechIndex = timedSpeech.findIndex(line => line.start < end - 0.001 && line.end > start + 0.001);
-    const speech = speechIndex >= 0 ? timedSpeech[speechIndex] : undefined;
-    const eventId = speech ? `D${speechIndex + 1}` : null;
-    const startsSpeech = Boolean(speech && Math.abs(start - roundedTimelineBoundary(speech.start)) < 0.002);
-    const endsSpeech = Boolean(speech && Math.abs(end - roundedTimelineBoundary(speech.end)) < 0.002);
+    const speechIndex = timedSpeech.findIndex(line => Math.abs(start - roundedTimelineBoundary(line.start)) < 0.002);
+    const startsSpeech = speechIndex >= 0;
+    const eventId = startsSpeech ? `D${speechIndex + 1}` : null;
     // H3 has been observed vocalizing natural-language director prose placed
     // inside an active dialogue time block (especially transition/boundary
     // sentences). Timeline rows therefore contain only non-verbal control
     // enums. Human-readable action, expression and transition prose lives in
     // the referenced shot_contract, away from dialogue_events[].spoken_once.
-    const speechPhase = !speech
-      ? 'ZERO_VOICE_MOUTH_CLOSED'
-      : startsSpeech && endsSpeech
-        ? `${eventId}_START_ONCE_COMPLETE_HERE`
-        : startsSpeech
-          ? `${eventId}_START_ONCE`
-          : endsSpeech
-            ? `${eventId}_CONTINUE_TO_FINAL_WORD`
-            : `${eventId}_CONTINUE_NO_RESTART`;
+    const hasAnySpeech = timedSpeech.length > 0;
+    const hasPriorOnset = timedSpeech.some(line => roundedTimelineBoundary(line.start) < start + 0.002);
+    const speechPhase = startsSpeech
+      ? `${eventId}_START_ONCE_NATURAL_DURATION_THEN_STOP`
+      : !hasAnySpeech
+        ? 'ZERO_VOICE_MOUTH_CLOSED'
+        : hasPriorOnset
+          ? 'NO_NEW_ONSET_FINISH_NATURALLY_THEN_SILENCE'
+          : 'WAIT_FOR_ONSET_MOUTH_CLOSED';
     const isFirstBlockOfShot = !startedShots.has(shotIndex);
     startedShots.add(shotIndex);
     const atShotEnd = Math.abs(end - timeline[shotIndex].end) < 0.002;
@@ -137,7 +141,13 @@ function buildAuthoritativeTimeBlocks(
       window: `${h3Timestamp(start)}-${h3Timestamp(end)}`,
       shot_contract: `S${shotIndex + 1}`,
       action_phase: actionPhase,
-      expression: speech ? `LIPS_FOLLOW_${eventId}_ONLY` : 'MOUTH_CLOSED_SILENT_REACTION',
+      expression: startsSpeech
+        ? `LIPS_FOLLOW_${eventId}_UNTIL_EXACT_TEXT_END_THEN_CLOSE`
+        : !hasAnySpeech
+          ? 'MOUTH_CLOSED_ZERO_VOICE'
+          : hasPriorOnset
+            ? 'LIPS_FINISH_NATURALLY_NO_RESTART_THEN_CLOSE'
+            : 'MOUTH_CLOSED_WAIT_FOR_ONSET',
       dialogue: eventId,
       voice: speechPhase,
     }];
@@ -559,8 +569,8 @@ function shotActionSchedule(storyboard: Storyboard, range: { start: number; end:
     const action = authoritativeShotAction(storyboard);
     const actionSentence = /[.!?。！？]$/.test(action) ? action : `${action}.`;
     return compact
-      ? `${actionSentence} Real-time physical action. The dialogue window owns all vocal timing; mouth closed outside it. Preserve residual motion after the line; no slow motion.`
-      : `${actionSentence} Keep the visible action continuous at real-time speed while the tagged dialogue window remains the sole authoritative vocal timing. Outside that window the mouth stays closed. After the line, preserve a motivated reaction or residual motion through the end of the shot; no slow motion or extended hold.`;
+      ? `${actionSentence} Real time. Start once at first_word_at; natural pace; stop and close mouth after the exact tagged text. No end time or fill. Residual motion; no slow motion.`
+      : `${actionSentence} Keep the visible action continuous at real-time speed. Start the tagged line only at first_word_at, speak the exact text once at a natural conversational pace, and stop immediately after its natural final word; there is no target end timestamp to fill. Then close the mouth and preserve a motivated reaction or residual motion through the end of the shot; no slow motion or extended hold.`;
   }
   if (compact) {
     return `${authoritativeShotAction(storyboard)} Start by ${h3Timestamp(initiation)}; one peak/consequence by ${h3Timestamp(consequence)}; recover by ${h3Timestamp(recovery)} with 0.2–0.4s residual. Stagger channels 0.1–0.3s; ${hasContact ? 'contact→load→release→local rebound' : 'preserve mass/acceleration'}. Real time; no slow motion.`;
@@ -747,8 +757,8 @@ function chineseShotSchedule(storyboard: Storyboard, range: { start: number; end
   if (storyboardSpeech(storyboard).length) {
     const actionSentence = /[。！？]$/.test(action) ? action : `${action}。`;
     return compact
-      ? `${actionSentence}真实速度完成物理动作；对白时间窗决定全部人声时序，窗外嘴闭合。台词后保留残余动作；不得慢动作。`
-      : `${actionSentence}可见动作按真实速度连续完成，唯一的人声时序以对白时间窗为准；时间窗外嘴始终闭合。台词结束后只保留有动机的反应或残余动作直到镜头结束；不得慢动作或延长停顿。`;
+      ? `${actionSentence}真实速度；只在 first_word_at 开始一次，自然语速说完准确标签文字后立即停声闭嘴；无结束时间，不填充。保留残余动作；不得慢动作。`
+      : `${actionSentence}可见动作按真实速度连续完成；只在 first_word_at 开始标签中的准确台词，以自然对话语速完整说一次，说完自然的最后一个字立即停止，不得为了对齐时间补音、加字或拖长；提示词不规定台词结束时间。随后嘴闭合，只保留有动机的反应或残余动作直到镜头结束；不得慢动作或延长停顿。`;
   }
   if (compact) {
     return `${action} 最迟 ${h3Timestamp(initiation)} 启动；在 ${h3Timestamp(consequence)} 前完成一个动作峰值及其后果；到 ${h3Timestamp(recovery)} 恢复，并保留 0.2–0.4 秒残余状态。各动作通道错开 0.1–0.3 秒；${hasContact ? '接近→接触→受力→释放→局部回弹' : '保持可信的质量与加速度'}。真实速度，不得慢动作。`;
@@ -808,16 +818,14 @@ function buildChineseVideoSegmentPrompt(
           : line.volume === 'whisper' ? 'RESTRAINED_WHISPER'
             : 'NATURAL';
       const start = h3Timestamp(line.start);
-      const end = h3Timestamp(line.end);
       return {
         id: `D${lineIndex + 1}`,
-        window: `${start}-${end}`,
         speaker: source,
         kind: line.lipSync ? 'on_screen' : 'off_screen',
         spoken_once: `<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>`,
         first_word_at: start,
-        final_word_complete_by: end,
-        outside_window: line.lipSync ? 'no_voice_mouth_closed' : 'no_voice_visible_mouths_closed',
+        duration_policy: 'natural_from_exact_text',
+        after_spoken_once: line.lipSync ? 'stop_voice_and_close_mouth' : 'stop_voice_keep_visible_mouths_closed',
         delivery: `${volume}_CONVERSATIONAL_RESTRAINED_ONE_ARC`,
       };
     });
@@ -881,7 +889,7 @@ function buildChineseVideoSegmentPrompt(
   const soundscape = buildAudioManifest(storyboards, 'zh');
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards, 'zh');
   const timelineJson = h3TimelineJson({
-    schema: 'aid_h3_timeline_v3',
+    schema: 'aid_h3_timeline_v4',
     duration: `${duration.toFixed(3)}s`,
     silent_direction_data: true,
     audio_event_lock: voiceContract,
@@ -1004,16 +1012,14 @@ export function buildVideoSegmentPrompt(
           : line.volume === 'whisper' ? 'RESTRAINED_WHISPER'
             : 'NATURAL';
       const start = h3Timestamp(line.start);
-      const end = h3Timestamp(line.end);
       return {
         id: `D${lineIndex + 1}`,
-        window: `${start}-${end}`,
         speaker: source,
         kind: line.lipSync ? 'on_screen' : 'off_screen',
         spoken_once: `<d>[${dialogueLanguage(text)}] ${text}</d>`,
         first_word_at: start,
-        final_word_complete_by: end,
-        outside_window: line.lipSync ? 'no_voice_mouth_closed' : 'no_voice_visible_mouths_closed',
+        duration_policy: 'natural_from_exact_text',
+        after_spoken_once: line.lipSync ? 'stop_voice_and_close_mouth' : 'stop_voice_keep_visible_mouths_closed',
         delivery: `${volume}_CONVERSATIONAL_RESTRAINED_ONE_ARC`,
       };
     });
@@ -1102,7 +1108,7 @@ export function buildVideoSegmentPrompt(
   const soundscape = buildAudioManifest(storyboards);
   const nonDiegeticMusic = buildNonDiegeticMusic(storyboards);
   const timelineJson = h3TimelineJson({
-    schema: 'aid_h3_timeline_v3',
+    schema: 'aid_h3_timeline_v4',
     duration: `${duration.toFixed(3)}s`,
     silent_direction_data: true,
     audio_event_lock: voiceContract,

@@ -61,13 +61,16 @@ test('writes multi-reference H3 prompts in the official six-section order', () =
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
   const timeline = timelineJson(prompt);
   const [event] = dialogueEvents(prompt);
-  assert.equal(timeline.schema, 'aid_h3_timeline_v3');
+  assert.equal(timeline.schema, 'aid_h3_timeline_v4');
   assert.equal(timeline.silent_direction_data, true);
   assert.equal(timeline.audio_event_lock.vocalize_only, 'dialogue_events[].spoken_once');
-  assert.match(event.window, /^00:\d{2}\.\d{3}-00:\d{2}\.\d{3}$/);
   assert.equal(event.speaker, '<Subject 1>/<Audio 1>');
-  assert.equal(event.first_word_at, event.window.split('-')[0]);
-  assert.equal(event.final_word_complete_by, event.window.split('-')[1]);
+  assert.match(event.first_word_at, /^00:\d{2}\.\d{3}$/);
+  assert.equal(event.duration_policy, 'natural_from_exact_text');
+  assert.equal(event.after_spoken_once, 'stop_voice_and_close_mouth');
+  assert.equal('window' in event, false);
+  assert.equal('final_word_complete_by' in event, false);
+  assert.equal(timeline.audio_event_lock.fill_to_timeline_boundary, false);
   assert.equal(timeline.audio_event_lock.vocal_extras_or_reference_sample_leakage, false);
   assert.equal(timeline.reference_audio_contract.reproduce_source_fragments, false);
   assert.match(prompt, /no electronic hiss, static, buzz, digital residue, or abrupt audio cut/);
@@ -211,7 +214,8 @@ test('quarantines dialogue meaning from visual prose and places one exact speech
 
   const timeline = timelineJson(prompt);
   const [event] = dialogueEvents(prompt);
-  assert.match(event.window, /^00:\d{2}\.\d{3}-00:\d{2}\.\d{3}$/);
+  assert.match(event.first_word_at, /^00:\d{2}\.\d{3}$/);
+  assert.equal('final_word_complete_by' in event, false);
   assert.match(timeline.shot_contracts[0].action, /Dr\. Pan拿起一款护肤面膜并指向成分表/);
   assert.doesNotMatch(prompt, /将优越性落到具体成分上|核心价值被定义为|观众将面膜的价值与成分供给联系起来/);
   assert.equal((prompt.match(/面膜的核心在于它们丰富的成分/g) || []).length, 1);
@@ -439,12 +443,16 @@ test('schedules two connected lines inside one storyboard in order', () => {
   const events = dialogueEvents(prompt);
   assert.equal(events.length, 2);
   events.forEach(event => {
-    assert.equal(event.first_word_at, event.window.split('-')[0]);
-    assert.equal(event.final_word_complete_by, event.window.split('-')[1]);
+    assert.match(event.first_word_at, /^00:\d{2}\.\d{3}$/);
+    assert.equal(event.duration_policy, 'natural_from_exact_text');
+    assert.equal('window' in event, false);
+    assert.equal('final_word_complete_by' in event, false);
   });
-  const firstEnd = Number(events[0].window.split('-')[1].slice(3));
-  const secondStart = Number(events[1].window.split('-')[0].slice(3));
-  assert.ok(secondStart - firstEnd <= 0.121, 'speaker handoff must not leave a fillable silence gap');
+  const firstStart = Number(events[0].first_word_at.slice(3));
+  const secondStart = Number(events[1].first_word_at.slice(3));
+  assert.ok(secondStart > firstStart, 'speaker onsets must remain ordered');
+  assert.equal(timelineJson(prompt).timeline.filter(block => block.voice.includes('START_ONCE')).length, 2);
+  assert.doesNotMatch(prompt, /CONTINUE_TO_FINAL_WORD|COMPLETE_HERE/);
   assert.ok(prompt.lastIndexOf('</d>') < prompt.indexOf('"shot_contracts"'));
 });
 
