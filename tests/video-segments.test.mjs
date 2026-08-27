@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 
 import {
   allocateSegmentTimeline,
+  cinematicEditKind,
   createVideoSegmentPlan,
   estimateVideoSegmentSeconds,
   H3_PROMPT_CONTRACT_VERSION,
   isCompletedVideoSegment,
+  normalizeVideoSegmentPlan,
   persistedVideoClipCount,
   releaseUnsubmittedVideoGenerations,
   resolveVideoSegmentGroups,
@@ -34,10 +36,32 @@ const shot = (sceneNumber, extra = {}) => ({
   ...extra,
 });
 
-test('suggests one fidelity-locked video segment per storyboard', () => {
-  const groups = suggestVideoSegments(Array.from({ length: 9 }, (_, index) => shot(index + 1)));
-  assert.deepEqual(groups.map(group => group.length), Array(9).fill(1));
+test('groups complete cinematic phrases while protecting hero shots', () => {
+  const groups = suggestVideoSegments([
+    shot(1, { durationHint: 3, clipType: 'establishing', shotSize: 'wide shot', montageRole: 'setup' }),
+    shot(2, { durationHint: 3, clipType: 'action', shotSize: 'medium shot', montageRole: 'development' }),
+    shot(3, { durationHint: 3, clipType: 'reaction', shotSize: 'close-up', montageRole: 'consequence' }),
+    shot(4, { durationHint: 9, clipType: 'long_take', shotSize: 'wide shot' }),
+    shot(5, { durationHint: 3, clipType: 'action', shotSize: 'medium shot' }),
+    shot(6, { durationHint: 2, clipType: 'insert', shotSize: 'extreme close-up' }),
+    shot(7, { durationHint: 3, clipType: 'reaction', shotSize: 'close-up' }),
+    shot(8, { durationHint: 7, clipType: 'performance', shotSize: 'close-up' }),
+    shot(9, { durationHint: 3, clipType: 'action', shotSize: 'medium shot' }),
+  ]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2, 3], [4], [5, 6, 7], [8], [9]]);
   assert.ok(groups.every(group => estimateVideoSegmentSeconds(group) <= 15));
+});
+
+test('rebuilds a stale automatic fidelity plan with the cinematic editing contract', () => {
+  const storyboards = [
+    shot(1, { durationHint: 3, clipType: 'establishing', shotSize: 'wide shot' }),
+    shot(2, { durationHint: 3, clipType: 'action', shotSize: 'medium shot' }),
+    shot(3, { durationHint: 3, clipType: 'reaction', shotSize: 'close-up' }),
+  ];
+  const stale = createVideoSegmentPlan(storyboards, storyboards.map(item => [item]), 'auto');
+  delete stale.planningContract;
+  const normalized = normalizeVideoSegmentPlan(storyboards, stale);
+  assert.deepEqual(normalized.groups, [['scene-1', 'scene-2', 'scene-3']]);
 });
 
 test('releases a fake generating segment that never received a durable task id', () => {
@@ -58,13 +82,14 @@ test('keeps all members locked when the segment leader has a recoverable task id
   assert.equal(releaseUnsubmittedVideoGenerations(running), running);
 });
 
-test('keeps adjacent dialogue shots separate so each storyboard remains an exact frame', () => {
+test('uses one shot-reverse-shot unit for an adjacent question and answer', () => {
   const groups = suggestVideoSegments([
     shot(1, { durationHint: 10 }),
     shot(2, { durationHint: 5, characters: ['A'], dialogueUnitId: 'dlg-1', speech: [{ character: 'A', exactLine: 'Who opened the gate?', source: 'story_required' }] }),
     shot(3, { durationHint: 5, characters: ['B'], dialogueUnitId: 'dlg-1', speech: [{ character: 'B', exactLine: 'I opened it before the flood.', source: 'story_required' }] }),
   ]);
-  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2], [3]]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2, 3]]);
+  assert.equal(cinematicEditKind(groups[1][0], groups[1][1]), 'dialogue-reverse');
 });
 
 test('keeps causal shots editorially separate across sequence or location changes', () => {
@@ -80,6 +105,7 @@ test('keeps causal shots editorially separate across sequence or location change
 test('persists and restores a manual director segment plan', () => {
   const storyboards = [1, 2, 3, 4].map(number => shot(number, { durationHint: 3 }));
   const plan = createVideoSegmentPlan(storyboards, [storyboards.slice(0, 2), storyboards.slice(2)], 'manual');
+  delete plan.planningContract;
   const restored = resolveVideoSegmentGroups(storyboards, JSON.parse(JSON.stringify(plan)));
   assert.equal(plan.version, 2);
   assert.equal(plan.source, 'manual');
@@ -112,14 +138,14 @@ test('keeps ordered multi-speaker dialogue at segment level with one block per i
   assert.deepEqual(resolved.flatMap(item => item.speech).map(line => line.exactLine), ['你确认入口安全吗？', '我已经检查过两次。']);
 });
 
-test('automatic fidelity mode isolates every speaker onset in its own visual segment', () => {
+test('splits an A-B-A recurrence into valid consecutive dialogue edit units', () => {
   const groups = suggestVideoSegments([
-    shot(1, { characters: ['A'], speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: '第一句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
-    shot(2, { characters: ['B'], speech: [{ speakerId: 'S2', character: 'B', voiceId: 'voice-b', exactLine: '第二句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
-    shot(3, { characters: ['A'], speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: '第三句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
-    shot(4, { characters: ['C'], speech: [{ speakerId: 'S3', character: 'C', voiceId: 'voice-c', exactLine: '第四句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
+    shot(1, { durationHint: 3, clipType: 'dialogue', dialogueUnitId: 'exchange-1', characters: ['A'], speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: '第一句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
+    shot(2, { durationHint: 3, clipType: 'dialogue', dialogueUnitId: 'exchange-1', characters: ['B'], speech: [{ speakerId: 'S2', character: 'B', voiceId: 'voice-b', exactLine: '第二句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
+    shot(3, { durationHint: 3, clipType: 'dialogue', dialogueUnitId: 'exchange-2', characters: ['A'], speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: '第三句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
+    shot(4, { durationHint: 3, clipType: 'dialogue', dialogueUnitId: 'exchange-2', characters: ['C'], speech: [{ speakerId: 'S3', character: 'C', voiceId: 'voice-c', exactLine: '第四句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
   ]);
-  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2], [3], [4]]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
   assert.equal(validateVideoSegment(groups[0]), undefined);
   assert.match(validateVideoSegment([shot(1, { characters: ['A'], imageUrl: 'x', dialogueLines: [{ character: 'A', text: '一。' }] }), shot(2, { characters: ['B'], imageUrl: 'x', dialogueLines: [{ character: 'B', text: '二。' }] }), shot(3, { characters: ['C'], imageUrl: 'x', dialogueLines: [{ character: 'C', text: '三。' }] }), shot(4, { characters: ['D'], imageUrl: 'x', dialogueLines: [{ character: 'D', text: '四。' }] })]), /最多绑定 3 个/);
 });

@@ -7,6 +7,7 @@ import { fetchStoryApi } from '@/lib/comfyuiClient';
 import { DEFAULT_TARGET_SHOT_COUNT, SHOT_COUNT_OPTIONS, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import type { AppSettings } from '@/types';
 import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
+import ScriptThinkingPanel, { type ScriptGenerationPhase } from './ScriptThinkingPanel';
 
 interface Step1Props {
   storyContent: string;
@@ -25,9 +26,10 @@ interface Step1Props {
   companionSettings?: AppSettings['comfyui'];
   aspectRatio?: StoryAspectRatio;
   onAspectRatioChange?: (aspectRatio: StoryAspectRatio) => void;
+  generationPhase?: ScriptGenerationPhase;
 }
 
-export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, targetShotCount = DEFAULT_TARGET_SHOT_COUNT, onTargetShotCountChange, apiKey, scriptProvider, scriptModel, dmxApiKey, companionSettings, aspectRatio = '16:9', onAspectRatioChange }: Step1Props) {
+export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoading, language = 'zh', onLanguageChange, targetShotCount = DEFAULT_TARGET_SHOT_COUNT, onTargetShotCountChange, apiKey, scriptProvider, scriptModel, dmxApiKey, companionSettings, aspectRatio = '16:9', onAspectRatioChange, generationPhase = 'idle' }: Step1Props) {
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text');
   const [textInput, setTextInput] = useState(storyContent);
   const [isAdapting, setIsAdapting] = useState(false);
@@ -191,7 +193,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
           {(apiKey || dmxApiKey) && (
             <button
               onClick={handleAdapt}
-              disabled={!textInput.trim() || isAdapting}
+              disabled={!textInput.trim() || isAdapting || isLoading}
               className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-[var(--accent-purple,#a855f7)] hover:bg-[#9333ea] text-white disabled:opacity-50 rounded transition-colors"
             >
               {isAdapting ? <><Loader2 size={11} className="animate-spin" /> 正在改编…</> : <><Wand2 size={11} /> 改编剧本</>}
@@ -207,6 +209,10 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
         />
       )}
 
+      {isLoading && generationPhase !== 'idle' && (
+        <ScriptThinkingPanel phase={generationPhase} targetShotCount={targetShotCount} />
+      )}
+
       <div className="flex justify-between pt-4 border-t border-[var(--border-color)]">
         {onBack && (
           <button onClick={onBack} className="bg-[var(--bg-tertiary)] text-[var(--text-primary)] px-6 py-2.5 rounded font-mono text-sm hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-2">
@@ -218,7 +224,7 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
           disabled={!textInput.trim() || isLoading}
           className="ml-auto bg-[var(--accent-blue)] text-white px-6 py-2.5 rounded font-mono text-sm hover:bg-[#0098ff] disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:cursor-not-allowed transition-colors"
         >
-          {isLoading ? <span className="animate-pulse">正在创作故事与演员调度…</span> : '智能生成电影级剧本 →'}
+          {isLoading ? <span className="animate-pulse">剧本创作进行中，请稍候…</span> : '智能生成电影级剧本 →'}
         </button>
       </div>
     </div>

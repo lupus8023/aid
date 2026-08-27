@@ -1,5 +1,5 @@
 import type { StoryPlan, Beat, PlannedCharacter, StoryRequirement, StoryStructureMilestone, WriterCharacter, WriterObject } from './types';
-import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryDialogueManuscriptPrompt, buildStoryOutlinePrompt } from './storyWriterPrompt';
+import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryDialogueManuscriptPrompt, buildStorySequenceMapPrompt, buildStorySpinePrompt } from './storyWriterPrompt';
 import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
 import { normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from './shotCount';
@@ -320,6 +320,108 @@ function unwrapStoryOutline(value: unknown, depth = 0): Record<string, unknown> 
     if (Array.isArray(nested.sequences)) return nested;
   }
   return {};
+}
+
+function unwrapStoryBeatMap(value: unknown, depth = 0): any[] {
+  if (depth > 5 || !value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'object') return [];
+  const record = value as Record<string, unknown>;
+  for (const key of ['beatMap', 'beats', 'shots', 'items']) {
+    if (Array.isArray(record[key])) return record[key] as any[];
+  }
+  for (const key of ['storyPlan', 'storyOutline', 'outline', 'plan', 'story', 'result', 'output', 'data', 'sequence']) {
+    const nested = unwrapStoryBeatMap(record[key], depth + 1);
+    if (nested.length) return nested;
+  }
+  return [];
+}
+
+function allocateSequenceShotCounts(weights: number[], targetShotCount: number): number[] {
+  if (!weights.length) return [];
+  const safeTarget = Math.max(weights.length, targetShotCount);
+  const safeWeights = weights.map(value => Math.max(1, Number.isFinite(value) ? value : 1));
+  const weightTotal = safeWeights.reduce((total, value) => total + value, 0);
+  const exact = safeWeights.map(value => (value / weightTotal) * safeTarget);
+  const counts = exact.map(value => Math.max(1, Math.floor(value)));
+  let allocated = counts.reduce((total, value) => total + value, 0);
+  while (allocated < safeTarget) {
+    const index = exact
+      .map((value, candidate) => ({ candidate, remainder: value - counts[candidate] }))
+      .sort((a, b) => b.remainder - a.remainder || a.candidate - b.candidate)[0].candidate;
+    counts[index] += 1;
+    allocated += 1;
+  }
+  while (allocated > safeTarget) {
+    const candidate = counts
+      .map((value, index) => ({ value, index, excess: value - exact[index] }))
+      .filter(item => item.value > 1)
+      .sort((a, b) => b.excess - a.excess || b.index - a.index)[0];
+    if (!candidate) break;
+    counts[candidate.index] -= 1;
+    allocated -= 1;
+  }
+  return counts;
+}
+
+/** Normalize the small global response and repair only its numeric shot quota. */
+export function normalizeStorySpine(raw: any, targetShotCount: number): Record<string, any> {
+  const unwrapped = unwrapStoryOutline(raw);
+  const submitted = (Array.isArray(unwrapped.sequences) ? unwrapped.sequences : [])
+    .filter((sequence: any) => sequence && typeof sequence === 'object')
+    .slice(0, targetShotCount);
+  if (!submitted.length) throw new Error('故事脊柱没有返回任何场次');
+  const counts = allocateSequenceShotCounts(
+    submitted.map((sequence: any) => Number(sequence.shotCount) || 1),
+    targetShotCount,
+  );
+  const sequences = submitted.map((sequence: any, index: number) => ({
+    ...sequence,
+    id: asString(sequence.id, `seq-${index + 1}`).trim() || `seq-${index + 1}`,
+    locationId: asString(sequence.locationId, `loc-${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, '_'),
+    shotCount: counts[index],
+  }));
+  const requiredSpine = ['centralDramaticQuestion', 'audiencePromise', 'dialogueArc', 'montageStrategy']
+    .filter(key => !asString(unwrapped[key]).trim());
+  if (requiredSpine.length) throw new Error(`故事脊柱缺少全片叙事字段：${requiredSpine.join('、')}`);
+  const milestoneNames = ['opening', 'inciting_incident', 'first_threshold', 'midpoint_reversal', 'crisis_choice', 'climax_proof', 'resolution'];
+  const structure = Array.isArray(unwrapped.structure) ? unwrapped.structure : [];
+  if (milestoneNames.some(name => structure.filter((item: any) => item?.name === name).length !== 1)
+    || structure.some((item: any) => !Number.isInteger(Number(item?.shotIndex))
+      || Number(item.shotIndex) < 1 || Number(item.shotIndex) > targetShotCount
+      || !asString(item?.event).trim() || !asString(item?.audienceShift).trim())) {
+    throw new Error('故事脊柱必须完整返回七个结构节点');
+  }
+  const ordered = milestoneNames.map(name => structure.find((item: any) => item?.name === name));
+  if (ordered.some((item: any, index: number) => index > 0 && Number(item.shotIndex) < Number(ordered[index - 1].shotIndex))) {
+    throw new Error('故事脊柱结构节点的镜头顺序不能倒退');
+  }
+  return { ...unwrapped, sequences };
+}
+
+export function validateStorySequenceMap(
+  raw: any,
+  startIndex: number,
+  shotCount: number,
+  allowedCharacters: string[],
+): any[] {
+  const beats = unwrapStoryBeatMap(raw);
+  if (beats.length !== shotCount) {
+    throw new Error(`当前镜头地图返回 ${beats.length} 条，必须严格为 ${shotCount} 条（${startIndex}–${startIndex + shotCount - 1}）`);
+  }
+  const requiredFields = ['actionGoal', 'cause', 'consequence', 'emotionalTurn', 'informationGain', 'montageRole', 'editBridge', 'audienceQuestion'];
+  beats.forEach((beat: any, offset: number) => {
+    const missing = requiredFields.filter(field => !asString(beat?.[field], field === 'actionGoal' ? asString(beat?.action) : '').trim());
+    if (missing.length) throw new Error(`镜头 ${startIndex + offset} 缺少 ${missing.join('、')}`);
+    const purpose = asString(beat?.dialoguePurpose, 'visual_only').trim();
+    if (!/(?:visual_only|纯视觉|无对白)/i.test(purpose)) {
+      const speaker = asString(beat?.requiredSpeaker).trim();
+      if (!allowedCharacters.includes(speaker)) throw new Error(`镜头 ${startIndex + offset} 的必要对白没有绑定有效角色`);
+      const turns = normalizedDialogueTurns(beat?.dialogueTurns, allowedCharacters);
+      if (!turns.length) throw new Error(`镜头 ${startIndex + offset} 的必要对白没有 dialogueTurns`);
+    }
+  });
+  return beats.map((beat: any, offset: number) => ({ ...beat, index: startIndex + offset }));
 }
 
 function validTransition(value: unknown): Beat['transition'] {
@@ -1125,52 +1227,77 @@ export async function generateStoryPlan(input: {
   const synopsis = expanded.canonicalSynopsis;
   const targetShotCount = normalizeTargetShotCount(input.targetShotCount);
   const isLocalCompanion = process.env.AID_LOCAL_COMPANION === '1';
-  const outlinePrompt = buildStoryOutlinePrompt({ synopsis, characters, objects, language, targetShotCount });
-  console.log(`[story-writer] generating compact outline for ${targetShotCount} shots`);
-  let outline = await requestStructuredJson<StoryOutline>({
-    prompt: outlinePrompt,
-    label: '故事骨架',
-    validate: raw => {
-      const normalized = normalizeStoryOutline(
-        raw,
-        targetShotCount,
-        characters.map(character => character.name),
-        expanded.aliases,
-      );
-      const authoritative = applySourceDialogueAuthority(normalized, synopsis, characters.map(character => character.name));
-      const missingDialogue = missingSourceDialogueLines(authoritative, synopsis, characters.map(character => character.name));
-      if (missingDialogue.length) {
-        throw new Error(`改编后的 ${targetShotCount} 镜骨架遗漏 ${missingDialogue.length} 条用户逐字台词：${missingDialogue.slice(0, 3).map(line => `${line.character}: “${line.text}”`).join('；')}`);
-      }
-      return authoritative;
-    },
+  const allowedCharacterNames = characters.map(character => character.name);
+  const spinePrompt = buildStorySpinePrompt({ synopsis, characters, objects, language, targetShotCount });
+  console.log(`[story-writer] generating story spine for ${targetShotCount} shots`);
+  const spine = await requestStructuredJson<Record<string, any>>({
+    prompt: spinePrompt,
+    label: '故事脊柱',
+    validate: raw => normalizeStorySpine(raw, targetShotCount),
     apiKey,
     dmxApiKey,
     provider: scriptProvider,
     model: scriptModel,
-    // The outline now carries four narrative fields per beat plus sequence
-    // audience state. The older budget ended around 30k characters for a
-    // 27-shot film and providers returned a truncated object; extractJson then
-    // found an inner array and validation misleadingly reported zero shots.
-    // Even the "compact" outline carries causal state, audience state and a
-    // dialogue contract for every shot.  Real 18-shot English projects are
-    // already ~10k output tokens; the old 5k + 260/shot budget cut the outer
-    // object before its closing brace. extractJson could then recover a valid
-    // inner array (usually characters), which misleadingly validated as a
-    // zero-shot outline. Give the planner enough room to finish the one
-    // authoritative JSON object; detailed screenplay prose is still emitted
-    // in the smaller batches below.
-    // APIMart's GPT-4o-compatible endpoint rejects max_tokens above 16,384
-    // before generation begins. Keep a small safety margin so the same
-    // request can also fall back from DMX to APIMart without a deterministic
-    // 400 loop. Eighteen-shot outlines have measured below 10k output tokens.
-    maxOutputTokens: Math.min(16_000, 12_000 + targetShotCount * 450),
-    // Long-form English adaptations can legitimately spend more than 150s
-    // producing the one authoritative outline. The Companion streams
-    // keep-alives to the browser, so allow the model to finish instead of
-    // purchasing the same large request again after an artificial timeout.
-    timeoutMs: isLocalCompanion ? 270_000 : 48_000,
+    maxOutputTokens: 7_000,
+    timeoutMs: isLocalCompanion ? 180_000 : 48_000,
   });
+
+  // A full 18-shot outline measured above 50k characters in production and
+  // was repeatedly cut off by provider output/proxy limits. Keep the whole
+  // story spine authoritative, but request at most six compact beat contracts
+  // at a time and assemble them before the existing global validator runs.
+  let nextOutlineIndex = 1;
+  let previousOutlineBeat: any | undefined;
+  const stagedSequences: any[] = [];
+  for (const sequence of spine.sequences) {
+    const sequenceBeats: any[] = [];
+    let remaining = Number(sequence.shotCount);
+    while (remaining > 0) {
+      const chunkSize = Math.min(6, remaining);
+      const chunkStart = nextOutlineIndex;
+      const mapPrompt = buildStorySequenceMapPrompt({
+        synopsis,
+        characters,
+        objects,
+        language,
+        targetShotCount,
+        spine,
+        sequence,
+        startIndex: chunkStart,
+        shotCount: chunkSize,
+        previousBeat: previousOutlineBeat,
+      });
+      console.log(`[story-writer] outline map ${chunkStart}-${chunkStart + chunkSize - 1}/${targetShotCount}`);
+      const chunk = await requestStructuredJson<any[]>({
+        prompt: mapPrompt,
+        label: `镜头地图 ${chunkStart}-${chunkStart + chunkSize - 1}`,
+        validate: raw => validateStorySequenceMap(raw, chunkStart, chunkSize, allowedCharacterNames),
+        apiKey,
+        dmxApiKey,
+        provider: scriptProvider,
+        model: scriptModel,
+        maxOutputTokens: Math.min(10_000, 2_000 + chunkSize * 1_100),
+        timeoutMs: isLocalCompanion ? 180_000 : 48_000,
+      });
+      sequenceBeats.push(...chunk);
+      previousOutlineBeat = chunk[chunk.length - 1];
+      nextOutlineIndex += chunkSize;
+      remaining -= chunkSize;
+    }
+    stagedSequences.push({ ...sequence, beatMap: sequenceBeats, shotCount: sequenceBeats.length });
+  }
+
+  let outline = normalizeStoryOutline(
+    { ...spine, sequences: stagedSequences },
+    targetShotCount,
+    allowedCharacterNames,
+    expanded.aliases,
+  );
+  outline = applySourceDialogueAuthority(outline, synopsis, allowedCharacterNames);
+  const missingDialogue = missingSourceDialogueLines(outline, synopsis, allowedCharacterNames);
+  if (missingDialogue.length) {
+    throw new Error(`改编后的 ${targetShotCount} 镜骨架遗漏 ${missingDialogue.length} 条用户逐字台词：${missingDialogue.slice(0, 3).map(line => `${line.character}: “${line.text}”`).join('；')}`);
+  }
 
   const generatedDialogueTurns = outline.sequences
     .flatMap(sequence => sequence.beatMap)

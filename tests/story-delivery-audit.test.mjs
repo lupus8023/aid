@@ -66,14 +66,14 @@ function coherentFixture() {
   return { plan, storyboards };
 }
 
-test('delivers an 18-shot causal story and exact dialogue sequence through fidelity-locked H3 prompts', () => {
+test('delivers an 18-shot causal story and exact dialogue sequence through cinematic H3 segments', () => {
   const { plan, storyboards } = coherentFixture();
   const groups = suggestVideoSegments(storyboards);
   const audit = auditStoryDelivery(plan, storyboards, groups);
   assert.deepEqual(audit.errors, []);
   assert.equal(audit.metrics.plannedShots, 18);
   assert.equal(audit.metrics.dialogueLines, dialogueByShot.size);
-  assert.equal(audit.metrics.multiShotSegments, 0);
+  assert.ok(audit.metrics.multiShotSegments > 0);
 
   const prompts = groups.map(group => buildVideoSegmentPrompt(group, [], {
     duration: estimateVideoSegmentSeconds(group), language: 'en',

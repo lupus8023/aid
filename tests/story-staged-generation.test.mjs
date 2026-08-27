@@ -3,8 +3,8 @@ import test from 'node:test';
 
 import { buildDirectorBatches, buildDirectorPrompt, normalizeDirectorShots, stripExactDialogueFromDescription, validateDirectorShots } from '../lib/pipeline/storyDirector.ts';
 import { extractJson } from '../lib/pipeline/json.ts';
-import { applySourceDialogueAuthority, applyStoryDialogueManuscript, buildStoryBeatBatches, expandStoryCharacters, filterVisibleStorySpeech, missingSourceDialogueLines, normalizeStoryOutline, normalizedBeatConflict, normalizedBeatNextCause, parseSourceDialogueByShot, sanitizeStoryPlan, structuredRetryCorrection } from '../lib/pipeline/storyWriter.ts';
-import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryDialogueManuscriptPrompt, buildStoryOutlinePrompt } from '../lib/pipeline/storyWriterPrompt.ts';
+import { applySourceDialogueAuthority, applyStoryDialogueManuscript, buildStoryBeatBatches, expandStoryCharacters, filterVisibleStorySpeech, missingSourceDialogueLines, normalizeStoryOutline, normalizeStorySpine, normalizedBeatConflict, normalizedBeatNextCause, parseSourceDialogueByShot, sanitizeStoryPlan, structuredRetryCorrection, validateStorySequenceMap } from '../lib/pipeline/storyWriter.ts';
+import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryDialogueManuscriptPrompt, buildStoryOutlinePrompt, buildStorySequenceMapPrompt, buildStorySpinePrompt } from '../lib/pipeline/storyWriterPrompt.ts';
 import { apimartErrorSummary } from '../lib/apimart.ts';
 
 const outlineSequence = (id, start, count) => ({
@@ -65,6 +65,62 @@ test('normalizes the global map to exact continuous indexes and rejects a wrong 
 
   assert.deepEqual(outline.sequences.flatMap(sequence => sequence.beatMap.map(beat => beat.index)), Array.from({ length: 18 }, (_, index) => index + 1));
   assert.throws(() => normalizeStoryOutline(outlineDocument([outlineSequence('seq-1', 1, 8)]), 9), /返回了 8 个镜头地图/);
+});
+
+test('stages a long outline as a small spine and exact-count sequence maps', () => {
+  const spine = normalizeStorySpine({
+    centralDramaticQuestion: 'Will A finish?',
+    audiencePromise: 'A causal payoff.',
+    dialogueArc: 'question to answer',
+    montageStrategy: 'causal cuts',
+    structure: [
+      ['opening', 1], ['inciting_incident', 3], ['first_threshold', 5], ['midpoint_reversal', 9],
+      ['crisis_choice', 13], ['climax_proof', 17], ['resolution', 18],
+    ].map(([name, shotIndex]) => ({ name, shotIndex, event: `${name} event`, audienceShift: `${name} shift` })),
+    sequences: [
+      { id: 'seq-1', locationId: 'room', shotCount: 2 },
+      { id: 'seq-2', locationId: 'street', shotCount: 4 },
+    ],
+  }, 18);
+  assert.equal(spine.sequences.reduce((total, sequence) => total + sequence.shotCount, 0), 18);
+
+  const rawBeats = Array.from({ length: 6 }, (_, offset) => ({
+    actionGoal: `action ${offset}`,
+    cause: `cause ${offset}`,
+    consequence: `consequence ${offset}`,
+    emotionalTurn: `turn ${offset}`,
+    informationGain: `information ${offset}`,
+    dialoguePurpose: 'visual_only',
+    montageRole: 'development',
+    editBridge: `causal action ${offset}; audienceInference: change ${offset}`,
+    audienceQuestion: `question ${offset}`,
+  }));
+  const beats = validateStorySequenceMap({ data: { beatMap: rawBeats } }, 7, 6, ['A']);
+  assert.deepEqual(beats.map(beat => beat.index), [7, 8, 9, 10, 11, 12]);
+  assert.throws(() => validateStorySequenceMap({ beatMap: rawBeats.slice(0, 4) }, 7, 6, ['A']), /返回 4 条/);
+});
+
+test('long-story prompts separate spine allocation from bounded beat-map output', () => {
+  const shared = {
+    synopsis: 'A crosses the city and returns with proof.',
+    characters: [{ name: 'A', description: 'adult investigator' }],
+    objects: [],
+    language: 'en',
+    targetShotCount: 18,
+  };
+  const spinePrompt = buildStorySpinePrompt(shared);
+  assert.match(spinePrompt, /shotCount.*18|合计必须严格等于 18/s);
+  assert.doesNotMatch(spinePrompt, /"beatMap"\s*:/);
+
+  const mapPrompt = buildStorySequenceMapPrompt({
+    ...shared,
+    spine: { title: 'Proof', sequences: [{ id: 'seq-1', shotCount: 6 }] },
+    sequence: { id: 'seq-1', shotCount: 6 },
+    startIndex: 7,
+    shotCount: 6,
+  });
+  assert.match(mapPrompt, /镜头 7–12/);
+  assert.match(mapPrompt, /beatMap 恰好 6 条/);
 });
 
 test('detailed screenplay contract creates actor-facing performance cues per visible character', () => {

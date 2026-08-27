@@ -6,6 +6,7 @@ import Toolbar from '@/components/Toolbar';
 import StatusBar from '@/components/StatusBar';
 import StepIndicator from '@/components/StepIndicator';
 import Step1 from '@/components/Step1';
+import { scriptGenerationPhaseLabel, type ScriptGenerationPhase } from '@/components/ScriptThinkingPanel';
 import Step2 from '@/components/Step2';
 import Step3, { type VoiceCastPatch } from '@/components/Step3';
 import Step4 from '@/components/Step4';
@@ -237,6 +238,7 @@ export default function StoryPage() {
   const [storyPlan, setStoryPlan] = useState<StoryPlan | undefined>();
   const [videoSegmentPlan, setVideoSegmentPlan] = useState<VideoSegmentPlan | undefined>();
   const [isLoading, setIsLoading] = useState(false);
+  const [scriptGenerationPhase, setScriptGenerationPhase] = useState<ScriptGenerationPhase>('idle');
   const [costumeImages, setCostumeImages] = useState<Record<string, string>>({}); // { 角色名: URL }
   const [costumeGenerating, setCostumeGenerating] = useState<Record<string, boolean>>({}); // { 角色名: bool }
   const [voiceReferences, setVoiceReferences] = useState<Record<string, string>>(); // { 角色名: Cloudinary URL }
@@ -1023,6 +1025,7 @@ export default function StoryPage() {
     };
     storyPlanRef.current = storyPlan;
     setStoryPlan(storyPlan);
+    setScriptGenerationPhase('directing');
 
     const dirRes = await fetchStoryApi('/api/direct-storyboard', {
       method: 'POST',
@@ -1043,6 +1046,7 @@ export default function StoryPage() {
       storyboards.map(storyboard => ({ ...storyboard, visualStyle })),
       effectiveVoiceCast,
     );
+    setScriptGenerationPhase('validating');
     const deliveryAudit = auditStoryDelivery(storyPlan, styledStoryboards);
     if (deliveryAudit.errors.length) {
       throw new Error(`故事交付校验失败：${deliveryAudit.errors.slice(0, 4).join('；')}`);
@@ -1062,6 +1066,7 @@ export default function StoryPage() {
 
   const handleGenerateScript = async () => {
     if (!settings.apiKey && !settings.dmxApiKey) { alert('Please configure API Key in settings'); return; }
+    setScriptGenerationPhase('planning');
     setIsLoading(true);
     try {
       await runScript();
@@ -1070,6 +1075,7 @@ export default function StoryPage() {
       alert(`剧本生成失败：${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setIsLoading(false);
+      setScriptGenerationPhase('idle');
     }
   };
 
@@ -2289,7 +2295,7 @@ export default function StoryPage() {
           completedScenes={completedImages}
           failedScenes={storyboards.filter(s => s.status === 'failed').length}
           isGenerating={isLoading}
-          currentTask={isLoading ? 'Generating script...' : undefined}
+          currentTask={isLoading ? scriptGenerationPhaseLabel(scriptGenerationPhase) : undefined}
         />
       }
     >
@@ -2390,6 +2396,7 @@ export default function StoryPage() {
                 scriptModel={settings.scriptModel}
                 dmxApiKey={settings.dmxApiKey}
                 companionSettings={settings.comfyui}
+                generationPhase={scriptGenerationPhase}
               />
             )}
             {currentStep === 3 && (

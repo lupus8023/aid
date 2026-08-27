@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.88 - 2026-08-28
+
+### Added
+
+- Story generation now shows a live three-stage thinking panel for story architecture, cinematic shot direction, and delivery validation, with rotating activity detail, elapsed time, and the target shot count.
+- Long-form screenplay planning now separates the whole-film dramatic spine from bounded sequence beat maps, avoiding one oversized outline response while retaining a single causal authority across the film.
+
+### Changed
+
+- Automatic video segmentation now groups only genuine editorial phrases—shot/reverse-shot dialogue, action/reaction, master-to-coverage progression, inserts, montage, and explicit match bridges—while long takes, long dialogue, performance close-ups, and final hero images remain fidelity-locked single shots.
+- Multi-shot H3 prompts now direct the exact cut relationship between pictures and preserve the 180-degree axis, eyelines, screen direction, match-on-action phase, spatial geography, and intentional framing progression.
+- Reference pictures in a multi-shot segment are explicitly treated as discrete photographed setups rather than interpolation targets; morphing, identity blending, repeated coverage, and unmotivated soft transitions are prohibited.
+- Saved automatic segment plans now carry a versioned cinematic-editing contract and rebuild stale v0.1.87 all-single boundaries; manual segment choices remain unchanged.
+- Story and cinematic segment generation now require Companion v0.1.88 so the website cannot submit the new planning and H3 contracts through an older local engine.
+
+### Fixed
+
+- Restored cinematic multi-shot organization lost when v0.1.87 isolated every storyboard, without giving up I2VA/FL2VA fidelity for protected hero shots.
+- Reduced long-outline truncation and invalid partial JSON by generating a compact spine first and requesting exact-count beat maps in batches of at most six shots.
+
+### Verification
+
+- 170 release regression tests pass across story planning, staged screenplay delivery, cinematic segmentation, H3 prompts/audio, voice casting, image generation, project isolation, recovery, and automatic production; TypeScript validation and production builds also pass.
+
 ## 0.1.87 - 2026-08-27
 
 ### Changed

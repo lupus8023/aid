@@ -240,6 +240,195 @@ ${sourceAdaptationMap.length ? `编号原稿压缩合同（权威）：原稿镜
 输出前自检：sequences[].shotCount 之和、beatMap 长度之和都必须等于 ${targetShots}；index 必须无重复、无跳号地覆盖 1–${targetShots}。`;
 }
 
+/**
+ * Plan the whole-film dramatic spine without asking the model to also emit
+ * every verbose beat contract.  Eighteen-shot responses regularly exceeded
+ * provider output/time limits; the small beat maps are authored separately
+ * below and assembled before the existing production validator runs.
+ */
+export function buildStorySpinePrompt(input: {
+  synopsis: string;
+  characters: WriterCharacter[];
+  objects: WriterObject[];
+  language: 'zh' | 'en';
+  targetShotCount?: number;
+}): string {
+  const { synopsis, characters, objects, language } = input;
+  const targetShots = normalizeTargetShotCount(input.targetShotCount);
+  const targetSeconds = targetDurationSeconds(targetShots);
+  const characterDetails = characters.map(character => (
+    `- ${character.name}: ${character.description}${character.gender && character.gender !== 'unknown' ? `；已知性别=${character.gender}` : ''}${character.ageGroup && character.ageGroup !== 'unknown' ? `；已知年龄段=${character.ageGroup}` : ''}`
+  )).join('\n');
+  const objectDetails = objects.length
+    ? objects.map(object => `- ${object.name}: ${object.description}`).join('\n')
+    : 'None';
+  const outputLanguage = language === 'en'
+    ? 'All story text must be English; preserve uploaded entity names exactly.'
+    : '所有故事文本必须使用中文；已上传实体名称保持原样。';
+
+  return `你是长片总编剧。只规划【全片故事脊柱和场次配额】，不要写逐镜 beatMap、摄影、声音或分镜提示词。
+
+最高优先级：准确执行用户明确的剧情、人物关系、顺序、结局、逐字台词、风格与禁止事项；只在留白处创作。
+${outputLanguage}
+
+用户原始输入：
+${synopsis}
+
+可用角色（名称必须逐字使用）：
+${characterDetails}
+
+已上传物体：
+${objectDetails}
+
+制作规格：全片严格 ${targetShots} 镜，目标约 ${targetSeconds} 秒。
+
+规划规则：
+- 先锁定主角目标、阻碍、失败代价、高潮选择、结局、人物变化和核心观众问题，再分配场次。
+- 每个 sequence 有一个问题、一个改变局势的 turningPoint 和一个迫使下一场发生的 exitHook；终场收束，不再制造续集钩子。
+- sequences[].shotCount 合计必须严格等于 ${targetShots}；单场通常 2–6 镜，避免把大部分镜头塞进一个场次。
+- 七个 structure 节点各出现一次，shotIndex 单调递增且位于 1–${targetShots}；resolution 固定在第 ${targetShots} 镜。
+- characters 为每个可用角色统一规划 role、gender、ageGroup、voiceProfile、欲望、阻碍、弧线与潜台词。不得增加未在用户输入中明确说话的旁白或临时人声。
+- requirements 覆盖用户所有 must 要求；coveredBy 使用计划中的镜头序号。
+- 输出要精炼；每个字符串只写一个明确事实，不重复解释。
+
+只输出完整 JSON：
+{
+  "intentSummary": "准确复述用户要求",
+  "requirements": [{ "id": "req-1", "text": "可核验要求", "category": "plot|character|setting|tone|format|pacing|dialogue|visual|avoid|other", "priority": "must|preference", "coveredBy": [1] }],
+  "title": "片名",
+  "theme": "主题",
+  "logline": "一句话梗概",
+  "protagonist": "主角名",
+  "externalWant": "外在目标",
+  "internalNeed": "内在需求",
+  "stakes": "失败代价",
+  "obstacle": "核心阻碍",
+  "finalChoice": "高潮选择",
+  "consequence": "最终结果",
+  "change": "人物变化",
+  "storyAnchor": "故事锚点",
+  "visualMotif": "视觉母题",
+  "emotionalArc": "情绪弧线",
+  "structure": [{ "name": "opening|inciting_incident|first_threshold|midpoint_reversal|crisis_choice|climax_proof|resolution", "shotIndex": 1, "event": "可见事件或选择", "audienceShift": "观众理解变化" }],
+  "centralDramaticQuestion": "开场提出、高潮回答的问题",
+  "audiencePromise": "类型体验与情感回报",
+  "dialogueArc": "问题、冲突、选择和回收的台词路线",
+  "montageStrategy": "全片因果剪辑策略",
+  "characters": [{ "name": "精确角色名", "role": "剧情身份", "gender": "female|male|nonbinary|unknown", "ageGroup": "child|young_adult|adult|senior|unknown", "voiceProfile": "非台词音色画像", "want": "欲望", "obstacle": "阻碍", "arc": "弧线", "subtext": "潜台词" }],
+  "sequences": [{
+    "id": "seq-1",
+    "locationId": "english_location_key",
+    "sceneGoal": "本场必须完成的目标",
+    "dramaticQuestion": "本场观众问题",
+    "turningPoint": "改变局势的动作",
+    "exitHook": "推动下一场的后果；终场写终局状态",
+    "audienceEntry": "入场时观众理解",
+    "audienceExit": "离场时观众新增理解",
+    "entryState": "人物、关系、道具和情绪入场状态",
+    "exitState": "供下一场继承的结束状态",
+    "shotCount": 4
+  }]
+}
+
+输出前只核对一件事：sequences[].shotCount 之和必须严格等于 ${targetShots}。`;
+}
+
+export function buildStorySequenceMapPrompt(input: {
+  synopsis: string;
+  characters: WriterCharacter[];
+  objects: WriterObject[];
+  language: 'zh' | 'en';
+  targetShotCount: number;
+  spine: unknown;
+  sequence: Record<string, unknown>;
+  startIndex: number;
+  shotCount: number;
+  previousBeat?: unknown;
+}): string {
+  const { synopsis, characters, objects, language, targetShotCount, spine, sequence, startIndex, shotCount, previousBeat } = input;
+  const endIndex = startIndex + shotCount - 1;
+  const sourceAdaptationMap = buildSourceShotAdaptationMap(synopsis, targetShotCount)
+    .filter(group => group.targetIndex >= startIndex && group.targetIndex <= endIndex);
+  const compactSpine = spine && typeof spine === 'object' ? {
+    title: (spine as any).title,
+    theme: (spine as any).theme,
+    logline: (spine as any).logline,
+    protagonist: (spine as any).protagonist,
+    externalWant: (spine as any).externalWant,
+    internalNeed: (spine as any).internalNeed,
+    stakes: (spine as any).stakes,
+    obstacle: (spine as any).obstacle,
+    finalChoice: (spine as any).finalChoice,
+    consequence: (spine as any).consequence,
+    change: (spine as any).change,
+    structure: (spine as any).structure,
+    centralDramaticQuestion: (spine as any).centralDramaticQuestion,
+    dialogueArc: (spine as any).dialogueArc,
+    montageStrategy: (spine as any).montageStrategy,
+    sequences: Array.isArray((spine as any).sequences)
+      ? (spine as any).sequences.map((item: any) => ({ id: item.id, sceneGoal: item.sceneGoal, turningPoint: item.turningPoint, exitHook: item.exitHook, shotCount: item.shotCount }))
+      : [],
+  } : {};
+  const outputLanguage = language === 'en'
+    ? 'All story fields must be English; preserve entity names and exact quoted dialogue unchanged.'
+    : '所有故事字段使用中文；实体名和用户逐字台词保持原样。';
+
+  return `你是全片总编剧的镜头地图执行者。全片脊柱和本场配额已经锁定；只写当前 ${shotCount} 个镜头地图，不改写全片结构。
+
+${outputLanguage}
+
+用户原始输入：
+${synopsis}
+
+可用角色：${characters.map(character => character.name).join('、')}
+可用物体：${objects.map(object => object.name).join('、') || '无'}
+
+全片脊柱：
+${JSON.stringify(compactSpine)}
+
+当前场次：
+${JSON.stringify(sequence)}
+
+当前只输出镜头 ${startIndex}–${endIndex}，严格 ${shotCount} 条。
+${previousBeat ? `上一条已锁定镜头（当前第一镜必须直接承接）：\n${JSON.stringify(previousBeat)}` : ''}
+${sourceAdaptationMap.length ? `编号原稿压缩合同（逐项权威，不得跨组搬运或遗漏逐字台词）：\n${JSON.stringify(sourceAdaptationMap)}` : ''}
+
+镜头地图规则：
+- actionGoal 只写一个能直接拍到的动作或局面变化；cause 必须承接上一镜 consequence，consequence 必须推动下一镜。
+- 每镜产生一个 informationGain 和一个 emotionalTurn；不能只是重复景色或情绪。
+- dialoguePurpose 只用 question、answer、reveal、conceal、challenge、refusal、decision、promise、callback、payoff、visual_only。
+- 非 visual_only 必须绑定可用角色 requiredSpeaker，并给出 dialogueTurns 的 speaker、function、contentGoal、respondsTo；同一人物在一个 beat 只能出现一次。
+- 用户原文明确台词逐字放入 requiredDialogueLines，并同步写入 dialogueTurns；不得改写、换角色或遗漏。自行创作的台词此阶段只规划 contentGoal，不写 exactLine。
+- editBridge 写实际动作、视线、物体或声音如何交给下一镜，以及观众由此新增的理解。全片第 ${targetShotCount} 镜必须以“terminal image:”开头。
+- 字段保持精炼，每个字符串只写一件事。禁止摄影参数、声音设计、prompt、旁白和逐镜状态 JSON。
+
+只输出：
+{
+  "beatMap": [{
+    "index": ${startIndex},
+    "sourceShotRefs": [1],
+    "actionGoal": "唯一可见动作与变化",
+    "cause": "直接前因",
+    "consequence": "直接后果",
+    "emotionalTurn": "情绪或认知变化",
+    "informationGain": "新增或修正的信息",
+    "dialoguePurpose": "visual_only",
+    "dialogueUnitId": "无对白为空；同一问答或承诺回收共用 id",
+    "dialogueObligation": "required|optional|visual",
+    "dialogueContext": "承接事实以及听者变化；无对白为空",
+    "dialogueTurns": [{ "speaker": "可用角色精确名称", "function": "question|answer|reveal|conceal|challenge|refusal|decision|promise|callback|payoff", "contentGoal": "必须说清的新事实或选择", "respondsTo": "回应内容；首轮可空" }],
+    "montageRole": "setup|development|escalation|parallel|contrast|decision|consequence|bridge|payoff|resolution",
+    "editBridge": "causal action: 交棒; audienceInference: 新理解",
+    "audienceQuestion": "镜头后观众追问",
+    "requiredSpeaker": "用户指定或规划说话者；无对白为空",
+    "requiredLine": "第一条用户逐字台词或空",
+    "requiredDialogueLines": [{ "character": "可用角色", "text": "用户逐字台词" }]
+  }]
+}
+
+输出前核对：beatMap 恰好 ${shotCount} 条，index 连续覆盖 ${startIndex}–${endIndex}。`;
+}
+
 export function buildStoryDialogueManuscriptPrompt(input: {
   outline: unknown;
   language: 'zh' | 'en';

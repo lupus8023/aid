@@ -1,6 +1,6 @@
 import { createVideoTask, getVideoTaskStatus } from './apimart';
 import type { Storyboard } from '@/types';
-import { allocateSegmentTimeline, estimateVideoSegmentSeconds } from './videoSegments';
+import { allocateSegmentTimeline, cinematicEditKind, estimateVideoSegmentSeconds } from './videoSegments';
 import { compileTimedSpeech, storyboardAudioPlan, storyboardSpeech, validateSpeechLanguage } from './speechAudioContract';
 
 function h3Timestamp(seconds: number): string {
@@ -192,7 +192,7 @@ function storyboardCastNames(storyboard: Storyboard): string[] {
 
 function officialReferencePriorityLock(storyboards: Storyboard[], isFirstLastMode: boolean): string {
   if (storyboards.length > 1) {
-    return 'REFERENCE PRIORITY: Each declared picture is the composition authority for its own shot. Preserve the depicted cast identity, wardrobe, setting topology, material design, lighting direction, lens perspective, and color palette; do not merge identities or redesign one picture from another.';
+    return 'REFERENCE PRIORITY: Each declared picture is the composition authority for its own discrete shot, never an interpolation target. Preserve the depicted cast identity, wardrobe, setting topology, material design, lighting direction, lens perspective, and color palette; do not merge identities, morph between pictures, or redesign one picture from another.';
   }
   const endLock = isFirstLastMode
     ? ' <Picture 2> is the exact required final frame and must be reached without recasting or restyling the subject.'
@@ -298,6 +298,34 @@ function officialH3CameraSentence(storyboard: Storyboard, index: number): string
     : 'The camera makes one short movement with the action and settles.';
 }
 
+function officialH3EditSentence(
+  previous: Storyboard,
+  current: Storyboard,
+  shotNumber: number,
+  start: number,
+  picture: string,
+): string {
+  const prefix = `[Shot ${shotNumber}] At ${h3Timestamp(start)},`;
+  if (previous.transition === 'dissolve') return `${prefix} a restrained dissolve carries the resolved movement into the composition referenced by ${picture}, with no identity or costume blending.`;
+  if (previous.transition === 'fade') return `${prefix} fade briefly through black, then reveal the composition referenced by ${picture} as a new dramatic beat.`;
+  if (previous.transition === 'wipe') return `${prefix} a motivated foreground wipe reveals the composition referenced by ${picture} while preserving screen direction.`;
+
+  const kind = cinematicEditKind(previous, current);
+  const instruction: Record<ReturnType<typeof cinematicEditKind>, string> = {
+    'dialogue-reverse': `cut on the conversational turn to the composition referenced by ${picture}, creating a shot/reverse-shot response; preserve the shared eyeline, 180-degree axis, screen direction, and listener timing`,
+    'action-reaction': `cut on the completed physical action to the composition referenced by ${picture}; the reaction begins immediately from that impact while eyeline and screen direction remain continuous`,
+    'detail-insert': `cut on the hand, gaze, or object movement to the composition referenced by ${picture} as a precise detail insert; preserve hand-to-object position and match the action across the cut`,
+    'insert-return': `cut back from the detail to the composition referenced by ${picture}; resume the same action and eyeline from the exact moment established by the insert`,
+    'establish-develop': `cut from the spatial master to the composition referenced by ${picture}; move into closer dramatic coverage without reversing the established screen axis`,
+    'rhythmic-montage': `use a clean rhythmic hard cut to the composition referenced by ${picture}; connect the shots through matched movement, shape, or sound rather than visual morphing`,
+    'match-continuity': `cut on matched action, gaze, shape, or sound to the composition referenced by ${picture}; preserve motion phase, screen direction, and physical continuity across the edit`,
+    'progressive-coverage': `cut in along the established eyeline or object axis to the composition referenced by ${picture}; the closer coverage reveals new dramatic information without repeating the previous shot`,
+    'motivated-transition': `make a motivated hard cut to the composition referenced by ${picture}; the outgoing action, object, or sound bridges into the new space while each setting remains visually distinct`,
+    'direct-cut': `make a clean hard cut to the composition referenced by ${picture}; begin on a changed action phase or framing scale and preserve spatial orientation`,
+  };
+  return `${prefix} ${instruction[kind]}.`;
+}
+
 function officialH3Soundscape(storyboards: Storyboard[]): string {
   const plans = storyboards.map(storyboardAudioPlan);
   const environment = [...new Set(plans.flatMap(plan => plan.environment))].slice(0, 4);
@@ -395,7 +423,7 @@ function buildOfficialGuidePrompt(
     } else if (index === 0) {
       opening = `[Shot 1] The shot follows ${picture} as its composition reference.`;
     } else {
-      opening = `[Shot ${index + 1}] At ${h3Timestamp(range.start)}, the camera cuts to the composition referenced by ${picture}.`;
+      opening = officialH3EditSentence(storyboards[index - 1], storyboard, index + 1, range.start, picture);
     }
     const castSentence = cast.length ? `A ${framing} frames ${cast.join(cast.length > 1 ? ' and ' : '')}.` : `A ${framing} frames the action.`;
     const endFrameLanding = isFirstLastMode
@@ -427,6 +455,9 @@ function buildOfficialGuidePrompt(
     style,
     officialMaterialReality(first.visualStyle),
     'The photographic frame remains clean and text-free.',
+    storyboards.length > 1
+      ? 'EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup. Every transition must be motivated by action, gaze, dialogue, object, shape, or sound. Preserve the 180-degree axis, eyelines, screen direction, match-on-action phase, and location geography. Vary framing scale with dramatic purpose; do not crossfade, morph, interpolate, repeat, or soften a hard cut unless an explicit transition is written.'
+      : '',
     timedSpeech.length
       ? 'SCRIPT DIALOGUE LOCK: Every <d> line is screenplay-authoritative. Reproduce every word in order exactly as written; do not paraphrase, shorten, translate, add, repeat, or substitute dialogue.'
       : '',

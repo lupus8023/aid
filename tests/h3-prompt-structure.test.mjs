@@ -48,11 +48,13 @@ test('writes Ref2VA prompts in the official six-section natural-language format'
   }
   assert.doesNotMatch(prompt, /timeline_json|aid_h3_timeline|audio_event_lock|shot_contracts|dialogue_events|first_word_at|final_word_complete_by/);
   assert.match(prompt, /\[Shot 1] The shot follows <Picture 1> as its composition reference/);
-  assert.match(prompt, /\[Shot 2] At 00:\d{2}\.\d{3}, the camera cuts to/);
+  assert.match(prompt, /\[Shot 2] At 00:\d{2}\.\d{3}, make a clean hard cut/);
   assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S1\) begins speaking.*<d>\[Chinese] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
   assert.match(prompt, /photographic frame remains clean and text-free/);
-  assert.match(prompt, /REFERENCE PRIORITY: Each declared picture is the composition authority for its own shot/);
+  assert.match(prompt, /REFERENCE PRIORITY: Each declared picture is the composition authority for its own discrete shot/);
+  assert.match(prompt, /EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup/);
+  assert.match(prompt, /do not crossfade, morph, interpolate, repeat, or soften a hard cut/);
   assert.match(prompt, /natural skin micro-texture and fine facial detail/);
   assert.match(prompt, /SCRIPT DIALOGUE LOCK: Every <d> line is screenplay-authoritative/);
   assert.match(prompt, /From 00:\d{2}\.\d{3} to 00:\d{2}\.\d{3}/);
@@ -121,13 +123,15 @@ test('writes all directing prose in English while preserving Chinese dialogue', 
 
 test('binds sequential speakers to stable subjects and audio references', () => {
   const prompt = buildVideoSegmentPrompt([
-    shot(1, { characters: ['Lin', 'Mei'], speech: [{ speakerId: 'S01', character: 'Lin', exactLine: '你看见了吗？', emotion: 'alert', delivery: 'quietly', volume: 'soft', lipSync: true, source: 'story_required' }] }),
-    shot(2, { characters: ['Lin', 'Mei'], speech: [{ speakerId: 'S02', character: 'Mei', exactLine: '就在门后。', emotion: 'certain', delivery: 'briefly', volume: 'normal', lipSync: true, source: 'story_required' }] }),
+    shot(1, { clipType: 'dialogue', dialogueUnitId: 'door-exchange', characters: ['Lin', 'Mei'], speech: [{ speakerId: 'S01', character: 'Lin', exactLine: '你看见了吗？', emotion: 'alert', delivery: 'quietly', volume: 'soft', lipSync: true, source: 'story_required' }] }),
+    shot(2, { clipType: 'dialogue', dialogueUnitId: 'door-exchange', characters: ['Lin', 'Mei'], speech: [{ speakerId: 'S02', character: 'Mei', exactLine: '就在门后。', emotion: 'certain', delivery: 'briefly', volume: 'normal', lipSync: true, source: 'story_required' }] }),
   ], [], { duration: 12, referenceAudioNames: ['Lin', 'Mei'] });
   assert.match(prompt, /<Audio 1> is the voice-timbre reference for <Subject 1> \(S1\)/);
   assert.match(prompt, /<Audio 2> is the voice-timbre reference for <Subject 2> \(S2\)/);
   assert.match(prompt, /<Subject 1> \(S1\) begins speaking using the voice timbre referenced from <Audio 1>/);
   assert.match(prompt, /<Subject 2> \(S2\) begins speaking using the voice timbre referenced from <Audio 2>/);
+  assert.match(prompt, /cut on the conversational turn.*shot\/reverse-shot response/);
+  assert.match(prompt, /preserve the shared eyeline, 180-degree axis, screen direction, and listener timing/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));
   assert.equal(dialogueTags(prompt).length, 2);
 });
@@ -187,15 +191,27 @@ test('drops directing instructions, absent-speaker lines, and quoted visual dial
 
 test('preserves grouped storyboards as official timed shot paragraphs', () => {
   const prompt = buildVideoSegmentPrompt([
-    shot(1, { action: 'Lin snatches the red envelope from the moving bicycle.', cameraMove: '跟拍' }),
-    shot(2, { action: 'Lin tears the seal and recoils from the photograph.', cameraMove: '推近', dialogueLines: [{ character: 'Lin', text: '这不是我的照片。' }] }),
+    shot(1, { clipType: 'action', action: 'Lin snatches the red envelope from the moving bicycle.', cameraMove: '跟拍' }),
+    shot(2, { clipType: 'reaction', action: 'Lin tears the seal and recoils from the photograph.', cameraMove: '推近', dialogueLines: [{ character: 'Lin', text: '这不是我的照片。' }] }),
     shot(3, { action: 'Lin pivots toward the station clock and runs.', cameraMove: '横移' }),
   ], [], { duration: 15, language: 'zh' });
   assert.equal((prompt.match(/\[Shot \d+]/g) || []).length >= 3, true);
-  assert.match(prompt, /\[Shot 2] At 00:\d{2}\.\d{3}, the camera cuts to the composition referenced by <Picture 2>/);
+  assert.match(prompt, /\[Shot 2] At 00:\d{2}\.\d{3}, cut on the completed physical action to the composition referenced by <Picture 2>/);
+  assert.match(prompt, /the reaction begins immediately from that impact/);
   for (const action of ['Lin snatches the red envelope', 'Lin tears the seal', 'Lin pivots toward the station clock']) assert.match(prompt, new RegExp(action));
   assert.doesNotMatch(prompt, /timeline_json|\{"schema"/);
   assert.doesNotMatch(prompt, /reference——|物体包括|既定|视线轴|画面侧|动作走位|决定性|透视关系/);
+});
+
+test('directs a master-to-detail sequence with progressive coverage and a match insert', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, { clipType: 'establishing', shotSize: 'wide shot', action: 'Lin enters the archive and stops beside the central table.' }),
+    shot(2, { clipType: 'action', shotSize: 'medium shot', action: 'Lin reaches toward the red envelope on the table.' }),
+    shot(3, { clipType: 'insert', shotSize: 'extreme close-up', action: 'Her thumb breaks the wax seal.' }),
+  ], [], { duration: 12, language: 'en' });
+  assert.match(prompt, /cut from the spatial master.*move into closer dramatic coverage/);
+  assert.match(prompt, /cut on the hand, gaze, or object movement.*as a precise detail insert/);
+  assert.match(prompt, /match the action across the cut/);
 });
 
 test('merges one character into one tagged line without an end timestamp', () => {

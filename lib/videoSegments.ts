@@ -3,10 +3,11 @@ import { consolidateSegmentSpeech, H3_SPEAKER_HANDOFF_SECONDS, speechSeconds, st
 
 export const MAX_H3_SEGMENT_SECONDS = 15;
 export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
+export const VIDEO_SEGMENT_PLANNING_CONTRACT = 'cinematic-edit-v2';
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v29';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v30';
 
 export interface VideoSegmentDefinition {
   id: string;
@@ -19,6 +20,7 @@ export interface VideoSegmentDefinition {
 export interface VideoSegmentPlan {
   version: 2;
   source: 'auto' | 'manual';
+  planningContract: typeof VIDEO_SEGMENT_PLANNING_CONTRACT;
   segments: VideoSegmentDefinition[];
   // Kept as a compact compatibility/index field for existing UI code and
   // exported projects. `segments[].storyboardIds` is the authority.
@@ -236,14 +238,173 @@ export function validateVideoSegment(storyboards: Storyboard[], language?: 'zh' 
   return undefined;
 }
 
+export type CinematicEditKind =
+  | 'dialogue-reverse'
+  | 'action-reaction'
+  | 'detail-insert'
+  | 'insert-return'
+  | 'establish-develop'
+  | 'rhythmic-montage'
+  | 'match-continuity'
+  | 'progressive-coverage'
+  | 'motivated-transition'
+  | 'direct-cut';
+
+function normalizedEditorialText(storyboard: Storyboard): string {
+  return [
+    storyboard.clipType,
+    storyboard.montageRole,
+    storyboard.dramaticPurpose,
+    storyboard.dialoguePurpose,
+    storyboard.editBridge,
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function framingScale(storyboard: Storyboard): number | undefined {
+  const framing = `${storyboard.shotSize || ''} ${storyboard.angle || ''}`.toLowerCase();
+  if (/大特写|extreme close/.test(framing)) return 0;
+  if (/特写|close/.test(framing)) return 1;
+  if (/近景|medium close/.test(framing)) return 2;
+  if (/中景|medium/.test(framing)) return 3;
+  if (/全景|full shot/.test(framing)) return 4;
+  if (/远景|wide|long shot/.test(framing)) return 5;
+  return undefined;
+}
+
+function hasSharedValue(left: string[] | undefined, right: string[] | undefined): boolean {
+  const values = new Set((left || []).map(value => value.trim().toLowerCase()).filter(Boolean));
+  return (right || []).some(value => values.has(value.trim().toLowerCase()));
+}
+
+function isExplicitEditorialBridge(previous: Storyboard, current: Storyboard): boolean {
+  const source = `${previous.editBridge || ''} ${current.editBridge || ''} ${previous.montageRole || ''} ${current.montageRole || ''}`.toLowerCase();
+  return current.continuousFromPrev
+    || current.continuityFrom === previous.id
+    || /match.?cut|graphic match|sound bridge|action bridge|匹配剪辑|匹配转场|声音桥|动作桥|桥接|bridge/.test(source);
+}
+
+/**
+ * Names the editorial relationship between two consecutive storyboards. The
+ * same classifier drives automatic grouping and the H3 cut instruction so a
+ * planned action/reaction pair cannot degrade into two unrelated keyframes.
+ */
+export function cinematicEditKind(previous: Storyboard, current: Storyboard): CinematicEditKind {
+  const previousSpeech = storyboardSpeech(previous);
+  const currentSpeech = storyboardSpeech(current);
+  if (previous.dialogueUnitId && previous.dialogueUnitId === current.dialogueUnitId
+    && (previousSpeech.length || currentSpeech.length)) return 'dialogue-reverse';
+  if (previous.clipType === 'action' && current.clipType === 'reaction') return 'action-reaction';
+  if (current.clipType === 'insert') return 'detail-insert';
+  if (previous.clipType === 'insert' && ['action', 'reaction', 'dialogue', 'performance'].includes(current.clipType || '')) return 'insert-return';
+  if (previous.clipType === 'establishing' && current.clipType !== 'establishing') return 'establish-develop';
+  if (previous.clipType === 'montage' && current.clipType === 'montage') return 'rhythmic-montage';
+  if (isExplicitEditorialBridge(previous, current)) return 'match-continuity';
+
+  const previousScale = framingScale(previous);
+  const currentScale = framingScale(current);
+  if (previousScale !== undefined && currentScale !== undefined
+    && previousScale >= 4 && currentScale <= 3) return 'progressive-coverage';
+
+  const sequenceChanged = Boolean(previous.sequenceId && current.sequenceId && previous.sequenceId !== current.sequenceId);
+  const locationChanged = Boolean(previous.locationId && current.locationId && previous.locationId !== current.locationId);
+  if (sequenceChanged || locationChanged) return 'motivated-transition';
+  return 'direct-cut';
+}
+
+function isProtectedHeroShot(storyboard: Storyboard, index: number, total: number): boolean {
+  if (storyboard.clipType === 'long_take') return true;
+  const closeFraming = (framingScale(storyboard) ?? 5) <= 1;
+  const role = normalizedEditorialText(storyboard);
+  if (storyboard.clipType === 'performance' && (closeFraming || estimateStoryboardVisualSeconds(storyboard) >= 6.5)) return true;
+  if (storyboard.clipType === 'dialogue' && Number(storyboard.durationHint || storyboard.videoDuration || 0) >= 10) return true;
+  return index === total - 1 && closeFraming && /payoff|resolution|climax|final|兑现|收束|高潮|结局/.test(role);
+}
+
+function hasHardEditorialBoundary(previous: Storyboard, current: Storyboard): boolean {
+  if (previous.transition && previous.transition !== 'cut') return true;
+  const sequenceChanged = Boolean(previous.sequenceId && current.sequenceId && previous.sequenceId !== current.sequenceId);
+  const locationChanged = Boolean(previous.locationId && current.locationId && previous.locationId !== current.locationId);
+  if (!(sequenceChanged || locationChanged)) return false;
+  return !isExplicitEditorialBridge(previous, current)
+    && previous.clipType !== 'montage'
+    && current.clipType !== 'montage';
+}
+
+function cinematicPairScore(previous: Storyboard, current: Storyboard): number {
+  if (hasHardEditorialBoundary(previous, current)) return Number.NEGATIVE_INFINITY;
+  const relationScore: Record<CinematicEditKind, number> = {
+    'dialogue-reverse': 13,
+    'action-reaction': 12,
+    'detail-insert': 10,
+    'insert-return': 8,
+    'establish-develop': 10,
+    'rhythmic-montage': 10,
+    'match-continuity': 8,
+    'progressive-coverage': 7,
+    'motivated-transition': 5,
+    'direct-cut': 0,
+  };
+  let score = relationScore[cinematicEditKind(previous, current)];
+  const previousRole = normalizedEditorialText(previous);
+  const currentRole = normalizedEditorialText(current);
+  if (/setup|opening|establish|铺垫|建立/.test(previousRole)
+    && /development|escalation|contrast|发展|升级|对照/.test(currentRole)) score += 5;
+  if (/development|escalation|contrast|decision|发展|升级|对照|决定/.test(previousRole)
+    && /decision|consequence|payoff|resolution|决定|后果|兑现|收束/.test(currentRole)) score += 5;
+  if (previous.editBridge) score += 2;
+  if (hasSharedValue(previous.characters, current.characters)) score += 1;
+  if (hasSharedValue(previous.objects, current.objects)) score += 1;
+  if ((!previous.sequenceId || !current.sequenceId || previous.sequenceId === current.sequenceId)
+    && (!previous.locationId || !current.locationId || previous.locationId === current.locationId)) score += 1;
+  const previousScale = framingScale(previous);
+  const currentScale = framingScale(current);
+  if (previousScale !== undefined && currentScale !== undefined && previousScale !== currentScale) score += 1;
+  return score;
+}
+
+function isViableCinematicGroup(
+  group: Storyboard[],
+  startIndex: number,
+  total: number,
+): { score: number } | undefined {
+  if (!group.length || group.length > MAX_H3_STORYBOARDS_PER_SEGMENT) return undefined;
+  if (!areContiguousStoryboards(group) || projectedVideoSegmentSeconds(group) > MAX_H3_SEGMENT_SECONDS) return undefined;
+  if (validateSpeechContract(group)) return undefined;
+  if (group.length === 1) return { score: 0 };
+  if (group.some((storyboard, offset) => isProtectedHeroShot(storyboard, startIndex + offset, total))) return undefined;
+
+  const pairScores = group.slice(1).map((storyboard, offset) => cinematicPairScore(group[offset], storyboard));
+  if (pairScores.some(score => !Number.isFinite(score) || score < 4)) return undefined;
+  // One clearly motivated edit must anchor the sequence. This prevents a run
+  // of merely adjacent coverage from being compressed into Ref2VA.
+  if (!pairScores.some(score => score >= 7)) return undefined;
+  const lengthPenalty = group.length === 4 ? 1.5 : 0;
+  return { score: pairScores.reduce((sum, score) => sum + score, 0) - lengthPenalty };
+}
+
 export function suggestVideoSegments(storyboards: Storyboard[]): Storyboard[][] {
-  // Automatic production prioritizes reference fidelity: one storyboard
-  // becomes one real I2VA/FL2VA clip. A multi-picture Ref2VA segment asks H3 to
-  // synthesize a new composition between several references and therefore
-  // cannot preserve any one storyboard as its exact first frame. Manual
-  // grouping remains available when editorial compression matters more than
-  // pixel-level continuity.
-  return storyboards.map(storyboard => [storyboard]);
+  // Dynamic programming retains a storyboard as a discrete I2VA hero shot by
+  // default and chooses Ref2VA only when consecutive pictures form a genuine
+  // editorial unit: coverage progression, action/reaction, shot/reverse-shot,
+  // detail insert, montage, or an explicit match bridge.
+  const best: Array<{ score: number; groups: Storyboard[][] }> = Array(storyboards.length + 1);
+  best[storyboards.length] = { score: 0, groups: [] };
+  for (let index = storyboards.length - 1; index >= 0; index -= 1) {
+    let winner = { score: best[index + 1].score, groups: [[storyboards[index]], ...best[index + 1].groups] };
+    const maxLength = Math.min(MAX_H3_STORYBOARDS_PER_SEGMENT, storyboards.length - index);
+    for (let length = 2; length <= maxLength; length += 1) {
+      const group = storyboards.slice(index, index + length);
+      const candidate = isViableCinematicGroup(group, index, storyboards.length);
+      if (!candidate) continue;
+      const tail = best[index + length];
+      const score = candidate.score + tail.score;
+      // Prefer the longer complete editorial phrase only when its score is not
+      // worse; deterministic ties avoid plans changing between refreshes.
+      if (score >= winner.score) winner = { score, groups: [group, ...tail.groups] };
+    }
+    best[index] = winner;
+  }
+  return best[0]?.groups || [];
 }
 
 export function createVideoSegmentPlan(
@@ -262,6 +423,7 @@ export function createVideoSegmentPlan(
   return {
     version: 2,
     source,
+    planningContract: VIDEO_SEGMENT_PLANNING_CONTRACT,
     segments,
     groups: segments.map(segment => segment.storyboardIds),
     storyboardSignature: storyboardSignature(storyboards),
@@ -275,6 +437,7 @@ export function isValidVideoSegmentPlan(
   language?: 'zh' | 'en',
 ): plan is VideoSegmentPlan {
   if (!plan || plan.version !== 2 || !Array.isArray(plan.segments) || !plan.segments.length) return false;
+  if (plan.source === 'auto' && plan.planningContract !== VIDEO_SEGMENT_PLANNING_CONTRACT) return false;
   if (plan.storyboardSignature !== storyboardSignature(storyboards)) return false;
   const ids = plan.segments.flatMap(segment => segment.storyboardIds || []);
   if (ids.join('|') !== storyboardSignature(storyboards)) return false;
@@ -296,7 +459,7 @@ export function isValidVideoSegmentPlan(
  */
 export function normalizeVideoSegmentPlan(
   storyboards: Storyboard[],
-  plan?: VideoSegmentPlan | { version?: number; source?: 'auto' | 'manual'; groups?: string[][] },
+  plan?: VideoSegmentPlan | { version?: number; source?: 'auto' | 'manual'; planningContract?: string; groups?: string[][] },
   language?: 'zh' | 'en',
 ): VideoSegmentPlan {
   if (isValidVideoSegmentPlan(plan as VideoSegmentPlan, storyboards, language)) return plan as VideoSegmentPlan;
@@ -305,7 +468,8 @@ export function normalizeVideoSegmentPlan(
     ? plan.groups.map(ids => ids.map(id => byId.get(id)).filter((item): item is Storyboard => Boolean(item)))
     : [];
   const legacyIds = legacyGroups.flat().map(storyboard => storyboard.id);
-  const canReuseLegacyBoundaries = legacyGroups.length > 0
+  const canReuseLegacyBoundaries = (plan?.source === 'manual' || plan?.planningContract === VIDEO_SEGMENT_PLANNING_CONTRACT)
+    && legacyGroups.length > 0
     && legacyIds.join('|') === storyboardSignature(storyboards)
     && new Set(legacyIds).size === storyboards.length
     && legacyGroups.every(group => group.length && !validateVideoSegment(group, language));
