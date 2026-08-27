@@ -52,9 +52,30 @@ test('writes Ref2VA prompts in the official six-section natural-language format'
   assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S1\) begins speaking.*<d>\[Chinese] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
   assert.match(prompt, /photographic frame remains clean and text-free/);
+  assert.match(prompt, /REFERENCE PRIORITY: Each declared picture is the composition authority for its own shot/);
+  assert.match(prompt, /natural skin micro-texture and fine facial detail/);
+  assert.match(prompt, /SCRIPT DIALOGUE LOCK: Every <d> line is screenplay-authoritative/);
+  assert.match(prompt, /From 00:\d{2}\.\d{3} to 00:\d{2}\.\d{3}/);
   assert.doesNotMatch(prompt, /闭嘴|嘴巴闭合|说完最后一个字|mouth closes|final word|says once/i);
   assert.match(prompt, /non_diegetic_music:\s+N\/A/);
   assert.ok(prompt.length <= 7000);
+});
+
+test('locks one storyboard as the exact I2VA first frame and limits allowed change', () => {
+  const prompt = buildVideoSegmentPrompt([shot(1, {
+    performance: [{
+      character: 'Lin', objective: 'hold back tears', blocking: 'keeps her shoulders still',
+      gesture: 'fingers tighten once', expression: 'restrained grief', gaze: 'slowly lifts her eyes',
+      breath: 'shallow breathing', reaction: 'one tear gathers', subtext: 'do not let anyone see the fear',
+    }],
+  })], [], { duration: 8, language: 'en' });
+  assert.match(prompt, /REFERENCE PRIORITY — LOCK to <Picture 1>; DO NOT REDRAW/);
+  assert.match(prompt, /exact first frame at 00:00\.000, not loose style inspiration/);
+  assert.match(prompt, /Only the explicitly described physical action, micro-expression, gaze, breathing, camera movement, and physically caused effects may change/);
+  assert.match(prompt, /natural skin micro-texture and fine facial detail/);
+  assert.match(prompt, /No waxy or plastic skin, beauty-filter smoothing/);
+  assert.match(prompt, /From 00:00\.000 to 00:\d{2}\.\d{3}/);
+  assert.doesNotMatch(prompt, /8K|HDR|ultra[- ]?high definition/i);
 });
 
 test('keeps silent clips free of dialogue and quarantines refreshed-prompt speech', () => {

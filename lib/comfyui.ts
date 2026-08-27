@@ -882,12 +882,29 @@ function nextNodeId(prompt: JsonRecord): string {
   return String(Math.max(0, ...Object.keys(prompt).map(Number).filter(Number.isFinite)) + 1);
 }
 
-function injectReferenceImages(prompt: JsonRecord, variant: ComfyUIWorkflow, remoteImages: string[]): void {
+export function injectReferenceImages(prompt: JsonRecord, variant: ComfyUIWorkflow, remoteImages: string[]): void {
   const inputs = conditioningNode(prompt).inputs;
   inputs.task_type = h3VisualTaskType(variant);
   if (variant === 'aid_first_last') return;
+  delete inputs.first_frame;
+  delete inputs.last_frame;
   for (const key of Object.keys(inputs)) {
     if (key.startsWith('ref_images.ref_image_')) delete inputs[key];
+  }
+  if (variant === 'aid_single_reference') {
+    const firstFrame = remoteImages[0];
+    if (!firstFrame) throw new ComfyUIError('I2VA 工作流缺少首帧图片');
+    const nodeId = nextNodeId(prompt);
+    prompt[nodeId] = {
+      class_type: 'LoadImage',
+      inputs: { image: firstFrame },
+      _meta: { title: 'AID locked first frame' },
+    };
+    // A single storyboard is a real image-to-video input. Feeding it through
+    // ref_images made the frame optional visual inspiration and allowed H3 to
+    // redraw the face, wardrobe and room before motion even began.
+    inputs.first_frame = [nodeId, 0];
+    return;
   }
   remoteImages.forEach((remoteImage, index) => {
     const nodeId = nextNodeId(prompt);
@@ -900,22 +917,20 @@ function injectReferenceImages(prompt: JsonRecord, variant: ComfyUIWorkflow, rem
   });
 }
 
-export function h3VisualTaskType(variant: ComfyUIWorkflow): 'FL2VA' | 'Ref2VA' {
-  // The downloaded single-image workflow can retain FL2VA in its saved widget
-  // state. Once AID injects the image through ref_images, H3 rejects FL2VA
-  // ("cannot include reference media"). Both one and many reference images
-  // therefore use Ref2VA; only the dedicated first/last-frame graph uses FL2VA.
+export function h3VisualTaskType(variant: ComfyUIWorkflow): 'I2VA' | 'FL2VA' | 'Ref2VA' {
+  if (variant === 'aid_single_reference') return 'I2VA';
   return variant === 'aid_first_last' ? 'FL2VA' : 'Ref2VA';
 }
 
 export function h3ConditioningTaskType(
-  visualTaskType: 'FL2VA' | 'Ref2VA',
+  visualTaskType: 'I2VA' | 'FL2VA' | 'Ref2VA',
   referenceAudioCount: number,
-): 'FL2VA' | 'Ref2VA' | 'Hybrid' {
+): 'I2VA' | 'FL2VA' | 'Ref2VA' | 'Hybrid' {
   // H3 treats voice samples as reference media too. Pure FL2VA rejects any
-  // reference media, so first/last-frame continuity plus a character voice
-  // reference must run through Hybrid.
-  return visualTaskType === 'FL2VA' && referenceAudioCount > 0 ? 'Hybrid' : visualTaskType;
+  // reference media. The same applies to pure I2VA, so a locked first frame
+  // plus character timbre references is submitted as Hybrid while retaining
+  // the actual first_frame input.
+  return visualTaskType !== 'Ref2VA' && referenceAudioCount > 0 ? 'Hybrid' : visualTaskType;
 }
 
 export function h3ReferenceAudioPolicy(referenceAudioCount: number): {
@@ -953,7 +968,11 @@ function injectReferenceAudios(prompt: JsonRecord, remoteAudios: string[]): void
     inputs[`ref_audios.ref_audio_${index}`] = [nodeId, 0];
   });
   inputs.task_type = h3ConditioningTaskType(
-    inputs.task_type === 'FL2VA' ? 'FL2VA' : 'Ref2VA',
+    inputs.task_type === 'I2VA'
+      ? 'I2VA'
+      : inputs.task_type === 'FL2VA'
+        ? 'FL2VA'
+        : 'Ref2VA',
     remoteAudios.length,
   );
   Object.assign(inputs, h3ReferenceAudioPolicy(remoteAudios.length));

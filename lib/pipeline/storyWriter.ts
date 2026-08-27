@@ -1165,7 +1165,11 @@ export async function generateStoryPlan(input: {
     // request can also fall back from DMX to APIMart without a deterministic
     // 400 loop. Eighteen-shot outlines have measured below 10k output tokens.
     maxOutputTokens: Math.min(16_000, 12_000 + targetShotCount * 450),
-    timeoutMs: isLocalCompanion ? 150_000 : 48_000,
+    // Long-form English adaptations can legitimately spend more than 150s
+    // producing the one authoritative outline. The Companion streams
+    // keep-alives to the browser, so allow the model to finish instead of
+    // purchasing the same large request again after an artificial timeout.
+    timeoutMs: isLocalCompanion ? 270_000 : 48_000,
   });
 
   const generatedDialogueTurns = outline.sequences
@@ -1190,7 +1194,7 @@ export async function generateStoryPlan(input: {
       // line plus semantic evidence and reaction metadata. Keep it bounded so
       // long projects remain faster than the causal outline pass.
       maxOutputTokens: Math.min(12_000, 2_000 + allDialogueTurns.length * 180),
-      timeoutMs: isLocalCompanion ? 150_000 : 48_000,
+      timeoutMs: isLocalCompanion ? 270_000 : 48_000,
     });
   }
 

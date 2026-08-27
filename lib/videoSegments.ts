@@ -6,7 +6,7 @@ export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v28';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v29';
 
 export interface VideoSegmentDefinition {
   id: string;
@@ -237,62 +237,13 @@ export function validateVideoSegment(storyboards: Storyboard[], language?: 'zh' 
 }
 
 export function suggestVideoSegments(storyboards: Storyboard[]): Storyboard[][] {
-  const groups: Storyboard[][] = [];
-  let current: Storyboard[] = [];
-  let currentSeconds = 0;
-
-  const flush = () => {
-    if (current.length) groups.push(current);
-    current = [];
-    currentSeconds = 0;
-  };
-
-  for (let storyboardIndex = 0; storyboardIndex < storyboards.length; storyboardIndex += 1) {
-    const storyboard = storyboards[storyboardIndex];
-    const unitId = String(storyboard.dialogueUnitId || '').trim();
-    const currentAlreadyInUnit = Boolean(unitId && current.some(item => item.dialogueUnitId === unitId));
-    const upcomingUnit = unitId
-      ? storyboards.slice(storyboardIndex).filter((item, offset, tail) => (
-          offset < MAX_H3_STORYBOARDS_PER_SEGMENT
-          && item.dialogueUnitId === unitId
-          && (offset === 0 || tail[offset - 1]?.sceneNumber + 1 === item.sceneNumber)
-        ))
-      : [];
-    const upcomingUnitSeconds = projectedVideoSegmentSeconds(upcomingUnit);
-    if (current.length && !currentAlreadyInUnit && upcomingUnit.length > 1
-      && upcomingUnitSeconds <= MAX_H3_SEGMENT_SECONDS
-      && (currentSeconds + upcomingUnitSeconds > MAX_H3_SEGMENT_SECONDS
-        || current.length + upcomingUnit.length > MAX_H3_STORYBOARDS_PER_SEGMENT)) {
-      flush();
-    }
-    const speechLimitExceeded = Boolean(validateSpeechContract([...current, storyboard]));
-    const candidate = [...current, storyboard];
-    const wouldOverflow = projectedVideoSegmentSeconds(candidate) > MAX_H3_SEGMENT_SECONDS;
-    const dialogueShotLimitExceeded = current.length >= 3
-      && candidate.some(item => storyboardSpeech(item).length > 0);
-    const previous = current[current.length - 1];
-    const previousRole = String(previous?.montageRole || '').toLowerCase();
-    const nextRole = String(storyboard.montageRole || '').toLowerCase();
-    const closesDramaticUnit = /(?:payoff|resolution|收束|回收)/.test(previousRole);
-    const opensDramaticUnit = /(?:setup|建立)/.test(nextRole);
-    const explicitBridge = /(?:bridge|parallel|contrast|consequence|桥接|平行|对照|后果)/.test(nextRole);
-    const previousDialogueUnit = String(previous?.dialogueUnitId || '').trim();
-    const nextDialogueUnit = String(storyboard.dialogueUnitId || '').trim();
-    const sharedDialogueUnit = Boolean(previousDialogueUnit && previousDialogueUnit === nextDialogueUnit);
-    const newDramaticUnit = Boolean(previous && closesDramaticUnit && opensDramaticUnit && !explicitBridge && !sharedDialogueUnit);
-
-    // H3 can perform several causal shots — including motivated location
-    // changes — inside one 15-second clip. Location/sequence labels and
-    // model-written fade/dissolve hints are therefore soft directing signals,
-    // not mandatory generation boundaries. Hard-split only when the model's
-    // real input/timeline limits would be exceeded.
-    if (current.length >= MAX_H3_STORYBOARDS_PER_SEGMENT || dialogueShotLimitExceeded || speechLimitExceeded || wouldOverflow || newDramaticUnit) flush();
-
-    current.push(storyboard);
-    currentSeconds = estimateVideoSegmentSeconds(current);
-  }
-  flush();
-  return groups;
+  // Automatic production prioritizes reference fidelity: one storyboard
+  // becomes one real I2VA/FL2VA clip. A multi-picture Ref2VA segment asks H3 to
+  // synthesize a new composition between several references and therefore
+  // cannot preserve any one storyboard as its exact first frame. Manual
+  // grouping remains available when editorial compression matters more than
+  // pixel-level continuity.
+  return storyboards.map(storyboard => [storyboard]);
 }
 
 export function createVideoSegmentPlan(
@@ -430,6 +381,23 @@ export function persistedVideoClipCount(storyboards: Storyboard[], cachedOnly = 
 
 export function restoredStoryStep(storyboards: Storyboard[], plan?: VideoSegmentPlan): 4 | 5 | 6 {
   if (!storyboards.length || storyboards.some(storyboard => !storyboard.imageUrl)) return 4;
+  // A project rendered before fidelity-first auto segmentation may contain
+  // paid multi-shot artifacts and no separately persisted plan. Continue to
+  // recognize those exact saved segment memberships instead of invalidating
+  // finished work merely because new projects now default to one shot each.
+  const historicalGroups: Storyboard[][] = [];
+  const seenHistoricalSegments = new Set<string>();
+  for (const storyboard of storyboards) {
+    const id = String(storyboard.videoSegmentId || '');
+    if (!id || seenHistoricalSegments.has(id)) continue;
+    seenHistoricalSegments.add(id);
+    const leader = storyboards.find(candidate => candidate.videoSegmentId === id && candidate.videoSegmentStoryboardIds?.length);
+    const byId = new Map(storyboards.map(candidate => [candidate.id, candidate]));
+    const members = (leader?.videoSegmentStoryboardIds || []).map(memberId => byId.get(memberId)).filter((item): item is Storyboard => Boolean(item));
+    if (members.length) historicalGroups.push(members);
+  }
+  if (!plan && historicalGroups.length && historicalGroups.flat().length === storyboards.length
+    && historicalGroups.every(isPersistedVideoSegment)) return 6;
   const groups = resolveVideoSegmentGroups(storyboards, plan);
   return groups.length > 0 && groups.every(isPersistedVideoSegment) ? 6 : 5;
 }

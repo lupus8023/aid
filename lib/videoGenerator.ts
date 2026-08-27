@@ -182,6 +182,41 @@ function officialPerformanceDirection(storyboard: Storyboard): string {
   }).filter(Boolean).join(' ');
 }
 
+function storyboardCastNames(storyboard: Storyboard): string[] {
+  return [...new Set([
+    ...(storyboard.characters || []),
+    ...(storyboard.performance || []).map(cue => cue.character),
+    ...storyboardSpeech(storyboard).map(line => line.character),
+  ].map(name => String(name || '').trim()).filter(Boolean))];
+}
+
+function officialReferencePriorityLock(storyboards: Storyboard[], isFirstLastMode: boolean): string {
+  if (storyboards.length > 1) {
+    return 'REFERENCE PRIORITY: Each declared picture is the composition authority for its own shot. Preserve the depicted cast identity, wardrobe, setting topology, material design, lighting direction, lens perspective, and color palette; do not merge identities or redesign one picture from another.';
+  }
+  const endLock = isFirstLastMode
+    ? ' <Picture 2> is the exact required final frame and must be reached without recasting or restyling the subject.'
+    : '';
+  return `REFERENCE PRIORITY — LOCK to <Picture 1>; DO NOT REDRAW. <Picture 1> is the exact first frame at 00:00.000, not loose style inspiration. Preserve the depicted face and facial geometry, hairline and hairstyle, skin tone and natural skin appearance, body proportions, wardrobe and accessories, object design, environment layout, lighting direction, lens perspective, framing, and color palette throughout. Only the explicitly described physical action, micro-expression, gaze, breathing, camera movement, and physically caused effects may change.${endLock}`;
+}
+
+function officialMaterialReality(style: unknown): string {
+  if (['anime', '3d-cg', 'stop-motion'].includes(String(style || ''))) return '';
+  return 'Maintain photographic material reality: natural skin micro-texture and fine facial detail, physically plausible eye and hair highlights, visible fabric weave and weight, grounded contact shadows, and restrained optical depth. No waxy or plastic skin, beauty-filter smoothing, synthetic hair, warped hands, facial drift, costume mutation, extra people, subtitles, logos, watermarks, or on-screen text.';
+}
+
+function officialTemporalPerformance(
+  storyboard: Storyboard,
+  range: { start: number; end: number },
+  picture: string,
+): string {
+  const span = Math.max(0.5, range.end - range.start);
+  const actionStart = range.start + span * 0.22;
+  const settleStart = range.start + span * 0.78;
+  const subject = storyboardCastNames(storyboard)[0] || 'the main subject';
+  return `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, the exact appearance and spatial relationships established by ${picture} hold while ${subject} shows only natural breathing, a small eye movement, and subtle muscle tension. From ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, the described primary action and performance unfold at normal physical speed with continuous weight, contact, and fabric or hair response. From ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, the action resolves into a readable final pose; the gaze and micro-expression retain the shot's emotion without exaggerated acting.`;
+}
+
 function officialDialogueDelivery(line: ReturnType<typeof compileTimedSpeech>[number]): string {
   const source = `${line.emotion || ''} ${line.delivery || ''}`.toLowerCase();
   const volume = line.volume === 'raised' ? 'at a controlled raised volume'
@@ -304,7 +339,10 @@ function buildOfficialGuidePrompt(
   const speechLanguageError = validateSpeechLanguage(storyboards, options.language);
   if (speechLanguageError) throw new Error(speechLanguageError);
 
-  const characters = [...new Set(storyboards.flatMap(storyboard => storyboard.characters || []))];
+  // Older storyboards can omit a name from `characters` while still carrying
+  // actor direction for that person. Build the visible cast from every
+  // authoritative channel so the prompt never describes an unbound face.
+  const characters = [...new Set(storyboards.flatMap(storyboardCastNames))];
   const referenceAudioNames = (options.referenceAudioNames?.length
     ? options.referenceAudioNames
     : characterAudios.map(audio => audio.character)).filter(Boolean).slice(0, 3);
@@ -338,7 +376,7 @@ function buildOfficialGuidePrompt(
     const range = timeline[index];
     const pictureOrdinal = storyboardPictureOrdinal(index);
     const picture = `<Picture ${pictureOrdinal}>`;
-    const cast = (storyboard.characters || []).map(name => {
+    const cast = storyboardCastNames(storyboard).map(name => {
       const id = subjectId.get(name);
       return useSubjectLabels && id ? `<Subject ${id}>` : name;
     });
@@ -369,6 +407,7 @@ function buildOfficialGuidePrompt(
       /[.!?]$/.test(action) ? action : `${action}.`,
       performance,
       expression,
+      officialTemporalPerformance(storyboard, range, picture),
       camera,
       'The established positions and eyelines remain consistent.',
       dialogue,
@@ -384,8 +423,13 @@ function buildOfficialGuidePrompt(
       ? compactActionArc(visualOverride, 360)
       : '';
   const detailed = [
+    officialReferencePriorityLock(storyboards, isFirstLastMode),
     style,
+    officialMaterialReality(first.visualStyle),
     'The photographic frame remains clean and text-free.',
+    timedSpeech.length
+      ? 'SCRIPT DIALOGUE LOCK: Every <d> line is screenplay-authoritative. Reproduce every word in order exactly as written; do not paraphrase, shorten, translate, add, repeat, or substitute dialogue.'
+      : '',
     englishVisualOverride,
     ...shotParagraphs,
   ].filter(Boolean).join('\n');
@@ -398,10 +442,10 @@ function buildOfficialGuidePrompt(
   }
 
   const subjectDefinitions = characters.map((name, index) => {
-    const ordinals = storyboards.flatMap((storyboard, storyboardIndex) => storyboard.characters?.includes(name)
+    const ordinals = storyboards.flatMap((storyboard, storyboardIndex) => storyboardCastNames(storyboard).includes(name)
       ? [storyboardPictureOrdinal(storyboardIndex)]
       : []);
-    if (hasContinuityReference && storyboards[0]?.characters?.includes(name)) ordinals.unshift(1);
+    if (hasContinuityReference && storyboardCastNames(storyboards[0]).includes(name)) ordinals.unshift(1);
     const pictures = [...new Set(ordinals)].map(ordinal => `<Picture ${ordinal}>`).join(', ');
     return `<Subject ${index + 1}> is ${name} in ${pictures || 'the reference pictures'}.`;
   });
@@ -414,11 +458,11 @@ function buildOfficialGuidePrompt(
     const speaker = speakerId.get(name);
     return `<Audio ${index + 1}> is the voice-timbre reference for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (S${speaker})` : ''}.`;
   });
-  const taskTypes = ['keyframe completion', ...(referenceAudioNames.length ? ['audio reference'] : [])];
+  const taskTypes = [storyboards.length === 1 ? 'locked-first-frame image-to-video' : 'keyframe completion', ...(referenceAudioNames.length ? ['audio reference'] : [])];
   const summary = `[${taskTypes.join(' + ')}] The target video contains ${storyboards.length} sequential shot${storyboards.length === 1 ? '' : 's'} built from the declared picture references${referenceAudioNames.length ? ' and voice-timbre references' : ''}.`;
   const retention = [
     ...characters.map((name, index) => `<Subject ${index + 1}> (appears in ${storyboards
-      .map((storyboard, storyboardIndex) => storyboard.characters?.includes(name) ? `[Shot ${storyboardIndex + 1}]` : '')
+      .map((storyboard, storyboardIndex) => storyboardCastNames(storyboard).includes(name) ? `[Shot ${storyboardIndex + 1}]` : '')
       .filter(Boolean).join(', ')}): fully_preserved - identity and wardrobe remain consistent.`),
     ...(hasContinuityReference ? ['<Picture 1> ([Shot 1] opening frame): fully_preserved - its composition anchors the opening.'] : []),
     ...storyboards.map((_, index) => `<Picture ${storyboardPictureOrdinal(index)}> ([Shot ${index + 1}] composition): fully_preserved - its subject placement, setting, and lighting guide the shot.`),

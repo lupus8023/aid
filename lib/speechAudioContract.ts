@@ -165,22 +165,16 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
     // same-speaker screenplay lines into one continuous H3 vocal event.
 }
 
-function joinContinuousSpeech(previous: string, next: string, preserveSentenceBoundary = false): string {
+function joinContinuousSpeech(previous: string, next: string): string {
   if (!previous) return next;
   if (!next) return previous;
   const containsHan = /[\u3400-\u9fff]/.test(previous + next);
-  if (containsHan) {
-    if (!preserveSentenceBoundary) {
-      return `${previous.replace(/[。！？!?；;：:，,、\s]+$/u, '')}，${next.replace(/^[。！？!?；;：:，,、\s]+/u, '')}`;
-    }
-    return /[，。！？；：、,.!?;:]$/.test(previous)
-      ? `${previous}${next}`
-      : `${previous}，${next}`;
-  }
-  if (!preserveSentenceBoundary) {
-    return `${previous.replace(/[.!?;:,\s]+$/u, '')}, ${next.replace(/^[.!?;:,\s]+/u, '')}`;
-  }
-  return `${previous}${/\s$/.test(previous) ? '' : ' '}${next}`;
+  // The screenplay is authoritative after approval. Joining two consecutive
+  // vocal events may add an English word separator, but must never delete,
+  // replace or invent punctuation inside either authored line.
+  return containsHan
+    ? `${previous}${next}`
+    : `${previous}${/\s$/.test(previous) || /^\s/.test(next) ? '' : ' '}${next}`;
 }
 
 /**
@@ -211,7 +205,6 @@ export function consolidateSegmentSpeech(storyboards: Storyboard[]): IndexedSpee
       previous.exactLine = joinContinuousSpeech(
         previous.exactLine,
         line.exactLine,
-        previous.source === 'user_exact' && line.source === 'user_exact',
       );
       previous.listenerState = line.listenerState || previous.listenerState;
       previous.storyFunction = [previous.storyFunction, line.storyFunction].filter(Boolean).join('+');

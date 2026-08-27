@@ -34,9 +34,9 @@ const shot = (sceneNumber, extra = {}) => ({
   ...extra,
 });
 
-test('suggests compact groups without exceeding four storyboards', () => {
+test('suggests one fidelity-locked video segment per storyboard', () => {
   const groups = suggestVideoSegments(Array.from({ length: 9 }, (_, index) => shot(index + 1)));
-  assert.deepEqual(groups.map(group => group.length), [4, 4, 1]);
+  assert.deepEqual(groups.map(group => group.length), Array(9).fill(1));
   assert.ok(groups.every(group => estimateVideoSegmentSeconds(group) <= 15));
 });
 
@@ -58,23 +58,23 @@ test('keeps all members locked when the segment leader has a recoverable task id
   assert.equal(releaseUnsubmittedVideoGenerations(running), running);
 });
 
-test('reserves one segment for an adjacent question and answer when they fit together', () => {
+test('keeps adjacent dialogue shots separate so each storyboard remains an exact frame', () => {
   const groups = suggestVideoSegments([
     shot(1, { durationHint: 10 }),
     shot(2, { durationHint: 5, characters: ['A'], dialogueUnitId: 'dlg-1', speech: [{ character: 'A', exactLine: 'Who opened the gate?', source: 'story_required' }] }),
     shot(3, { durationHint: 5, characters: ['B'], dialogueUnitId: 'dlg-1', speech: [{ character: 'B', exactLine: 'I opened it before the flood.', source: 'story_required' }] }),
   ]);
-  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2, 3]]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2], [3]]);
 });
 
-test('keeps causal shots grouped across motivated sequence or location changes', () => {
+test('keeps causal shots editorially separate across sequence or location changes', () => {
   const groups = suggestVideoSegments([
     shot(1, { durationHint: 3 }),
     shot(2, { durationHint: 3 }),
     shot(3, { durationHint: 3, sequenceId: 'seq-2', locationId: 'loc-2' }),
     shot(4, { durationHint: 3, sequenceId: 'seq-3', locationId: 'loc-3' }),
   ]);
-  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2, 3, 4]]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2], [3], [4]]);
 });
 
 test('persists and restores a manual director segment plan', () => {
@@ -84,17 +84,17 @@ test('persists and restores a manual director segment plan', () => {
   assert.equal(plan.version, 2);
   assert.equal(plan.source, 'manual');
   assert.deepEqual(restored.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
-  assert.deepEqual(resolveVideoSegmentGroups([...storyboards].reverse(), plan).map(group => group.map(item => item.sceneNumber)), [[4, 3, 2, 1]]);
+  assert.deepEqual(resolveVideoSegmentGroups([...storyboards].reverse(), plan).map(group => group.map(item => item.sceneNumber)), [[4], [3], [2], [1]]);
 });
 
 test('makes segment dialogue authoritative while storyboards remain visual references', () => {
   const storyboards = [
-    shot(1, { characters: ['A'], speech: [{ character: 'A', exactLine: '第一部分说明。', source: 'story_required' }] }),
-    shot(2, { characters: ['A'], speech: [{ character: 'A', exactLine: '第二部分结论。', source: 'story_required' }] }),
+    shot(1, { characters: ['A'], speech: [{ character: 'A', voiceId: 'voice-a', exactLine: '第一部分说明。', source: 'story_required' }] }),
+    shot(2, { characters: ['A'], speech: [{ character: 'A', voiceId: 'voice-a', exactLine: '第二部分结论。', source: 'story_required' }] }),
   ];
   const plan = createVideoSegmentPlan(storyboards, [storyboards]);
   assert.equal(plan.segments[0].speech.length, 1);
-  assert.equal(plan.segments[0].speech[0].exactLine, '第一部分说明，第二部分结论。');
+  assert.equal(plan.segments[0].speech[0].exactLine, '第一部分说明。第二部分结论。');
   const [resolved] = resolveVideoSegmentGroups(storyboards, plan);
   assert.equal(resolved[0].speech.length, 1);
   assert.deepEqual(resolved[1].speech, []);
@@ -103,8 +103,8 @@ test('makes segment dialogue authoritative while storyboards remain visual refer
 
 test('keeps ordered multi-speaker dialogue at segment level with one block per identity', () => {
   const storyboards = [
-    shot(1, { characters: ['A'], speech: [{ character: 'A', exactLine: '你确认入口安全吗？', source: 'story_required' }] }),
-    shot(2, { characters: ['B'], speech: [{ character: 'B', exactLine: '我已经检查过两次。', source: 'story_required' }] }),
+    shot(1, { characters: ['A'], speech: [{ character: 'A', voiceId: 'voice-a', exactLine: '你确认入口安全吗？', source: 'story_required' }] }),
+    shot(2, { characters: ['B'], speech: [{ character: 'B', voiceId: 'voice-b', exactLine: '我已经检查过两次。', source: 'story_required' }] }),
   ];
   const plan = createVideoSegmentPlan(storyboards, [storyboards]);
   assert.deepEqual(plan.segments[0].speech.map(line => line.character), ['A', 'B']);
@@ -112,14 +112,14 @@ test('keeps ordered multi-speaker dialogue at segment level with one block per i
   assert.deepEqual(resolved.flatMap(item => item.speech).map(line => line.exactLine), ['你确认入口安全吗？', '我已经检查过两次。']);
 });
 
-test('splits before a same-speaker second onset and caps each segment at three speaker blocks', () => {
+test('automatic fidelity mode isolates every speaker onset in its own visual segment', () => {
   const groups = suggestVideoSegments([
     shot(1, { characters: ['A'], speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: '第一句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
     shot(2, { characters: ['B'], speech: [{ speakerId: 'S2', character: 'B', voiceId: 'voice-b', exactLine: '第二句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
     shot(3, { characters: ['A'], speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: '第三句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
     shot(4, { characters: ['C'], speech: [{ speakerId: 'S3', character: 'C', voiceId: 'voice-c', exactLine: '第四句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
   ]);
-  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2], [3], [4]]);
   assert.equal(validateVideoSegment(groups[0]), undefined);
   assert.match(validateVideoSegment([shot(1, { characters: ['A'], imageUrl: 'x', dialogueLines: [{ character: 'A', text: '一。' }] }), shot(2, { characters: ['B'], imageUrl: 'x', dialogueLines: [{ character: 'B', text: '二。' }] }), shot(3, { characters: ['C'], imageUrl: 'x', dialogueLines: [{ character: 'C', text: '三。' }] }), shot(4, { characters: ['D'], imageUrl: 'x', dialogueLines: [{ character: 'D', text: '四。' }] })]), /最多绑定 3 个/);
 });

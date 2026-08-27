@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.87 - 2026-08-27
+
+### Changed
+
+- Automatic Story video production now creates one H3 clip per storyboard, allowing each storyboard image to remain the actual motion source instead of being averaged with several composition references.
+- Single-storyboard generation now wires the image into H3's `first_frame` input and uses I2VA; voice-timbre references retain that locked frame through Hybrid conditioning, while continuity shots continue to use FL2VA.
+- H3 prompts now declare reference priority, immutable identity/wardrobe/environment attributes, allowed motion, photographic material detail, and a three-phase performance timeline derived from each shot.
+- The Story video channel now requires Companion v0.1.87 so an older Ref2VA-only local build cannot silently process a fidelity-locked request.
+
+### Fixed
+
+- Corrected the single-image workflow that previously submitted every storyboard through `ref_images` as Ref2VA, allowing faces, costumes, and environments to be redrawn before motion began.
+- Visible cast binding now also considers performance cues and authoritative speech, preventing an actor described in the shot from remaining unbound to a reference subject.
+- Consecutive same-character dialogue no longer deletes, replaces, or invents screenplay punctuation when compiled into one H3 vocal block.
+- Existing paid multi-shot video artifacts remain restorable after the new fidelity-first automatic segmentation becomes active.
+
+### Verification
+
+- 90 H3 audio, H3 prompt, video-segment, story-delivery, and staged-screenplay tests pass together with TypeScript validation and the production build.
+
 ## 0.1.86 - 2026-08-27
 
 ### Added

@@ -9,6 +9,7 @@ import {
   h3AlignedFrameCount,
   h3ReferenceAudioPolicy,
   h3VisualTaskType,
+  injectReferenceImages,
   injectH3NativeDialogue,
   sanitizeSubmittedH3Prompt,
   selectComfyUIVideoOutput,
@@ -219,16 +220,45 @@ test('keeps voice references in native mode without requiring drive audio', () =
   assert.equal(h3ReferenceAudioPolicy(0).prompt_primary_audio_ordinal, 0);
 });
 
-test('uses reference-video mode whenever AID injects reference images', () => {
-  assert.equal(h3VisualTaskType('aid_single_reference'), 'Ref2VA');
+test('uses a true first-frame I2VA mode for one storyboard', () => {
+  assert.equal(h3VisualTaskType('aid_single_reference'), 'I2VA');
   assert.equal(h3VisualTaskType('aid_multi_reference'), 'Ref2VA');
   assert.equal(h3VisualTaskType('aid_first_last'), 'FL2VA');
 });
 
-test('uses hybrid mode for first/last-frame continuity with voice references', () => {
+test('uses hybrid mode when a locked frame also carries voice references', () => {
+  assert.equal(h3ConditioningTaskType('I2VA', 1), 'Hybrid');
+  assert.equal(h3ConditioningTaskType('I2VA', 0), 'I2VA');
   assert.equal(h3ConditioningTaskType('FL2VA', 1), 'Hybrid');
   assert.equal(h3ConditioningTaskType('FL2VA', 0), 'FL2VA');
   assert.equal(h3ConditioningTaskType('Ref2VA', 2), 'Ref2VA');
+});
+
+test('wires a single storyboard into first_frame instead of ref_images', () => {
+  const prompt = nativePrompt(englishPrompt);
+  prompt[2].inputs['ref_images.ref_image_0'] = ['10', 0];
+  injectReferenceImages(prompt, 'aid_single_reference', ['locked-frame.png']);
+  assert.equal(prompt[2].inputs.task_type, 'I2VA');
+  assert.ok(Array.isArray(prompt[2].inputs.first_frame));
+  assert.equal(Object.keys(prompt[2].inputs).some(key => key.startsWith('ref_images.ref_image_')), false);
+  const loader = prompt[prompt[2].inputs.first_frame[0]];
+  assert.equal(loader.class_type, 'LoadImage');
+  assert.equal(loader.inputs.image, 'locked-frame.png');
+});
+
+test('keeps the I2VA first frame while native voice conditioning becomes Hybrid', () => {
+  const prompt = nativePrompt(englishPrompt);
+  injectReferenceImages(prompt, 'aid_single_reference', ['locked-frame.png']);
+  assert.equal(injectH3NativeDialogue(
+    prompt,
+    ['voice.wav'],
+    ['Officer'],
+    [{ character: 'Officer', exactLine: 'The gate is holding.', start: 0.8, end: 4 }],
+    8,
+    'en',
+  ), true);
+  assert.equal(prompt[2].inputs.task_type, 'Hybrid');
+  assert.ok(Array.isArray(prompt[2].inputs.first_frame));
 });
 
 test('never turns native audio into permission to invent speech or music', () => {
