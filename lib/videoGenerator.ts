@@ -10,17 +10,37 @@ function h3Timestamp(seconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${remainder.toFixed(3).padStart(6, '0')}`;
 }
 
+export const H3_PROMPT_MAX_CHARACTERS = 7000;
+
 function fitH3PromptBudget(prompt: string): string {
-  if (prompt.length <= 7000) return prompt;
-  // New prompts are intentionally compact. Only collapse redundant spaces;
-  // never truncate an exact <d> line or invent a shortened control contract.
-  const fitted = prompt
+  if (prompt.length <= H3_PROMPT_MAX_CHARACTERS) return prompt;
+  // Dialogue tags are the screenplay authority. Compact only repeated prose
+  // around them; never truncate or rewrite an exact <d> line.
+  let fitted = prompt
     .split(/(<d>[\s\S]*?<\/d>)/gi)
     .map(part => /^<d>/i.test(part) ? part : part.replace(/[ \t]{2,}/g, ' '))
     .join('')
     .replace(/\n{3,}/g, '\n\n');
-  if (fitted.length <= 7000) return fitted;
-  throw new Error(`H3 提示词仍有 ${fitted.length} 字符，超过 7000 字符上限；请拆分该视频片段`);
+  if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
+
+  // Ref2VA's retention section used to restate every subject/picture binding
+  // already declared above and every identity/composition lock declared below.
+  // One lossless global rule carries the same instruction at a fraction of the
+  // budget, leaving room for the shot actions, expressions and exact dialogue.
+  fitted = fitted.replace(
+    /retention_analysis:\n[\s\S]*?\n\ndetailed_description:/i,
+    'retention_analysis:\nPreserve every declared subject identity and wardrobe, every picture composition and setting, and each bound audio timbre across its listed shots.\n\ndetailed_description:',
+  );
+  fitted = fitted
+    .split(/(<d>[\s\S]*?<\/d>)/gi)
+    .map(part => /^<d>/i.test(part) ? part : part
+      .replace(/The established positions and eyelines remain consistent\.\s*/g, '')
+      .replace(/[ \t]{2,}/g, ' '))
+    .join('')
+    .replace(/\n{3,}/g, '\n\n');
+  if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
+
+  throw new Error(`H3 提示词压缩后仍有 ${fitted.length} 字符，超过 ${H3_PROMPT_MAX_CHARACTERS} 字符上限；该片段的逐字台词或演员任务过多，请拆分片段`);
 }
 
 function compactActionArc(value: unknown, limit = 280): string {
@@ -171,14 +191,33 @@ function officialVisibleExpression(storyboard: Storyboard): string {
   return 'The gaze and facial tension change once with the action, then recover.';
 }
 
-function officialPerformanceDirection(storyboard: Storyboard): string {
+function officialPerformanceDirection(storyboard: Storyboard, segmentShotCount: number): string {
   const cues = (storyboard.performance || []).slice(0, 3);
   if (!cues.length) return '';
+  // A four-picture segment previously expanded six verbose actor fields for
+  // every visible character in every shot, producing 12k+ character prompts.
+  // Budget the same observable direction by dramatic priority. The primary
+  // actor receives the largest share; supporting actors retain their visible
+  // expression/reaction instead of disappearing from the prompt.
+  const totalBudget = segmentShotCount > 1 ? 320 : 760;
+  const primaryBudget = cues.length === 1 ? totalBudget : Math.ceil(totalBudget * 0.52);
+  const supportingBudget = cues.length > 1
+    ? Math.floor((totalBudget - primaryBudget) / (cues.length - 1))
+    : totalBudget;
   return cues.map((cue, index) => {
-    const pieces = [cue.blocking, cue.gesture, cue.expression, cue.gaze, cue.breath, cue.reaction]
-      .map(value => String(value || '').trim())
+    const pieces = [
+      cue.blocking,
+      cue.expression,
+      cue.reaction,
+      cue.gaze,
+      cue.gesture,
+      cue.breath,
+    ].map(value => String(value || '').replace(/\s+/g, ' ').trim())
       .filter(value => value && !containsHan(value));
-    return pieces.length ? `Visible character ${index + 1}: ${pieces.join('; ')}` : '';
+    if (!pieces.length) return '';
+    const character = String(cue.character || '').trim();
+    const label = character ? `${character}: ` : `Visible character ${index + 1}: `;
+    return `${label}${compactActionArc(pieces.join('; '), index === 0 ? primaryBudget : supportingBudget)}`;
   }).filter(Boolean).join(' ');
 }
 
@@ -213,8 +252,7 @@ function officialTemporalPerformance(
   const span = Math.max(0.5, range.end - range.start);
   const actionStart = range.start + span * 0.22;
   const settleStart = range.start + span * 0.78;
-  const subject = storyboardCastNames(storyboard)[0] || 'the main subject';
-  return `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, the exact appearance and spatial relationships established by ${picture} hold while ${subject} shows only natural breathing, a small eye movement, and subtle muscle tension. From ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, the described primary action and performance unfold at normal physical speed with continuous weight, contact, and fabric or hair response. From ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, the action resolves into a readable final pose; the gaze and micro-expression retain the shot's emotion without exaggerated acting.`;
+  return `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, hold ${picture}'s appearance, breath, and gaze; from ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, perform the action at natural speed with weight and contact; from ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, settle the final pose and micro-expression.`;
 }
 
 function officialDialogueDelivery(line: ReturnType<typeof compileTimedSpeech>[number]): string {
@@ -411,8 +449,11 @@ function buildOfficialGuidePrompt(
     const primarySubject = cast[0] || 'The main subject';
     const action = officialH3PhysicalAction(storyboard, primarySubject);
     const framing = officialShotFraming(storyboard);
-    const expression = officialVisibleExpression(storyboard);
-    const performance = officialPerformanceDirection(storyboard);
+    const performance = officialPerformanceDirection(storyboard, storyboards.length);
+    // Detailed performance cues already include the authored facial change.
+    // Adding a second generic expression sentence consumed prompt budget and
+    // sometimes gave H3 two competing acting instructions for the same beat.
+    const expression = performance ? '' : officialVisibleExpression(storyboard);
     const camera = officialH3CameraSentence(storyboard, index);
     const dialogue = (dialogueByShot.get(index) || []).join(' ');
     let opening: string;

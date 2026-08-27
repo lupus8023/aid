@@ -7,7 +7,7 @@ export const VIDEO_SEGMENT_PLANNING_CONTRACT = 'cinematic-edit-v2';
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v30';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v31';
 
 export interface VideoSegmentDefinition {
   id: string;

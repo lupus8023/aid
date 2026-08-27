@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.89 - 2026-08-28
+
+### Changed
+
+- Multi-shot H3 prompts now budget actor direction across the whole segment: the primary performer keeps the most detail while supporting actors retain their essential visible expressions and reactions.
+- Repeated temporal, eyeline, and reference-retention instructions are consolidated without modifying exact `<d>` dialogue, shot actions, picture bindings, or cinematic cut grammar.
+- The H3 prompt cache contract is bumped to `h3-v31`, and Story generation now requires Companion v0.1.89 so hosted planning cannot submit the new prompt contract through an older local engine.
+
+### Fixed
+
+- Fixed merged two-to-four-shot segments failing before submission when verbose performance direction expanded the H3 prompt beyond the 7,000-character limit.
+- Removed duplicate generic expression instructions when a shot already contains detailed actor performance cues, preventing both prompt inflation and competing acting direction.
+- Prompt overflow fallback now reports whether exact dialogue or actor tasks genuinely require a segment split instead of repeatedly retrying an unchanged oversized request.
+
+### Verification
+
+- A four-shot continuity stress case with three performers per shot, verbose action/expression/gaze/breath direction, two exact dialogue lines, and voice references produces a 6,952-character prompt while preserving every shot and dialogue line.
+- 181 release regression tests pass across story planning, cinematic segmentation, H3 prompts/audio, voice casting, image generation, recovery, automatic production, and project isolation; production website and Companion builds also pass.
+
 ## 0.1.88 - 2026-08-28
 
 ### Added

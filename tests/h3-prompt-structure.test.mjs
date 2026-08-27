@@ -203,6 +203,40 @@ test('preserves grouped storyboards as official timed shot paragraphs', () => {
   assert.doesNotMatch(prompt, /reference——|物体包括|既定|视线轴|画面侧|动作走位|决定性|透视关系/);
 });
 
+test('fits a four-shot continuity segment with verbose actor direction inside the H3 limit', () => {
+  const verboseCue = (character, index) => ({
+    character,
+    blocking: `${character} starts beside marker ${index}, transfers weight through a grounded step, completes the principal action, and lands in a readable final pose. `.repeat(5),
+    gesture: `${character} makes one precise hand gesture toward the story object. `.repeat(4),
+    expression: `${character}'s eyes, brow, mouth corners and jaw move from guarded tension through recognition into a restrained final expression. `.repeat(5),
+    gaze: `${character} shifts gaze from the partner to the story object and holds the final eyeline. `.repeat(4),
+    breath: `${character}'s breath catches, steadies, and releases with the decision. `.repeat(4),
+    reaction: `${character} visibly absorbs the preceding action before changing distance and intention. `.repeat(5),
+  });
+  const segment = [1, 2, 3, 4].map(index => shot(index, {
+    characters: ['Lin', 'Mei', 'Guard'],
+    action: `Lin completes the distinct physical action for shot ${index} and changes the visible situation.`,
+    performance: [verboseCue('Lin', index), verboseCue('Mei', index), verboseCue('Guard', index)],
+    ...(index === 2 ? { dialogueLines: [{ character: 'Lin', text: '保持队形，跟着我。' }] } : {}),
+    ...(index === 3 ? { dialogueLines: [{ character: 'Mei', text: '我看见出口了。' }] } : {}),
+  }));
+  const prompt = buildVideoSegmentPrompt(segment, [], {
+    duration: 15,
+    firstFrameUrl: 'continuity-frame',
+    referenceAudioNames: ['Lin', 'Mei'],
+    language: 'zh',
+  });
+  assert.ok(prompt.length <= 7000, `prompt was ${prompt.length} characters`);
+  assert.equal((prompt.match(/\[Shot \d+]/g) || []).length >= 4, true);
+  assert.equal((prompt.match(/保持队形，跟着我。/g) || []).length, 1);
+  assert.equal((prompt.match(/我看见出口了。/g) || []).length, 1);
+  assert.match(prompt, /Lin completes the distinct physical action for shot 1/);
+  assert.match(prompt, /Lin completes the distinct physical action for shot 4/);
+  assert.match(prompt, /Lin:/);
+  assert.match(prompt, /Mei:/);
+  assert.match(prompt, /Guard:/);
+});
+
 test('directs a master-to-detail sequence with progressive coverage and a match insert', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1, { clipType: 'establishing', shotSize: 'wide shot', action: 'Lin enters the archive and stops beside the central table.' }),
