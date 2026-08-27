@@ -56,6 +56,19 @@ export type ComfyUIWorkflow =
   | 'aid_multi_reference'
   | 'aid_first_last';
 
+export type H3Fl2vaProfile = 'balanced8' | 'legacy';
+
+export const H3_FL2VA_BALANCED_PROFILE = Object.freeze({
+  name: 'balanced8' as const,
+  diffusionModel: 'minimax_h3_fl2va_pruned_int8_convrot.safetensors',
+  textEncoder: 'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',
+  lora: 'minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors',
+  steps: 8,
+  shiftVideo: 6,
+  shiftAudio: 3,
+  loraStrength: 1,
+});
+
 const WORKFLOW_SEARCH_PATTERNS: Record<ComfyUIWorkflow, string> = {
   aid_single_reference: '*单图生视频*4步lora*.json',
   aid_multi_reference: '*多图生视频*4步lora*.json',
@@ -74,6 +87,7 @@ export interface ComfyUIClientSettings {
   imageWorkflowPath?: string;
   multiImageWorkflowPath?: string;
   firstLastWorkflowPath?: string;
+  h3Fl2vaProfile?: H3Fl2vaProfile;
   characterReplaceWorkflowPath?: string;
   timeoutSeconds?: number | string;
 }
@@ -93,6 +107,7 @@ interface ComfyUIConfig {
   imageWorkflowPath: string;
   multiImageWorkflowPath: string;
   firstLastWorkflowPath: string;
+  h3Fl2vaProfile: H3Fl2vaProfile;
   characterReplaceWorkflowPath: string;
   timeoutSeconds: number;
 }
@@ -114,6 +129,10 @@ function envOrValue(value: unknown, envName: string, fallback: string): string {
 function positiveInt(value: string, fallback: number, minimum = 1): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= minimum ? Math.floor(parsed) : fallback;
+}
+
+function h3Fl2vaProfile(value: unknown): H3Fl2vaProfile {
+  return String(value || '').trim().toLowerCase() === 'legacy' ? 'legacy' : 'balanced8';
 }
 
 function normalizePrivateKey(value: string, source: string): string {
@@ -181,6 +200,9 @@ export function getComfyUIConfig(settings: ComfyUIClientSettings = {}): ComfyUIC
     imageWorkflowPath: envOrValue(settings.imageWorkflowPath, 'COMFYUI_IMAGE_WORKFLOW_PATH', ''),
     multiImageWorkflowPath: envOrValue(settings.multiImageWorkflowPath, 'COMFYUI_MULTI_IMAGE_WORKFLOW_PATH', ''),
     firstLastWorkflowPath: envOrValue(settings.firstLastWorkflowPath, 'COMFYUI_FIRST_LAST_WORKFLOW_PATH', ''),
+    h3Fl2vaProfile: h3Fl2vaProfile(
+      settings.h3Fl2vaProfile ?? process.env.COMFYUI_H3_FL2VA_PROFILE ?? 'balanced8',
+    ),
     characterReplaceWorkflowPath: envOrValue(
       settings.characterReplaceWorkflowPath,
       'COMFYUI_CHARACTER_REPLACE_WORKFLOW_PATH',
@@ -870,6 +892,65 @@ function compileFrontendWorkflow(workflow: JsonRecord): JsonRecord {
     };
   }
   return prompt;
+}
+
+function uniquePromptNode(prompt: JsonRecord, classType: string): [string, JsonRecord] {
+  const matches = Object.entries(prompt).filter(([, node]: [string, any]) => node.class_type === classType) as [string, JsonRecord][];
+  if (matches.length !== 1) {
+    throw new ComfyUIError(`FL2VA 均衡方案要求且只能包含一个 ${classType} 节点，实际为 ${matches.length} 个`);
+  }
+  return matches[0];
+}
+
+function linkedFrom(node: JsonRecord, inputName: string, expectedNodeId: string): boolean {
+  const link = node.inputs?.[inputName];
+  return Array.isArray(link) && String(link[0]) === expectedNodeId;
+}
+
+/**
+ * Lock I2VA/FL2VA production jobs to the matched 768p eight-step stack.
+ *
+ * The remote graph remains the rollback template, but its model widgets are
+ * not trusted: an earlier graph loaded a four-step LoRA while asking the
+ * sampler for eight evaluations. Enforcing the complete profile after graph
+ * compilation prevents filenames, saved widgets, or stale UI state from
+ * silently mixing incompatible checkpoints and schedules again.
+ */
+export function applyH3Fl2vaProfile(
+  prompt: JsonRecord,
+  variant: ComfyUIWorkflow,
+  profile: H3Fl2vaProfile = 'balanced8',
+): JsonRecord {
+  if (profile === 'legacy' || variant === 'aid_multi_reference') {
+    return { name: profile === 'legacy' ? 'legacy' : 'ref2va-unmodified', active: false };
+  }
+
+  const [unetId, unet] = uniquePromptNode(prompt, 'UNETLoader');
+  const [, clip] = uniquePromptNode(prompt, 'CLIPLoader');
+  const [sageId, sage] = uniquePromptNode(prompt, 'MiniMaxH3MemoryEfficientSageAttentionPatch');
+  const [loraId, lora] = uniquePromptNode(prompt, 'LoraLoaderBypassModelOnly');
+  const [, sampler] = uniquePromptNode(prompt, 'MiniMaxH3DualClockSamplerT8');
+
+  if (!linkedFrom(sage, 'model', unetId)
+    || !linkedFrom(lora, 'model', sageId)
+    || !linkedFrom(sampler, 'model', loraId)) {
+    throw new ComfyUIError('FL2VA 均衡方案要求 UNET → Sage → 8步 LoRA → Sampler 的完整模型链');
+  }
+
+  unet.inputs.unet_name = H3_FL2VA_BALANCED_PROFILE.diffusionModel;
+  unet.inputs.weight_dtype = 'default';
+  clip.inputs.clip_name = H3_FL2VA_BALANCED_PROFILE.textEncoder;
+  clip.inputs.type = 'minimax';
+  clip.inputs.device = 'default';
+  lora.inputs.lora_name = H3_FL2VA_BALANCED_PROFILE.lora;
+  lora.inputs.strength_model = H3_FL2VA_BALANCED_PROFILE.loraStrength;
+  sampler.inputs.steps = H3_FL2VA_BALANCED_PROFILE.steps;
+  sampler.inputs.shift_video = H3_FL2VA_BALANCED_PROFILE.shiftVideo;
+  sampler.inputs.shift_audio = H3_FL2VA_BALANCED_PROFILE.shiftAudio;
+  sampler.inputs.sampler_name = 'dual_clock_euler';
+  sampler.inputs.scheduler = 'native_flow';
+
+  return { ...H3_FL2VA_BALANCED_PROFILE, active: true, sageAttention: true };
 }
 
 function conditioningNode(prompt: JsonRecord): JsonRecord {
@@ -1725,6 +1806,7 @@ export async function createComfyUIVideoTask(input: {
         outputPrefix: `aid/${variant}/${runId}`,
       });
       const apiPrompt = compileFrontendWorkflow(workflow);
+      applyH3Fl2vaProfile(apiPrompt, variant, config.h3Fl2vaProfile);
       injectReferenceImages(apiPrompt, variant, remoteImages);
       const usesNativeDialogue = injectH3NativeDialogue(
         apiPrompt,
@@ -2062,13 +2144,20 @@ export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}
     const sshProbe = await stage('验证 Companion 设备密钥', () => probeSshAuthorization(config));
     if (sshProbe !== 'AID_SSH_READY') throw new ComfyUIError('SSH 已连接但没有返回预期响应');
     const workflows: Record<string, JsonRecord> = {};
-    const prompts: Array<{ variant: ComfyUIWorkflow; prompt: JsonRecord; workflowPath: string; baseReferenceImages: number }> = [];
+    const prompts: Array<{
+      variant: ComfyUIWorkflow;
+      prompt: JsonRecord;
+      workflowPath: string;
+      baseReferenceImages: number;
+      acceleration: JsonRecord;
+    }> = [];
     for (const variant of ['aid_single_reference', 'aid_multi_reference', 'aid_first_last'] as ComfyUIWorkflow[]) {
       const { workflow, path: workflowPath } = await stage(
         `读取 ${variant} 工作流`,
         () => readRemoteWorkflow(config, variant),
       );
       const apiPrompt = compileFrontendWorkflow(workflow);
+      const acceleration = applyH3Fl2vaProfile(apiPrompt, variant, config.h3Fl2vaProfile);
       const baseReferenceImages = Object.keys(conditioningNode(apiPrompt).inputs)
         .filter(key => key.startsWith('ref_images.ref_image_')).length;
       if (variant === 'aid_multi_reference') {
@@ -2079,13 +2168,16 @@ export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}
         );
       }
       injectReferenceAudios(apiPrompt, []);
-      prompts.push({ variant, prompt: apiPrompt, workflowPath, baseReferenceImages });
+      prompts.push({ variant, prompt: apiPrompt, workflowPath, baseReferenceImages, acceleration });
     }
-    const { stats, h3Definition } = await stage('检查 ComfyUI API', () => withTunnel(config, async baseUrl => ({
-      stats: await fetchJson(baseUrl, '/system_stats', {}, 30_000),
-      h3Definition: await fetchJson(baseUrl, '/object_info/MiniMaxH3AudioConditioningT8', {}, 30_000),
-    })));
-    for (const { variant, prompt: apiPrompt, workflowPath, baseReferenceImages } of prompts) {
+    const definitions = await stage('检查 ComfyUI 节点与模型', () => readRemoteDefinitions(config));
+    for (const { prompt: apiPrompt } of prompts) validatePrompt(apiPrompt, definitions);
+    const stats = await stage('检查 ComfyUI API', () => withTunnel(
+      config,
+      baseUrl => fetchJson(baseUrl, '/system_stats', {}, 30_000),
+    ));
+    const h3Definition = definitions.MiniMaxH3AudioConditioningT8 || {};
+    for (const { variant, prompt: apiPrompt, workflowPath, baseReferenceImages, acceleration } of prompts) {
       const h3Inputs = conditioningNode(apiPrompt).inputs;
       workflows[variant] = {
         path: workflowPath,
@@ -2095,10 +2187,11 @@ export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}
         validatedReferenceImages: Object.keys(h3Inputs).filter(key => key.startsWith('ref_images.ref_image_')).length,
         hasFirstFrame: Boolean(h3Inputs.first_frame),
         hasLastFrame: Boolean(h3Inputs.last_frame),
+        acceleration,
       };
     }
     const remoteRefImageMax = Number(
-      h3Definition.MiniMaxH3AudioConditioningT8?.input?.optional?.ref_images?.[1]?.template?.max || 0,
+      h3Definition.input?.optional?.ref_images?.[1]?.template?.max || 0,
     );
     return {
       ok: true,

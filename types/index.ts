@@ -258,6 +258,7 @@ export interface AppSettings {
     imageWorkflowPath: string;
     multiImageWorkflowPath: string;
     firstLastWorkflowPath: string;
+    h3Fl2vaProfile?: 'balanced8' | 'legacy';
     characterReplaceWorkflowPath?: string;
     timeoutSeconds: number;
   };

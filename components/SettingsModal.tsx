@@ -349,6 +349,17 @@ export default function SettingsModal({
                   />
                 </label>
               ))}
+              <label className="block text-xs font-mono text-[var(--text-secondary)]">
+                FL2VA 加速方案
+                <select
+                  value={localSettings.comfyui?.h3Fl2vaProfile || 'balanced8'}
+                  onChange={(e) => updateComfyUI('h3Fl2vaProfile', e.target.value)}
+                  className="mt-1 w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+                >
+                  <option value="balanced8">均衡成片 · 768P 8步 LoRA + Sage</option>
+                  <option value="legacy">旧版远端工作流 · 仅用于回退</option>
+                </select>
+              </label>
               <div className="space-y-2 p-3 rounded border border-[var(--accent-yellow)]/50 bg-[var(--bg-primary)]">
                 <div>
                   <p className="text-xs font-mono text-[var(--accent-yellow)]">首次连接 / 仙宫云实例重启后</p>

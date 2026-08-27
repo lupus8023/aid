@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+  applyH3Fl2vaProfile,
   fitH3ReferenceAudioDurations,
+  H3_FL2VA_BALANCED_PROFILE,
   h3ConditioningTaskType,
   h3AlignedDurationSeconds,
   h3AlignedFrameCount,
@@ -81,6 +83,49 @@ function nativePrompt(text, taskType = 'Ref2VA') {
     9: { class_type: 'VHS_VideoCombine', inputs: { images: ['8', 0], audio: ['8', 1] } },
   };
 }
+
+function acceleratedPrompt() {
+  return {
+    20: { class_type: 'UNETLoader', inputs: { unet_name: 'legacy.safetensors', weight_dtype: 'default' } },
+    21: { class_type: 'MiniMaxH3MemoryEfficientSageAttentionPatch', inputs: { model: ['20', 0] } },
+    22: { class_type: 'LoraLoaderBypassModelOnly', inputs: { model: ['21', 0], lora_name: 'legacy.safetensors', strength_model: 1 } },
+    23: { class_type: 'MiniMaxH3DualClockSamplerT8', inputs: { model: ['22', 0], steps: 8, shift_video: 12, shift_audio: 3 } },
+    24: { class_type: 'CLIPLoader', inputs: { clip_name: 'legacy.safetensors', type: 'minimax', device: 'default' } },
+  };
+}
+
+test('locks I2VA and FL2VA to the matched 768p eight-step Sage stack', () => {
+  for (const variant of ['aid_single_reference', 'aid_first_last']) {
+    const prompt = acceleratedPrompt();
+    const result = applyH3Fl2vaProfile(prompt, variant);
+    assert.equal(result.active, true);
+    assert.equal(result.sageAttention, true);
+    assert.equal(prompt[20].inputs.unet_name, H3_FL2VA_BALANCED_PROFILE.diffusionModel);
+    assert.equal(prompt[24].inputs.clip_name, H3_FL2VA_BALANCED_PROFILE.textEncoder);
+    assert.equal(prompt[22].inputs.lora_name, H3_FL2VA_BALANCED_PROFILE.lora);
+    assert.equal(prompt[23].inputs.steps, 8);
+    assert.equal(prompt[23].inputs.shift_video, 6);
+    assert.equal(prompt[23].inputs.shift_audio, 3);
+  }
+});
+
+test('leaves Ref2VA and explicit legacy rollback workflows untouched', () => {
+  const referencePrompt = acceleratedPrompt();
+  assert.equal(applyH3Fl2vaProfile(referencePrompt, 'aid_multi_reference').active, false);
+  assert.equal(referencePrompt[20].inputs.unet_name, 'legacy.safetensors');
+  const legacyPrompt = acceleratedPrompt();
+  assert.equal(applyH3Fl2vaProfile(legacyPrompt, 'aid_first_last', 'legacy').active, false);
+  assert.equal(legacyPrompt[23].inputs.shift_video, 12);
+});
+
+test('fails closed if Sage is missing from the FL2VA production chain', () => {
+  const prompt = acceleratedPrompt();
+  delete prompt[21];
+  assert.throws(
+    () => applyH3Fl2vaProfile(prompt, 'aid_first_last'),
+    /MiniMaxH3MemoryEfficientSageAttentionPatch/,
+  );
+});
 
 const englishPrompt = `subject_definitions:
 <Audio 1> provides only the voice timbre for Officer.

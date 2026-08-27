@@ -118,11 +118,11 @@ CLOUDINARY_API_SECRET=your_cloudinary_secret
 视频生成通道可在 Settings 中切换为 `Cloud ComfyUI · SSH Private Workflow`。该通道沿用 J18IP 的 MiniMax H3 接口链路：
 
 1. aid 通过 SSH/SCP 上传首帧、可选尾帧，以及可选的角色音色参考；
-2. 自动查找或读取单图、多图、首尾帧 4-step LoRA 工作流；
-3. 将前端工作流转换为 ComfyUI API prompt，通过 `/prompt` 提交；
+2. 自动查找或读取单图、多图、首尾帧工作流；I2VA/FL2VA 默认锁定 pruned FL2VA、NVFP4 文本编码器、768P 专用 8-step LoRA、Sage Attention 与 6/3 调度，多参考 Ref2VA 继续使用独立路径；
+3. 将前端工作流转换为 ComfyUI API prompt，并在提交前校验模型链与实际采样参数，通过 `/prompt` 提交；
 4. 使用 `/history/{prompt_id}` 轮询，完成后从 `/view` 下载并上传到 Cloudinary。
 
-运行 aid 的机器需要安装 `ssh` 和 `scp`，并能以无交互方式登录 ComfyUI 主机。H3 在一次原生音画生成中同步完成画面、口型、台词、环境声和拟音；Fish Audio 文件只作为可选音色参考，不作为成片台词音轨。连接字段既可在 Settings 中填写，也可通过 `.env.local.example` 中的 `COMFYUI_*` 变量配置。若两处都填写，以 Settings 为准。
+运行 aid 的机器需要安装 `ssh` 和 `scp`，并能以无交互方式登录 ComfyUI 主机。H3 在一次原生音画生成中同步完成画面、口型、台词、环境声和拟音；Fish Audio 文件只作为可选音色参考，不作为成片台词音轨。连接字段既可在 Settings 中填写，也可通过 `.env.local.example` 中的 `COMFYUI_*` 变量配置。若两处都填写，以 Settings 为准。Settings 中的“FL2VA 加速方案”可临时切回旧版远端工作流，但该选项仅用于故障回退。
 
 `pandais.beauty` 上的 ComfyUI 通道默认通过本机 aid companion 使用 SSH，不把私钥交给 Netlify。先在 aid 项目目录运行 `npm run companion`，保持 `http://127.0.0.1:3018` 可用；网页会把 ComfyUI 的测试、提交和轮询请求发给这个本地服务，由它使用 `~/.ssh`、ssh-agent 和持久控制连接完成 SSH/SFTP。长剧本规划、AI 扩写、MiniMax H3 视频以及 Z-Image-Turbo 图片任务都可通过 Companion 执行；APIMart 图片模型仍走 Netlify。companion 只允许 `pandais.beauty` 与本机 origin 跨域访问。
 

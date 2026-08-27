@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.90 - 2026-08-28
+
+### Added
+
+- Added a production `balanced8` acceleration profile for I2VA/FL2VA: the pruned FL2VA INT8 checkpoint, NVFP4 text encoder, official 768P eight-step Turbo LoRA, Sage Attention, eight NFEs, and video/audio shifts of 6/3 are now applied as one indivisible stack.
+- Settings now expose the active FL2VA profile and retain an explicit legacy rollback option without changing the separate multi-reference Ref2VA path.
+
+### Fixed
+
+- Removed the saved-workflow mismatch that loaded a four-step LoRA while executing eight sampler steps. The compiled API prompt now locks and validates the UNET → Sage → LoRA → sampler chain before submission, so stale remote widgets cannot silently mix incompatible checkpoints and schedules.
+- Connection diagnostics now validate the selected model and LoRA names against the live ComfyUI node definitions and report the exact acceleration profile applied to each workflow.
+- Story video generation now requires Companion v0.1.90, preventing the hosted UI from submitting production FL2VA jobs through a Companion that does not enforce the balanced profile.
+
+### Verification
+
+- The official 1.96 GB 768P eight-step LoRA was installed on the production ComfyUI host and matched its published SHA-256 checksum.
+- A same-prompt, same-reference, same-seed 6.584-second A/B render completed with stable identity, environment, hands, costume and mermaid-tail detail; both outputs contain 960×960 H.264 video at 24 fps and synchronized AAC audio with nearly identical loudness.
+- A forced full hot-cache resample completed in 147.9 seconds versus 151.7 seconds for the legacy stack on the same source clip, while cold model-switch runs completed in 168–174 seconds.
+- The latest 14-second first/last-frame Hybrid clip was replayed through the installed v0.1.90 Companion production API. It produced 14.375 seconds of 960×960, 24 fps H.264 video with AAC audio, used the complete locked 8/6/3 stack, and completed in 460.0 seconds versus 483.6 seconds for the legacy render (about 4.9% faster).
+- All 189 regression tests, TypeScript validation, live ComfyUI model/profile validation, and the production build pass.
+
 ## 0.1.89 - 2026-08-28
 
 ### Changed

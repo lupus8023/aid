@@ -31,7 +31,7 @@ test('uses the Companion screenplay route after a successful status probe', asyn
   globalThis.fetch = async url => {
     calls.push(String(url));
     if (String(url).endsWith('/api/companion/status')) {
-      return Response.json({ ok: true, version: '0.1.86' });
+      return Response.json({ ok: true, version: '0.1.89' });
     }
     return new Response('data: {"storyPlan":{"title":"Film"}}\n\n', {
       headers: { 'Content-Type': 'text/event-stream' },
@@ -57,7 +57,7 @@ test('rejects an older Companion before sending the screenplay request', async (
   const calls = [];
   globalThis.fetch = async url => {
     calls.push(String(url));
-    return Response.json({ ok: true, version: '0.1.85' });
+    return Response.json({ ok: true, version: '0.1.88' });
   };
   try {
     const response = await fetchStoryApi('/api/generate-story-plan', { method: 'POST' }, {
@@ -66,7 +66,7 @@ test('rejects an older Companion before sending the screenplay request', async (
     });
     const data = await response.json();
     assert.equal(response.status, 426);
-    assert.match(data.error, /v0\.1\.86/);
+    assert.match(data.error, /v0\.1\.89/);
     assert.deepEqual(calls, ['http://127.0.0.1:3018/api/companion/status']);
   } finally {
     globalThis.fetch = originalFetch;
