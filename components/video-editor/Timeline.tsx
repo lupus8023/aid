@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { VideoClip } from './types';
 import { Trash2, Move, ZoomIn, ZoomOut } from 'lucide-react';
+import { averagePacingRate, effectiveClipDuration } from '@/lib/videoPacing';
 
 interface TimelineProps {
   clips: VideoClip[];
@@ -22,7 +23,7 @@ export default function Timeline({ clips, onClipsChange, currentTime, onTimeChan
   const [zoomIndex, setZoomIndex] = useState(2);
   const timelineRef = useRef<HTMLDivElement>(null);
 
-  const totalDuration = clips.reduce((sum, clip) => sum + Math.max(0, clip.duration - clip.trimStart - clip.trimEnd), 0);
+  const totalDuration = clips.reduce((sum, clip) => sum + effectiveClipDuration(clip), 0);
   const pixelsPerSecond = ZOOM_LEVELS[zoomIndex];
 
   useEffect(() => {
@@ -42,7 +43,7 @@ export default function Timeline({ clips, onClipsChange, currentTime, onTimeChan
     setSelectedClip(null);
     onClipSelect?.(null);
     onClipsChange(newClips);
-    const nextTotal = newClips.reduce((sum, clip) => sum + Math.max(0, clip.duration - clip.trimStart - clip.trimEnd), 0);
+    const nextTotal = newClips.reduce((sum, clip) => sum + effectiveClipDuration(clip), 0);
     if (currentTime > nextTotal) onTimeChange(nextTotal);
   };
 
@@ -155,7 +156,7 @@ export default function Timeline({ clips, onClipsChange, currentTime, onTimeChan
       >
         <div style={{ minWidth: `${Math.max(totalDuration * pixelsPerSecond, 1)}px`, height: '100%', position: 'relative' }}>
           {clips.map((clip, index) => {
-            const clipDuration = Math.max(0, clip.duration - clip.trimStart - clip.trimEnd);
+            const clipDuration = effectiveClipDuration(clip);
             const width = Math.max(32, clipDuration * pixelsPerSecond);
             const left = clip.startTime * pixelsPerSecond;
 
@@ -183,7 +184,7 @@ export default function Timeline({ clips, onClipsChange, currentTime, onTimeChan
                   {clip.name}
                 </div>
                 <div className="px-2 text-[10px] font-mono text-[var(--text-secondary)]">
-                  {clipDuration.toFixed(1)}s
+                  {clipDuration.toFixed(1)}s · {averagePacingRate(clip).toFixed(2)}×
                 </div>
               </div>
             );

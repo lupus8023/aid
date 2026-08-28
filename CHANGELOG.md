@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.92 - 2026-08-28
+
+### Added
+
+- Added storyboard-aware smart pacing for final-film export. The default Standard profile protects emotional close-ups and dialogue while accelerating ordinary narrative, establishing, insert, montage, and action beats at different rates.
+- Added Original, Cinematic, Standard, and Compact pacing profiles to the video editor, with the actual whole-film average speed shown before export.
+- Multi-shot H3 clips now retain per-storyboard pacing windows, so two or three shots inside one generated segment can be retimed independently and rejoined without changing the authored dialogue.
+
+### Changed
+
+- Preview playback, trimming, timeline duration, seeking, Companion job recovery, and FFmpeg export now share the same source-to-output time map.
+- Video and synchronous speech are retimed together with pitch-preserving `atempo`; the click-safe audio tail fade is applied only after retiming. Native export now requires Companion v0.1.92.
+
+### Verification
+
+- Added pacing classification, duration, trimming, reversible time-mapping, and Original-mode regressions.
+- Native FFmpeg coverage verifies mixed-rate sections, audio-bearing and silent inputs, aspect-ratio normalization, recoverable jobs, and a shorter paced master.
+- All 195 regression tests, TypeScript validation, and the production build pass.
+
 ## 0.1.91 - 2026-08-28
 
 ### Fixed

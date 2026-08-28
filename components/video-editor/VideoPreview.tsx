@@ -3,6 +3,12 @@
 import { useRef, useEffect, useMemo, useState } from 'react';
 import { VideoClip } from './types';
 import { storyAspectClass, storyAspectRatioFromDimensions, type StoryAspectRatio } from '@/lib/storyAspectRatio';
+import {
+  effectiveClipDuration,
+  outputOffsetForSourceTime,
+  playbackRateAtSourceTime,
+  sourceTimeForOutputOffset,
+} from '@/lib/videoPacing';
 
 interface VideoPreviewProps {
   clips: VideoClip[];
@@ -22,7 +28,7 @@ export default function VideoPreview({ clips, currentTime, isPlaying, onTimeUpda
   const timeline = useMemo(() => {
     let accumulatedTime = 0;
     return clips.map(clip => {
-      const duration = Math.max(0, clip.duration - clip.trimStart - clip.trimEnd);
+      const duration = effectiveClipDuration(clip);
       const item = { clip, start: accumulatedTime, end: accumulatedTime + duration, duration };
       accumulatedTime += duration;
       return item;
@@ -39,7 +45,7 @@ export default function VideoPreview({ clips, currentTime, isPlaying, onTimeUpda
     return {
       clip: found.clip,
       timelineStart: found.start,
-      relativeTime: Math.min(found.clip.duration - found.clip.trimEnd, clampedTime - found.start + found.clip.trimStart),
+      relativeTime: sourceTimeForOutputOffset(found.clip, clampedTime - found.start),
     };
   };
   const activeClipId = getCurrentClip()?.clip.id;
@@ -65,6 +71,7 @@ export default function VideoPreview({ clips, currentTime, isPlaying, onTimeUpda
     if (clipChanged || Math.abs(video.currentTime - relativeTime) > 0.15) {
       video.currentTime = relativeTime;
     }
+    video.playbackRate = playbackRateAtSourceTime(clip, relativeTime);
 
     if (isPlaying) {
       video.play().catch(() => {});
@@ -96,15 +103,16 @@ export default function VideoPreview({ clips, currentTime, isPlaying, onTimeUpda
             if (!current || current.clip.id !== clip.id) return;
 
             const videoTime = e.currentTarget.currentTime;
+            e.currentTarget.playbackRate = playbackRateAtSourceTime(clip, videoTime);
             const clipEnd = clip.duration - clip.trimEnd;
-            const globalTime = current.timelineStart + Math.max(0, videoTime - clip.trimStart);
+            const globalTime = current.timelineStart + outputOffsetForSourceTime(clip, videoTime);
 
             if (videoTime >= clipEnd - 0.05) {
               if (globalTime >= totalDuration - 0.05) {
                 onTimeUpdate(totalDuration);
                 onEnded();
               } else {
-                onTimeUpdate(Math.min(totalDuration, current.timelineStart + current.clip.duration - current.clip.trimStart - current.clip.trimEnd));
+                onTimeUpdate(Math.min(totalDuration, current.timelineStart + effectiveClipDuration(current.clip)));
               }
               return;
             }

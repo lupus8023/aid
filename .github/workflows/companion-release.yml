@@ -68,6 +68,7 @@ jobs:
       - run: npm run test:image-models
       - run: npm run test:shot-count
       - run: npm run test:video-segments
+      - run: npm run test:video-pacing
       - run: npm run test:project-isolation
       - run: npm run test:provider-payload
       - run: npm run test:story-engine

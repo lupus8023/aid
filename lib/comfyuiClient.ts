@@ -7,7 +7,7 @@ export const DEFAULT_COMFYUI_COMPANION_URL = 'http://127.0.0.1:3018';
 // screenplay schema: older builds silently drop newer narrative fields.
 export const STORY_COMPANION_MIN_VERSION = [0, 1, 89] as const;
 export const SEGMENT_VIDEO_COMPANION_MIN_VERSION = [0, 1, 91] as const;
-export const LOCAL_EXPORT_COMPANION_MIN_VERSION = [0, 1, 19] as const;
+export const LOCAL_EXPORT_COMPANION_MIN_VERSION = [0, 1, 92] as const;
 
 type ComfyUISettings = NonNullable<AppSettings['comfyui']>;
 

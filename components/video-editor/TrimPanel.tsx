@@ -2,6 +2,7 @@
 
 import { VideoClip } from './types';
 import { RotateCcw, Scissors, SkipBack, SkipForward } from 'lucide-react';
+import { averagePacingRate, effectiveClipDuration } from '@/lib/videoPacing';
 
 interface TrimPanelProps {
   clip: VideoClip;
@@ -11,7 +12,8 @@ interface TrimPanelProps {
 
 export default function TrimPanel({ clip, onTrimChange, onSeek }: TrimPanelProps) {
   const minDuration = 0.1;
-  const availableDuration = Math.max(minDuration, clip.duration - clip.trimStart - clip.trimEnd);
+  const sourceDuration = Math.max(minDuration, clip.duration - clip.trimStart - clip.trimEnd);
+  const availableDuration = Math.max(minDuration, effectiveClipDuration(clip));
 
   const clampTrim = (trimStart: number, trimEnd: number) => {
     const safeStart = Math.max(0, Math.min(trimStart, clip.duration - minDuration));
@@ -82,7 +84,7 @@ export default function TrimPanel({ clip, onTrimChange, onSeek }: TrimPanelProps
         </div>
 
         <div className="text-xs text-[var(--text-secondary)] font-mono">
-          Duration: {availableDuration.toFixed(2)}s / {clip.duration.toFixed(2)}s
+          成片 {availableDuration.toFixed(2)}s · 素材 {sourceDuration.toFixed(2)}s · {averagePacingRate(clip).toFixed(2)}×
         </div>
 
         <div className="grid grid-cols-3 gap-2">

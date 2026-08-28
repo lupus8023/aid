@@ -201,6 +201,7 @@ export async function exportVideoWithCompanion(
           duration: clip.duration,
           trimStart: clip.trimStart,
           trimEnd: clip.trimEnd,
+          pacingSections: clip.pacingSections,
           segmentSha256: clip.segmentSha256,
         })),
       }),

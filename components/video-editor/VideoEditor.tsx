@@ -11,9 +11,19 @@ import { exportVideoWithCompanion, hasPendingNativeExport } from '@/lib/companio
 import type { AppSettings } from '@/types';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS, CONTINUITY_HEAD_TRIM_SECONDS } from '@/lib/videoContinuity';
 import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
+import type { Storyboard } from '@/types';
+import {
+  buildSmartPacingSections,
+  DEFAULT_PACING_MODE,
+  effectiveClipDuration,
+  outputOffsetForSourceTime,
+  PACING_MODE_LABELS,
+  type PacingMode,
+} from '@/lib/videoPacing';
 
 interface VideoEditorProps {
   initialVideos: string[];
+  storyboardGroups?: Storyboard[][];
   continuousFromPrevious?: boolean[];
   projectId?: string;
   projectName?: string;
@@ -31,13 +41,14 @@ function recalculateStartTimes(clipList: VideoClip[]): VideoClip[] {
   let startTime = 0;
   return clipList.map(clip => {
     const next = { ...clip, startTime };
-    startTime += Math.max(0, clip.duration - clip.trimStart - clip.trimEnd);
+    startTime += effectiveClipDuration(clip);
     return next;
   });
 }
 
 export default function VideoEditor({
   initialVideos,
+  storyboardGroups = [],
   continuousFromPrevious,
   projectId,
   projectName,
@@ -56,8 +67,11 @@ export default function VideoEditor({
   const [exportStatus, setExportStatus] = useState<ExportStatus>({ progress: 0, stage: '' });
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [pacingMode, setPacingMode] = useState<PacingMode>(DEFAULT_PACING_MODE);
+  const pacingModeRef = useRef<PacingMode>(DEFAULT_PACING_MODE);
   const recoveryStartedRef = useRef(false);
   const automaticRequestStartedRef = useRef(0);
+  const storyboardGroupsRef = useRef<Map<string, Storyboard[]>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -93,7 +107,9 @@ export default function VideoEditor({
             // hard join carries motion forward instead of visibly pausing.
             trimStart,
             trimEnd: 0,
+            pacingSections: buildSmartPacingSections(storyboardGroups[i] || [], duration, pacingModeRef.current),
           });
+          storyboardGroupsRef.current.set(`clip-${i}`, storyboardGroups[i] || []);
           startTime += duration - trimStart;
         }
 
@@ -125,16 +141,28 @@ export default function VideoEditor({
     if (initialVideos.length > 0) loadVideos();
 
     return () => { cancelled = true; };
-  }, [initialVideos, continuityFlags]);
+  }, [initialVideos, continuityFlags, storyboardGroups]);
+
+  useEffect(() => {
+    pacingModeRef.current = pacingMode;
+    setClips(current => recalculateStartTimes(current.map(clip => ({
+      ...clip,
+      pacingSections: buildSmartPacingSections(
+        storyboardGroupsRef.current.get(clip.id) || [],
+        clip.duration,
+        pacingMode,
+      ),
+    }))));
+  }, [pacingMode]);
 
   const totalDuration = clips.reduce((sum, clip) =>
-    sum + Math.max(0, clip.duration - clip.trimStart - clip.trimEnd), 0
+    sum + effectiveClipDuration(clip), 0
   );
 
   const updateClips = (nextClips: VideoClip[]) => {
     const recalculated = recalculateStartTimes(nextClips);
     setClips(recalculated);
-    setCurrentTime(prev => Math.min(prev, recalculated.reduce((sum, clip) => sum + Math.max(0, clip.duration - clip.trimStart - clip.trimEnd), 0)));
+    setCurrentTime(prev => Math.min(prev, recalculated.reduce((sum, clip) => sum + effectiveClipDuration(clip), 0)));
   };
 
   const handleTrimChange = (clipId: string, trimStart: number, trimEnd: number) => {
@@ -146,8 +174,15 @@ export default function VideoEditor({
   const seekToClipTime = (clipId: string, clipTime: number) => {
     const clip = clips.find(c => c.id === clipId);
     if (!clip) return;
-    setCurrentTime(Math.max(0, Math.min(totalDuration, clip.startTime + clipTime - clip.trimStart)));
+    const outputOffset = outputOffsetForSourceTime(clip, clipTime);
+    setCurrentTime(Math.max(0, Math.min(totalDuration, clip.startTime + outputOffset)));
   };
+
+  const sourceDuration = clips.reduce(
+    (sum, clip) => sum + Math.max(0, clip.duration - clip.trimStart - clip.trimEnd),
+    0,
+  );
+  const averageRate = totalDuration > 0 ? sourceDuration / totalDuration : 1;
 
   const handleExport = async (automaticRecovery = false) => {
     if (clips.length === 0) return;
@@ -266,6 +301,20 @@ export default function VideoEditor({
               <Download size={16} />
               {isExporting ? `Exporting... ${Math.round(exportStatus.progress)}%` : 'Export Video'}
             </button>
+            <label className="flex items-center gap-2 px-2 py-1.5 rounded border border-[var(--border-color)] bg-[var(--bg-secondary)] text-xs font-mono text-[var(--text-secondary)]">
+              成片节奏
+              <select
+                value={pacingMode}
+                onChange={(event) => setPacingMode(event.target.value as PacingMode)}
+                disabled={isExporting}
+                className="bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border-color)] rounded px-2 py-1"
+              >
+                {(Object.keys(PACING_MODE_LABELS) as PacingMode[]).map(mode => (
+                  <option key={mode} value={mode}>{PACING_MODE_LABELS[mode]}</option>
+                ))}
+              </select>
+              <span>{`${averageRate.toFixed(2)}×`}</span>
+            </label>
             {exportStatus.stage && (isExporting || exportStatus.stage.startsWith('自动恢复失败')) && (
               <span className={`text-xs font-mono ${exportStatus.stage.startsWith('自动恢复失败') ? 'text-[var(--accent-red)]' : 'text-[var(--text-secondary)]'}`}>
                 {exportStatus.stage}

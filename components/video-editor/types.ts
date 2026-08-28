@@ -1,3 +1,5 @@
+import type { PacingSection } from '@/lib/videoPacing';
+
 export interface VideoClip {
   id: string;
   url: string;
@@ -6,6 +8,7 @@ export interface VideoClip {
   startTime: number;
   trimStart: number;
   trimEnd: number;
+  pacingSections?: PacingSection[];
 }
 
 export interface Transition {

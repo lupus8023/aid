@@ -14,7 +14,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { storyAudioTailFilter } from './audioTailCleanup';
+import { STORY_AUDIO_TAIL_FADE_SECONDS } from './audioTailCleanup';
+import { clippedPacingSections, type PacingSection } from './videoPacing';
 
 export type CompanionExportClip = {
   clipId: string;
@@ -23,6 +24,7 @@ export type CompanionExportClip = {
   trimStart: number;
   trimEnd: number;
   segmentSha256: string;
+  pacingSections?: PacingSection[];
 };
 
 export type CompanionExportJob = {
@@ -172,14 +174,17 @@ function normalizeClip(input: CompanionExportClip): CompanionExportClip {
     throw new Error('导出片段参数无效');
   }
   if (duration - trimStart - trimEnd < 0.05) throw new Error(`${input.name || input.clipId} 的有效时长过短`);
-  return {
+  const normalized: CompanionExportClip = {
     clipId: String(input.clipId),
     name: String(input.name || input.clipId).slice(0, 160),
     duration,
     trimStart,
     trimEnd,
     segmentSha256: validateSha256(input.segmentSha256),
+    pacingSections: Array.isArray(input.pacingSections) ? input.pacingSections : undefined,
   };
+  normalized.pacingSections = clippedPacingSections(normalized);
+  return normalized;
 }
 
 export function exportJobId(clips: CompanionExportClip[], aspectRatio?: CompanionExportJob['aspectRatio']): string {
@@ -189,6 +194,12 @@ export function exportJobId(clips: CompanionExportClip[], aspectRatio?: Companio
     duration: Number(clip.duration.toFixed(3)),
     trimStart: Number(clip.trimStart.toFixed(3)),
     trimEnd: Number(clip.trimEnd.toFixed(3)),
+    pacing: clippedPacingSections(clip).map(section => [
+      Number(section.sourceStart.toFixed(3)),
+      Number(section.sourceEnd.toFixed(3)),
+      Number(section.rate.toFixed(2)),
+      section.kind,
+    ]),
   }));
   return `export-${createHash('sha256').update(JSON.stringify({ signature, aspectRatio })).digest('hex').slice(0, 24)}`;
 }
@@ -320,24 +331,51 @@ async function transcodeClip(
   target: { width: number; height: number },
 ): Promise<void> {
   const probe = await probeMedia(input);
-  const duration = Math.max(0.05, clip.duration - clip.trimStart - clip.trimEnd);
+  const pacingSections = clippedPacingSections(clip);
+  const outputDuration = Math.max(0.05, pacingSections.reduce(
+    (sum, section) => sum + (section.sourceEnd - section.sourceStart) / section.rate,
+    0,
+  ));
   const videoFilter = `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=24`;
-  const args = ['-y', '-ss', clip.trimStart.toFixed(3), '-i', input];
-  // `areverse` must see a finite stream before it can emit frames. Give the
-  // synthesized silent fallback an explicit duration instead of relying on
-  // output `-t`, otherwise an audio-less clip can wait forever.
+  const args = ['-y', '-i', input];
+  // Give the synthesized silent fallback an explicit duration; otherwise an
+  // audio-less source is infinite and the filter graph cannot finish cleanly.
   if (!probe.hasAudio) args.push(
     '-f', 'lavfi', '-i',
-    `anullsrc=channel_layout=stereo:sample_rate=48000:d=${duration.toFixed(3)}`,
+    `anullsrc=channel_layout=stereo:sample_rate=48000:d=${clip.duration.toFixed(3)}`,
   );
+
+  const videoInput = '0:v:0';
+  const audioInput = probe.hasAudio ? '0:a:0' : '1:a:0';
+  const filters: string[] = [];
+  if (pacingSections.length > 1) {
+    filters.push(`[${videoInput}]split=${pacingSections.length}${pacingSections.map((_section, index) => `[vsrc${index}]`).join('')}`);
+    filters.push(`[${audioInput}]asplit=${pacingSections.length}${pacingSections.map((_section, index) => `[asrc${index}]`).join('')}`);
+  }
+  pacingSections.forEach((section, index) => {
+    const videoSource = pacingSections.length > 1 ? `vsrc${index}` : videoInput;
+    const audioSource = pacingSections.length > 1 ? `asrc${index}` : audioInput;
+    const start = section.sourceStart.toFixed(3);
+    const end = section.sourceEnd.toFixed(3);
+    const rate = section.rate.toFixed(2);
+    filters.push(`[${videoSource}]trim=start=${start}:end=${end},setpts=(PTS-STARTPTS)/${rate}[v${index}]`);
+    filters.push(`[${audioSource}]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS,atempo=${rate}[a${index}]`);
+  });
+  if (pacingSections.length > 1) {
+    filters.push(`${pacingSections.map((_section, index) => `[v${index}][a${index}]`).join('')}concat=n=${pacingSections.length}:v=1:a=1[vpaced][apaced]`);
+  } else {
+    filters.push('[v0]null[vpaced]');
+    filters.push('[a0]anull[apaced]');
+  }
+  filters.push(`[vpaced]${videoFilter}[vout]`);
+  filters.push(`[apaced]apad=pad_dur=0.100,atrim=end=${outputDuration.toFixed(3)},afade=t=out:st=${Math.max(0, outputDuration - STORY_AUDIO_TAIL_FADE_SECONDS).toFixed(3)}:d=${STORY_AUDIO_TAIL_FADE_SECONDS.toFixed(3)}[aout]`);
   args.push(
-    '-t', duration.toFixed(3),
-    '-map', '0:v:0',
-    '-map', probe.hasAudio ? '0:a:0' : '1:a:0',
-    '-vf', videoFilter,
-    '-af', storyAudioTailFilter(),
+    '-filter_complex', filters.join(';'),
+    '-map', '[vout]',
+    '-map', '[aout]',
     '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
+    '-t', outputDuration.toFixed(3),
     '-shortest', '-movflags', '+faststart', output,
   );
   await runCommand(ffmpegPath(), args);

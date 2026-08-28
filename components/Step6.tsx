@@ -38,6 +38,13 @@ export default function Step6({
       return true;
     });
   const videoUrls = completedShots.map(({ storyboard }) => storyboard.videoUrl as string);
+  const storyboardById = new Map(storyboards.map(item => [item.id, item]));
+  const storyboardGroups = completedShots.map(({ storyboard }) => {
+    const memberIds = storyboard.videoSegmentStoryboardIds?.length
+      ? storyboard.videoSegmentStoryboardIds
+      : [storyboard.id];
+    return memberIds.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item));
+  });
   const continuousFromPrevious = completedShots.map(({ storyboard }, index) => {
     if (index === 0 || storyboard.continuousFromPrev !== true) return false;
     const previous = completedShots[index - 1].storyboard;
@@ -63,6 +70,7 @@ export default function Step6({
         <div className="flex-1 border border-[var(--border-color)] rounded overflow-hidden">
           <VideoEditor
             initialVideos={videoUrls}
+            storyboardGroups={storyboardGroups}
             continuousFromPrevious={continuousFromPrevious}
             projectId={projectId}
             projectName={projectName}

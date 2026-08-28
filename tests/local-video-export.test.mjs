@@ -52,6 +52,12 @@ test('Companion persists, reuses, retries and natively merges local clips', { ti
         duration: 0.7,
         trimStart: index === 1 ? 0.05 : 0,
         trimEnd: 0,
+        pacingSections: index === 0 ? [
+          { sourceStart: 0, sourceEnd: 0.35, rate: 1, kind: 'emotion', reason: 'protect emotion' },
+          { sourceStart: 0.35, sourceEnd: 0.7, rate: 1.25, kind: 'action', reason: 'accelerate action' },
+        ] : [
+          { sourceStart: 0, sourceEnd: 0.7, rate: 1.2, kind: 'narrative', reason: 'accelerate narrative' },
+        ],
         segmentSha256: sha256,
       });
     }
@@ -67,11 +73,33 @@ test('Companion persists, reuses, retries and natively merges local clips', { ti
     assert.equal(job.progress, 100);
     const download = await server.exportDownloadInfo(projectId, created.jobId);
     assert.ok((await stat(download.filePath)).size > 0);
+    const normalizedDirectory = path.join(
+      temporary,
+      'video-exports',
+      server.safeStorageId(projectId),
+      'jobs',
+      server.safeStorageId(created.jobId),
+      'normalized',
+    );
+    const normalizedDurations = [];
+    for (const fileName of ['000.mp4', '001.mp4']) {
+      const { stdout } = await execFileAsync(ffprobe, [
+        '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', path.join(normalizedDirectory, fileName),
+      ]);
+      normalizedDurations.push(Number(stdout.trim()));
+    }
+    assert.ok(normalizedDurations[0] > 0.55 && normalizedDurations[0] < 0.7, `unexpected first paced clip duration ${normalizedDurations[0]}`);
+    assert.ok(normalizedDurations[1] > 0.45 && normalizedDurations[1] < 0.62, `unexpected second paced clip duration ${normalizedDurations[1]}`);
     const { stdout: dimensions } = await execFileAsync(ffprobe, [
       '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', download.filePath,
     ]);
     const [width, height] = dimensions.trim().split(',').map(Number);
     assert.ok(height > width, `expected portrait export, received ${width}x${height}`);
+    const { stdout: outputDurationText } = await execFileAsync(ffprobe, [
+      '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', download.filePath,
+    ]);
+    const outputDuration = Number(outputDurationText.trim());
+    assert.ok(outputDuration > 1 && outputDuration < 1.3, `expected smart-paced output near 1.17s, received ${outputDuration}s`);
 
     const resumed = await server.createOrResumeExportJob(projectId, clips, 'recovered-film.mp4', '9:16');
     assert.equal(resumed.status, 'completed');
