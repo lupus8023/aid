@@ -187,6 +187,47 @@ test('segment duration reserves clean native-H3 lead-in and a complete final-wor
   assert.equal(validateVideoSegment(segment), undefined);
 });
 
+test('extends a segment when dialogue must wait for a later storyboard', () => {
+  const segment = [
+    shot(1, {
+      characters: [], clipType: 'insert', durationHint: 2,
+      speech: [],
+    }),
+    shot(2, {
+      characters: ['A'], clipType: 'reaction', durationHint: 2,
+      speech: [{
+        speakerId: 'S1', character: 'A', voiceId: 'voice-a',
+        exactLine: 'Hold the gate until the others are safely inside.',
+        emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'user_exact',
+      }],
+      audioPlan: { backgroundHuman: 'none', environment: [], foley: [], music: 'none', silenceBefore: 0.8, silenceAfter: 1 },
+    }),
+  ];
+  // The raw speech budget is under six seconds, but the speaker cannot begin
+  // until shot 2 appears. Six seconds therefore needs about 6.2 seconds in
+  // the final timeline and must be promoted to the next legal whole second.
+  assert.equal(estimateVideoSegmentSeconds(segment), 7);
+  assert.equal(validateVideoSegment(segment), undefined);
+});
+
+test('automatically splits a group that cannot fit after delayed dialogue onset', () => {
+  const storyboards = [
+    shot(1, { characters: [], clipType: 'action', durationHint: 10, speech: [] }),
+    shot(2, {
+      characters: ['A'], clipType: 'reaction', durationHint: 2,
+      speech: [{
+        speakerId: 'S1', character: 'A', voiceId: 'voice-a',
+        exactLine: 'Hold the gate until every child and every injured sailor has crossed the flooded chamber and reached the upper stairs beyond the western arch.',
+        emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'user_exact',
+      }],
+      audioPlan: { backgroundHuman: 'none', environment: [], foley: [], music: 'none', silenceBefore: 0.8, silenceAfter: 1 },
+    }),
+  ];
+  assert.equal(estimateVideoSegmentSeconds(storyboards), 16);
+  assert.match(validateVideoSegment(storyboards), /超过 H3 的 15 秒上限/);
+  assert.deepEqual(suggestVideoSegments(storyboards).map(group => group.map(item => item.sceneNumber)), [[1], [2]]);
+});
+
 test('does not mistake legacy per-shot videos for a completed grouped segment', () => {
   const legacy = [
     shot(1, { videoStatus: 'completed', videoUrl: 'blob:legacy-1' }),

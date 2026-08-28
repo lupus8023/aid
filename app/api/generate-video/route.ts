@@ -3,7 +3,7 @@ import { buildStoryboardVideoPrompt, buildVideoSegmentPrompt, generateStoryboard
 import { snapDurationToModel } from '@/lib/apimart';
 import { createComfyUIVideoTask } from '@/lib/comfyui';
 import { compileTimedSpeech, storyboardSpeech } from '@/lib/speechAudioContract';
-import { allocateSegmentTimeline } from '@/lib/videoSegments';
+import { allocateSegmentTimeline, estimateVideoSegmentSeconds, MAX_H3_SEGMENT_SECONDS } from '@/lib/videoSegments';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -60,7 +60,17 @@ export async function POST(request: NextRequest) {
       // H3 的所有参考音频总计不能超过 15 秒。只传本镜头真正开口的角色，
       // 避免把画面中未说话角色的声音也计入额度。后续还会在 Companion 端统一裁剪总长。
       const speakingCharacters = [...new Set<string>(videoStoryboards.flatMap(speakingCharacterNames))];
-      const requestedDuration = Number(storyboard.videoDuration) || (videoStoryboards.length > 1 ? 15 : 5);
+      const minimumPlayableDuration = estimateVideoSegmentSeconds(videoStoryboards);
+      if (minimumPlayableDuration > MAX_H3_SEGMENT_SECONDS) {
+        return NextResponse.json(
+          { error: `该片段按分镜出场时机与完整台词计算后超过 H3 的 ${MAX_H3_SEGMENT_SECONDS} 秒上限，请缩短台词或拆分片段` },
+          { status: 400 },
+        );
+      }
+      const requestedDuration = Math.min(
+        MAX_H3_SEGMENT_SECONDS,
+        Math.max(Math.ceil(Number(storyboard.videoDuration) || (videoStoryboards.length > 1 ? 15 : 5)), minimumPlayableDuration),
+      );
       const timedSpeech = compileTimedSpeech(
         videoStoryboards,
         allocateSegmentTimeline(videoStoryboards, requestedDuration),

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.91 - 2026-08-28
+
+### Fixed
+
+- Fixed segments being estimated at six seconds and then rejected because the final dialogue timeline needed 6.2 seconds after waiting for the speaking character's storyboard to appear.
+- Video duration now probes the final speech compiler one second at a time: 6.2 seconds is promoted automatically to seven seconds, up to H3's 15-second limit, without rewriting authoritative dialogue or speeding up playback.
+- The server recomputes the minimum playable duration, so stale projects or pages that submit an undersized duration are corrected before generation.
+- If delayed dialogue still cannot fit within 15 seconds, automatic cinematic grouping splits the segment in advance; manual groups receive an actionable split error instead of submitting a task that must fail.
+- The H3 segment cache contract is bumped to `h3-v32`, and Story video generation now requires Companion v0.1.91 so older duration logic cannot process the updated segment contract.
+
+### Verification
+
+- Added regressions for the 6.0/6.2-second boundary and automatic splitting when delayed speech onset cannot fit within 15 seconds.
+- All 191 regression tests, TypeScript validation, and the production build pass.
+
 ## 0.1.90 - 2026-08-28
 
 ### Added

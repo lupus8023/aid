@@ -1,5 +1,5 @@
 import type { Storyboard, StorySpeechLine } from '@/types';
-import { consolidateSegmentSpeech, H3_SPEAKER_HANDOFF_SECONDS, speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechContract, validateSpeechLanguage, validateVoiceBindings } from './speechAudioContract';
+import { compileTimedSpeech, consolidateSegmentSpeech, H3_SPEAKER_HANDOFF_SECONDS, speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechContract, validateSpeechLanguage, validateVoiceBindings } from './speechAudioContract';
 
 export const MAX_H3_SEGMENT_SECONDS = 15;
 export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
@@ -7,7 +7,7 @@ export const VIDEO_SEGMENT_PLANNING_CONTRACT = 'cinematic-edit-v2';
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v31';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v32';
 
 export interface VideoSegmentDefinition {
   id: string;
@@ -213,9 +213,25 @@ function projectedVideoSegmentSeconds(storyboards: Storyboard[]): number {
 
 export function estimateVideoSegmentSeconds(storyboards: Storyboard[]): number {
   const total = projectedVideoSegmentSeconds(storyboards);
-  // Never round a viable speech budget down. One tenth of a second lost here
-  // can make an otherwise valid locked-audio segment fail before submission.
-  return Math.min(MAX_H3_SEGMENT_SECONDS, Math.max(3, Math.ceil(total)));
+  const firstCandidate = Math.max(3, Math.ceil(total));
+  // The raw speech sum is not sufficient when a line belongs to a later
+  // storyboard: compileTimedSpeech must delay that speaker until the relevant
+  // picture is on screen. Probe the exact production timeline and choose the
+  // shortest whole-second duration that the final compiler will accept. This
+  // turns a nominal 6s / actual 6.2s mismatch into a valid 7s request before
+  // any paid generation is submitted.
+  for (let seconds = firstCandidate; seconds <= MAX_H3_SEGMENT_SECONDS; seconds += 1) {
+    try {
+      compileTimedSpeech(storyboards, allocateSegmentTimeline(storyboards, seconds));
+      return seconds;
+    } catch {
+      // Keep probing. validateVideoSegment reports the specific speech
+      // contract error first; this loop only answers whether a duration fits.
+    }
+  }
+  // A value above the model limit tells automatic grouping to split this
+  // segment instead of silently clamping it back to an impossible 15 seconds.
+  return MAX_H3_SEGMENT_SECONDS + 1;
 }
 
 export function areContiguousStoryboards(storyboards: Storyboard[]): boolean {
@@ -233,8 +249,8 @@ export function validateVideoSegment(storyboards: Storyboard[], language?: 'zh' 
   if (voiceError) return voiceError;
   const languageError = validateSpeechLanguage(storyboards, language);
   if (languageError) return languageError;
-  const projectedSeconds = projectedVideoSegmentSeconds(storyboards);
-  if (projectedSeconds > MAX_H3_SEGMENT_SECONDS) return `该片段预计 ${Math.round(projectedSeconds)} 秒，超过 H3 的 ${MAX_H3_SEGMENT_SECONDS} 秒上限`;
+  const playableSeconds = estimateVideoSegmentSeconds(storyboards);
+  if (playableSeconds > MAX_H3_SEGMENT_SECONDS) return `该片段按分镜出场时机与完整台词计算后超过 H3 的 ${MAX_H3_SEGMENT_SECONDS} 秒上限，请缩短台词或拆分片段`;
   return undefined;
 }
 
@@ -368,7 +384,7 @@ function isViableCinematicGroup(
   total: number,
 ): { score: number } | undefined {
   if (!group.length || group.length > MAX_H3_STORYBOARDS_PER_SEGMENT) return undefined;
-  if (!areContiguousStoryboards(group) || projectedVideoSegmentSeconds(group) > MAX_H3_SEGMENT_SECONDS) return undefined;
+  if (!areContiguousStoryboards(group) || estimateVideoSegmentSeconds(group) > MAX_H3_SEGMENT_SECONDS) return undefined;
   if (validateSpeechContract(group)) return undefined;
   if (group.length === 1) return { score: 0 };
   if (group.some((storyboard, offset) => isProtectedHeroShot(storyboard, startIndex + offset, total))) return undefined;
