@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.96 - 2026-08-29
+
+### Fixed
+
+- Fixed completed fal H3 Max jobs failing during status/result retrieval with HTTP 405.
+- fal submissions continue to use `minimax/h3-max/image-to-video`, while queue polling now follows the official client and resolves against the parent `minimax/h3-max` app.
+- Existing persisted `fal:request_id` tasks recover through the corrected route without purchasing or submitting another render.
+
+### Verification
+
+- Reproduced HTTP 405 on the previous route with the completed production request and confirmed its generated fal media asset remains available.
+- Added exact queue status/result URL assertions; fal, automatic-production, and video-segment regressions plus the Next.js production build pass.
+
 ## 0.1.95 - 2026-08-29
 
 ### Added

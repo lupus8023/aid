@@ -1,4 +1,8 @@
 export const FAL_H3_MAX_ENDPOINT = 'minimax/h3-max/image-to-video';
+// fal queue submission uses the complete endpoint variant, but the official
+// @fal-ai/client resolves status/result requests against the parent app id
+// (owner + alias only). Keeping `/image-to-video` in those URLs returns 405.
+export const FAL_H3_MAX_QUEUE_APP = 'minimax/h3-max';
 const FAL_QUEUE_BASE_URL = 'https://queue.fal.run';
 
 export type FalH3MaxResolution = '480P' | '768P';
@@ -102,7 +106,7 @@ export async function getFalH3MaxVideoStatus(
   timings?: Record<string, number>;
 }> {
   const requestId = falRequestId(taskId);
-  const base = `${FAL_QUEUE_BASE_URL}/${FAL_H3_MAX_ENDPOINT}/requests/${encodeURIComponent(requestId)}`;
+  const base = `${FAL_QUEUE_BASE_URL}/${FAL_H3_MAX_QUEUE_APP}/requests/${encodeURIComponent(requestId)}`;
   const queue = await falJson<FalQueueStatus>(`${base}/status?logs=0`, apiKey);
   if (queue.status === 'IN_QUEUE') {
     return { status: 'pending', queuePosition: queue.queue_position };

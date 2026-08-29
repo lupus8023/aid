@@ -91,4 +91,13 @@ test('polls status and returns the completed fal video', async (t) => {
     timings: { inference: 12.5 },
   });
   assert.equal(urls.length, 2);
+  assert.equal(
+    urls[0],
+    'https://queue.fal.run/minimax/h3-max/requests/request-456/status?logs=0',
+  );
+  assert.equal(
+    urls[1],
+    'https://queue.fal.run/minimax/h3-max/requests/request-456',
+  );
+  assert.ok(urls.every(url => !url.includes('/image-to-video/requests/')));
 });
