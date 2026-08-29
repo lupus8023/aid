@@ -3,6 +3,7 @@ import { createVideoTask } from '@/lib/apimart';
 import { createComfyUIVideoTask, MAX_COMFYUI_REFERENCE_IMAGES } from '@/lib/comfyui';
 import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import { enforceNoSubtitles } from '@/lib/videoTextPolicy';
+import { createFalH3MaxVideoTask } from '@/lib/falVideo';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -40,12 +41,33 @@ export async function POST(request: NextRequest) {
       imageRoles = [],
       videoProvider = 'apimart',
       comfyui = {},
+      fal = {},
     } = await request.json();
 
     if (!mainImage || !prompt) {
       return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
     }
     const safePrompt = enforceNoSubtitles(prompt);
+
+    if (videoProvider === 'fal') {
+      const endImage = secondImageRole === 'last_frame' ? referenceImages[0] : undefined;
+      const result = await createFalH3MaxVideoTask({
+        prompt: safePrompt,
+        imageUrl: mainImage,
+        endImageUrl: endImage,
+        duration,
+        resolution: fal.resolution || (quality === '480p' ? '480P' : '768P'),
+        promptExpansionMode: fal.promptExpansionMode,
+        seed: Number.isInteger(fal.seed) ? fal.seed : undefined,
+        apiKey: fal.apiKey,
+      });
+      return NextResponse.json({
+        success: true,
+        taskId: result.taskId,
+        provider: 'fal',
+        message: 'fal H3 Max 视频任务已提交',
+      });
+    }
 
     if (videoProvider === 'comfyui') {
       const audioInputs = [...audioFiles, ...audioUrls].filter(Boolean);

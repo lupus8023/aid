@@ -42,8 +42,8 @@ test('Story uses Fish once per character as timbre reference and never as final 
   assert.match(storyPage, /\/api\/generate-voice-reference/);
   assert.match(
     storyPage,
-    /speaks\s*&&\s*settingsRef\.current\.fishAudioKey\s*&&\s*!voiceReferencesRef\.current\?\.\[character\.name\]/,
-    'one-click production must only create a Fish reference when this character has no persisted reference yet',
+    /speaks\s*&&\s*autoVideoProvider\s*!==\s*'fal'\s*&&\s*settingsRef\.current\.fishAudioKey\s*&&\s*!voiceReferencesRef\.current\?\.\[character\.name\]/,
+    'one-click production must create a missing Fish timbre reference only for providers that accept audio input',
   );
   assert.match(
     storyPage,

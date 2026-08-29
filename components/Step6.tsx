@@ -1,8 +1,9 @@
-import VideoEditor from './video-editor/VideoEditor';
-import { Storyboard } from '@/types';
+import VideoEditor, { type VideoEditorExportResult } from './video-editor/VideoEditor';
+import { ProjectProductionTiming, Storyboard } from '@/types';
 import { ArrowLeft } from 'lucide-react';
 import type { AppSettings } from '@/types';
 import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
+import { formatProductionElapsed, productionElapsedMs } from '@/lib/productionTiming';
 
 interface Step6Props {
   storyboards: Storyboard[];
@@ -12,8 +13,10 @@ interface Step6Props {
   companionSettings?: Partial<NonNullable<AppSettings['comfyui']>>;
   aspectRatio?: StoryAspectRatio;
   autoExportRequestId?: number;
-  onAutoExportComplete?: () => void;
+  onAutoExportComplete?: (result: VideoEditorExportResult) => void;
   onAutoExportError?: (error: unknown) => void;
+  downloadAfterExport?: boolean;
+  productionTiming?: ProjectProductionTiming;
 }
 
 export default function Step6({
@@ -26,6 +29,8 @@ export default function Step6({
   autoExportRequestId,
   onAutoExportComplete,
   onAutoExportError,
+  downloadAfterExport = true,
+  productionTiming,
 }: Step6Props) {
   const seenSegments = new Set<string>();
   const completedShots = storyboards
@@ -64,6 +69,11 @@ export default function Step6({
         <p className="text-[var(--text-secondary)] font-mono text-sm">
           Edit, trim, and export your final video. 连贯镜头会在运动中交接，并自动裁掉上一段静止尾部与下一段起步帧。
         </p>
+        {productionTiming && (
+          <p className="mt-2 font-mono text-xs text-emerald-300">
+            项目实际制作耗时：{formatProductionElapsed(productionElapsedMs(productionTiming))}
+          </p>
+        )}
       </div>
 
       {videoUrls.length > 0 ? (
@@ -79,6 +89,7 @@ export default function Step6({
             autoExportRequestId={autoExportRequestId}
             onAutoExportComplete={onAutoExportComplete}
             onAutoExportError={onAutoExportError}
+            downloadAfterExport={downloadAfterExport}
           />
         </div>
       ) : (

@@ -6,6 +6,7 @@ import {
   buildCompactImageCaptureContract,
   buildImageCaptureContract,
   buildSceneReferencePrompt,
+  buildStoryWorldAnchorPrompt,
 } from '../lib/promptArchitecture.ts';
 
 test('still capture contract models optical cause and effect instead of generic style words', () => {
@@ -68,6 +69,20 @@ test('scene reference prompt states the visual goal before style and capture con
   assert.match(prompt, /no captions, labels, logos, watermark, or readable text/i);
 });
 
+test('Midjourney story master stays environmental instead of becoming another costume portrait', () => {
+  const prompt = buildStoryWorldAnchorPrompt({
+    sceneStyle: 'an underwater palace meadow',
+    representativeShot: 'Lanxi lifts a shell into rippled sunlight',
+    characterNames: ['Lanxi'],
+    visualStyle: 'cinematic-natural',
+    aspectRatio: '16:9',
+  });
+  assert.match(prompt, /wide environmental master shot/i);
+  assert.match(prompt, /20–35% of frame height/i);
+  assert.match(prompt, /no close-up, studio portrait/i);
+  assert.match(prompt, /not a portrait, character sheet/i);
+});
+
 test('storyboard image assembly assigns one explicit job to each GPT Image reference', async () => {
   const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../lib/imageGenerator.ts', import.meta.url), 'utf8'));
   assert.match(source, /IMAGE GOAL:/);
@@ -97,10 +112,13 @@ test('grid prompt preserves all nine unique shot identities under the provider b
     Array.from({ length: 9 }, (_, index) => index + 1),
     'cinematic-natural',
   );
+  assert.doesNotMatch(prompt, /Panel\s+1\s*\(/i);
+  assert.match(prompt, /invisible directing notes/i);
+  assert.match(prompt, /ZERO TYPOGRAPHY/i);
 
   assert.ok(prompt.length <= 3500, `grid prompt was ${prompt.length} characters`);
   assert.match(prompt, /GRID STYLE BIBLE/);
-  assert.match(prompt, /Panel 9 \(story scene 9\): UNIQUE_OPTICS_9/);
+  assert.match(prompt, /bottom-right frame, depict UNIQUE_OPTICS_9/i);
   for (let index = 1; index <= 9; index += 1) {
     assert.match(prompt, new RegExp(`UNIQUE_OPTICS_${index}`));
   }

@@ -494,9 +494,14 @@ export default function MiniMaxBatchPage() {
               <p className="hidden font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)] sm:block">Excel 驱动 · 自动工作流 · 本地逐条保存</p>
             </div>
           </div>
-          <button onClick={() => setShowSettings(true)} className="flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]">
-            <Settings size={15} /> ComfyUI 设置
-          </button>
+          <div className="flex items-center gap-2">
+            <Link href="/batch/story" className="flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-[var(--accent-green)]/50 bg-[var(--accent-green)]/5 px-3 text-xs text-[var(--accent-green)] hover:bg-[var(--accent-green)]/10">
+              <FileSpreadsheet size={15} /> Story 全自动批量
+            </Link>
+            <button onClick={() => setShowSettings(true)} className="flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]">
+              <Settings size={15} /> ComfyUI 设置
+            </button>
+          </div>
         </div>
       </header>
 

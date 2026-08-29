@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getTaskStatus } from '@/lib/apimart';
+import { getMidjourneyImageStatus, getTaskStatus } from '@/lib/apimart';
 import { extractImageTaskError } from '@/lib/imagePromptSafety';
 import { downloadComfyUIImageOutput, getComfyUIImageStatus, isComfyUIImageTask } from '@/lib/comfyui';
 import { hasCloudinaryUploadTarget, uploadBufferToCloudinary } from '@/lib/cloudinaryUpload';
+import { isMidjourneyTask } from '@/lib/midjourney';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -36,6 +37,29 @@ export async function POST(request: NextRequest) {
         imageUrl: `data:image/png;base64,${buffer.toString('base64')}`,
         provider: 'comfyui-z-image',
       });
+    }
+
+    if (isMidjourneyTask(taskId)) {
+      if (!apiKey) return NextResponse.json({ error: 'apiKey is required' }, { status: 400 });
+      const status = await getMidjourneyImageStatus(taskId, apiKey);
+      if (status.status === 'completed') {
+        // The native MJ query exposes the four cropped candidates separately.
+        // Never return grid_image_url: downstream video models would interpret
+        // the contact sheet as one frame. Automated production uses candidate 1
+        // while retaining all four URLs for a future/manual chooser.
+        const imageUrl = status.imageUrls[0];
+        if (!imageUrl) return NextResponse.json({
+          status: 'failed',
+          error: 'Midjourney completed without individual candidate images',
+        });
+        return NextResponse.json({
+          status: 'completed',
+          imageUrl,
+          candidateUrls: status.imageUrls,
+          provider: 'midjourney',
+        });
+      }
+      return NextResponse.json({ status: status.status, error: status.error });
     }
 
     if (!apiKey) return NextResponse.json({ error: 'apiKey is required' }, { status: 400 });

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createProviderImageTask } from '@/lib/imageTaskProvider';
-import { imageModelRequiresApiKey } from '@/lib/imageModels';
-import { buildCharacterBiblePrompt, buildSceneReferencePrompt } from '@/lib/promptArchitecture';
+import { imageModelRequiresApiKey, isMidjourneyImageModel } from '@/lib/imageModels';
+import { buildCharacterBiblePrompt, buildSceneReferencePrompt, buildStoryWorldAnchorPrompt } from '@/lib/promptArchitecture';
 
 export async function POST(request: NextRequest) {
   try {
-    const { type, name, description, costumeDesc, sceneStyle, referenceImageUrl, aspectRatio, imageModel, apiKey, visualStyle, comfyui = {} } = await request.json();
-    const selectedModel = imageModel || 'doubao-seedream-5-0-lite';
+    const { type, name, description, costumeDesc, sceneStyle, representativeShot, storyCharacterNames, referenceImageUrl, aspectRatio, imageModel, apiKey, visualStyle, capturePreset, comfyui = {}, midjourneyProfile = '' } = await request.json();
+    const selectedModel = imageModel || 'seedream-5-0-pro';
     if (imageModelRequiresApiKey(selectedModel) && !apiKey) return NextResponse.json({ error: 'API Key is required' }, { status: 400 });
 
     let prompt = '';
@@ -19,7 +19,16 @@ export async function POST(request: NextRequest) {
         visualStyle,
       });
     } else if (type === 'scene') {
-      prompt = buildSceneReferencePrompt(sceneStyle, visualStyle, aspectRatio || '16:9');
+      prompt = isMidjourneyImageModel(selectedModel)
+        ? buildStoryWorldAnchorPrompt({
+            sceneStyle,
+            representativeShot,
+            characterNames: Array.isArray(storyCharacterNames) ? storyCharacterNames : [],
+            visualStyle,
+            capturePreset,
+            aspectRatio: aspectRatio || '16:9',
+          })
+        : buildSceneReferencePrompt(sceneStyle, visualStyle, aspectRatio || '16:9', capturePreset);
     } else {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
     }
@@ -32,6 +41,14 @@ export async function POST(request: NextRequest) {
       type === 'costume' ? '4:3' : (aspectRatio || '16:9'),
       undefined,
       comfyui,
+      {
+        midjourneyReferenceMode: type === 'costume' ? 'character' : isMidjourneyImageModel(selectedModel) ? 'image' : 'style',
+        midjourneyTaskMode: type === 'costume' ? 'character-sheet' : isMidjourneyImageModel(selectedModel) ? 'story-shot' : 'single',
+        midjourneyVisualStyle: visualStyle,
+        midjourneyCapturePreset: type === 'scene' ? capturePreset : undefined,
+        midjourneyHasPeople: type === 'costume' || (isMidjourneyImageModel(selectedModel) && Array.isArray(storyCharacterNames) && storyCharacterNames.length > 0),
+        midjourneyProfile,
+      },
     );
 
     return NextResponse.json({ taskId });

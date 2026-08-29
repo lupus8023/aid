@@ -28,9 +28,9 @@ test('keeps every image batch distinct before the provider truncation boundary',
   assert.match(second.slice(0, 3900), /UNIQUE STORYBOARD BATCH: 10-11-12-13-14-15-16-17-18/);
   assert.match(first.slice(0, 3900), /story scene 9/);
   assert.match(second.slice(0, 3900), /story scene 18/);
-  assert.match(first, /EXACT CAST count/);
+  assert.match(first, /Each frame's stated people are authoritative/);
   assert.match(first, /exactly once/);
-  assert.match(first, /No captions, subtitles/);
+  assert.match(first, /No headings, camera terms, captions, subtitles/);
 });
 
 test('builds nine distinct Cloudinary crop URLs for a persisted grid', () => {

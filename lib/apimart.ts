@@ -8,6 +8,14 @@ import {
   type ImageGenerationAspectRatio,
   type ImageResolutionOverride,
 } from './imageModels';
+import {
+  MIDJOURNEY_TASK_PREFIX,
+  buildMidjourneyImaginePayload,
+  unwrapMidjourneyTaskId,
+  type MidjourneyReferenceMode,
+  type MidjourneyTaskMode,
+} from './midjourney';
+import type { CapturePreset, VisualStyle } from '@/types';
 
 const APIMART_BASE_URL = 'https://api.apimart.ai/v1';
 let preferSystemNetworkStack = false;
@@ -89,7 +97,7 @@ export async function createImageTask(
   prompt: string,
   referenceImageUrls: string | string[],
   apiKey: string,
-  model: string = 'doubao-seedream-5-0-lite',
+  model: string = 'seedream-5-0-pro',
   aspectRatio: ImageGenerationAspectRatio = '16:9',
   resolutionOverride?: ImageResolutionOverride,
 ): Promise<string> {
@@ -167,6 +175,101 @@ export async function createImageTask(
 
     const errorMsg = error.response?.data?.error?.message || error.message;
     throw new Error(`Failed to create image generation task: ${errorMsg}`);
+  }
+}
+
+export interface MidjourneyImageStatus {
+  taskId: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  imageUrls: string[];
+  gridImageUrl?: string;
+  error?: string;
+}
+
+export async function createMidjourneyImageTask(
+  prompt: string,
+  referenceImageUrls: string[],
+  apiKey: string,
+  aspectRatio: ImageGenerationAspectRatio,
+  referenceMode: MidjourneyReferenceMode = 'image',
+  visualStyle?: VisualStyle,
+  capturePreset?: CapturePreset,
+  taskMode?: MidjourneyTaskMode,
+  hasPeople?: boolean,
+  personalizationProfile?: string,
+): Promise<string> {
+  try {
+    const sourceImages = [...new Set(referenceImageUrls.filter(url => typeof url === 'string' && url.trim()))].slice(0, 4);
+    const imageUrls = await Promise.all(sourceImages.map(async sourceImage => (
+      sourceImage.startsWith('data:') ? await uploadImageToPublic(sourceImage, apiKey) : sourceImage
+    )));
+    const body = buildMidjourneyImaginePayload({
+      prompt,
+      aspectRatio,
+      imageUrls,
+      referenceMode,
+      visualStyle,
+      capturePreset,
+      taskMode,
+      hasPeople,
+      personalizationProfile,
+    });
+    const response = await axios.post(
+      `${APIMART_BASE_URL}/midjourney/generations`,
+      body,
+      {
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        timeout: 30_000,
+      },
+    );
+    const taskId = extractImageTaskId(response.data);
+    if (!taskId) throw new Error(`APIMart response did not include a Midjourney task ID: ${JSON.stringify(response.data)}`);
+    console.log('[midjourney] imagine task created', {
+      taskId,
+      promptLength: String(body.prompt || '').length,
+      referenceMode: imageUrls.length ? referenceMode : 'none',
+      referenceCount: imageUrls.length,
+    });
+    return `${MIDJOURNEY_TASK_PREFIX}${taskId}`;
+  } catch (error: any) {
+    const summary = apimartErrorSummary(error);
+    console.error('[midjourney] imagine request failed', summary);
+    throw new Error(`Failed to create Midjourney image task: ${summary.message}`);
+  }
+}
+
+export async function getMidjourneyImageStatus(taskId: string, apiKey: string): Promise<MidjourneyImageStatus> {
+  const providerTaskId = unwrapMidjourneyTaskId(taskId);
+  try {
+    const response = await axios.get(
+      `${APIMART_BASE_URL}/midjourney/${providerTaskId}`,
+      {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        timeout: 20_000,
+      },
+    );
+    const raw = response.data?.data || response.data || {};
+    const providerStatus = String(raw.status || '').toUpperCase();
+    const status: MidjourneyImageStatus['status'] = providerStatus === 'SUCCESS'
+      ? 'completed'
+      : providerStatus === 'FAILURE'
+        ? 'failed'
+        : providerStatus === 'IN_PROGRESS'
+          ? 'processing'
+          : 'pending';
+    const imageUrls = (Array.isArray(raw.image_urls) ? raw.image_urls : [])
+      .filter((url: unknown): url is string => typeof url === 'string' && /^https?:\/\//i.test(url));
+    return {
+      taskId,
+      status,
+      imageUrls,
+      gridImageUrl: typeof raw.grid_image_url === 'string' ? raw.grid_image_url : undefined,
+      error: status === 'failed' ? String(raw.fail_reason || raw.error || 'Midjourney generation failed') : undefined,
+    };
+  } catch (error: any) {
+    const summary = apimartErrorSummary(error);
+    console.error('[midjourney] task query failed', { taskId: providerTaskId, ...summary });
+    throw new Error(`Failed to get Midjourney task status: ${summary.message}`);
   }
 }
 

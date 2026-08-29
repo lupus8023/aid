@@ -1,9 +1,11 @@
-import { getTaskStatus } from './apimart';
+import { getMidjourneyImageStatus, getTaskStatus } from './apimart';
 import { createProviderImageTask } from './imageTaskProvider';
 import type { ComfyUIClientSettings } from './comfyui';
-import { Storyboard, Character, ObjectItem, VisualStyle } from '@/types';
+import { Storyboard, Character, ObjectItem, VisualStyle, CapturePreset } from '@/types';
 import { buildImageCaptureContract, buildMediumLock } from './promptArchitecture';
-import { getImageModelCapabilities, isComfyUIZImageTurbo } from './imageModels';
+import { buildImageCapturePresetContract } from './capturePresets';
+import { getImageModelCapabilities, isComfyUIZImageTurbo, isMidjourneyImageModel } from './imageModels';
+import { isMidjourneyTask } from './midjourney';
 
 // 为单个分镜生成图片
 export async function generateStoryboardImage(
@@ -18,9 +20,11 @@ export async function generateStoryboardImage(
   preUploadedReferences?: string[],
   preUploadedReferenceLabels: string[] = [],
   visualStyle?: VisualStyle,
+  capturePreset?: CapturePreset,
   comfyui: ComfyUIClientSettings = {},
+  midjourneyProfile = '',
 ): Promise<string> {
-  const selectedImageModel = imageModel || 'doubao-seedream-5-0-lite';
+  const selectedImageModel = imageModel || 'seedream-5-0-pro';
   const maxReferenceImages = getImageModelCapabilities(selectedImageModel).maxReferenceImages;
   // 找到该分镜中出现的角色
   const sceneCharacters = characters.filter(c =>
@@ -107,6 +111,8 @@ ${buildMediumLock(visualStyle)}
 
 ${buildImageCaptureContract(visualStyle)}
 
+${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}
+
 ${referenceDescriptions.join('\n')}
 
 Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. No captions, subtitles, dialogue text, speech bubbles, titles, logos, watermark, or UI. Maintain exact lighting and atmosphere from the scene reference.
@@ -143,6 +149,15 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       // compressed mother and serves compact native-detail cells to H3.
       '4K',
       comfyui,
+      {
+        // Storyboard contact sheets use V8.2 HD with a loose image reference.
+        midjourneyReferenceMode: 'image',
+        midjourneyTaskMode: 'grid',
+        midjourneyVisualStyle: visualStyle,
+        midjourneyCapturePreset: capturePreset || storyboard.capturePreset,
+        midjourneyHasPeople: sceneCharacters.length > 0,
+        midjourneyProfile,
+      },
     );
 
     console.log(`Image task created successfully, task ID: ${taskId}`);
@@ -151,24 +166,28 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
 
   // 单个分镜生成的正常流程。先建立“图片 + 对应说明”的原子条目，
   // 再按模型上限裁剪，确保提示词中的 Reference image N 永远与实际上传一致。
-  const referenceEntries: Array<{ image: string; description: string; fallback: string }> = [];
+  const characterReferenceEntries: Array<{ image: string; description: string; fallback: string }> = [];
   sceneCharacters.forEach(char => {
     const image = globalCostumeImages[char.name] || char.imageUrl || char.imageBase64;
     if (!image) return;
     const usingCostume = Boolean(globalCostumeImages[char.name]);
-    referenceEntries.push({
+    characterReferenceEntries.push({
       image,
       description: `CHARACTER IDENTITY ONLY — "${char.name}". ${usingCostume ? 'Preserve the exact face, body proportions, hairstyle, wardrobe, accessories, and visual medium.' : `${char.description}. Preserve this character's exact face, body, hair, wardrobe, and visual medium.`} Ignore the reference pose, camera, background, layout, duplicate views, labels, and text. Instantiate this identity exactly once when required by the cast contract.`,
       fallback: `Character requirement: "${char.name}" - ${char.description}. Preserve this identity exactly once.`,
     });
   });
-  if (globalSceneImage) {
-    referenceEntries.push({
+  const sceneReferenceEntry = globalSceneImage ? {
       image: globalSceneImage,
       description: 'ENVIRONMENT ONLY. Preserve architecture, geography, entrances, landmarks, time of day, motivated light direction, palette, atmosphere, and material language. Ignore any people, poses, framing, labels, or text in the reference.',
       fallback: 'Scene requirement: follow the environment, lighting and atmosphere described in the storyboard prompt.',
-    });
-  }
+    } : undefined;
+  // Midjourney previously received only the first reference, which was always
+  // the character bible. Even after multi-reference support, putting the
+  // environment first makes its narrative location the composition anchor.
+  const referenceEntries: Array<{ image: string; description: string; fallback: string }> = isMidjourneyImageModel(selectedImageModel)
+    ? [...(sceneReferenceEntry ? [sceneReferenceEntry] : []), ...characterReferenceEntries]
+    : [...characterReferenceEntries, ...(sceneReferenceEntry ? [sceneReferenceEntry] : [])];
 
   const objectsWithoutRef: ObjectItem[] = [];
 
@@ -192,9 +211,10 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
   // 检查是否有任何角色或物体（无论是否有参考图）
   const hasAnyContent = sceneCharacters.length > 0 || sceneObjects.length > 0;
 
-  // 如果没有任何角色和物体，使用纯文生图
+  // 如果没有任何角色和物体，仍然保留全局场景参考。旧逻辑把这里
+  // 当成纯文生图，导致空镜与已经建立的故事地点完全断开。
   if (!hasAnyContent) {
-    console.log(`Scene ${storyboard.sceneNumber} has no characters or objects, using text-to-image generation`);
+    console.log(`Scene ${storyboard.sceneNumber} has no characters or objects, generating an environment story shot`);
 
     // 纯文生图也要清理 brackets
     const cleanPrompt = `IMAGE GOAL:
@@ -205,16 +225,26 @@ One complete standalone frame. No captions, subtitles, dialogue text, speech bub
 
 ${buildMediumLock(visualStyle)}
 
-${buildImageCaptureContract(visualStyle)}`;
+${buildImageCaptureContract(visualStyle)}
+
+${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}`;
 
     const taskId = await createProviderImageTask(
       cleanPrompt,
-      [],
+      globalSceneImage ? [globalSceneImage] : [],
       apiKey,
       selectedImageModel,
       aspectRatio,
       undefined,
       comfyui,
+      {
+        midjourneyReferenceMode: 'image',
+        midjourneyTaskMode: 'story-shot',
+        midjourneyVisualStyle: visualStyle,
+        midjourneyCapturePreset: capturePreset || storyboard.capturePreset,
+        midjourneyHasPeople: false,
+        midjourneyProfile,
+      },
     );
 
     console.log(`Image task created successfully (text-only), task ID: ${taskId}`);
@@ -241,6 +271,10 @@ ${buildImageCaptureContract(visualStyle)}`;
 
   const enhancedPrompt = `IMAGE GOAL:
 ${cleanedScenePrompt}
+Shot narrative: ${storyboard.description || storyboard.action || cleanedScenePrompt}.
+Physical action: ${storyboard.action || storyboard.description || cleanedScenePrompt}.
+Shot design: ${[storyboard.shotSize, storyboard.angle, storyboard.cameraMove].filter(Boolean).join(', ') || 'story-motivated cinematic composition'}.
+Environment and lighting: ${storyboard.sceneStyle || 'the story location described above, with readable foreground, midground and background geography'}.
 
 OUTPUT CONSTRAINTS:
 ${exactCastContract}
@@ -252,6 +286,8 @@ ${referenceDescriptions.join('\n')}
 ${buildMediumLock(visualStyle)}
 
 ${buildImageCaptureContract(visualStyle)}
+
+${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}
 
 PRESERVE INVARIANTS:
 Obey EXACT CAST literally. Maintain exact face, body proportions, hairstyle, clothing, accessories, and visual medium for every character. Keep each referenced object's shape, scale, color, material, texture, and intentional markings unchanged. Preserve the scene reference's architecture, geography, motivated light, atmosphere, and material language while allowing the requested camera viewpoint. Change only the action, composition, and viewpoint requested in IMAGE GOAL.
@@ -294,6 +330,14 @@ Obey EXACT CAST literally. Maintain exact face, body proportions, hairstyle, clo
     aspectRatio,
     undefined,
     comfyui,
+    {
+      midjourneyReferenceMode: globalSceneImage ? 'image' : sceneCharacters.length === 1 && referenceImages.length > 0 ? 'character' : 'image',
+      midjourneyTaskMode: 'story-shot',
+      midjourneyVisualStyle: visualStyle,
+      midjourneyCapturePreset: capturePreset || storyboard.capturePreset,
+      midjourneyHasPeople: sceneCharacters.length > 0,
+      midjourneyProfile,
+    },
   );
 
   console.log(`Image task created successfully, task ID: ${taskId}`);
@@ -310,6 +354,14 @@ export async function waitForImageGeneration(
   console.log(`Starting to poll task ${taskId}, max attempts: ${maxAttempts}, interval: ${intervalMs}ms`);
 
   for (let i = 0; i < maxAttempts; i++) {
+    if (isMidjourneyTask(taskId)) {
+      const midjourneyStatus = await getMidjourneyImageStatus(taskId, apiKey);
+      console.log(`Attempt ${i + 1}/${maxAttempts} - Midjourney task ${taskId} status:`, midjourneyStatus.status);
+      if (midjourneyStatus.status === 'completed' && midjourneyStatus.imageUrls[0]) return midjourneyStatus.imageUrls[0];
+      if (midjourneyStatus.status === 'failed') throw new Error(midjourneyStatus.error || 'Midjourney image generation failed');
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+      continue;
+    }
     const status = await getTaskStatus(taskId, apiKey);
     console.log(`Attempt ${i + 1}/${maxAttempts} - Task ${taskId} status:`, status.status);
 

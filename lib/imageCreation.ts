@@ -1,12 +1,12 @@
-import { isComfyUIZImageTurbo } from './imageModels';
+import { isComfyUIZImageTurbo, isMidjourneyImageModel } from './imageModels';
 
 export function imageCreationInputError(input: {
   model: string;
   referenceCount: number;
   userIntent?: string;
 }): string {
-  if (isComfyUIZImageTurbo(input.model)) {
-    return input.userIntent?.trim() ? '' : '使用 Z-Image-Turbo 时，请先描述目标画面';
+  if (isComfyUIZImageTurbo(input.model) || isMidjourneyImageModel(input.model)) {
+    return input.userIntent?.trim() ? '' : '使用文生图模型时，请先描述目标画面';
   }
   return input.referenceCount > 0 ? '' : '请至少上传一张参考图片';
 }

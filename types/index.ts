@@ -2,6 +2,15 @@
 export type VoiceGender = 'female' | 'male' | 'nonbinary' | 'unknown';
 export type VoiceAgeGroup = 'child' | 'young_adult' | 'adult' | 'senior' | 'unknown';
 
+export interface ProjectProductionTiming {
+  startedAt: string;
+  status: 'running' | 'paused' | 'completed';
+  pausedAt?: string;
+  pausedDurationMs: number;
+  completedAt?: string;
+  elapsedMs?: number;
+}
+
 export interface Character {
   id: string;
   name: string;
@@ -116,6 +125,8 @@ export interface Storyboard {
   videoGenerationSignature?: string; // 生成时的分镜/图片/台词指纹；防止内容修改后误用旧缓存
   videoStatus?: 'pending' | 'generating' | 'completed' | 'failed'; // 视频生成状态
   videoTaskId?: string; // 视频任务 ID
+  videoProviderUsed?: 'apimart' | 'comfyui' | 'fal';
+  videoSeed?: number; // fal 项目固定 seed；只用于复现，不代表声纹锁
   aspectRatio?: '16:9' | '9:16' | '1:1'; // 宽高比
   audioUrl?: string; // 生成的音频 URL (legacy single)
   audioDuration?: number; // exact full-segment dialogue track duration
@@ -163,6 +174,7 @@ export interface Storyboard {
   locationId?: string;                       // 地点标识，同一地点的镜头共享场景参考图
   sceneImageOverride?: string;               // per-shot scene reference (dragged from global)
   visualStyle?: VisualStyle;                 // 项目级制作风格快照
+  capturePreset?: CapturePreset;             // 项目级拍摄方式快照（构图/机位/成像瑕疵/表演观察方式）
   costumeStatus?: 'pending' | 'generating' | 'completed'; // 定妆图生成状态
   // costumeImages and sceneImage are now global, stored in page state
 }
@@ -237,6 +249,18 @@ export type VisualStyle =
   | 'illustration'
   | 'stop-motion';
 
+// 项目级拍摄方式。它不改变角色或美术媒介，只约束镜头如何观察、构图与成像。
+export type CapturePreset =
+  | 'cinematic-narrative'
+  | 'broadcast-candid'
+  | 'documentary-follow'
+  | 'phone-bystander'
+  | 'news-telephoto'
+  | 'home-video'
+  | 'surveillance'
+  | 'commercial-studio'
+  | 'follow-reference';
+
 // 应用设置类型
 export interface AppSettings {
   apiProvider: 'apimart' | 'openai' | 'anthropic'; // API 提供商
@@ -244,8 +268,16 @@ export interface AppSettings {
   scriptProvider?: 'auto' | 'dmx' | 'apimart'; // 剧本生成通道
   scriptModel: string; // 脚本生成模型
   imageModel: string; // 图片生成模型
+  midjourneyProfileEnabled?: boolean; // 是否启用 Midjourney 个性化 Profile
+  midjourneyProfile?: string; // Midjourney 个性化 Profile 代码
   videoModel: string; // 视频生成模型
-  videoProvider?: 'apimart' | 'comfyui'; // 视频生成通道
+  videoProvider?: 'apimart' | 'comfyui' | 'fal'; // 视频生成通道
+  fal?: {
+    apiKey?: string;
+    resolution?: '480P' | '768P';
+    promptExpansionMode?: 'disabled' | 'balanced' | 'quality';
+    seed?: number;
+  };
   comfyui?: {
     sshHost: string;
     sshPort: number;

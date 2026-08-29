@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVideoTaskStatus } from '@/lib/apimart';
 import { downloadComfyUIOutput, getComfyUIVideoStatus, isComfyUITask } from '@/lib/comfyui';
 import { hasCloudinaryUploadTarget, uploadBufferToCloudinary, uploadToCloudinary } from '@/lib/cloudinaryUpload';
+import { getFalH3MaxVideoStatus, isFalVideoTask } from '@/lib/falVideo';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
-    const { taskId, apiKey, comfyui = {}, localDelivery = false } = await request.json();
+    const { taskId, apiKey, comfyui = {}, fal = {}, localDelivery = false } = await request.json();
 
     if (!taskId) {
       return NextResponse.json(
@@ -55,6 +56,36 @@ export async function POST(request: NextRequest) {
         folder: 'aid-videos/comfyui', public_id: promptId, resource_type: 'video', overwrite: true,
       });
       return NextResponse.json({ taskId, status: 'completed', videoUrl: uploaded.secure_url, provider: 'comfyui' });
+    }
+
+    if (isFalVideoTask(taskId)) {
+      const status = await getFalH3MaxVideoStatus(taskId, fal.apiKey);
+      if (status.status !== 'completed' || !status.videoUrl) {
+        return NextResponse.json({
+          taskId,
+          status: status.status,
+          provider: 'fal',
+          queuePosition: status.queuePosition,
+        });
+      }
+      let videoUrl = status.videoUrl;
+      try {
+        const uploaded = await uploadToCloudinary(status.videoUrl, {
+          folder: 'aid-videos/fal-h3-max',
+          resource_type: 'video',
+        });
+        videoUrl = uploaded.secure_url;
+      } catch (error) {
+        console.warn('fal H3 Max output Cloudinary mirror failed; using fal CDN URL:', error);
+      }
+      return NextResponse.json({
+        taskId,
+        status: 'completed',
+        provider: 'fal',
+        videoUrl,
+        expandedPrompt: status.expandedPrompt,
+        timings: status.timings,
+      });
     }
 
     if (!apiKey) {

@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Character, Storyboard } from '@/types';
+import { useEffect, useMemo, useState } from 'react';
+import { Character, ProjectProductionTiming, Storyboard } from '@/types';
 import {
   ArrowLeft,
   ArrowRight,
@@ -29,12 +29,13 @@ import {
 } from '@/lib/videoSegments';
 import { storyboardAudioPlan, storyboardSpeech, storyboardSpeechWarnings } from '@/lib/speechAudioContract';
 import { storyAspectClass, storyAspectRatioFromDimensions, type StoryAspectRatio } from '@/lib/storyAspectRatio';
+import { formatProductionElapsed, productionElapsedMs } from '@/lib/productionTiming';
 
 interface Step5Props {
   storyboards: Storyboard[];
   characters: Character[];
   videoModel?: string;
-  videoProvider?: 'apimart' | 'comfyui';
+  videoProvider?: 'apimart' | 'comfyui' | 'fal';
   voiceReferences?: Record<string, string>;
   aspectRatio?: StoryAspectRatio;
   language?: 'zh' | 'en';
@@ -45,6 +46,7 @@ interface Step5Props {
   onUpdate?: (storyboard: Storyboard) => void;
   videoSegmentPlan?: VideoSegmentPlan;
   onVideoSegmentPlanChange?: (plan: VideoSegmentPlan) => void;
+  productionTiming?: ProjectProductionTiming;
 }
 
 type SegmentStatus = 'ready' | 'generating' | 'completed' | 'failed';
@@ -83,8 +85,10 @@ export default function Step5({
   onUpdate,
   videoSegmentPlan,
   onVideoSegmentPlanChange,
+  productionTiming,
 }: Step5Props) {
   const isComfyUI = videoProvider === 'comfyui';
+  const isH3SegmentProvider = isComfyUI || videoProvider === 'fal';
   const withImages = useMemo(() => storyboards.filter(item => item.imageUrl), [storyboards]);
   const storyboardById = useMemo(() => new Map(withImages.map(item => [item.id, item])), [withImages]);
   const plannedGroups = useMemo(
@@ -98,6 +102,14 @@ export default function Step5({
   const [editingPrompt, setEditingPrompt] = useState(false);
   const [promptDraft, setPromptDraft] = useState('');
   const [videoAspects, setVideoAspects] = useState<Record<string, StoryAspectRatio>>({});
+  const [clockNow, setClockNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    setClockNow(Date.now());
+    if (productionTiming?.status !== 'running') return;
+    const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [productionTiming?.status, productionTiming?.startedAt, productionTiming?.pausedDurationMs]);
 
   const detectedVideoAspect = (url?: string, fallback: StoryAspectRatio = aspectRatio) => (
     (url && videoAspects[url]) || fallback
@@ -123,9 +135,17 @@ export default function Step5({
   const activeFoley = [...new Set(activeGroup.flatMap(item => storyboardAudioPlan(item).foley))];
   const allowsBackgroundHuman = activeGroup.some(item => storyboardAudioPlan(item).backgroundHuman === 'indistinct_nonverbal');
   const totalSeconds = groups.reduce((sum, group) => sum + estimateVideoSegmentSeconds(group), 0);
-  const completedCount = isComfyUI ? persistedVideoClipCount(storyboards) : storyboards.filter(item => item.videoStatus === 'completed').length;
+  const completedCount = isH3SegmentProvider ? persistedVideoClipCount(storyboards) : storyboards.filter(item => item.videoStatus === 'completed').length;
   const cachingCount = storyboards.filter(item => item.videoCacheStatus === 'caching').length;
-  const cachedCount = isComfyUI ? persistedVideoClipCount(storyboards, true) : storyboards.filter(item => item.videoCacheStatus === 'completed').length;
+  const cachedCount = isH3SegmentProvider ? persistedVideoClipCount(storyboards, true) : storyboards.filter(item => item.videoCacheStatus === 'completed').length;
+  const actualProductionTime = formatProductionElapsed(productionElapsedMs(productionTiming, clockNow));
+  const productionTimeLabel = productionTiming?.status === 'running'
+    ? `制作中 ${actualProductionTime}`
+    : productionTiming?.status === 'paused'
+      ? `已暂停 ${actualProductionTime}`
+      : productionTiming?.status === 'completed'
+        ? `实际制作 ${actualProductionTime}`
+        : '实际制作 尚未开始';
 
   const commitGroups = (next: string[][], nextActive = safeActiveIndex) => {
     const nextGroups = next
@@ -180,7 +200,7 @@ export default function Step5({
     setEditingPrompt(true);
   };
 
-  if (!isComfyUI) {
+  if (!isH3SegmentProvider) {
     return (
       <div className="space-y-5">
         <div className="border-l-4 border-[var(--accent-purple)] pl-4"><h2 className="text-2xl font-mono text-[var(--accent-green)]"><span className="text-[var(--text-secondary)]">05.</span> Generate Videos</h2><p className="mt-2 text-sm text-[var(--text-secondary)]">当前视频通道按单个分镜生成；选择仙宫云 ComfyUI 可启用 H3 片段编排。</p></div>
@@ -195,8 +215,8 @@ export default function Step5({
       <header className="flex flex-col gap-4 border-l-2 border-[var(--workspace-accent)] pl-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--workspace-accent)]">05 · Segment edit</p>
-          <h2 className="mt-2 text-xl font-semibold text-white"><span className="text-[var(--workspace-accent)]">{withImages.length}</span> 分镜 → <span className="text-[var(--workspace-accent)]">{groups.length}</span> 个视频片段 · 预计 {Math.floor(totalSeconds / 60)}m{String(totalSeconds % 60).padStart(2, '0')}s</h2>
-          <p className="mt-2 text-xs text-[var(--text-secondary)]">MiniMax H3 · {language === 'en' ? 'English dialogue' : '中文对白'} · 片段先锁定有序台词，再用 1–4 个分镜承载画面 · 最长 15s</p>
+          <h2 className="mt-2 text-xl font-semibold text-white"><span className="text-[var(--workspace-accent)]">{withImages.length}</span> 分镜 → <span className="text-[var(--workspace-accent)]">{groups.length}</span> 个视频片段 · 预计成片 {Math.floor(totalSeconds / 60)}m{String(totalSeconds % 60).padStart(2, '0')}s · <span className={productionTiming?.status === 'completed' ? 'text-emerald-300' : 'text-[var(--workspace-accent)]'}>{productionTimeLabel}</span></h2>
+          <p className="mt-2 text-xs text-[var(--text-secondary)]">{videoProvider === 'fal' ? 'MiniMax H3 Max · fal' : 'MiniMax H3 · ComfyUI'} · {language === 'en' ? 'English dialogue' : '中文对白'} · 片段先锁定有序台词，再用 1–4 个分镜承载画面 · 最长 15s</p>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><HardDrive size={13} />本地缓存 {cachedCount}/{completedCount}</div>
       </header>

@@ -1,7 +1,8 @@
 import CharacterUpload from './CharacterUpload';
 import ObjectUpload from './ObjectUpload';
-import { Character, ObjectItem, VisualStyle } from '@/types';
+import { CapturePreset, Character, ObjectItem, VisualStyle } from '@/types';
 import { PRODUCTION_STYLE_PRESETS } from '@/lib/promptArchitecture';
+import { CAPTURE_PRESETS } from '@/lib/capturePresets';
 
 interface Step2Props {
   characters: Character[];
@@ -13,10 +14,13 @@ interface Step2Props {
   isLoading: boolean;
   visualStyle: VisualStyle;
   onVisualStyleChange: (style: VisualStyle) => void;
+  capturePreset: CapturePreset;
+  onCapturePresetChange: (preset: CapturePreset) => void;
 }
 
-export default function Step2({ characters, objects, onCharactersChange, onObjectsChange, onBack, onNext, isLoading, visualStyle, onVisualStyleChange }: Step2Props) {
+export default function Step2({ characters, objects, onCharactersChange, onObjectsChange, onBack, onNext, isLoading, visualStyle, onVisualStyleChange, capturePreset, onCapturePresetChange }: Step2Props) {
   const currentStyle = PRODUCTION_STYLE_PRESETS.find((preset) => preset.value === visualStyle) ?? PRODUCTION_STYLE_PRESETS[0];
+  const currentCapture = CAPTURE_PRESETS.find((preset) => preset.value === capturePreset) ?? CAPTURE_PRESETS[0];
 
   return (
     <div className="space-y-6">
@@ -53,6 +57,46 @@ export default function Step2({ characters, objects, onCharactersChange, onObjec
                   role="radio"
                   aria-checked={isSelected}
                   onClick={() => onVisualStyleChange(preset.value)}
+                  title={preset.description}
+                  style={isSelected ? { backgroundColor: 'rgba(var(--workspace-accent-rgb), 0.12)' } : undefined}
+                  className={`shrink-0 whitespace-nowrap rounded-md border px-3 py-2 text-xs font-medium transition-colors active:translate-y-px ${isSelected ? 'border-[var(--accent-blue)] text-[var(--accent-blue)]' : 'border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--accent-blue)]/60 hover:text-[var(--text-primary)]'}`}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="my-3 border-t border-[var(--border-color)]" />
+
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-6">
+          <div className="shrink-0 lg:w-64">
+            <div className="flex items-center justify-between gap-3 lg:block">
+              <h3 className="text-sm font-semibold text-white">全片拍摄方式</h3>
+              <span className="whitespace-nowrap font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--accent-blue)]">Capture mode</span>
+            </div>
+            <p className="mt-1 truncate text-xs text-[var(--text-secondary)]" title={currentCapture.description}>
+              <span className="text-[var(--text-primary)]">{currentCapture.label}</span>
+              <span className="mx-1.5 text-[var(--border-color)]">/</span>
+              {currentCapture.description}
+            </p>
+          </div>
+
+          <div
+            role="radiogroup"
+            aria-label="选择全片拍摄方式"
+            className="-mx-1 flex min-w-0 gap-1.5 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-1 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0"
+          >
+            {CAPTURE_PRESETS.map((preset) => {
+              const isSelected = capturePreset === preset.value;
+              return (
+                <button
+                  key={preset.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  onClick={() => onCapturePresetChange(preset.value)}
                   title={preset.description}
                   style={isSelected ? { backgroundColor: 'rgba(var(--workspace-accent-rgb), 0.12)' } : undefined}
                   className={`shrink-0 whitespace-nowrap rounded-md border px-3 py-2 text-xs font-medium transition-colors active:translate-y-px ${isSelected ? 'border-[var(--accent-blue)] text-[var(--accent-blue)]' : 'border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--accent-blue)]/60 hover:text-[var(--text-primary)]'}`}

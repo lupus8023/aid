@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { AppSettings } from '@/types';
 import { Check, Copy, X } from 'lucide-react';
 import { comfyUIApiUrl, localComfyUISettings } from '@/lib/comfyuiClient';
-import { APIMART_IMAGE_MODEL_OPTIONS, getImageModelCapabilities } from '@/lib/imageModels';
+import { APIMART_IMAGE_MODEL_OPTIONS, getImageModelCapabilities, isMidjourneyImageModel } from '@/lib/imageModels';
+import { DEFAULT_MIDJOURNEY_PERSONALIZATION_PROFILE, normalizeMidjourneyProfileCode } from '@/lib/midjourney';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -37,7 +38,16 @@ export default function SettingsModal({
   if (!isOpen) return null;
 
   const handleSave = () => {
-    if (onSave(localSettings) !== false) onClose();
+    let nextSettings = localSettings;
+    if (localSettings.midjourneyProfileEnabled) {
+      const profile = normalizeMidjourneyProfileCode(localSettings.midjourneyProfile);
+      if (!profile) {
+        window.alert('请输入有效的 Midjourney Profile 代码；只能包含字母、数字、下划线或连字符。');
+        return;
+      }
+      nextSettings = { ...localSettings, midjourneyProfile: profile };
+    }
+    if (onSave(nextSettings) !== false) onClose();
   };
 
   const updateComfyUI = (key: string, value: string | number | boolean) => {
@@ -50,6 +60,19 @@ export default function SettingsModal({
           workflowRoot: '/root/ComfyUI', imageWorkflowPath: '', multiImageWorkflowPath: '',
           firstLastWorkflowPath: '', timeoutSeconds: 7200,
         }),
+        [key]: value,
+      },
+    }));
+  };
+
+  const updateFal = (key: string, value: string | number | undefined) => {
+    setLocalSettings(current => ({
+      ...current,
+      fal: {
+        apiKey: '',
+        resolution: '768P',
+        promptExpansionMode: 'disabled',
+        ...(current.fal || {}),
         [key]: value,
       },
     }));
@@ -233,6 +256,44 @@ export default function SettingsModal({
                 通过本机 Companion 调用仙宫云官方 Z-Image-Turbo BF16 工作流。当前分支是纯文生图；Story 会使用角色/物体文字设定，图生图与严格参考图身份锁定请切换 APIMart 模型。
               </p>
             )}
+            {isMidjourneyImageModel(localSettings.imageModel) && (
+              <div className="mt-3 space-y-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)]/55 p-3">
+                <p className="text-xs leading-5 text-[var(--accent-yellow)]">
+                  质感优先模型：参考图用于宽松的人物、构图或风格引导，不保证脸、产品结构、Logo 与文字严格一致。
+                </p>
+                <label className="flex items-center gap-2 text-xs font-mono text-[var(--text-secondary)]">
+                  <input
+                    type="checkbox"
+                    checked={localSettings.midjourneyProfileEnabled === true}
+                    onChange={(event) => setLocalSettings(current => ({
+                      ...current,
+                      midjourneyProfileEnabled: event.target.checked,
+                      midjourneyProfile: current.midjourneyProfile || DEFAULT_MIDJOURNEY_PERSONALIZATION_PROFILE,
+                    }))}
+                  />
+                  启用个性化 Profile
+                </label>
+                <label className="block text-xs font-mono text-[var(--text-secondary)]">
+                  Profile 代码
+                  <input
+                    type="text"
+                    value={localSettings.midjourneyProfile || DEFAULT_MIDJOURNEY_PERSONALIZATION_PROFILE}
+                    onChange={(event) => setLocalSettings(current => ({
+                      ...current,
+                      midjourneyProfile: event.target.value,
+                    }))}
+                    disabled={localSettings.midjourneyProfileEnabled !== true}
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    placeholder={DEFAULT_MIDJOURNEY_PERSONALIZATION_PROFILE}
+                    className="mt-1 w-full rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent-blue)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-45"
+                  />
+                </label>
+                <p className="text-[11px] leading-5 text-[var(--text-muted)]">
+                  开启后后台发送 --profile；关闭后不发送任何 Profile 参数。该参数改变审美偏好，不负责角色或产品一致性。
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Video Provider */}
@@ -242,10 +303,11 @@ export default function SettingsModal({
             </label>
             <select
               value={localSettings.videoProvider || 'apimart'}
-              onChange={(e) => setLocalSettings({ ...localSettings, videoProvider: e.target.value as 'apimart' | 'comfyui' })}
+              onChange={(e) => setLocalSettings({ ...localSettings, videoProvider: e.target.value as AppSettings['videoProvider'] })}
               className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
             >
               <option value="apimart">APIMart API</option>
+              <option value="fal">fal · MiniMax H3 Max</option>
               <option value="comfyui">Cloud ComfyUI · SSH Private Workflow</option>
             </select>
           </div>
@@ -256,12 +318,16 @@ export default function SettingsModal({
               Video Generation Model
             </label>
             <select
-              value={(localSettings.videoProvider || 'apimart') === 'comfyui' ? 'MiniMax-H3' : localSettings.videoModel}
+              value={(localSettings.videoProvider || 'apimart') === 'comfyui'
+                ? 'MiniMax-H3'
+                : localSettings.videoProvider === 'fal'
+                  ? 'minimax/h3-max/image-to-video'
+                  : localSettings.videoModel}
               onChange={(e) => setLocalSettings({
                 ...localSettings,
                 videoModel: e.target.value
               })}
-              disabled={(localSettings.videoProvider || 'apimart') === 'comfyui'}
+              disabled={(localSettings.videoProvider || 'apimart') !== 'apimart'}
               className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
             >
               <option value="sora-2-vip">sora-2-vip</option>
@@ -270,6 +336,7 @@ export default function SettingsModal({
                   ? 'MiniMax H3 · 仙宫云 4-step LoRA (2-15s, ~720P, native audio)'
                   : 'MiniMax-H3 (4-15s, 2K, audio sync)'}
               </option>
+              <option value="minimax/h3-max/image-to-video">MiniMax H3 Max · fal (5–15s, 480P/768P, native audio)</option>
               <option value="grok-imagine-1.5-video-apimart">Grok Imagine 1.5 (6-30s, 480p/720p)</option>
               <option value="Omni-Flash-Ext">Omni-Flash-Ext (4/6/8/10s, 720p/1080p/4k)</option>
               <option value="doubao-seedance-2.0">doubao-seedance-2.0</option>
@@ -286,6 +353,66 @@ export default function SettingsModal({
               </p>
             )}
           </div>
+
+          {localSettings.videoProvider === 'fal' && (
+            <div className="space-y-4 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] p-4">
+              <div>
+                <h3 className="text-sm font-mono text-[var(--accent-green)]">fal · MiniMax H3 Max</h3>
+                <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">
+                  通过 AID 服务端代理提交 fal 队列任务。H3 Max 会根据提示词原生生成画面、对白与环境声；当前接口不接受 Fish Audio 音色参考。
+                </p>
+              </div>
+              <label className="block text-xs font-mono text-[var(--text-secondary)]">
+                fal API Key
+                <input
+                  type="password"
+                  value={localSettings.fal?.apiKey || ''}
+                  onChange={(event) => updateFal('apiKey', event.target.value)}
+                  placeholder="fal key"
+                  autoComplete="off"
+                  className="mt-1 w-full rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent-blue)] focus:outline-none"
+                />
+              </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="text-xs font-mono text-[var(--text-secondary)]">
+                  分辨率
+                  <select
+                    value={localSettings.fal?.resolution || '768P'}
+                    onChange={(event) => updateFal('resolution', event.target.value)}
+                    className="mt-1 w-full rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent-blue)] focus:outline-none"
+                  >
+                    <option value="768P">768P · 推荐</option>
+                    <option value="480P">480P · 草稿</option>
+                  </select>
+                </label>
+                <label className="text-xs font-mono text-[var(--text-secondary)]">
+                  Prompt Expansion
+                  <select
+                    value={localSettings.fal?.promptExpansionMode || 'disabled'}
+                    onChange={(event) => updateFal('promptExpansionMode', event.target.value)}
+                    className="mt-1 w-full rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent-blue)] focus:outline-none"
+                  >
+                    <option value="disabled">关闭 · 保留 AID 精确台词</option>
+                    <option value="balanced">Balanced · fal 轻度扩写</option>
+                    <option value="quality">Quality · fal 深度扩写</option>
+                  </select>
+                </label>
+              </div>
+              <label className="block text-xs font-mono text-[var(--text-secondary)]">
+                项目固定 Seed（实验性）
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={localSettings.fal?.seed ?? ''}
+                  onChange={(event) => updateFal('seed', event.target.value === '' ? undefined : Math.max(0, Math.floor(Number(event.target.value))))}
+                  placeholder="留空则每段随机"
+                  className="mt-1 w-full rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent-blue)] focus:outline-none"
+                />
+                <span className="mt-1 block text-[10px] leading-4 text-[var(--text-muted)]">同一数值会传给每个片段，用于可复现性与弱随机收敛；它不是声纹或 Voice ID，不能保证跨片段音色一致。</span>
+              </label>
+            </div>
+          )}
 
           {((localSettings.videoProvider || 'apimart') === 'comfyui' || localSettings.imageModel === 'comfyui-z-image-turbo') && (
             <div className="space-y-4 p-4 border border-[var(--border-color)] rounded-lg bg-[var(--bg-tertiary)]">

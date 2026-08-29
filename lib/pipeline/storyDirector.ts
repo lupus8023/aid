@@ -1,10 +1,11 @@
-import type { Storyboard } from '@/types';
+import type { CapturePreset, Storyboard } from '@/types';
 import type { StoryPlan, Beat, WriterCharacter, WriterObject } from './types';
 import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
 import type { VisualStyle } from '@/types';
 import { buildImageCaptureContract, getProductionStylePreset } from '@/lib/promptArchitecture';
 import { structuredRetryCorrection } from './storyWriter';
+import { buildDirectorCaptureContract } from '@/lib/capturePresets';
 
 // 导演阶段：把编剧产出的 StoryPlan 可视化成分镜（Storyboard[]）。
 // 关键点：镜头数量/顺序/台词/时长/转场/连续关系【忠实于 StoryPlan】，只补画面/视频提示词与定妆。
@@ -20,8 +21,9 @@ export function buildDirectorPrompt(input: {
   objects: WriterObject[];
   language: 'zh' | 'en';
   visualStyle?: VisualStyle;
+  capturePreset?: CapturePreset;
 }): string {
-  const { storyPlan, beats, batchNumber, totalBatches, previousShots = [], continuesSequence = false, nextBeats = [], characters, objects, language, visualStyle } = input;
+  const { storyPlan, beats, batchNumber, totalBatches, previousShots = [], continuesSequence = false, nextBeats = [], characters, objects, language, visualStyle, capturePreset } = input;
   const characterDetails = characters.map(c => `- ${c.name}: ${c.description}`).join('\n');
   const objectDetails = objects.length ? objects.map(o => `- ${o.name}: ${o.description}`).join('\n') : '无';
   const firstIndex = beats[0]?.index || 0;
@@ -128,6 +130,7 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
 🎥 项目成像基线（只用于落实摄影物理，不要原样复制成长段落）：
 Selected production style: ${stylePreset.label} — ${stylePreset.description}
 ${buildImageCaptureContract(visualStyle)}
+${buildDirectorCaptureContract(capturePreset)}
 
 连续镜头应共享同一相机/镜头家族、色彩响应、主光方向和场景材质；每镜只改变有叙事理由的机位、距离、焦点、遮挡和曝光反应。真实感来自一致的物理因果，而不是反复添加 cinematic、8K、masterpiece、photorealistic 等泛化词。
 
@@ -153,6 +156,7 @@ function mergeBeats(
   storyPlan: StoryPlan,
   rawShots: any[],
   aspectRatio: Storyboard['aspectRatio'],
+  capturePreset?: CapturePreset,
 ): Storyboard[] {
   const beats = storyPlan.sequences.flatMap(seq => seq.beats.map(beat => ({ ...beat, sceneStyle: beat.sceneStyle || seq.sceneStyle })));
 
@@ -208,6 +212,7 @@ function mergeBeats(
       characterCostume: raw?.characterCostume && typeof raw.characterCostume === 'object' ? raw.characterCostume : undefined,
       status: 'pending' as const,
       aspectRatio,
+      capturePreset,
     };
   });
 }
@@ -337,11 +342,12 @@ export async function directStoryboard(input: {
   aspectRatio: '16:9' | '9:16' | '1:1';
   language?: 'zh' | 'en';
   visualStyle?: VisualStyle;
+  capturePreset?: CapturePreset;
   scriptProvider?: ScriptProvider;
   scriptModel?: string;
   dmxApiKey?: string;
 }): Promise<Storyboard[]> {
-  const { storyPlan, characters, objects, apiKey, aspectRatio, language = 'zh', visualStyle, scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
+  const { storyPlan, characters, objects, apiKey, aspectRatio, language = 'zh', visualStyle, capturePreset, scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
   const batches = buildDirectorBatches(storyPlan);
   const allBeats = storyPlan.sequences.flatMap(sequence => sequence.beats);
   const rawShots: any[] = [];
@@ -368,6 +374,7 @@ export async function directStoryboard(input: {
       objects,
       language,
       visualStyle,
+      capturePreset,
     });
     let batchShots: any[] | undefined;
     let lastError: unknown;
@@ -419,5 +426,5 @@ export async function directStoryboard(input: {
     rawShots.push(...batchShots);
   }
 
-  return mergeBeats(storyPlan, rawShots, aspectRatio);
+  return mergeBeats(storyPlan, rawShots, aspectRatio, capturePreset);
 }

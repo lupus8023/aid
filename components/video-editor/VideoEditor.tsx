@@ -30,9 +30,16 @@ interface VideoEditorProps {
   companionSettings?: Partial<NonNullable<AppSettings['comfyui']>>;
   aspectRatio?: StoryAspectRatio;
   autoExportRequestId?: number;
-  onAutoExportComplete?: () => void;
+  onAutoExportComplete?: (result: VideoEditorExportResult) => void;
   onAutoExportError?: (error: unknown) => void;
+  downloadAfterExport?: boolean;
 }
+
+export type VideoEditorExportResult = {
+  blob: Blob;
+  fileName: string;
+  jobId?: string;
+};
 
 type ExportStatus = { progress: number; stage: string };
 const EMPTY_CONTINUITY_FLAGS: boolean[] = [];
@@ -57,6 +64,7 @@ export default function VideoEditor({
   autoExportRequestId = 0,
   onAutoExportComplete,
   onAutoExportError,
+  downloadAfterExport = true,
 }: VideoEditorProps) {
   const continuityFlags = continuousFromPrevious ?? EMPTY_CONTINUITY_FLAGS;
   const [clips, setClips] = useState<VideoClip[]>([]);
@@ -184,14 +192,14 @@ export default function VideoEditor({
   );
   const averageRate = totalDuration > 0 ? sourceDuration / totalDuration : 1;
 
-  const handleExport = async (automaticRecovery = false) => {
-    if (clips.length === 0) return;
+  const handleExport = async (automaticRecovery = false): Promise<VideoEditorExportResult> => {
+    if (clips.length === 0) throw new Error('没有可导出的片段');
 
     setIsExporting(true);
     setExportStatus({ progress: 0, stage: '准备导出' });
 
     try {
-      const a = document.createElement('a');
+      let completed: VideoEditorExportResult;
       if (projectId && companionSettings?.useLocalCompanion !== false) {
         const result = await exportVideoWithCompanion(clips, {
           projectId,
@@ -203,20 +211,22 @@ export default function VideoEditor({
         // A top-level navigation from HTTPS to 127.0.0.1 can be blocked by
         // Chromium extensions/private-network policy. Read only the finished
         // file from Companion, then download through a same-page blob URL.
-        const url = URL.createObjectURL(result.blob);
-        a.href = url;
-        a.download = result.fileName;
-        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        completed = { blob: result.blob, fileName: result.fileName, jobId: result.jobId };
       } else {
         const blob = await exportVideo(clips, (progress, stage = '') => {
           setExportStatus({ progress, stage });
         });
-        const url = URL.createObjectURL(blob);
+        completed = { blob, fileName: `${projectName || 'AID-Story'}-${Date.now()}.mp4` };
+      }
+      if (downloadAfterExport) {
+        const url = URL.createObjectURL(completed.blob);
+        const a = document.createElement('a');
         a.href = url;
-        a.download = `${projectName || 'AID-Story'}-${Date.now()}.mp4`;
+        a.download = completed.fileName;
+        a.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
       }
-      a.click();
+      return completed;
     } catch (error) {
       console.error('Export failed:', error);
       if (!automaticRecovery) alert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`);
@@ -252,7 +262,7 @@ export default function VideoEditor({
     if (automaticRequestStartedRef.current === autoExportRequestId) return;
     automaticRequestStartedRef.current = autoExportRequestId;
     void handleExport(true).then(
-      () => onAutoExportComplete?.(),
+      result => onAutoExportComplete?.(result),
       error => onAutoExportError?.(error),
     );
     // The request id is the explicit retry token. Callback identity changes

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { Character, Storyboard, ObjectItem, VisualStyle } from '@/types';
+import { CapturePreset, Character, Storyboard, ObjectItem, ProjectProductionTiming, VisualStyle } from '@/types';
 import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { StoryPlan, PipelineState } from '@/lib/pipeline/types';
 import { createProjectId } from '@/lib/projectIdentity';
@@ -20,6 +20,8 @@ export interface ProjectData {
   targetShotCount?: number;
   aspectRatio?: StoryAspectRatio;
   visualStyle?: VisualStyle;
+  capturePreset?: CapturePreset;
+  productionTiming?: ProjectProductionTiming;
   storyOutline: string;
   storyboards: Storyboard[];
   // 全量持久化：音色参考 / 定妆 bible / 场景参考 / 编剧计划 / 编排状态
@@ -112,6 +114,8 @@ export function useProject() {
       targetShotCount: data.targetShotCount,
       aspectRatio: data.aspectRatio,
       visualStyle: data.visualStyle,
+      capturePreset: data.capturePreset,
+      productionTiming: data.productionTiming,
       storyOutline: data.storyOutline || '',
       storyboards: (data.storyboards || []).map(cleanStoryboard),
       voiceReferences: data.voiceReferences,
@@ -144,6 +148,8 @@ export function useProject() {
           targetShotCount: projectData.targetShotCount,
           aspectRatio: projectData.aspectRatio,
           visualStyle: projectData.visualStyle,
+          capturePreset: projectData.capturePreset,
+          productionTiming: projectData.productionTiming,
           storyOutline: '',
           storyboards: [],
           createdAt: projectData.createdAt,

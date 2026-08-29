@@ -8,7 +8,7 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest) {
   try {
     const {
-      storyPlan, characters, objects, apiKey, aspectRatio, language, visualStyle, scriptProvider, scriptModel, dmxApiKey,
+      storyPlan, characters, objects, apiKey, aspectRatio, language, visualStyle, capturePreset, scriptProvider, scriptModel, dmxApiKey,
     } = await request.json();
 
     if (!storyPlan?.sequences) {
@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
         aspectRatio: aspectRatio || '16:9',
         language: language || 'zh',
         visualStyle,
+        capturePreset,
         scriptProvider,
         scriptModel,
         dmxApiKey,

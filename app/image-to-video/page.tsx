@@ -49,10 +49,16 @@ export default function ImageToVideoPage() {
   // 根据 videoModel 动态调整参数
   const videoProvider = settings.videoProvider || 'apimart';
   const isComfyUI = videoProvider === 'comfyui';
+  const isFal = videoProvider === 'fal';
   const modelName = settings.videoModel?.toLowerCase() || '';
-  const isOmniFlashExt = !isComfyUI && modelName.includes('omni-flash-ext');
-  const isGrokImagine = !isComfyUI && modelName.includes('grok-imagine');
-  const isMiniMaxH3 = isComfyUI || modelName.includes('minimax-h3');
+  const isOmniFlashExt = !isComfyUI && !isFal && modelName.includes('omni-flash-ext');
+  const isGrokImagine = !isComfyUI && !isFal && modelName.includes('grok-imagine');
+  const isMiniMaxH3 = isComfyUI || isFal || modelName.includes('minimax-h3');
+  const supportsH3VoiceReference = isComfyUI || (!isFal && modelName.includes('minimax-h3'));
+
+  useLayoutEffect(() => {
+    if (isFal) setQuality(settings.fal?.resolution === '480P' ? '480p' : '720p');
+  }, [isFal, settings.fal?.resolution]);
 
   // 第二张图的语义按模型区分：
   // - seedance/doubao/wan/veo 支持首尾帧 → last_frame
@@ -61,13 +67,15 @@ export default function ImageToVideoPage() {
   const secondImageMode: 'last_frame' | 'reference' | 'none' =
     isComfyUI
       ? comfyWorkflowMode === 'first_last' ? 'last_frame' : 'none'
+      : isFal
+        ? 'last_frame'
       : modelName.includes('seedance') || modelName.includes('doubao') || modelName.includes('wan') ||
     modelName.includes('veo') || isMiniMaxH3
       ? 'last_frame'
       : isGrokImagine
         ? 'reference'
         : 'none';
-  const durationMin = isComfyUI ? 2 : (isOmniFlashExt ? 4 : (isGrokImagine ? 6 : (isMiniMaxH3 ? 4 : 5)));
+  const durationMin = isComfyUI ? 2 : (isOmniFlashExt ? 4 : (isGrokImagine ? 6 : (isFal ? 5 : (isMiniMaxH3 ? 4 : 5))));
   const durationMax = isOmniFlashExt ? 10 : (isGrokImagine ? 30 : 15);
   const durationOptions = isOmniFlashExt ? [4, 6, 8, 10] : undefined;
 
@@ -79,6 +87,9 @@ export default function ImageToVideoPage() {
   if (isGrokImagine && (duration < 6 || duration > 30)) {
     setDuration(6);
   }
+  useLayoutEffect(() => {
+    if (isFal && duration < 5) setDuration(5);
+  }, [duration, isFal]);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   const handleMainImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -217,6 +228,7 @@ export default function ImageToVideoPage() {
           body: JSON.stringify({
             taskId,
             apiKey: settings.apiKey,
+            fal: settings.fal,
             localDelivery: isComfyTask,
             comfyui: localComfyUISettings(settings.comfyui),
           })
@@ -266,6 +278,10 @@ export default function ImageToVideoPage() {
       alert('Please configure API Key in settings');
       return;
     }
+    if (isFal && !settings.fal?.apiKey) {
+      alert('请先在设置中配置 fal API Key');
+      return;
+    }
     if (isComfyUI && comfyWorkflowMode === 'first_last' && !secondImage) {
       alert('首尾帧工作流需要上传尾帧');
       return;
@@ -301,7 +317,7 @@ export default function ImageToVideoPage() {
           prompt: fullPrompt,
           aspectRatio,
           duration,
-          quality: isGrokImagine ? quality : undefined,
+          quality: isGrokImagine || isFal ? quality : undefined,
           apiKey: settings.apiKey,
           videoModel: settings.videoModel,
           videoFiles,
@@ -309,6 +325,10 @@ export default function ImageToVideoPage() {
           videoUrls,
           audioUrls,
           videoProvider,
+          fal: isFal ? {
+            ...settings.fal,
+            resolution: quality === '480p' ? '480P' : '768P',
+          } : settings.fal,
           comfyui: localComfyUISettings(settings.comfyui),
         })
       });
@@ -381,7 +401,7 @@ export default function ImageToVideoPage() {
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">依次选择工作流、上传素材、设定画面与声音。右侧会持续显示生成状态和最终视频。</p>
               </div>
               <div className="flex flex-wrap gap-2 text-[10px] font-mono text-[var(--text-secondary)]">
-                <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-1.5">{isComfyUI ? 'COMFYUI · H3' : 'APIMART'}</span>
+                <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-1.5">{isComfyUI ? 'COMFYUI · H3' : isFal ? 'FAL · H3 MAX' : 'APIMART'}</span>
                 <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-1.5">{duration}s · {aspectRatio}</span>
               </div>
             </div>
@@ -615,14 +635,14 @@ export default function ImageToVideoPage() {
                 </div>
               </div>
 
-              {/* Quality - Grok Imagine only */}
-              {isGrokImagine && (
+              {/* Quality - Grok Imagine / fal H3 Max */}
+              {(isGrokImagine || isFal) && (
                 <div>
                   <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">Quality</h2>
                   <div className="grid grid-cols-2 gap-2">
                     {[
                       { value: '480p' as const, label: '480p (Default)' },
-                      { value: '720p' as const, label: '720p' }
+                      { value: '720p' as const, label: isFal ? '768P · 推荐' : '720p' }
                     ].map((q) => (
                       <button
                         key={q.value}
@@ -643,18 +663,18 @@ export default function ImageToVideoPage() {
               {/* Motion Description */}
               <div>
                 <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">
-                  {isComfyUI ? 'Video & Sound Prompt' : 'Motion Description'}
+                  {isComfyUI || isFal ? 'Video & Sound Prompt' : 'Motion Description'}
                 </h2>
                 <textarea
                   ref={promptTextareaRef}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  placeholder={isComfyUI
+                  placeholder={isComfyUI || isFal
                     ? '描述画面动作、镜头、角色对白、环境声和音乐。H3 会原生生成同步音视频。'
                     : 'Describe the motion effect you want, e.g., camera slowly pushes in, person smiles and turns head...'}
                   className="w-full min-h-48 max-h-[32rem] bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-3 text-sm leading-6 text-[var(--text-primary)] resize-y focus:outline-none focus:border-[var(--accent-blue)] font-mono"
                 />
-                {isComfyUI && (
+                {(isComfyUI || isFal) && (
                   <p className="mt-2 text-xs font-mono text-[var(--text-secondary)]">
                     建议同时写清：谁说什么、声音出现时间、环境声和是否需要背景音乐。
                   </p>
@@ -665,7 +685,7 @@ export default function ImageToVideoPage() {
               <CameraSelector onParamsChange={setCameraParams} />
 
               {/* MiniMax-H3 native audio / optional voice references */}
-              {isMiniMaxH3 && (
+              {supportsH3VoiceReference && (
                 <div className="space-y-4 p-4 border border-[var(--border-color)] rounded-lg bg-[var(--bg-secondary)]">
                   <h2 className="text-sm font-mono text-[var(--accent-green)]">
                     {isComfyUI ? 'Native Audio Generation' : 'MiniMax-H3 Audio Sync'}
@@ -705,6 +725,13 @@ export default function ImageToVideoPage() {
                       </button>
                     )}
                   </div>
+                </div>
+              )}
+
+              {isFal && (
+                <div className="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4">
+                  <h2 className="text-sm font-mono text-[var(--accent-green)]">H3 Max Native Audio</h2>
+                  <p className="text-xs leading-5 text-[var(--text-secondary)]">fal H3 Max 会直接按提示词生成对白、环境声和拟音。此 endpoint 不接受参考音频；固定 Seed 和一致的声音画像只能降低随机漂移，不能替代 Fish Voice ID。</p>
                 </div>
               )}
 
@@ -797,8 +824,8 @@ export default function ImageToVideoPage() {
             </div>
 
             <div className="aid-panel mb-4 divide-y divide-[var(--border-color)] px-4">
-              <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Layers3 size={14} />引擎</span><span className="font-mono text-white">{isComfyUI ? 'MiniMax H3' : settings.videoModel}</span></div>
-              <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Clock3 size={14} />输出规格</span><span className="font-mono text-white">{duration}s · {aspectRatio}</span></div>
+              <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Layers3 size={14} />引擎</span><span className="font-mono text-white">{isComfyUI ? 'MiniMax H3' : isFal ? 'MiniMax H3 Max · fal' : settings.videoModel}</span></div>
+              <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Clock3 size={14} />输出规格</span><span className="font-mono text-white">{duration}s · {aspectRatio}{isFal ? ` · ${quality === '480p' ? '480P' : '768P'}` : ''}</span></div>
               <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Volume2 size={14} />声音</span><span className="font-mono text-white">{isMiniMaxH3 ? '原生音频' : audioFiles.length ? `${audioFiles.length} 条参考` : '按模型设置'}</span></div>
             </div>
 

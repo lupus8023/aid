@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createProviderImageTask } from '@/lib/imageTaskProvider';
 import { buildStudioImagePrompt, imageCreationInputError } from '@/lib/imageCreation';
-import { getImageModelCapabilities, imageModelRequiresApiKey, isComfyUIZImageTurbo } from '@/lib/imageModels';
+import { getImageModelCapabilities, imageModelRequiresApiKey, isComfyUIZImageTurbo, isMidjourneyImageModel } from '@/lib/imageModels';
+import { buildMidjourneyPrompt } from '@/lib/midjourney';
 
 export async function POST(request: NextRequest) {
   try {
-    const { referenceImages, referenceImage, userIntent, scaleNotes, aspectRatio, imageModel, apiKey, comfyui = {} } = await request.json();
-    const selectedModel = imageModel || 'doubao-seedream-5-0-lite';
+    const { referenceImages, referenceImage, userIntent, scaleNotes, aspectRatio, imageModel, apiKey, visualStyle, comfyui = {}, midjourneyProfile = '' } = await request.json();
+    const selectedModel = imageModel || 'seedream-5-0-pro';
     const images = Array.isArray(referenceImages) ? referenceImages : referenceImage ? [referenceImage] : [];
-    const usesReferenceImages = !isComfyUIZImageTurbo(selectedModel);
+    const usesReferenceImages = !isComfyUIZImageTurbo(selectedModel) && images.length > 0;
     const inputError = imageCreationInputError({
       model: selectedModel,
       referenceCount: images.length,
@@ -37,9 +38,18 @@ export async function POST(request: NextRequest) {
       aspectRatio || '1:1',
       undefined,
       comfyui,
+      {
+        midjourneyReferenceMode: 'image',
+        midjourneyTaskMode: 'single',
+        midjourneyVisualStyle: visualStyle,
+        midjourneyProfile,
+      },
     );
 
-    return NextResponse.json({ taskId, prompt });
+    return NextResponse.json({
+      taskId,
+      prompt: isMidjourneyImageModel(selectedModel) ? buildMidjourneyPrompt(prompt, { visualStyle, taskMode: 'single' }) : prompt,
+    });
   } catch (error) {
     console.error('Image-to-image API error:', error);
     return NextResponse.json(

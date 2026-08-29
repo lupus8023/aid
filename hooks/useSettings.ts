@@ -2,15 +2,23 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { AppSettings } from '@/types';
+import { SEEDREAM_5_PRO } from '@/lib/imageModels';
 
 const DEFAULT_SETTINGS: AppSettings = {
   apiProvider: 'apimart',
   apiKey: process.env.NEXT_PUBLIC_APIMART_API_KEY || '',
   scriptProvider: 'auto',
   scriptModel: 'gpt-4o',
-  imageModel: 'doubao-seedream-5-0-lite',
+  imageModel: SEEDREAM_5_PRO,
+  midjourneyProfileEnabled: true,
+  midjourneyProfile: 'votj2t8',
   videoModel: 'doubao-seedance-1-5-pro',
   videoProvider: 'apimart',
+  fal: {
+    apiKey: '',
+    resolution: '768P',
+    promptExpansionMode: 'disabled',
+  },
   comfyui: {
     sshHost: 'me21gb3rds8p0h44.ssh.x-gpu.com',
     sshPort: 43213,
@@ -33,8 +41,13 @@ const LEGACY_VIDEO_MODEL_MAP: Record<string, string> = {
   'grok-imagine-1.0-video-apimart': 'grok-imagine-1.5-video-apimart',
 };
 
+const LEGACY_IMAGE_MODEL_MAP: Record<string, string> = {
+  'doubao-seedream-5-0-lite': SEEDREAM_5_PRO,
+};
+
 function migrateSettings(settings: AppSettings): AppSettings {
   const migratedVideoModel = LEGACY_VIDEO_MODEL_MAP[settings.videoModel] || settings.videoModel;
+  const migratedImageModel = LEGACY_IMAGE_MODEL_MAP[settings.imageModel] || settings.imageModel;
   const legacyComfyUI = settings.comfyui as (AppSettings['comfyui'] & {
     sshPrivateKey?: string;
     sshPrivateKeyPassphrase?: string;
@@ -55,8 +68,13 @@ function migrateSettings(settings: AppSettings): AppSettings {
     ...DEFAULT_SETTINGS,
     ...settings,
     scriptProvider: settings.scriptProvider || 'auto',
+    imageModel: migratedImageModel,
     videoModel: migratedVideoModel,
     videoProvider: settings.videoProvider || 'apimart',
+    fal: {
+      ...DEFAULT_SETTINGS.fal,
+      ...(settings.fal || {}),
+    },
     comfyui,
   };
 }

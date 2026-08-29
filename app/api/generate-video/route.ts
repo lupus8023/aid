@@ -4,6 +4,7 @@ import { snapDurationToModel } from '@/lib/apimart';
 import { createComfyUIVideoTask } from '@/lib/comfyui';
 import { compileTimedSpeech, storyboardSpeech } from '@/lib/speechAudioContract';
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds, MAX_H3_SEGMENT_SECONDS } from '@/lib/videoSegments';
+import { createFalH3MaxVideoTask } from '@/lib/falVideo';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -45,13 +46,57 @@ export async function POST(request: NextRequest) {
       characterAudios = [], firstFrameUrl,
       voiceReferences = {},  // { 角色名: CloudinaryURL }
       videoProvider = 'apimart', comfyui = {},
+      fal = {},
       language = 'zh',
+      voiceProfiles = {},
     } = await request.json();
 
     if (!storyboard) return NextResponse.json({ error: 'Storyboard is required' }, { status: 400 });
     const videoStoryboards = Array.isArray(segmentStoryboards) && segmentStoryboards.length
       ? segmentStoryboards.slice(0, 4)
       : [storyboard];
+    if (videoProvider === 'fal') {
+      if (videoStoryboards.some((shot: any) => !shot.imageUrl || typeof shot.imageUrl !== 'string')) {
+        return NextResponse.json({ error: '每个 fal H3 Max 视频片段都需要分镜参考图' }, { status: 400 });
+      }
+      if (videoStoryboards.some((shot: any) => shot.imageUrl.startsWith('blob:'))) {
+        return NextResponse.json({ error: '浏览器 blob 图片无法提交给 fal，请重新生成或重新上传参考图' }, { status: 400 });
+      }
+      const minimumPlayableDuration = estimateVideoSegmentSeconds(videoStoryboards);
+      if (minimumPlayableDuration > MAX_H3_SEGMENT_SECONDS) {
+        return NextResponse.json({ error: `该片段超过 H3 Max 的 ${MAX_H3_SEGMENT_SECONDS} 秒上限，请缩短台词或拆分片段` }, { status: 400 });
+      }
+      const requestedDuration = Math.min(15, Math.max(5, Math.ceil(Number(storyboard.videoDuration) || minimumPlayableDuration)));
+      const generatedPrompt = buildVideoSegmentPrompt(videoStoryboards, [], {
+        firstFrameUrl,
+        duration: requestedDuration,
+        hasVoiceReferences: false,
+        referenceAudioNames: [],
+        voiceProfiles: voiceProfiles && typeof voiceProfiles === 'object' ? voiceProfiles : {},
+        language: language === 'en' ? 'en' : 'zh',
+      });
+      const editedPrompt = storyboard.videoPromptOverride ? String(storyboard.videoPrompt || '').trim() : '';
+      const submittedPrompt = editedPrompt && !isLegacyH3Prompt(editedPrompt) ? editedPrompt : generatedPrompt;
+      const firstFrame = firstFrameUrl || videoStoryboards[0].imageUrl;
+      const lastStoryboardImage = videoStoryboards.at(-1)?.imageUrl;
+      const endFrame = (firstFrameUrl || videoStoryboards.length > 1) ? lastStoryboardImage : undefined;
+      const result = await createFalH3MaxVideoTask({
+        prompt: submittedPrompt,
+        imageUrl: firstFrame,
+        endImageUrl: endFrame && endFrame !== firstFrame ? endFrame : undefined,
+        duration: requestedDuration,
+        resolution: fal.resolution,
+        promptExpansionMode: fal.promptExpansionMode,
+        seed: Number.isInteger(fal.seed) ? fal.seed : undefined,
+        apiKey: fal.apiKey,
+      });
+      return NextResponse.json({
+        taskId: result.taskId,
+        status: 'processing',
+        provider: 'fal',
+        videoPrompt: submittedPrompt,
+      });
+    }
     if (videoProvider === 'comfyui') {
       if (videoStoryboards.some((shot: any) => !shot.imageUrl || typeof shot.imageUrl !== 'string')) return NextResponse.json({ error: 'Every selected storyboard needs an image' }, { status: 400 });
       if (videoStoryboards.some((shot: any) => shot.imageUrl.startsWith('blob:'))) {

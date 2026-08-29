@@ -11,12 +11,15 @@ export interface ImageModelCapabilities {
 }
 
 const GROK_IMAGE_2 = 'grok-imagine-image-2.0';
-const NANO_BANANA_2 = 'gemini-3.1-flash-image-preview';
+export const NANO_BANANA_2 = 'gemini-3.1-flash-image-preview';
+export const SEEDREAM_5_PRO = 'seedream-5-0-pro';
 export const COMFYUI_Z_IMAGE_TURBO = 'comfyui-z-image-turbo';
+export const MIDJOURNEY_IMAGE_MODEL = 'midjourney';
 
 export const APIMART_IMAGE_MODEL_OPTIONS = [
   { value: COMFYUI_Z_IMAGE_TURBO, label: 'ComfyUI · Z-Image-Turbo（本地）' },
-  { value: 'doubao-seedream-5-0-lite', label: 'Seedream 5.0 Lite' },
+  { value: MIDJOURNEY_IMAGE_MODEL, label: 'Midjourney v8.2 · 电影质感（可选 Profile）' },
+  { value: SEEDREAM_5_PRO, label: 'Seedream 5.0 Pro · 质量优先' },
   { value: 'doubao-seedance-4-5', label: 'Seedream 4.5（兼容旧设置）' },
   { value: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro' },
   { value: NANO_BANANA_2, label: 'Nano Banana 2 · Gemini 3.1 Flash' },
@@ -27,6 +30,19 @@ export const APIMART_IMAGE_MODEL_OPTIONS = [
 
 export function isComfyUIZImageTurbo(model: string): boolean {
   return model.trim().toLowerCase() === COMFYUI_Z_IMAGE_TURBO;
+}
+
+export function isMidjourneyImageModel(model: string): boolean {
+  return model.trim().toLowerCase() === MIDJOURNEY_IMAGE_MODEL;
+}
+
+/**
+ * Midjourney supplies the cinematic identity/location anchors for Story, but
+ * it is not reliable enough to typeset a strict 3x3 contact sheet. Nano
+ * Banana 2 performs that layout step while preserving the MJ references.
+ */
+export function resolveStoryboardGridImageModel(model: string): string {
+  return isMidjourneyImageModel(model) ? NANO_BANANA_2 : model;
 }
 
 export function imageModelRequiresApiKey(model: string): boolean {
@@ -51,6 +67,27 @@ export function getImageModelCapabilities(model: string): ImageModelCapabilities
       model: COMFYUI_Z_IMAGE_TURBO,
       label: 'ComfyUI · Z-Image-Turbo（纯文生图）',
       maxReferenceImages: 0,
+      maxResolution: '2K',
+      aspectRatioField: 'size',
+    };
+  }
+  if (isMidjourneyImageModel(model)) {
+    return {
+      model: MIDJOURNEY_IMAGE_MODEL,
+      label: 'Midjourney v8.2 · 电影质感（可选 Profile）',
+      // APIMart Imagine accepts image_urls as an array. Story reserves the
+      // first slot for its environment reference, then adds identity/object
+      // anchors without silently dropping the location.
+      maxReferenceImages: 4,
+      maxResolution: '2K',
+      aspectRatioField: 'size',
+    };
+  }
+  if (model.trim().toLowerCase() === SEEDREAM_5_PRO) {
+    return {
+      model: SEEDREAM_5_PRO,
+      label: 'Seedream 5.0 Pro · 质量优先',
+      maxReferenceImages: 10,
       maxResolution: '2K',
       aspectRatioField: 'size',
     };

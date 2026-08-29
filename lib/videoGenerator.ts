@@ -2,6 +2,7 @@ import { createVideoTask, getVideoTaskStatus } from './apimart';
 import type { Storyboard } from '@/types';
 import { allocateSegmentTimeline, cinematicEditKind, estimateVideoSegmentSeconds } from './videoSegments';
 import { compileTimedSpeech, storyboardAudioPlan, storyboardSpeech, validateSpeechLanguage } from './speechAudioContract';
+import { buildVideoCapturePresetContract } from './capturePresets';
 
 function h3Timestamp(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -174,6 +175,7 @@ type VideoSegmentPromptOptions = {
   referenceAudioNames?: string[];
   visualOverride?: string;
   language?: 'zh' | 'en';
+  voiceProfiles?: Record<string, string>;
 };
 
 function officialVisibleExpression(storyboard: Storyboard): string {
@@ -431,8 +433,17 @@ function buildOfficialGuidePrompt(
       ? `<Subject ${subject}> (S${localSpeaker})`
       : `${line.character} (S${localSpeaker})`;
     const voiceReference = audio ? ` using the voice timbre referenced from <Audio ${audio}>` : '';
+    const rawVoiceProfile = !audio
+      ? String(options.voiceProfiles?.[line.character] || '').replace(/[\r\n]+/g, ' ').trim()
+      : '';
+    // MiniMax's official H3 prompt format keeps direction in English and only
+    // places the actual spoken language inside <d>. Never leak a Chinese cast
+    // note into the surrounding direction: native audio can vocalize it.
+    const voiceProfile = rawVoiceProfile && !/[\u3400-\u9fff]/.test(rawVoiceProfile)
+      ? ` in the consistent voice style: ${rawVoiceProfile}`
+      : '';
     const tagged = `<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>`;
-    const sentence = `At ${h3Timestamp(line.start)}, ${speaker} begins speaking${voiceReference} ${officialDialogueDelivery(line)}: ${tagged}`;
+    const sentence = `At ${h3Timestamp(line.start)}, ${speaker} begins speaking${voiceReference}${voiceProfile} ${officialDialogueDelivery(line)}: ${tagged}`;
     const lines = dialogueByShot.get(line.storyboardIndex) || [];
     lines.push(sentence);
     dialogueByShot.set(line.storyboardIndex, lines);
@@ -495,6 +506,7 @@ function buildOfficialGuidePrompt(
     officialReferencePriorityLock(storyboards, isFirstLastMode),
     style,
     officialMaterialReality(first.visualStyle),
+    buildVideoCapturePresetContract(first.capturePreset),
     'The photographic frame remains clean and text-free.',
     storyboards.length > 1
       ? 'EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup. Every transition must be motivated by action, gaze, dialogue, object, shape, or sound. Preserve the 180-degree axis, eyelines, screen direction, match-on-action phase, and location geography. Vary framing scale with dramatic purpose; do not crossfade, morph, interpolate, repeat, or soften a hard cut unless an explicit transition is written.'

@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.1.95 - 2026-08-29
+
+### Added
+
+- Added `fal · MiniMax H3 Max` as a video provider for both Story production and the standalone image-to-video workspace, with native picture, dialogue, ambience, and sound-effects generation.
+- Added 5–15 second renders, 480P/768P output, optional last-frame guidance, asynchronous queue recovery, and Cloudinary delivery fallback.
+- Added a dedicated masked fal API Key field in Settings. The key is stored with the existing browser-local app settings and sent only to AID's server-side fal proxy when submitting or polling a fal task.
+- Added an optional project-wide fixed seed for reproducibility experiments. It is explicitly presented as a sampling seed, not a voice ID or guaranteed speaker lock.
+
+### Changed
+
+- Prompt expansion defaults to disabled so fal cannot silently rewrite exact AID dialogue.
+- When fal has no audio reference, only English voice-style direction may be added outside dialogue tags; Chinese cast notes remain excluded from H3 directing prose.
+- Story segment signatures now include the selected video provider and fal seed so changed settings cannot reuse stale video output.
+
+### Verification
+
+- Added fal queue payload, default-policy, seed, status, and completed-result regression coverage.
+- All 216 regression tests and the Next.js production build pass.
+- This hosted integration does not require a Companion update.
+
+## 0.1.94 - 2026-08-29
+
+- Added a persisted end-to-end production timer from one-click production start through final merged export.
+- Timing survives refresh, project import/export, pause, and resume; user-paused intervals are excluded.
+- Segment editing shows live running/paused/completed production time, while export keeps the final total visible.
+- Unrecoverable automation errors now pause timing instead of inflating elapsed production time after the run stops.
+
+## 0.1.93 - 2026-08-29
+
+### Added
+
+- Added project-level capture modes beside the Story production-style bible: broadcast candid, observational documentary, bystander phone, news telephoto, home video, surveillance, studio commercial, cinematic narrative, and follow-reference.
+- Broadcast Candid consistently directs distant long-lens observation, unstaged posture, foreground pedestrian occlusion, off-center framing, slight edge crops, motion blur, restrained broadcast compression, and truthful skin texture.
+- Story batch Excel files may provide an optional Capture Mode column; cinematic narrative remains the default.
+
+### Fixed
+
+- Capture mode now reaches the storyboard director, the final Midjourney V8.2 request, Nano Banana grid/single-shot prompts, and the final H3 prompt compiled inside Companion.
+- Midjourney story shots now treat character references as identity-only and explicitly ignore reference-card layout, names, and typography.
+- Changing capture mode invalidates affected scene images, storyboard images, videos, and H3 cache signatures instead of reusing results from the previous mode.
+- The H3 prompt cache contract is bumped to `h3-v33`, and Story video generation now requires Companion v0.1.93.
+
+### Verification
+
+- A paid end-to-end Nana “shopping on a Shanghai street / broadcast candid” test passed through Midjourney V8.2 with profile `votj2t8` and an eight-second H3 render, with no subtitles, dialogue, or music; Whisper produced an empty transcript.
+- Added capture-mode regressions across directing, Midjourney, grids, H3, persistence, and cache invalidation; relevant tests, TypeScript validation, and the production build pass.
+
 ## 0.1.92 - 2026-08-28
 
 ### Added

@@ -1,5 +1,6 @@
-import type { VisualStyle } from '@/types';
+import type { CapturePreset, VisualStyle } from '@/types';
 import { buildCompactImageCaptureContract } from './promptArchitecture';
+import { buildGridCapturePresetContract } from './capturePresets';
 
 function clipAtWord(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
@@ -70,12 +71,18 @@ export function buildGridPrompt(
   referenceImageLabels?: string[], // e.g. ['TOTODA (ref image 1)', 'MOMODA (ref image 2)']
   sceneNumbers?: Array<number | string>,
   visualStyle?: VisualStyle,
+  capturePreset?: CapturePreset,
 ): string {
   const GRID_PROMPT_BUDGET = 3500;
   const PANEL_PROMPT_BUDGET = 180;
   const orientation = aspectRatio === '9:16' ? 'vertical portrait' : aspectRatio === '1:1' ? 'square' : 'horizontal landscape';
   const shots = shotDescriptions.slice(0, 9).map(shot => {
-    const requirementIndex = Math.max(shot.indexOf('CAST['), shot.indexOf('REQUIRED CHARACTERS'));
+    const requirementIndex = Math.max(
+      shot.indexOf('Only '),
+      shot.indexOf('No person or story character'),
+      shot.indexOf('CAST['),
+      shot.indexOf('REQUIRED CHARACTERS'),
+    );
     if (requirementIndex === -1) return clipAtWord(shot, 160);
     if (shot.length <= PANEL_PROMPT_BUDGET) return shot;
     const requirements = shot.slice(requirementIndex);
@@ -90,8 +97,13 @@ export function buildGridPrompt(
 
   const normalizedSceneNumbers = shots.map((_, index) => sceneNumbers?.[index] ?? index + 1);
   const batchId = normalizedSceneNumbers.map(String).join('-');
+  const positions = [
+    'top-left frame', 'top-center frame', 'top-right frame',
+    'middle-left frame', 'center frame', 'middle-right frame',
+    'bottom-left frame', 'bottom-center frame', 'bottom-right frame',
+  ];
   const panelSection = shots
-    .map((shot, index) => `Panel ${index + 1} (story scene ${normalizedSceneNumbers[index]}): ${shot}`)
+    .map((shot, index) => `In the ${positions[index]}, depict ${shot.replace(/^[A-Z][A-Z _/—-]{2,}:\s*/, '')}`)
     .join('\n');
 
   // Put the batch identity and all nine shot descriptions first. The APIMart
@@ -100,23 +112,25 @@ export function buildGridPrompt(
   // this grid different from the previous/next batch.
   const prompt = `UNIQUE STORYBOARD BATCH: ${batchId}
 ${buildCompactImageCaptureContract(visualStyle)}
+${buildGridCapturePresetContract(capturePreset)}
 ${refSection}
 
-CAST AUTHORITY: each panel's EXACT CAST count/list in CAST[n] is authoritative. Show each listed identity exactly once; no omission, merge, clone, sheet-layout copy, reflection-double or extra. Character sheets prove one identity only. No captions, subtitles, speech bubbles, labels, logos, watermark or readable text.
+Each frame's stated people are authoritative. Show each named identity exactly once; no omission, merge, clone, sheet-layout copy, reflection-double or extra. Character sheets prove one identity only.
+ZERO TYPOGRAPHY: every pixel of every frame is photographic or animated imagery. No headings, camera terms, captions, subtitles, dialogue text, speech bubbles, frame labels, logos, watermark, UI, or readable text. Never print the directing notes.
 
-Render these nine distinct moments in exact order:
+The following nine sentences are invisible directing notes. Never reproduce, summarize, title, label, or quote them inside the image. Use them only to determine the visual content in these exact positions:
 ${panelSection}
 
-Generate one 3x3 cinematic storyboard contact sheet. Each panel is ${orientation} (${aspectRatio}). Arrange panels left-to-right, top-to-bottom with no borders, gaps, separator lines, labels, captions, or text.
+Generate one 3x3 sheet made only of finished cinematic film stills, not a production storyboard template. Each frame is ${orientation} (${aspectRatio}). Arrange them left-to-right, top-to-bottom with no borders, gaps, separator lines, labels, captions, or text.
 
 Scene continuity: ${sceneStyle.slice(0, 180)}
 Character identities (match mapped references exactly wherever they appear):
 ${characterDescriptions.slice(0, 300)}
 
-CRITICAL CAST RULES:
-- Each panel's EXACT CAST count is authoritative; never infer the batch-wide reference list as every panel's cast.
+CRITICAL PEOPLE RULES:
+- Each frame's stated people are authoritative; never infer the batch-wide reference list as every frame's cast.
 - Character sheets prove one identity only. Animals are full characters and must retain species, markings and scale.
-- No captions, subtitles, dialogue text, speech bubbles, panel labels, logos, watermark, or readable text.
+- ZERO TYPOGRAPHY: every pixel of every frame is photographic or animated imagery. No headings, camera terms, captions, subtitles, dialogue text, speech bubbles, frame labels, logos, watermark, UI, or readable text. Never print the directing notes.
 
 Keep the established source positions, color temperature and environment continuous while allowing physically correct angle-dependent shadows, highlights and depth. Every cell is a complete standalone composition.`;
 
