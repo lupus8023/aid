@@ -4,6 +4,7 @@ import path from 'node:path';
 import { buildVideoSegmentPrompt } from '../lib/videoGenerator.ts';
 
 const companion = process.env.AID_COMPANION_URL || 'http://127.0.0.1:3018';
+const h3Profile = process.env.AID_H3_PROFILE || 'dasiwa4';
 const framePath = path.resolve('outputs/nana-broadcast-candid/nana-shanghai-clean-first-frame.png');
 if (!fs.existsSync(framePath)) throw new Error(`First frame is missing: ${framePath}`);
 const firstFrame = `data:image/png;base64,${fs.readFileSync(framePath).toString('base64')}`;
@@ -18,7 +19,7 @@ const comfyui = {
   imageWorkflowPath: '',
   multiImageWorkflowPath: '',
   firstLastWorkflowPath: '',
-  h3Fl2vaProfile: 'balanced8',
+  h3Fl2vaProfile: h3Profile,
   timeoutSeconds: 7200,
 };
 
@@ -93,7 +94,7 @@ const created = await response.json();
 if (!response.ok) throw new Error(`H3 create ${response.status}: ${JSON.stringify(created)}`);
 const taskId = String(created.taskId || '');
 if (!taskId) throw new Error(`H3 response omitted taskId: ${JSON.stringify(created)}`);
-process.stdout.write(`TASK ${taskId}\nWORKFLOW ${created.workflow || ''}\nPROMPT_LENGTH ${videoPrompt.length}\n`);
+process.stdout.write(`TASK ${taskId}\nWORKFLOW ${created.workflow || ''}\nPROFILE ${h3Profile}\nPROMPT_LENGTH ${videoPrompt.length}\n`);
 fs.writeFileSync(path.join(outputDir, 'h3-task.json'), JSON.stringify({ taskId, workflow: created.workflow, videoPrompt }, null, 2));
 
 for (let attempt = 1; attempt <= 160; attempt += 1) {

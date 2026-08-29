@@ -290,7 +290,7 @@ export interface AppSettings {
     imageWorkflowPath: string;
     multiImageWorkflowPath: string;
     firstLastWorkflowPath: string;
-    h3Fl2vaProfile?: 'balanced8' | 'legacy';
+    h3Fl2vaProfile?: 'balanced8' | 'dasiwa4' | 'legacy';
     characterReplaceWorkflowPath?: string;
     timeoutSeconds: number;
   };

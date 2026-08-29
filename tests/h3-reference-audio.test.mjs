@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
   applyH3Fl2vaProfile,
   fitH3ReferenceAudioDurations,
+  H3_DASIWA_4TURBO_PROFILE,
   H3_FL2VA_BALANCED_PROFILE,
   h3ConditioningTaskType,
   h3AlignedDurationSeconds,
@@ -97,7 +98,7 @@ function acceleratedPrompt() {
 test('locks I2VA and FL2VA to the matched 768p eight-step Sage stack', () => {
   for (const variant of ['aid_single_reference', 'aid_first_last']) {
     const prompt = acceleratedPrompt();
-    const result = applyH3Fl2vaProfile(prompt, variant);
+    const result = applyH3Fl2vaProfile(prompt, variant, 'balanced8');
     assert.equal(result.active, true);
     assert.equal(result.sageAttention, true);
     assert.equal(prompt[20].inputs.unet_name, H3_FL2VA_BALANCED_PROFILE.diffusionModel);
@@ -116,6 +117,26 @@ test('leaves Ref2VA and explicit legacy rollback workflows untouched', () => {
   const legacyPrompt = acceleratedPrompt();
   assert.equal(applyH3Fl2vaProfile(legacyPrompt, 'aid_first_last', 'legacy').active, false);
   assert.equal(legacyPrompt[23].inputs.shift_video, 12);
+});
+
+test('locks I2VA and FL2VA to the production-tested DaSiWa four-step stack', () => {
+  for (const variant of ['aid_single_reference', 'aid_first_last']) {
+    const prompt = acceleratedPrompt();
+    const result = applyH3Fl2vaProfile(prompt, variant, 'dasiwa4');
+    assert.equal(result.active, true);
+    assert.equal(result.approximateCache, false);
+    assert.equal(prompt[20].inputs.unet_name, H3_DASIWA_4TURBO_PROFILE.diffusionModel);
+    assert.equal(prompt[24].inputs.clip_name, H3_DASIWA_4TURBO_PROFILE.textEncoder);
+    assert.equal(prompt[22].inputs.lora_name, H3_DASIWA_4TURBO_PROFILE.lora);
+    assert.equal(prompt[23].inputs.steps, 4);
+    assert.equal(prompt[23].inputs.shift_video, 12);
+    assert.equal(prompt[23].inputs.shift_audio, 3);
+    assert.equal(prompt[23].inputs.sampler_name, 'dual_clock_euler');
+    assert.equal(prompt[23].inputs.scheduler, 'simple');
+  }
+  const referencePrompt = acceleratedPrompt();
+  assert.equal(applyH3Fl2vaProfile(referencePrompt, 'aid_multi_reference', 'dasiwa4').active, false);
+  assert.equal(referencePrompt[20].inputs.unet_name, 'legacy.safetensors');
 });
 
 test('fails closed if Sage is missing from the FL2VA production chain', () => {

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.97 - 2026-08-29
+
+### Changed
+
+- Promoted the production-tested DaSiWa four-step H3 stack for single-image and first/last-frame video: the installed pruned FL2VA INT8 base, verified DaSiWa four-step adapter, INT8 text encoder, Sage attention, 4/12/3 sampling, and no approximate cache.
+- Existing browser settings migrate once from the former balanced eight-step default to DaSiWa four-step; the eight-step and legacy profiles remain selectable rollback options.
+- Multi-reference Ref2VA remains on its existing remote workflow until a separate multi-reference quality test passes.
+- Story video generation now requires Companion v0.1.97 so the hosted UI cannot submit the new profile through an older local service.
+
+### Verification
+
+- Verified the DaSiWa adapter against its published SHA-256 before installation on the 4090D node.
+- A paid eight-second Nana Shanghai broadcast-candid I2VA smoke test completed in 156.8 seconds at 1280×736/24fps with full eight-second AAC audio.
+- Frame-by-frame review passed identity, wardrobe, anatomy, foreground-occlusion, first-frame, and temporal-stability checks; the low-level ambience produced no credible Whisper speech detection.
+- H3 regression coverage and the Next.js production build pass.
+
 ## 0.1.96 - 2026-08-29
 
 ### Fixed

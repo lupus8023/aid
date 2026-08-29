@@ -31,7 +31,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     imageWorkflowPath: '',
     multiImageWorkflowPath: '',
     firstLastWorkflowPath: '',
-    h3Fl2vaProfile: 'balanced8',
+    h3Fl2vaProfile: 'dasiwa4',
     timeoutSeconds: 7200,
   },
   aspectRatio: '16:9', // 默认横屏
@@ -88,6 +88,11 @@ export function useSettings() {
     if (saved) {
       try {
         const parsed = migrateSettings(JSON.parse(saved) as AppSettings);
+        const h3MigrationKey = 'aid-h3-dasiwa4-production-default-v1';
+        if (!localStorage.getItem(h3MigrationKey) && parsed.comfyui?.h3Fl2vaProfile === 'balanced8') {
+          parsed.comfyui.h3Fl2vaProfile = 'dasiwa4';
+          localStorage.setItem(h3MigrationKey, '1');
+        }
         setSettings(parsed);
         localStorage.setItem('appSettings', JSON.stringify(parsed));
       } catch (error) {

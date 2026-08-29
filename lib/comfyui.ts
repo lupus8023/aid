@@ -56,7 +56,7 @@ export type ComfyUIWorkflow =
   | 'aid_multi_reference'
   | 'aid_first_last';
 
-export type H3Fl2vaProfile = 'balanced8' | 'legacy';
+export type H3Fl2vaProfile = 'balanced8' | 'dasiwa4' | 'legacy';
 
 export const H3_FL2VA_BALANCED_PROFILE = Object.freeze({
   name: 'balanced8' as const,
@@ -67,6 +67,29 @@ export const H3_FL2VA_BALANCED_PROFILE = Object.freeze({
   shiftVideo: 6,
   shiftAudio: 3,
   loraStrength: 1,
+  samplerName: 'dual_clock_euler',
+  scheduler: 'native_flow',
+});
+
+/**
+ * Production-tested DaSiWa four-step stack. The full Hybrid checkpoint stays
+ * out of the default until its 19.5 GB artifact is available and independently
+ * verified; this uses the installed pruned FL2VA base with DaSiWa's verified
+ * adapter, which passed the Nana 8-second I2VA smoke test. Approximate block
+ * caching remains disabled to avoid temporal ghosts and identity morphing.
+ */
+export const H3_DASIWA_4TURBO_PROFILE = Object.freeze({
+  name: 'dasiwa4' as const,
+  diffusionModel: 'minimax_h3_fl2va_pruned_int8_convrot.safetensors',
+  textEncoder: 'qwen3vl_32b_minimax_h3_int8_convrot.safetensors',
+  lora: 'minimax_h3_turbo_4step_dasiwa_ref2va_hybrid_v1_T8.safetensors',
+  steps: 4,
+  shiftVideo: 12,
+  shiftAudio: 3,
+  loraStrength: 1,
+  samplerName: 'dual_clock_euler',
+  scheduler: 'simple',
+  loraSha256: 'd2a9a723d97520232f17b6fec33335f9e94b03b2c67b56f91f16780355479274',
 });
 
 const WORKFLOW_SEARCH_PATTERNS: Record<ComfyUIWorkflow, string> = {
@@ -132,7 +155,9 @@ function positiveInt(value: string, fallback: number, minimum = 1): number {
 }
 
 function h3Fl2vaProfile(value: unknown): H3Fl2vaProfile {
-  return String(value || '').trim().toLowerCase() === 'legacy' ? 'legacy' : 'balanced8';
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'legacy' || normalized === 'dasiwa4') return normalized;
+  return 'balanced8';
 }
 
 function normalizePrivateKey(value: string, source: string): string {
@@ -201,7 +226,7 @@ export function getComfyUIConfig(settings: ComfyUIClientSettings = {}): ComfyUIC
     multiImageWorkflowPath: envOrValue(settings.multiImageWorkflowPath, 'COMFYUI_MULTI_IMAGE_WORKFLOW_PATH', ''),
     firstLastWorkflowPath: envOrValue(settings.firstLastWorkflowPath, 'COMFYUI_FIRST_LAST_WORKFLOW_PATH', ''),
     h3Fl2vaProfile: h3Fl2vaProfile(
-      settings.h3Fl2vaProfile ?? process.env.COMFYUI_H3_FL2VA_PROFILE ?? 'balanced8',
+      settings.h3Fl2vaProfile ?? process.env.COMFYUI_H3_FL2VA_PROFILE ?? 'dasiwa4',
     ),
     characterReplaceWorkflowPath: envOrValue(
       settings.characterReplaceWorkflowPath,
@@ -825,7 +850,7 @@ function loaderNodes(workflow: JsonRecord): JsonRecord[] {
   return (workflow.nodes || []).filter((node: JsonRecord) => node.type === 'LoadImage');
 }
 
-function patchWorkflow(workflow: JsonRecord, input: {
+export function patchWorkflow(workflow: JsonRecord, input: {
   variant: ComfyUIWorkflow;
   imageRefs: string[];
   prompt: string;
@@ -852,7 +877,7 @@ function patchWorkflow(workflow: JsonRecord, input: {
   }
 }
 
-function compileFrontendWorkflow(workflow: JsonRecord): JsonRecord {
+export function compileFrontendWorkflow(workflow: JsonRecord): JsonRecord {
   if (workflow.definitions?.subgraphs?.length) {
     throw new ComfyUIError('当前 ComfyUI 接入仅接受不含子图的加速工作流');
   }
@@ -919,11 +944,15 @@ function linkedFrom(node: JsonRecord, inputName: string, expectedNodeId: string)
 export function applyH3Fl2vaProfile(
   prompt: JsonRecord,
   variant: ComfyUIWorkflow,
-  profile: H3Fl2vaProfile = 'balanced8',
+  profile: H3Fl2vaProfile = 'dasiwa4',
 ): JsonRecord {
   if (profile === 'legacy' || variant === 'aid_multi_reference') {
     return { name: profile === 'legacy' ? 'legacy' : 'ref2va-unmodified', active: false };
   }
+
+  const selectedProfile = profile === 'dasiwa4'
+    ? H3_DASIWA_4TURBO_PROFILE
+    : H3_FL2VA_BALANCED_PROFILE;
 
   const [unetId, unet] = uniquePromptNode(prompt, 'UNETLoader');
   const [, clip] = uniquePromptNode(prompt, 'CLIPLoader');
@@ -934,23 +963,23 @@ export function applyH3Fl2vaProfile(
   if (!linkedFrom(sage, 'model', unetId)
     || !linkedFrom(lora, 'model', sageId)
     || !linkedFrom(sampler, 'model', loraId)) {
-    throw new ComfyUIError('FL2VA 均衡方案要求 UNET → Sage → 8步 LoRA → Sampler 的完整模型链');
+    throw new ComfyUIError(`${selectedProfile.name} 方案要求 UNET → Sage → LoRA → Sampler 的完整模型链`);
   }
 
-  unet.inputs.unet_name = H3_FL2VA_BALANCED_PROFILE.diffusionModel;
+  unet.inputs.unet_name = selectedProfile.diffusionModel;
   unet.inputs.weight_dtype = 'default';
-  clip.inputs.clip_name = H3_FL2VA_BALANCED_PROFILE.textEncoder;
+  clip.inputs.clip_name = selectedProfile.textEncoder;
   clip.inputs.type = 'minimax';
   clip.inputs.device = 'default';
-  lora.inputs.lora_name = H3_FL2VA_BALANCED_PROFILE.lora;
-  lora.inputs.strength_model = H3_FL2VA_BALANCED_PROFILE.loraStrength;
-  sampler.inputs.steps = H3_FL2VA_BALANCED_PROFILE.steps;
-  sampler.inputs.shift_video = H3_FL2VA_BALANCED_PROFILE.shiftVideo;
-  sampler.inputs.shift_audio = H3_FL2VA_BALANCED_PROFILE.shiftAudio;
-  sampler.inputs.sampler_name = 'dual_clock_euler';
-  sampler.inputs.scheduler = 'native_flow';
+  lora.inputs.lora_name = selectedProfile.lora;
+  lora.inputs.strength_model = selectedProfile.loraStrength;
+  sampler.inputs.steps = selectedProfile.steps;
+  sampler.inputs.shift_video = selectedProfile.shiftVideo;
+  sampler.inputs.shift_audio = selectedProfile.shiftAudio;
+  sampler.inputs.sampler_name = selectedProfile.samplerName;
+  sampler.inputs.scheduler = selectedProfile.scheduler;
 
-  return { ...H3_FL2VA_BALANCED_PROFILE, active: true, sageAttention: true };
+  return { ...selectedProfile, active: true, sageAttention: true, approximateCache: false };
 }
 
 function conditioningNode(prompt: JsonRecord): JsonRecord {
