@@ -24,8 +24,8 @@ export const APIMART_IMAGE_MODEL_OPTIONS = [
   { value: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro' },
   { value: NANO_BANANA_2, label: 'Nano Banana 2 · Gemini 3.1 Flash' },
   { value: GROK_IMAGE_2, label: 'Grok Imagine 2.0 · Official' },
-  { value: 'gpt-image-2', label: 'GPT-Image-2' },
-  { value: 'gpt-image-2-official', label: 'GPT-Image-2 · Official' },
+  { value: 'gpt-image-2', label: 'GPT-Image-2 · 标准快速' },
+  { value: 'gpt-image-2-official', label: 'GPT-Image-2 · 官方高保真' },
 ] as const;
 
 export function isComfyUIZImageTurbo(model: string): boolean {
@@ -59,6 +59,17 @@ export function isNanoBanana2(model: string): boolean {
     || normalized === 'nano-banana-2-ext'
     || normalized === 'gemini-3.1-flash-image-preview-official'
     || normalized === 'nano-banana-2';
+}
+
+export function isGptImage2Model(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return normalized === 'gpt-image-2'
+    || normalized === 'gpt-image-2-ext'
+    || normalized === 'gpt-image-2-official';
+}
+
+export function isOfficialGptImage2(model: string): boolean {
+  return model.trim().toLowerCase() === 'gpt-image-2-official';
 }
 
 export function getImageModelCapabilities(model: string): ImageModelCapabilities {
@@ -139,9 +150,14 @@ export function buildImageGenerationPayload(input: {
   if (isGrokImagineImage2(input.model)) {
     body.resolution = '2k';
     if (!imageUrls.length) body.quality = 'medium';
-  } else if (input.model.includes('gpt-image')) {
+  } else if (isGptImage2Model(input.model)) {
     const supports4k = ['16:9', '9:16', '2:1', '1:2', '21:9', '9:21'].includes(input.aspectRatio);
     body.resolution = (input.resolutionOverride || (supports4k ? '4K' : '2K')).toLowerCase();
+    // APIMart's official OpenAI route defaults `quality=auto` to roughly the
+    // low tier. Story frames are downstream video references, so their skin,
+    // material and identity detail needs the explicit high-fidelity tier.
+    // The alternate `gpt-image-2` route does not document this field.
+    if (isOfficialGptImage2(input.model)) body.quality = 'high';
   } else {
     const requested = input.resolutionOverride || '2K';
     body.resolution = capabilities.maxResolution === '2K' && requested === '4K' ? '2K' : requested;

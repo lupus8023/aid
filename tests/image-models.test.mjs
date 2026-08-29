@@ -6,7 +6,9 @@ import {
   extractImageTaskId,
   getImageModelCapabilities,
   imageModelRequiresApiKey,
+  isGptImage2Model,
   isMidjourneyImageModel,
+  isOfficialGptImage2,
   resolveStoryboardGridImageModel,
 } from '../lib/imageModels.ts';
 import { buildStudioImagePrompt, imageCreationInputError } from '../lib/imageCreation.ts';
@@ -81,6 +83,30 @@ test('compiles GPT-Image contracts into a concise Midjourney finished-frame prom
   assert.match(prompt, /natural anatomy, restrained expression/i);
   assert.doesNotMatch(prompt, /OUTPUT CONSTRAINTS|REFERENCE JOBS|strict identity/);
   assert.ok(prompt.length <= 1100);
+});
+
+test('Midjourney keeps referenced products locked after concise prompt compilation', () => {
+  const prompt = buildMidjourneyPrompt(`IMAGE GOAL:\nDr. Pan holds the referenced serum bottle beside a rain-streaked laboratory window.\n\nREFERENCE JOBS — each input has one job only:\nReference image 1: OBJECT IDENTITY ONLY — "serum bottle". Frosted blue glass, silver pump, narrow white label.`, {
+    visualStyle: 'commercial', taskMode: 'story-shot', hasPeople: true,
+  });
+  assert.match(prompt, /referenced serum bottle/i);
+  assert.match(prompt, /exact silhouette, proportions, component layout/i);
+  assert.match(prompt, /no redesign, deformation, substitution or added\/removed parts/i);
+  assert.ok(prompt.length <= 1100);
+});
+
+test('Midjourney raises image-reference strength when a story shot contains a locked product', () => {
+  const payload = buildMidjourneyImaginePayload({
+    prompt: 'IMAGE GOAL:\nDr. Pan holds the bottle.\nReference image 1: OBJECT IDENTITY ONLY — "serum bottle".',
+    aspectRatio: '16:9',
+    imageUrls: ['product.png'],
+    referenceMode: 'image',
+    taskMode: 'story-shot',
+    visualStyle: 'commercial',
+    hasPeople: true,
+  });
+  assert.equal(payload.iw, 0.7);
+  assert.deepEqual(payload.image_urls, ['product.png']);
 });
 
 test('preserves selected film looks instead of flattening every Midjourney prompt to one style', () => {
@@ -266,4 +292,27 @@ test('builds Nano Banana 2 text and multi-reference payloads up to 4K', () => {
   assert.deepEqual(request.body.image_urls, images);
   assert.equal(getImageModelCapabilities('nano-banana-2-ext').maxReferenceImages, 14);
   assert.equal(extractImageTaskId({ code: 200, data: [{ task_id: 'task_nano' }] }), 'task_nano');
+});
+
+test('uses high quality only for the official GPT Image 2 route', () => {
+  const standard = buildImageGenerationPayload({
+    model: 'gpt-image-2',
+    prompt: 'photorealistic phone photo',
+    aspectRatio: '16:9',
+    imageUrls: [],
+  });
+  const official = buildImageGenerationPayload({
+    model: 'gpt-image-2-official',
+    prompt: 'photorealistic live-action film frame',
+    aspectRatio: '16:9',
+    imageUrls: ['identity.png'],
+  });
+
+  assert.equal(standard.body.resolution, '4k');
+  assert.equal(standard.body.quality, undefined);
+  assert.equal(official.body.resolution, '4k');
+  assert.equal(official.body.quality, 'high');
+  assert.equal(isGptImage2Model('gpt-image-2-ext'), true);
+  assert.equal(isOfficialGptImage2('gpt-image-2'), false);
+  assert.equal(isOfficialGptImage2('gpt-image-2-official'), true);
 });

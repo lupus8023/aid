@@ -3,6 +3,10 @@ import test from 'node:test';
 
 import { buildGridPrompt } from '../lib/gridSplitter.ts';
 import {
+  buildGptImage2PhotographicContract,
+  buildGptImage2StoryPrompt,
+} from '../lib/gptImagePrompt.ts';
+import {
   buildCompactImageCaptureContract,
   buildImageCaptureContract,
   buildSceneReferencePrompt,
@@ -122,4 +126,81 @@ test('grid prompt preserves all nine unique shot identities under the provider b
   for (let index = 1; index <= 9; index += 1) {
     assert.match(prompt, new RegExp(`UNIQUE_OPTICS_${index}`));
   }
+});
+
+test('GPT Image 2 live-action prompts choose exactly one physical capture system', () => {
+  const phone = buildGptImage2PhotographicContract('cinematic-natural', 'phone-bystander');
+  const film = buildGptImage2PhotographicContract('cinematic-natural', 'cinematic-narrative');
+  const broadcast = buildGptImage2PhotographicContract('cinematic-natural', 'broadcast-candid');
+
+  assert.match(phone, /main camera of a modern phone/i);
+  assert.doesNotMatch(phone, /mirrorless|live-action feature film|live-television/i);
+  assert.match(film, /live-action feature film|real cinema camera/i);
+  assert.doesNotMatch(film, /modern phone|mirrorless|live-television/i);
+  assert.match(broadcast, /live-television long-lens camera/i);
+  assert.doesNotMatch(broadcast, /modern phone|mirrorless|feature film/i);
+});
+
+test('GPT Image 2 story compiler removes redundant narrative wrappers and keeps photographic evidence', () => {
+  const prompt = buildGptImage2StoryPrompt({
+    goal: 'Nana walks beside a Shanghai shop window and glances at the display.',
+    action: 'Nana walks beside a Shanghai shop window and glances at the display.',
+    sceneStyle: 'A busy Shanghai shopping street in late afternoon.',
+    shotSize: 'medium shot',
+    angle: 'eye level',
+    exactCast: 'EXACT CAST (1 total): Nana — exactly one visible instance.',
+    referenceDescriptions: ['Reference image 1: Nana identity only.'],
+    visualStyle: 'cinematic-natural',
+    capturePreset: 'phone-bystander',
+  });
+
+  assert.match(prompt, /PHOTOGRAPHIC OUTPUT/);
+  assert.match(prompt, /visible pores|mild facial asymmetry/i);
+  assert.match(prompt, /REFERENCE INPUT ROLES/);
+  assert.doesNotMatch(prompt, /Shot narrative|Physical action|cinema camera|mirrorless/i);
+  assert.equal((prompt.match(/Nana walks beside/g) || []).length, 1);
+});
+
+test('GPT Image 2 treats a referenced product as an immutable design without banning its own markings', () => {
+  const prompt = buildGptImage2StoryPrompt({
+    goal: 'Dr. Pan holds the referenced serum bottle beside a laboratory window.',
+    exactCast: 'EXACT CAST (1 total): Dr. Pan.',
+    referenceDescriptions: [
+      'Reference image 1: OBJECT IDENTITY ONLY — "serum bottle". Frosted blue glass, silver pump and a narrow white label.',
+    ],
+    visualStyle: 'commercial',
+  });
+  assert.match(prompt, /immutable design source/i);
+  assert.match(prompt, /component layout|surface finish|small identifying details/i);
+  assert.match(prompt, /never redesign, simplify, stretch, melt, substitute/i);
+  assert.match(prompt, /label, logo or marking.*locked reference object/i);
+  assert.doesNotMatch(prompt, /No .*logo.*other readable text/i);
+});
+
+test('storyboard grids lock mapped object references across all nine panels', () => {
+  const prompt = buildGridPrompt(
+    'A working skincare laboratory',
+    'Dr. Pan in a white coat',
+    Array.from({ length: 9 }, (_, index) => `Dr. Pan handles the blue serum bottle in shot ${index + 1}. Only Dr. Pan appears.`),
+    '16:9',
+    ['CHARACTER IDENTITY: Dr. Pan', 'OBJECT IDENTITY: blue serum bottle — frosted glass and silver pump'],
+  );
+  assert.match(prompt, /REFERENCE OBJECT LOCK/i);
+  assert.match(prompt, /immutable prop\/product/i);
+  assert.match(prompt, /never redesign, deform, substitute or add\/remove parts/i);
+  assert.match(prompt, /existing label\/logo unchanged/i);
+  assert.doesNotMatch(prompt, /No .*logos.*readable text/i);
+  for (let index = 1; index <= 9; index += 1) assert.match(prompt, new RegExp(`shot ${index}\\b`, 'i'));
+  assert.ok(prompt.length <= 3900, `object-aware grid prompt was ${prompt.length} characters`);
+});
+
+test('GPT Image 2 keeps explicit non-photographic media instead of forcing photorealism', () => {
+  const anime = buildGptImage2StoryPrompt({
+    goal: 'A heroine crosses a rain-dark station platform.',
+    exactCast: 'EXACT CAST (1 total): heroine.',
+    visualStyle: 'anime',
+  });
+  assert.match(anime, /cinematic anime|controlled line art|cel shading/i);
+  assert.match(anime, /Do not convert it into live-action photography/i);
+  assert.doesNotMatch(anime, /visible pores|real cinema camera/i);
 });

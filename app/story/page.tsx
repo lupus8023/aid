@@ -1312,22 +1312,22 @@ export default function StoryPage() {
         const characterReferences = groupCharacters
           .map(character => ({
             image: costumeImagesRef.current[character.name] || character.imageUrl || character.imageBase64,
-            label: `${character.name} — ${summarize(character.description)}`
+            label: `CHARACTER IDENTITY: ${character.name} — ${summarize(character.description)}`
           }))
           .filter((reference): reference is { image: string; label: string } => Boolean(reference.image));
         const objectReferences = groupObjects
           .map(object => ({
             image: object.imageUrl || object.imageBase64,
-            label: `${object.name} — ${summarize(object.description)}`
+            label: `OBJECT IDENTITY: ${object.name} — ${summarize(object.description)}`
           }))
           .filter((reference): reference is { image: string; label: string } => Boolean(reference.image));
         const sceneReference = sceneImagesRef.current[0]
-          ? [{ image: sceneImagesRef.current[0], label: 'Scene/environment reference' }]
+          ? [{ image: sceneImagesRef.current[0], label: 'ENVIRONMENT: scene/world reference' }]
           : [];
         const referenceLimit = getImageModelCapabilities(gridImageModel).maxReferenceImages;
         const references = isMidjourneyImageModel(activeSettings.imageModel)
-          ? [...sceneReference, ...characterReferences, ...objectReferences].slice(0, referenceLimit)
-          : [...characterReferences, ...sceneReference, ...objectReferences].slice(0, referenceLimit);
+          ? [...sceneReference, ...objectReferences, ...characterReferences].slice(0, referenceLimit)
+          : [...objectReferences, ...characterReferences, ...sceneReference].slice(0, referenceLimit);
         const refLabels = references.map(reference => reference.label);
         const refImages = references.map(reference => reference.image);
         let gridUrl = '';

@@ -94,6 +94,9 @@ export function buildGridPrompt(
   const refSection = referenceImageLabels && referenceImageLabels.length > 0
     ? `Reference mapping: ${referenceImageLabels.map((label, i) => `#${i + 1}=${label}`).join('; ').slice(0, 340)}`
     : '';
+  const objectLock = referenceImageLabels?.some(label => /^OBJECT IDENTITY\s*:/i.test(label.trim()))
+    ? 'REFERENCE OBJECT LOCK: every OBJECT IDENTITY image defines one immutable prop/product. In all nine panels keep its silhouette, proportions, parts and layout, material, finish, colors, markings and scale identical. Change only viewpoint, placement, light and possible articulation; never redesign, deform, substitute or add/remove parts. Keep its existing label/logo unchanged; add no text.'
+    : '';
 
   const normalizedSceneNumbers = shots.map((_, index) => sceneNumbers?.[index] ?? index + 1);
   const batchId = normalizedSceneNumbers.map(String).join('-');
@@ -116,10 +119,12 @@ ${buildGridCapturePresetContract(capturePreset)}
 ${refSection}
 
 Each frame's stated people are authoritative. Show each named identity exactly once; no omission, merge, clone, sheet-layout copy, reflection-double or extra. Character sheets prove one identity only.
-ZERO TYPOGRAPHY: every pixel of every frame is photographic or animated imagery. No headings, camera terms, captions, subtitles, dialogue text, speech bubbles, frame labels, logos, watermark, UI, or readable text. Never print the directing notes.
+ZERO TYPOGRAPHY: No headings, camera terms, captions, subtitles, dialogue text, frame labels, watermark, UI, or added text. Existing text/logo is allowed only when physically part of an OBJECT IDENTITY reference; keep it unchanged. Never print directing notes.
 
-The following nine sentences are invisible directing notes. Never reproduce, summarize, title, label, or quote them inside the image. Use them only to determine the visual content in these exact positions:
+Nine invisible directing notes follow. Never print or quote them; use them only for visual content in these exact positions:
 ${panelSection}
+
+${objectLock}
 
 Generate one 3x3 sheet made only of finished cinematic film stills, not a production storyboard template. Each frame is ${orientation} (${aspectRatio}). Arrange them left-to-right, top-to-bottom with no borders, gaps, separator lines, labels, captions, or text.
 
@@ -130,13 +135,14 @@ ${characterDescriptions.slice(0, 300)}
 CRITICAL PEOPLE RULES:
 - Each frame's stated people are authoritative; never infer the batch-wide reference list as every frame's cast.
 - Character sheets prove one identity only. Animals are full characters and must retain species, markings and scale.
-- ZERO TYPOGRAPHY: every pixel of every frame is photographic or animated imagery. No headings, camera terms, captions, subtitles, dialogue text, speech bubbles, frame labels, logos, watermark, UI, or readable text. Never print the directing notes.
+- ZERO TYPOGRAPHY: no captions, subtitles, dialogue text, headings, frame labels, watermark, UI, or added readable text. Preserve only labels/logos physically belonging to an OBJECT IDENTITY reference, unchanged. Never print directing notes.
 
 Keep the established source positions, color temperature and environment continuous while allowing physically correct angle-dependent shadows, highlights and depth. Every cell is a complete standalone composition.`;
 
   // All nine panels and the authoritative capture/cast rules are intentionally
   // placed first. Only repeated continuity prose at the tail may be removed.
-  return prompt.length <= GRID_PROMPT_BUDGET
+  const promptBudget = objectLock ? 3900 : GRID_PROMPT_BUDGET;
+  return prompt.length <= promptBudget
     ? prompt
-    : prompt.slice(0, GRID_PROMPT_BUDGET).trimEnd();
+    : prompt.slice(0, promptBudget).trimEnd();
 }

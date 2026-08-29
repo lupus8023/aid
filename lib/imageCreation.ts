@@ -49,6 +49,8 @@ REFERENCE IMAGE RECOGNITION AND CONSISTENCY RULES:
 - Keep every recognizable person, object, product, logo/text detail, outfit, accessory, and surface material faithful to the reference images.
 - Use all provided reference images together: one may define identity, another may define object details, another may define pose, styling, lighting, or scale.
 - If any reference contains a product, preserve its exact shape, packaging, material, color, logo/text details, size impression, and design language.
+- Treat every referenced object or product as an immutable design source. Preserve its exact silhouette, dimensions, proportions, component layout, construction, material, surface finish, color, texture, seams, closures, interfaces, intentional markings, wear, and small identifying details.
+- Change a referenced object only in viewpoint, placement, lighting, and physically possible articulation required by the user's scene. Never redesign, simplify, stretch, melt, substitute, or add/remove parts.
 - If any reference contains a person, preserve facial identity, hairstyle, body proportions, clothing identity, accessories, pose logic, and natural skin texture.
 - Preserve the relative scale relationship between people and objects: hand-to-object size, body-to-product size, object height/width/depth impression, distance, placement, contact points, and perspective.
 - Do not enlarge, shrink, stretch, flatten, or redesign referenced objects unless the user explicitly asks.

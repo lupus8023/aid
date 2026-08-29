@@ -128,8 +128,20 @@ function inferPeople(source: string): boolean {
   return /\b(?:person|people|man|woman|boy|girl|doctor|researcher|character|actor|model|portrait|face|skin|subject\s+\d+)\b|人物|男人|女人|男孩|女孩|医生|博士|角色|肖像|面部|皮肤/i.test(source);
 }
 
+function referencedObjectDirection(source: string): string {
+  const hasObjectReference = /OBJECT IDENTITY(?: ONLY)?\s*[:—-]|Object requirement\s*:/i.test(source);
+  if (!hasObjectReference) return '';
+  const names = [...source.matchAll(/(?:OBJECT IDENTITY(?: ONLY)?\s*[:—-]\s*|Object requirement:\s*["“]?)([^\n;"”—-]{1,60})/gi)]
+    .map(match => match[1].trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  const subject = names.length ? `referenced ${[...new Set(names)].join(', ')}` : 'every referenced product or prop';
+  return `${subject} keeps the exact silhouette, proportions, component layout, construction, material, finish, color, markings and physical scale of its image reference, no redesign, deformation, substitution or added/removed parts`;
+}
+
 export function buildMidjourneyPrompt(input: string, options: MidjourneyPromptOptions = {}): string {
   const source = cleanText(input).replace(/--[a-z]+(?:\s+[^\s]+)?/gi, '');
+  const objectLock = referencedObjectDirection(source);
   const taskMode = options.taskMode || inferTaskMode(source);
   let visual = '';
 
@@ -167,7 +179,7 @@ export function buildMidjourneyPrompt(input: string, options: MidjourneyPromptOp
       : taskMode === 'story-shot'
         ? 'one complete narrative film frame staged inside the described location, the environment and action geometry remain clearly readable, use reference cards for identity only and ignore their layout, name and typography, never an isolated studio portrait or character turnaround'
       : 'one clean standalone frame with a clear subject hierarchy';
-  const prompt = `${visual.replace(/[.;]+$/, '')}, ${captureDirection}, ${styleDirection}, ${subjectFinish}, ${taskFinish}`;
+  const prompt = `${visual.replace(/[.;]+$/, '')}, ${objectLock ? `${objectLock}, ` : ''}${captureDirection}, ${styleDirection}, ${subjectFinish}, ${taskFinish}`;
   const maxLength = taskMode === 'grid' ? 2400 : taskMode === 'character-sheet' ? 1400 : 1100;
   return clipWords(prompt, maxLength);
 }
@@ -185,6 +197,7 @@ export function buildMidjourneyImaginePayload(input: {
 }): Record<string, unknown> {
   const taskMode = input.taskMode || inferTaskMode(input.prompt);
   const hasPeople = input.hasPeople ?? inferPeople(input.prompt);
+  const hasObjectReference = /OBJECT IDENTITY(?: ONLY)?\s*[:—-]|Object requirement\s*:/i.test(input.prompt);
   const imageUrls = [...new Set((input.imageUrls || []).filter(url => typeof url === 'string' && url.trim()))].slice(0, 4);
   const liveActionStyle = !['anime', '3d-cg', 'stop-motion', 'follow-reference'].includes(input.visualStyle || 'cinematic-natural');
   const negatives = taskMode === 'grid'
@@ -250,7 +263,9 @@ export function buildMidjourneyImaginePayload(input: {
     body.sw = 100;
   } else {
     body.image_urls = imageUrls;
-    body.iw = taskMode === 'story-shot' ? 0.55 : taskMode === 'grid' ? 0.65 : 0.9;
+    body.iw = hasObjectReference
+      ? taskMode === 'grid' ? 0.75 : taskMode === 'story-shot' ? 0.7 : 0.9
+      : taskMode === 'story-shot' ? 0.55 : taskMode === 'grid' ? 0.65 : 0.9;
   }
   return body;
 }

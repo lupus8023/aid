@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.98 - 2026-08-29
+
+### Changed
+
+- Added a dedicated GPT-Image-2 prompt compiler for cleaner photographic output. Live-action requests now use one coherent physical capture system instead of mixing phone, mirrorless, cinema, and broadcast language; non-photographic styles retain their native medium.
+- `gpt-image-2-official` now explicitly requests the high-fidelity quality tier, while the standard GPT-Image-2 route remains the faster option.
+- Every referenced product or prop is now treated as an immutable design source across GPT-Image-2, Seedream, Nano Banana, Grok, Midjourney, and local image generation. Shape, proportions, component layout, materials, finish, color, markings, and scale remain locked while only viewpoint, placement, lighting, and physically possible articulation may change.
+- Product labels and logos that physically belong to a reference object are preserved in place without weakening the global ban on captions, subtitles, watermarks, UI, and newly invented text.
+- Referenced scene objects now receive priority when a provider's image-reference limit would otherwise discard them. Midjourney also uses a moderately stronger image-reference weight for product-bearing story shots and grids.
+- Nine-panel storyboard prompts carry explicit character, environment, and object roles while preserving all nine unique shot descriptions within the provider prompt budget.
+
+### Verification
+
+- All repository regression suites pass, including new GPT-Image-2, Midjourney, reference-object, nine-panel completeness, and provider-payload coverage.
+- Next.js production compilation, lint/type validation, static generation, and diff validation pass.
+- This is a hosted web update and does not require a Companion update.
+
 ## 0.1.97 - 2026-08-29
 
 ### Changed

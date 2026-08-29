@@ -4,7 +4,8 @@ import type { ComfyUIClientSettings } from './comfyui';
 import { Storyboard, Character, ObjectItem, VisualStyle, CapturePreset } from '@/types';
 import { buildImageCaptureContract, buildMediumLock } from './promptArchitecture';
 import { buildImageCapturePresetContract } from './capturePresets';
-import { getImageModelCapabilities, isComfyUIZImageTurbo, isMidjourneyImageModel } from './imageModels';
+import { buildGptImage2PhotographicContract, buildGptImage2StoryPrompt } from './gptImagePrompt';
+import { getImageModelCapabilities, isComfyUIZImageTurbo, isGptImage2Model, isMidjourneyImageModel } from './imageModels';
 import { isMidjourneyTask } from './midjourney';
 
 // 为单个分镜生成图片
@@ -54,14 +55,11 @@ export async function generateStoryboardImage(
     const cleanPrompt = storyboard.prompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1');
 
     // 收集有参考图和无参考图的物体描述
-    const objectsWithRef: ObjectItem[] = [];
     const objectsWithoutRef: ObjectItem[] = [];
 
     sceneObjects.forEach((obj) => {
       const img = obj.imageUrl || obj.imageBase64;
-      if (img) {
-        objectsWithRef.push(obj);
-      } else {
+      if (!img) {
         objectsWithoutRef.push(obj);
       }
     });
@@ -70,7 +68,7 @@ export async function generateStoryboardImage(
     // those labels avoids reference number drift when an entity has no image.
     const referenceDescriptions = effectiveReferences.map((_, index) => {
       const label = effectiveReferenceLabels[index];
-      return `Reference image ${index + 1}: ${label || `uploaded visual reference ${index + 1}`}. Use only the role named here. Preserve its role-specific identity, design, medium, or environment cues; ignore unrelated pose, background, layout, borders, labels, and text.`;
+      return `Reference image ${index + 1}: ${label || `uploaded visual reference ${index + 1}`}. Use only the role named here. Preserve its role-specific identity, design, medium, or environment cues; ignore unrelated pose, background, layout and borders. For a declared object/product reference, its own markings and labels are part of the locked design, not disposable reference text.`;
     });
 
     // The official Z-Image-Turbo workflow is text-only. Preserve the semantic
@@ -81,14 +79,14 @@ export async function generateStoryboardImage(
         `Character requirement: "${character.name}" — ${character.description}. Keep one stable identity, face, body, hair and wardrobe wherever this character appears.`,
       ));
       sceneObjects.forEach(object => referenceDescriptions.push(
-        `Object requirement: "${object.name}" — ${object.description}. Keep its shape, material, color and scale consistent.`,
+        `Object requirement: "${object.name}" — ${object.description}. Keep its silhouette, proportions, component layout, construction, material, finish, color, texture, markings and scale identical. Do not redesign, deform, simplify, substitute or add/remove parts.`,
       ));
     }
 
     // 没有参考图的物体
     objectsWithoutRef.forEach((obj) => {
       referenceDescriptions.push(
-        `Object requirement: "${obj.name}" - ${obj.description}. Generate this object according to the description, maintaining consistent appearance across all shots.`
+        `Object requirement: "${obj.name}" - ${obj.description}. Establish one exact design and maintain its silhouette, proportions, component layout, construction, material, finish, color, texture, markings and scale across all shots.`
       );
     });
 
@@ -100,22 +98,30 @@ export async function generateStoryboardImage(
     const supplementalObjectRules = objectsWithoutRef.map(obj =>
       `Unmapped object "${obj.name}": ${obj.description}. Keep its design identical wherever requested.`
     );
+    const referencedObjectNames = sceneObjects
+      .filter(obj => effectiveReferenceLabels.some(label => label.toLowerCase().includes(obj.name.toLowerCase())))
+      .map(obj => obj.name);
+    const gridObjectLock = `REFERENCE OBJECT LOCK: ${referencedObjectNames.length ? `the mapped references for ${referencedObjectNames.join(', ')} are immutable product/prop designs` : 'any input mapped as an object or product is an immutable design source'}. Preserve exact silhouette, proportions, component layout, construction, material, surface finish, color, texture, seams, interfaces, intentional markings and physical scale in every panel. Change only viewpoint, placement, lighting and physically possible articulation. Never redesign, simplify, stretch, melt, substitute, or add/remove parts. Existing object labels or logos may remain only as unchanged physical design details; add no other text.`;
+    const providerCaptureContract = isGptImage2Model(selectedImageModel)
+      ? buildGptImage2PhotographicContract(visualStyle, capturePreset || storyboard.capturePreset)
+      : `${buildMediumLock(visualStyle)}\n\n${buildImageCaptureContract(visualStyle)}\n\n${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}`;
     const enhancedPrompt = isStructuredGridPrompt ? `${cleanPrompt}
+
+${gridObjectLock}
+
+REFERENCE INPUT ROLES:
+${referenceDescriptions.join('\n')}
 
 ${supplementalObjectRules.join('\n')}
 ` : `${cleanPrompt}
 
 GRID CAST AUTHORITY: obey the separate EXACT CAST declaration inside each panel description. Never apply the batch-wide reference list as the cast of every panel. Each character sheet is identity evidence for one identity, not permission to create multiple poses or copies.
 
-${buildMediumLock(visualStyle)}
-
-${buildImageCaptureContract(visualStyle)}
-
-${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}
+${providerCaptureContract}
 
 ${referenceDescriptions.join('\n')}
 
-Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothing and visual style for every character. Keep object shape, color, material, texture, text/logo and all details identical. No captions, subtitles, dialogue text, speech bubbles, titles, logos, watermark, or UI. Maintain exact lighting and atmosphere from the scene reference.
+Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothing and visual style for every character. ${gridObjectLock} No captions, subtitles, dialogue text, speech bubbles, titles, watermark, UI, or added readable text. Maintain exact lighting and atmosphere from the scene reference.
 
 `;
 
@@ -182,27 +188,29 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       description: 'ENVIRONMENT ONLY. Preserve architecture, geography, entrances, landmarks, time of day, motivated light direction, palette, atmosphere, and material language. Ignore any people, poses, framing, labels, or text in the reference.',
       fallback: 'Scene requirement: follow the environment, lighting and atmosphere described in the storyboard prompt.',
     } : undefined;
-  // Midjourney previously received only the first reference, which was always
-  // the character bible. Even after multi-reference support, putting the
-  // environment first makes its narrative location the composition anchor.
-  const referenceEntries: Array<{ image: string; description: string; fallback: string }> = isMidjourneyImageModel(selectedImageModel)
-    ? [...(sceneReferenceEntry ? [sceneReferenceEntry] : []), ...characterReferenceEntries]
-    : [...characterReferenceEntries, ...(sceneReferenceEntry ? [sceneReferenceEntry] : [])];
-
+  const objectReferenceEntries: Array<{ image: string; description: string; fallback: string }> = [];
   const objectsWithoutRef: ObjectItem[] = [];
 
   sceneObjects.forEach((obj) => {
     const img = obj.imageUrl || obj.imageBase64;
     if (img) {
-      referenceEntries.push({
+      objectReferenceEntries.push({
         image: img,
-        description: `OBJECT IDENTITY ONLY — "${obj.name}". ${obj.description}. Preserve its exact shape, proportions, scale, color, material, texture, construction, and intentional markings. Ignore the reference background, layout, hands, labels, and unrelated text.`,
-        fallback: `Object requirement: "${obj.name}" - ${obj.description}. Keep its appearance consistent.`,
+        description: `OBJECT IDENTITY ONLY — "${obj.name}". ${obj.description}. This image is the immutable design source for this object. Preserve its exact silhouette, dimensions, proportions, physical scale, component layout, construction, material, surface finish, color, texture, seams, closures, interfaces, intentional markings, wear and small identifying details. Change only viewpoint, placement, lighting and physically possible articulation required by the scene. Never redesign, simplify, stretch, melt, substitute, or add/remove parts. Ignore the reference background, layout and hands. Preserve labels or logos only when they physically belong to the object, in the same position and design; ignore all unrelated text.`,
+        fallback: `Object requirement: "${obj.name}" - ${obj.description}. Preserve one immutable design: identical silhouette, proportions, component layout, material, finish, color, markings and scale; never redesign or deform it.`,
       });
     } else {
       objectsWithoutRef.push(obj);
     }
   });
+  // Midjourney previously received only the first reference, which was always
+  // the character bible. Even after multi-reference support, putting the
+  // environment first makes its narrative location the composition anchor.
+  // Referenced scene objects come next so a low provider reference limit can
+  // never silently discard the product/prop that the current shot requires.
+  const referenceEntries: Array<{ image: string; description: string; fallback: string }> = isMidjourneyImageModel(selectedImageModel)
+    ? [...(sceneReferenceEntry ? [sceneReferenceEntry] : []), ...objectReferenceEntries, ...characterReferenceEntries]
+    : [...objectReferenceEntries, ...characterReferenceEntries, ...(sceneReferenceEntry ? [sceneReferenceEntry] : [])];
 
   const selectedReferenceEntries = referenceEntries.slice(0, maxReferenceImages);
   const omittedReferenceEntries = referenceEntries.slice(maxReferenceImages);
@@ -217,8 +225,22 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     console.log(`Scene ${storyboard.sceneNumber} has no characters or objects, generating an environment story shot`);
 
     // 纯文生图也要清理 brackets
-    const cleanPrompt = `IMAGE GOAL:
-${storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1')}
+    const rawGoal = storyboard.prompt.replace(/\[([^\]]+)\]/g, '$1');
+    const cleanPrompt = isGptImage2Model(selectedImageModel) ? buildGptImage2StoryPrompt({
+      goal: rawGoal,
+      action: storyboard.action,
+      sceneStyle: storyboard.sceneStyle,
+      shotSize: storyboard.shotSize,
+      angle: storyboard.angle,
+      cameraMove: storyboard.cameraMove,
+      exactCast: exactCastContract,
+      referenceDescriptions: globalSceneImage
+        ? ['Reference image 1: ENVIRONMENT ONLY. Preserve its architecture, geography, practical light and material reality; ignore any people, pose, layout, labels and text.']
+        : [],
+      visualStyle,
+      capturePreset: capturePreset || storyboard.capturePreset,
+    }) : `IMAGE GOAL:
+${rawGoal}
 
 OUTPUT CONSTRAINTS:
 One complete standalone frame. No captions, subtitles, dialogue text, speech bubbles, titles, logos, watermark, UI, or readable text. Do not add unrelated people, objects, or decorative elements.
@@ -265,11 +287,22 @@ ${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}`;
   // 没有参考图的物体：直接添加描述，不引用 Reference image
   objectsWithoutRef.forEach((obj) => {
     referenceDescriptions.push(
-      `Object requirement: "${obj.name}" - ${obj.description}. Generate this object according to the description, maintaining consistent appearance across all shots.`
+      `Object requirement: "${obj.name}" - ${obj.description}. Establish one exact design and maintain its silhouette, proportions, component layout, construction, material, finish, color, texture, markings and scale across all shots.`
     );
   });
 
-  const enhancedPrompt = `IMAGE GOAL:
+  const enhancedPrompt = isGptImage2Model(selectedImageModel) ? buildGptImage2StoryPrompt({
+    goal: cleanedScenePrompt,
+    action: storyboard.action,
+    sceneStyle: storyboard.sceneStyle,
+    shotSize: storyboard.shotSize,
+    angle: storyboard.angle,
+    cameraMove: storyboard.cameraMove,
+    exactCast: exactCastContract,
+    referenceDescriptions,
+    visualStyle,
+    capturePreset: capturePreset || storyboard.capturePreset,
+  }) : `IMAGE GOAL:
 ${cleanedScenePrompt}
 Shot narrative: ${storyboard.description || storyboard.action || cleanedScenePrompt}.
 Physical action: ${storyboard.action || storyboard.description || cleanedScenePrompt}.
@@ -290,7 +323,7 @@ ${buildImageCaptureContract(visualStyle)}
 ${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}
 
 PRESERVE INVARIANTS:
-Obey EXACT CAST literally. Maintain exact face, body proportions, hairstyle, clothing, accessories, and visual medium for every character. Keep each referenced object's shape, scale, color, material, texture, and intentional markings unchanged. Preserve the scene reference's architecture, geography, motivated light, atmosphere, and material language while allowing the requested camera viewpoint. Change only the action, composition, and viewpoint requested in IMAGE GOAL.
+Obey EXACT CAST literally. Maintain exact face, body proportions, hairstyle, clothing, accessories, and visual medium for every character. Treat each referenced object or product as an immutable design source: preserve its silhouette, dimensions, proportions, component layout, construction, material, surface finish, color, texture, seams, interfaces, intentional markings and physical scale. Change only viewpoint, placement, lighting and physically possible articulation; never redesign, simplify, stretch, melt, substitute or add/remove parts. A label or logo physically belonging to that object stays in the same position and design; add no unrelated text. Preserve the scene reference's architecture, geography, motivated light, atmosphere, and material language while allowing the requested camera viewpoint. Change only the action, composition, and viewpoint requested in IMAGE GOAL.
 
 `;
 
