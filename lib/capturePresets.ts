@@ -17,64 +17,64 @@ export const CAPTURE_PRESETS: CapturePresetDefinition[] = [
     value: 'cinematic-narrative',
     label: '电影叙事',
     description: '动机明确的电影机位与克制表演',
-    director: '按剧情因果选择景别与机位；构图有意图，表演自然克制，不摆拍。',
-    image: 'Feature-film narrative capture: motivated camera position, intentional composition, natural restrained performance, coherent optical depth, and no posed publicity-photo staging.',
-    grid: 'Motivated feature-film coverage; each panel changes camera position or shot size for a clear dramatic reason, with natural unposed performance.',
-    video: 'Motivated natural framing.',
+    director: '按剧情因果选择景别与机位。人物先处于一个具体状态，触发发生后才产生选择与可见反应，镜头只跟随已经发生的变化；动作峰值之后保留不完全恢复和余韵，不摆成宣传照。',
+    image: 'Feature-film narrative capture of one physically possible instant inside a causal action. The subject is occupied by the scene rather than presenting to camera; posture, gaze, hand contact and weight reveal the current action phase. Use a motivated camera position, coherent optical depth and no publicity-photo pose.',
+    grid: 'Motivated feature-film coverage; each panel selects one physical instant from a causal action, never a whole sequence; occupied subject, restrained unposed performance.',
+    video: 'The subject is already occupied by the scene. Preserve causal order: existing task, authored trigger, delayed visible response, one action peak, then residual motion or partial recovery. The camera follows change after it occurs.',
   },
   {
     value: 'broadcast-candid',
     label: '电视直播抓拍',
     description: '长焦直播观察、非摆拍、杂乱遮挡与真实成像',
-    director: '电视直播长焦抓拍。人物没有为镜头摆姿势，体态松弛且可侧对镜头；允许前景行人或物体遮挡、人物偏离中心、轻微切边，并安排一个短暂自然反应。',
-    image: 'Authentic live-television candid capture, unstaged and apparently unnoticed by the subject. Long-lens observational viewpoint; relaxed imperfect posture, often side-on; fleeting unperformed expression; foreground crowd or street-object occlusion; off-center untidy framing and an occasional slight edge crop. Preserve visible pores, uneven skin texture and minor redness. Use plausible motion blur, restrained broadcast compression noise, subtle interlaced broadcast texture, and long-lens softness. No influencer pose, beauty retouching, fashion-editorial polish, perfect symmetry, or clean studio staging.',
-    grid: 'Live-TV candid coverage: unstaged long-lens observation, relaxed imperfect posture, foreground pedestrian/object occlusion, off-center untidy framing, occasional slight edge crop, plausible motion blur, restrained broadcast compression/interlaced texture, and truthful unretouched skin. No influencer or fashion pose.',
-    video: 'Authentic live television candid footage. The subject is shopping naturally and does not pose for the camera. Use a long-lens observational viewpoint, relaxed imperfect posture, side-on moments, foreground pedestrians or street objects briefly occluding the frame, off-center untidy composition, and an occasional slight edge crop. Preserve truthful unretouched skin, plausible motion blur, restrained broadcast compression noise, subtle interlaced texture, and long-lens softness. No influencer performance, beauty-commercial polish, fashion posing, or direct presentation to camera.',
+    director: '电视直播长焦抓拍式观察。人物在镜头介入前已经专注于自己的事情，不为镜头展示；动作按“原本在做事→触发→眼球先移动、头部晚半拍→短暂局促或调整→视线移开→回到原任务”组织，只选与剧情相符的节点。摄影机不能预知动作，人物动后才小幅修正构图或恢复焦点；允许停顿、动作未完成、前景行人或物体遮挡、偏构图和轻微切边。',
+    image: 'Authentic live-television candid capture: long-lens observation of one unguarded instant. The subject is already absorbed in an ordinary task, unaware of the camera, with loose asymmetrical posture, attention outside the lens and a gesture caught slightly incomplete. Use real foreground occlusion, off-center framing, occasional edge crop, truthful skin, plausible motion blur, restrained broadcast compression and long-lens softness. No influencer pose, presentation, beauty retouching or publicity staging.',
+    grid: 'Live-TV candid coverage: one unguarded phase per panel—task underway, small interruption, delayed glance or incomplete return. The subject never presents. Remote long-lens view, foreground occlusion, off-center framing, slight edge crop, plausible motion blur, occasional focus recovery and restrained broadcast compression/texture. No influencer pose.',
+    video: 'Authentic live television candid footage. The subject is already occupied, unaware and never performs for the lens. Use a sparse chain: task, authored trigger, eyes before head, delayed response, incomplete adjustment, attention returns; include brief low-activity intervals. Use a long-lens observational viewpoint. The remote camera never anticipates action and reacts a beat late with one small reframe or focus recovery. Keep foreground pedestrians or street objects briefly occluding the frame. Keep off-center framing, occasional edge crop, truthful skin and restrained broadcast texture. No influencer or publicity performance.',
   },
   {
     value: 'documentary-follow',
     label: '观察纪录',
     description: '手持跟随、现场光和真实反应',
-    director: '观察式纪录片跟拍。用现场光和可解释的手持修正观察真实行动，不要求人物看镜头。',
-    image: 'Observational documentary capture with available light, purposeful handheld proximity, naturally imperfect framing, truthful skin and materials, and no staged hero pose.',
-    grid: 'Observational documentary coverage with available light, purposeful handheld viewpoints, honest reactions, and naturally imperfect framing.',
-    video: 'Observational documentary follow camera with available light and small human-operated corrections. Capture honest action and reactions without directing the subject to pose or address the lens.',
+    director: '观察式纪录跟拍。人物先行动，摄影机后跟随；用现场光和可解释的手持修正记录触发、反应与恢复。允许动作停顿或做到一半，不要求人物看镜头，不把真实行动整理成完整表演。',
+    image: 'Observational documentary capture of one honest action phase already underway. Available light, purposeful handheld proximity, an occupied subject, naturally imperfect posture and framing, truthful skin and materials, and no staged hero pose.',
+    grid: 'Observational documentary: one causal action phase per panel, occupied subject, delayed reaction, available light, human handheld position and imperfect framing; no posed coverage.',
+    video: 'The subject begins engaged in the task. A trigger produces a delayed response, one incomplete adjustment and a return of attention, with brief low-activity intervals. The operator follows after movement begins with small human corrections, available light and occasional focus recovery; no posing or lens address.',
   },
   {
     value: 'phone-bystander',
     label: '路人手机',
     description: '手机随手拍、自动曝光与偶发遮挡',
-    director: '路人手机随手拍。竖直或横向手持由项目画幅决定，允许轻微晃动、自动曝光和对焦恢复。',
-    image: 'Plausible bystander phone capture with small-sensor depth, automatic exposure and white balance, casual imperfect framing, mild motion blur, and no professional lighting or staged pose.',
-    grid: 'Casual bystander-phone coverage with imperfect framing, auto-exposure behavior, mild motion blur, and spontaneous action.',
-    video: 'Bystander phone footage with natural hand movement, small autofocus and exposure recovery, casual imperfect framing, and spontaneous behavior. No professional camera choreography or posing.',
+    director: '路人手机随手记录。人物原本就在做事，手机只在动作发生后被动跟上；允许构图慢半拍、轻微晃动、自动曝光和对焦恢复，以及短暂无事发生的时刻，不进行专业调度或摆拍。',
+    image: 'Plausible bystander phone capture of one spontaneous instant while the subject remains occupied by real activity. Use small-sensor depth, automatic exposure and white balance, casual imperfect framing, mild motion blur and no professional light or staged pose.',
+    grid: 'Bystander phone: one spontaneous action phase per panel, never a completed pose; occupied subject, imperfect framing, auto-exposure response and mild motion blur.',
+    video: 'The subject is already engaged and does not present to the phone. Use a sparse trigger-response-return chain with pauses and an unfinished gesture. The phone reacts after movement starts with a late reframe, autofocus or exposure recovery and imperfect composition. No professional choreography or posing.',
   },
   {
     value: 'news-telephoto',
     label: '新闻长焦',
     description: '远距离新闻机位、压缩空间与前景遮挡',
-    director: '远距离新闻长焦观察。空间压缩明显，机位受限，允许人群与街道设施遮挡。',
+    director: '远距离新闻长焦观察。人物按自己的行动线活动，受限机位只能在动作发生后做克制的摇摄修正；空间压缩明显，允许人群和街道设施遮挡、短暂跟丢与重新找到主体。',
     image: 'Distant news telephoto capture with compressed perspective, restricted camera access, foreground crowd occlusion, practical available light, and restrained broadcast texture.',
     grid: 'Distant news-telephoto coverage with compressed perspective, restricted sightlines, foreground occlusion, and practical available light.',
-    video: 'Distant news telephoto footage with compressed perspective, restricted camera access, foreground crowd occlusion, restrained pan corrections, and practical available light.',
+    video: 'The distant camera observes an already unfolding event from restricted access. It does not anticipate the subject: movement begins first, then one restrained late pan or focus correction follows. Preserve compressed perspective, foreground crowd occlusion, practical available light and brief imperfect tracking rather than hero coverage.',
   },
   {
     value: 'home-video',
     label: '家庭录像',
     description: '亲近随拍、自动对焦与生活化构图',
-    director: '家庭录像式近距离随拍。构图亲近但不精确，保留自动对焦和曝光的小幅修正。',
+    director: '家庭录像式近距离随拍。人物继续自己的日常互动，不向镜头完成标准动作；构图亲近但不精确，拍摄者在动作发生后才跟随，保留停顿、笑意消退、动作未完成以及自动对焦和曝光修正。',
     image: 'Intimate home-video still with casual framing, consumer-camera optics, automatic focus/exposure behavior, and warm unperformed interaction.',
     grid: 'Casual home-video coverage with intimate distance, consumer optics, imperfect framing, and warm spontaneous interaction.',
-    video: 'Intimate home-video capture with casual handheld framing, consumer autofocus/exposure recovery, and warm spontaneous interaction. No commercial staging.',
+    video: 'The subject is already inside an ordinary domestic interaction. Preserve pauses, incomplete gestures and reactions that fade rather than resolve into a pose. The familiar camera holder follows a beat late with casual handheld framing and consumer autofocus/exposure recovery. No commercial staging or presentation.',
   },
   {
     value: 'surveillance',
     label: '监控机位',
     description: '固定高位广角、冷静远观和有限画质',
-    director: '固定监控机位。高位广角远观，人物按真实路径进入和离开画面，不为镜头表演。',
+    director: '固定监控机位。高位广角不跟随、不纠正、不预判；人物按真实路径进入、停顿、改变方向和离开画面，不为镜头表演。',
     image: 'Fixed high-angle surveillance view with wide spatial coverage, restricted image quality, practical flat exposure, and subjects moving naturally through the frame without posing.',
     grid: 'Fixed surveillance viewpoints with high-angle wide coverage, readable routes, limited image quality, and no performed camera awareness.',
-    video: 'Fixed high-angle surveillance camera with wide spatial coverage and limited image quality. Subjects enter, cross, and leave naturally without camera awareness; no cinematic camera move.',
+    video: 'The fixed high-angle surveillance camera never follows, reframes, focuses or anticipates. Subjects enter, pause, change direction, cross and leave according to the authored physical route without camera awareness. Keep wide spatial coverage, practical flat exposure and limited image quality; no cinematic move or performed pose.',
   },
   {
     value: 'commercial-studio',
@@ -105,6 +105,11 @@ export function normalizeCapturePreset(value?: CapturePreset | string): CaptureP
 export function getCapturePreset(value?: CapturePreset | string): CapturePresetDefinition {
   const normalized = normalizeCapturePreset(value);
   return CAPTURE_PRESETS.find((preset) => preset.value === normalized) || CAPTURE_PRESETS[0];
+}
+
+export function isObservationalCapturePreset(value?: CapturePreset | string): boolean {
+  return ['broadcast-candid', 'documentary-follow', 'phone-bystander', 'news-telephoto', 'home-video', 'surveillance']
+    .includes(normalizeCapturePreset(value));
 }
 
 export function buildDirectorCaptureContract(value?: CapturePreset | string): string {

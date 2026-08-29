@@ -6,11 +6,13 @@ import {
   buildDirectorCaptureContract,
   buildGridCapturePresetContract,
   buildImageCapturePresetContract,
+  buildVideoCapturePresetContract,
+  isObservationalCapturePreset,
   normalizeCapturePreset,
 } from '../lib/capturePresets.ts';
 import { buildGridPrompt } from '../lib/gridSplitter.ts';
 import { buildStoryWorldAnchorPrompt } from '../lib/promptArchitecture.ts';
-import { buildVideoSegmentPrompt } from '../lib/videoGenerator.ts';
+import { buildVideoSegmentPrompt, sanitizeVisualDirection } from '../lib/videoGenerator.ts';
 import { videoSegmentGenerationSignature } from '../lib/videoSegments.ts';
 
 const storyboard = (capturePreset = 'cinematic-narrative') => ({
@@ -45,6 +47,21 @@ test('broadcast candid contract retains the useful physical capture cues', () =>
   assert.match(director, /前景行人或物体遮挡/);
 });
 
+test('observational capture contracts separate subject behavior from delayed camera response', () => {
+  const director = buildDirectorCaptureContract('broadcast-candid');
+  const image = buildImageCapturePresetContract('broadcast-candid');
+  const video = buildVideoCapturePresetContract('broadcast-candid');
+  assert.match(director, /人物动后才.*修正构图或恢复焦点/);
+  assert.match(director, /原本在做事.*触发.*眼球先移动.*回到原任务/);
+  assert.match(image, /one unguarded instant/i);
+  assert.match(image, /gesture caught slightly incomplete/i);
+  assert.match(video, /never anticipates action/i);
+  assert.match(video, /reacts a beat late/i);
+  assert.match(video, /brief low-activity intervals/i);
+  assert.equal(isObservationalCapturePreset('broadcast-candid'), true);
+  assert.equal(isObservationalCapturePreset('commercial-studio'), false);
+});
+
 test('MJ world master and Nano grid both receive the project capture mode', () => {
   const master = buildStoryWorldAnchorPrompt({
     sceneStyle: 'a busy Shanghai shopping street in late afternoon',
@@ -63,6 +80,25 @@ test('the final H3 prompt receives visual-only broadcast candid direction', () =
   assert.match(prompt, /CAPTURE MODE: Authentic live television candid footage/);
   assert.match(prompt, /long-lens observational viewpoint/i);
   assert.match(prompt, /foreground pedestrians or street objects briefly occluding the frame/i);
+  assert.match(prompt, /continue the low-intensity task in/i);
+  assert.match(prompt, /one adjustment may pause unfinished/i);
+  assert.match(prompt, /return attention(?: to the task)?/i);
+  assert.doesNotMatch(prompt, /<d>/);
+});
+
+test('pseudo-speech imagery is removed before a silent H3 prompt is compiled', () => {
+  const cleaned = sanitizeVisualDirection('她低头整理袖口。嘴唇微张，像很轻地自言自语了半句话。随后她抬眼。');
+  assert.match(cleaned, /整理袖口/);
+  assert.match(cleaned, /抬眼/);
+  assert.doesNotMatch(cleaned, /自言自语|半句话|嘴唇微张/);
+
+  const silent = {
+    ...storyboard('broadcast-candid'),
+    action: '她低头整理袖口。嘴唇微张，像很轻地自言自语了半句话。',
+    description: '她低头整理袖口。嘴唇微张，像很轻地自言自语了半句话。',
+  };
+  const prompt = buildVideoSegmentPrompt([silent], [], { duration: 8, language: 'zh' });
+  assert.doesNotMatch(prompt, /自言自语|半句话|as if .*speaking|mouths? .*word/i);
   assert.doesNotMatch(prompt, /<d>/);
 });
 

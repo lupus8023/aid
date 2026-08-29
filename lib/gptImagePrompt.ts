@@ -7,13 +7,13 @@ const collapse = (value?: string) => String(value || '').replace(/\s+/g, ' ').tr
 function captureSystem(capturePreset?: CapturePreset): string {
   switch (getCapturePreset(capturePreset).value) {
     case 'phone-bystander':
-      return 'A photorealistic ordinary photograph taken on the main camera of a modern phone. Use natural small-sensor depth, automatic exposure and white balance, modest computational sharpening, slight shadow noise and casually imperfect framing. No portrait-mode blur, professional lighting or cinema-camera treatment.';
+      return 'A photorealistic ordinary photograph taken on the main camera of a modern phone, catching one spontaneous action phase rather than a completed pose. The subject remains occupied by real activity and does not present to the phone. Use natural small-sensor depth, automatic exposure and white balance, modest computational sharpening, slight shadow noise and casually imperfect framing. No portrait-mode blur, professional lighting or cinema-camera treatment.';
     case 'broadcast-candid':
-      return 'A photorealistic frame captured by a real live-television long-lens camera. The operator observes from outside the action: compressed distance, restricted sightline, occasional foreground obstruction, restrained broadcast texture and an unposed subject who does not acknowledge the camera. No fashion or publicity staging.';
+      return 'A photorealistic frame captured by a real live-television long-lens camera at one unguarded instant. The subject is already absorbed in an ordinary task, unaware of the camera, with loose asymmetrical posture, attention outside the lens and a gesture caught slightly incomplete. The operator observes from outside the action through compressed distance, restricted sightline and occasional foreground obstruction. Use restrained broadcast texture; no fashion or publicity staging.';
     case 'news-telephoto':
       return 'A photorealistic frame captured by a real distant news telephoto camera. Use compressed perspective, practical available light, a restricted camera position and foreground crowd or street obstruction. No studio relighting, hero pose or feature-film staging.';
     case 'documentary-follow':
-      return 'A photorealistic observational documentary photograph taken on one real handheld mirrorless or shoulder camera. Use available location light, a human camera height, a small corrective reframe and honest unstaged behavior. No commercial polish or publicity pose.';
+      return 'A photorealistic observational documentary photograph taken on one real handheld mirrorless or shoulder camera, isolating one honest action phase already underway. Use available location light, a human camera height, a small corrective reframe and an occupied subject with unstaged posture. No commercial polish or publicity pose.';
     case 'home-video':
       return 'A photorealistic still from one real consumer home-video camera. Use intimate distance, automatic focus and exposure, ordinary household light and casually imperfect framing. No studio light, fashion pose or professional cinema treatment.';
     case 'surveillance':

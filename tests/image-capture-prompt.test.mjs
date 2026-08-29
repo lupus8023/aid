@@ -128,6 +128,26 @@ test('grid prompt preserves all nine unique shot identities under the provider b
   }
 });
 
+test('observational grid contracts preserve all nine shots within their expanded safe budget', () => {
+  const shots = Array.from({ length: 9 }, (_, index) => (
+    `CANDID_PHASE_${index + 1}: Nana continues a distinct ordinary task phase near the shop window; off-center physical action and foreground depth. CAST[1]: Nana; each exactly once.`
+  ));
+  const prompt = buildGridPrompt(
+    'A working Shanghai shopping street',
+    'Nana identity',
+    shots,
+    '16:9',
+    ['CHARACTER IDENTITY: Nana'],
+    undefined,
+    'cinematic-natural',
+    'broadcast-candid',
+  );
+  for (let index = 1; index <= 9; index += 1) assert.match(prompt, new RegExp(`CANDID_PHASE_${index}\\b`));
+  assert.match(prompt, /plausible motion blur/i);
+  assert.match(prompt, /broadcast compression/i);
+  assert.ok(prompt.length <= 3700, `observational grid prompt was ${prompt.length} characters`);
+});
+
 test('GPT Image 2 live-action prompts choose exactly one physical capture system', () => {
   const phone = buildGptImage2PhotographicContract('cinematic-natural', 'phone-bystander');
   const film = buildGptImage2PhotographicContract('cinematic-natural', 'cinematic-narrative');

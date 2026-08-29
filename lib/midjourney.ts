@@ -16,10 +16,10 @@ export interface MidjourneyPromptOptions {
 }
 
 const CAPTURE_DIRECTIONS: Record<CapturePreset, string> = {
-  'cinematic-narrative': 'motivated feature-film framing and natural unposed performance',
-  'broadcast-candid': 'authentic live-television candid long-lens observation, unstaged and apparently unnoticed, relaxed side-on posture, foreground pedestrian or street-object occlusion, off-center untidy framing, slight edge crop, plausible motion blur, restrained broadcast compression and subtle interlaced texture, no influencer pose or beauty retouching',
-  'documentary-follow': 'observational documentary follow camera, available light, purposeful handheld proximity, naturally imperfect framing and unperformed reactions',
-  'phone-bystander': 'casual bystander phone capture, imperfect handheld framing, automatic exposure and focus recovery, mild motion blur and spontaneous behavior',
+  'cinematic-narrative': 'one physically possible instant inside a causal action, the subject occupied by the scene rather than presenting to camera, motivated feature-film framing and natural unposed performance',
+  'broadcast-candid': 'authentic live-television candid long-lens observation of one unguarded instant, the subject already absorbed in an ordinary task and unaware of camera, loose asymmetric side-on posture, attention outside lens, slightly incomplete gesture, foreground pedestrian or street-object occlusion, off-center untidy framing, slight edge crop, plausible motion blur, restrained broadcast compression and subtle interlaced texture, no influencer pose or beauty retouching',
+  'documentary-follow': 'one honest action phase already underway, occupied subject, observational documentary camera, available light, purposeful handheld proximity, naturally imperfect framing and unperformed reaction',
+  'phone-bystander': 'one spontaneous action phase rather than completed pose, occupied subject not presenting to phone, casual bystander capture, imperfect handheld framing, automatic exposure and focus recovery and mild motion blur',
   'news-telephoto': 'distant news telephoto observation, compressed perspective, restricted sightline, foreground crowd occlusion and practical available light',
   'home-video': 'intimate casual home-video framing, consumer optics, automatic focus and exposure behavior and spontaneous interaction',
   surveillance: 'fixed high-angle surveillance viewpoint, wide spatial coverage, limited image quality and no camera-aware performance',

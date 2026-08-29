@@ -2,7 +2,7 @@ import { createVideoTask, getVideoTaskStatus } from './apimart';
 import type { Storyboard } from '@/types';
 import { allocateSegmentTimeline, cinematicEditKind, estimateVideoSegmentSeconds } from './videoSegments';
 import { compileTimedSpeech, storyboardAudioPlan, storyboardSpeech, validateSpeechLanguage } from './speechAudioContract';
-import { buildVideoCapturePresetContract } from './capturePresets';
+import { buildVideoCapturePresetContract, isObservationalCapturePreset } from './capturePresets';
 
 function h3Timestamp(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -39,6 +39,12 @@ function fitH3PromptBudget(prompt: string): string {
       .replace(/[ \t]{2,}/g, ' '))
     .join('')
     .replace(/\n{3,}/g, '\n\n');
+  if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
+
+  fitted = fitted.replace(
+    /EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup\.[\s\S]*?(?=\n(?:SCRIPT DIALOGUE LOCK:|\[Shot 1\]))/i,
+    'EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup. Use motivated hard cuts; preserve axis, eyelines, screen direction, action phase, and geography; do not crossfade, morph, interpolate, repeat, or soften a hard cut.\n',
+  );
   if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
 
   throw new Error(`H3 提示词压缩后仍有 ${fitted.length} 字符，超过 ${H3_PROMPT_MAX_CHARACTERS} 字符上限；该片段的逐字台词或演员任务过多，请拆分片段`);
@@ -106,7 +112,12 @@ export function sanitizeVisualDirection(value: unknown, exactSpokenLines: string
     .replace(/(?:无|没有)(?:任何)?其他(?:角色|人物)(?:在场|出现)?[。.!！]?/gi, ' ')
     .replace(/(?:其他|其余|所有|全部)(?:可见)?(?:角色|人物)(?:保持)?(?:沉默|无声|不说话|不发声|闭嘴|闭口)[。.!！]?/gi, ' ')
     .replace(/no\s+other\s+(?:character|characters|person|people)(?:\s+(?:is|are))?\s*(?:present|visible|speaking)?[.!]?/gi, ' ')
-    .replace(/(?:other|remaining|all)\s+(?:visible\s+)?(?:characters|people)\s+(?:remain|stay|are)\s+(?:silent|quiet)[.!]?/gi, ' ');
+    .replace(/(?:other|remaining|all)\s+(?:visible\s+)?(?:characters|people)\s+(?:remain|stay|are)\s+(?:silent|quiet)[.!]?/gi, ' ')
+    // Visual prose that merely compares a mouth or reaction to speech can
+    // become an unintended native-H3 vocal event. Dialogue lives exclusively
+    // in authoritative <d> tags, so remove these ambiguous pseudo-speech cues.
+    .replace(/[^。！？.!?]*(?:自言自语|像(?:是|在|要)?说话|像(?:是|在)?说了[^。！？.!?]*|嘴唇[^。！？.!?]*(?:话|对白|发声)|听见[^。！？.!?]*(?:声音|动静)|似乎听到)[^。！？.!?]*[。！？.!]?/gi, ' ')
+    .replace(/[^.!?]*(?:talks? to (?:herself|himself|themself)|as if (?:she|he|they|the subject) (?:is|were|was about to be) speaking|mouths? (?:half a )?(?:word|sentence)|hears? (?:a|the|some) (?:sound|noise))[^.!?]*[.!]?/gi, ' ');
   for (const line of exactSpokenLines.map(text => String(text || '').trim()).filter(Boolean)) {
     withoutSpeechDirectives = withoutSpeechDirectives.replace(new RegExp(regexpEscape(line), 'gi'), ' ');
   }
@@ -250,11 +261,20 @@ function officialTemporalPerformance(
   storyboard: Storyboard,
   range: { start: number; end: number },
   picture: string,
+  segmentShotCount: number,
 ): string {
   const span = Math.max(0.5, range.end - range.start);
   const actionStart = range.start + span * 0.22;
   const settleStart = range.start + span * 0.78;
-  return `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, hold ${picture}'s appearance, breath, and gaze; from ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, perform the action at natural speed with weight and contact; from ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, settle the final pose and micro-expression.`;
+  if (segmentShotCount > 1) {
+    return isObservationalCapturePreset(storyboard.capturePreset)
+      ? `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, continue ${picture}'s task; from ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, the trigger causes one delayed response, eyes or weight lead, one adjustment may remain unfinished; from ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, keep residual low activity, then return attention or change state.`
+      : `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, continue ${picture}'s action; from ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, one trigger creates the weighted peak; from ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, keep residual motion and partial recovery, never a pose.`;
+  }
+  if (isObservationalCapturePreset(storyboard.capturePreset)) {
+    return `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, continue the low-intensity task in ${picture}, not a pose. From ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, the authored trigger causes one delayed weighted response; eyes or weight lead the head or hand, and one adjustment may pause unfinished. From ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, keep residual motion, brief low activity, then return attention or enter the authored next state.`;
+  }
+  return `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, continue the low-intensity action in ${picture}, not a presentation pose. From ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, the authored trigger produces one weighted action peak. From ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, preserve residual motion and partial recovery instead of freezing.`;
 }
 
 function officialDialogueDelivery(line: ReturnType<typeof compileTimedSpeech>[number]): string {
@@ -318,6 +338,11 @@ function officialH3PhysicalAction(storyboard: Storyboard, primarySubject: string
 
 function officialH3CameraSentence(storyboard: Storyboard, index: number): string {
   const source = `${storyboard.cameraMove || ''} ${storyboard.description || ''}`.toLowerCase();
+  if (storyboard.capturePreset === 'surveillance') return 'The fixed high camera never follows, reframes, focuses, or anticipates.';
+  if (storyboard.capturePreset === 'broadcast-candid' || storyboard.capturePreset === 'news-telephoto') return 'The remote camera reacts only after movement begins, with one late small reframe or focus recovery.';
+  if (storyboard.capturePreset === 'documentary-follow') return 'The handheld operator reacts after movement begins with one small corrective reframe.';
+  if (storyboard.capturePreset === 'phone-bystander') return 'The phone reacts after movement begins with one late handheld reframe or autofocus recovery.';
+  if (storyboard.capturePreset === 'home-video') return 'The familiar camera holder follows a beat late with one casual handheld correction.';
   if (/(?:静止|固定|static|locked)/i.test(source)) return 'The camera holds a static shot.';
   if (/(?:手持|handheld|shoulder)/i.test(source)) return 'The camera follows the action with restrained handheld movement and settles with the subject.';
   if (/(?:拉远|拉出|pull out|dolly out|zoom out)/i.test(source)) return 'The camera pulls out with small amplitude at slow speed.';
@@ -487,7 +512,7 @@ function buildOfficialGuidePrompt(
       /[.!?]$/.test(action) ? action : `${action}.`,
       performance,
       expression,
-      officialTemporalPerformance(storyboard, range, picture),
+      officialTemporalPerformance(storyboard, range, picture, storyboards.length),
       camera,
       'The established positions and eyelines remain consistent.',
       dialogue,

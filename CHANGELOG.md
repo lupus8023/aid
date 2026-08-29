@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.99 - 2026-08-30
+
+### Changed
+
+- Rebuilt capture prompting around two separate causal tracks: subjects remain occupied by the scene while cameras observe and react only after visible movement begins.
+- Broadcast candid, documentary, bystander phone, news telephoto, home-video, surveillance, and cinematic presets now use concrete task-trigger-response-return behavior instead of generic natural-performance adjectives.
+- Still-image prompts select one physically possible instant from an action rather than compressing a full sequence into one frame; nine-panel prompts distribute distinct action phases while preserving all nine shots.
+- H3 temporal direction now preserves pauses, unfinished adjustments, delayed camera corrections, low-activity intervals, and residual recovery without turning the subject into a continuous performer.
+- Silent visual directions remove ambiguous pseudo-speech cues such as self-talk, speech-like mouth movement, or hearing a sound, preventing native H3 from interpreting them as unscripted dialogue.
+- Long H3 prompt compaction now preserves shot chronology, action causality, camera response, and authoritative dialogue constraints.
+
+### Verification
+
+- All 29 repository regression suites pass, including capture-preset, nine-panel completeness, H3 prompt, image-provider, story-stage, object-consistency, and subtitle-safety coverage.
+- Next.js production compilation, lint/type validation, static generation, and diff validation pass.
+- This is a hosted prompt-generation update and does not require a Companion update.
+
 ## 0.1.98 - 2026-08-29
 
 ### Changed

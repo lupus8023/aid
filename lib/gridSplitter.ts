@@ -1,6 +1,6 @@
 import type { CapturePreset, VisualStyle } from '@/types';
 import { buildCompactImageCaptureContract } from './promptArchitecture';
-import { buildGridCapturePresetContract } from './capturePresets';
+import { buildGridCapturePresetContract, isObservationalCapturePreset } from './capturePresets';
 
 function clipAtWord(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
@@ -141,7 +141,7 @@ Keep the established source positions, color temperature and environment continu
 
   // All nine panels and the authoritative capture/cast rules are intentionally
   // placed first. Only repeated continuity prose at the tail may be removed.
-  const promptBudget = objectLock ? 3900 : GRID_PROMPT_BUDGET;
+  const promptBudget = objectLock ? 3900 : isObservationalCapturePreset(capturePreset) ? 3700 : GRID_PROMPT_BUDGET;
   return prompt.length <= promptBudget
     ? prompt
     : prompt.slice(0, promptBudget).trimEnd();
