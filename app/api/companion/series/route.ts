@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { seriesRetryBlocker } from '@/lib/series/jobHistory';
 import { castSeriesRole } from "@/lib/series/casting";
 import { seriesAssetsReady, seriesStageBlocker } from "@/lib/series/readiness";
 import { moveSeriesToTrash, restoreSeriesFromTrash } from "@/lib/series/trash";
@@ -324,6 +325,8 @@ export async function POST(request: NextRequest) {
           const owner = db.projects.find((p) => p.id === job.seriesId);
           if (!owner || owner.deletedAt)
             throw new Error("连续剧已在回收站或不存在，不能重试任务");
+          const retryBlocker = seriesRetryBlocker(job, db.jobs);
+          if (retryBlocker) throw new Error(retryBlocker);
           if (body.settings)
             job.sealedSettings = await sealSettings(body.settings);
           job.status = "queued";
@@ -331,6 +334,7 @@ export async function POST(request: NextRequest) {
           job.error = undefined;
           job.cancelRequested = false;
           job.stage = "等待从断点重试";
+          job.updatedAt = now;
           owner.paused = false;
           return { ok: true };
         }

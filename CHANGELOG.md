@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.108 - 2026-08-30
+
+### Fixed
+
+- Series casting no longer treats source-language tags as hard TTS capability limits. Prefer native references, then audition cross-language voices from the licensed library and owned workspace.
+- Cross-language trials require detected-language and transcript checks before locking a voice. Persist audio and verification results; ASR outages never resynthesize existing audio, and cached older trials can be verified in place.
+- Separate current tasks from historical results and display update times. Reject obsolete retries and duplicate active work on the server.
+
+### Verification
+
+- 268 tests and TypeScript checks pass. A real He Jin trial produced approximately 9 seconds of English, detected as en with a 100% standard-text match; its audio is cached. No image, video or season generation was started.
+
 ## 0.1.107 - 2026-08-30
 
 ### Fixed

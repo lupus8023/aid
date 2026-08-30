@@ -250,20 +250,25 @@ export async function executeSeriesClaim(
               url: string;
               voiceId: string;
               duration: number;
+              languageCheck?: { passed: boolean; matchScore: number };
             }>("/api/generate-voice-reference", {
               characterName: character.name,
               voiceId: candidate.voiceId,
               fishAudioKey: settings.fishAudioKey,
               language: project.language,
               strictVoice: true,
+              verifyLanguage: 'requiresLanguageCheck' in candidate && candidate.requiresLanguageCheck === true,
             });
             if (!result.url || result.voiceId !== candidate.voiceId)
               throw new Error("试读音色与候选不一致");
+            if ('requiresLanguageCheck' in candidate && candidate.requiresLanguageCheck === true && !result.languageCheck?.passed)
+              throw new Error('跨语言试读尚未通过校验，请更新Companion后重试；不更换音色或重复合成');
             character.voiceId = candidate.voiceId;
             character.voiceProfile = candidate.title;
             character.voiceSource ||= "auto";
             character.voiceLocked = true;
             character.voiceReferenceUrl = result.url;
+            if (result.languageCheck?.passed) character.voiceSelectionReason = `${character.voiceSelectionReason || ''}；目标语言试读已通过文字匹配检查（${Math.round(result.languageCheck.matchScore * 100)}%）`;
             await save(`${character.name} 的声音已固定，试读可试听`);
             break;
           } catch (error) {

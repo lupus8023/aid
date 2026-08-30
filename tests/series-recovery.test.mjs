@@ -140,7 +140,7 @@ test('storage and account errors stop the candidate loop; only a known unusable 
   } finally { globalThis.fetch = previous; }
 });
 
-test('series search includes private owned models without inventing a platform license; excludes wrong language and occupied models', async () => {
+test('series search preserves ownership and license evidence; cross-language voices require audition', async () => {
   const previous = globalThis.fetch;
   const model = (_id, extra = {}) => ({ _id, title: 'English female warm', type: 'tts', state: 'trained', languages: ['en'], visibility: 'public', ...extra });
   const queries = [];
@@ -151,10 +151,11 @@ test('series search includes private owned models without inventing a platform l
   };
   try {
     const result = await findSeriesVoices(fixture().characters[0], 'en', 'test', ['occupied']);
-    assert.deepEqual(result.candidates.map(c => c.voiceId), ['owned']);
+    assert.deepEqual(result.candidates.map(c => c.voiceId), ['owned', 'japanese']);
+    assert.equal(result.candidates[1].requiresLanguageCheck, true);
     assert.equal(result.candidates[0].licensed, false); assert.equal(result.candidates[0].source, 'workspace');
-    assert.equal(queries.length, 2); assert.equal(queries.find(q => q.has('licensed')).get('licensed'), 'true');
-    await assert.rejects(findSeriesVoices(fixture().characters[0], 'en', 'test', ['owned', 'occupied']), /不会随机换声/);
+    assert.equal(queries.length, 3); assert.equal(queries.find(q => q.has('licensed')).get('licensed'), 'true');
+    await assert.rejects(findSeriesVoices(fixture().characters[0], 'en', 'test', ['owned', 'occupied', 'japanese']), /不会随机换声/);
   } finally { globalThis.fetch = previous; }
 });
 

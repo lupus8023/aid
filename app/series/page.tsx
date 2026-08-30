@@ -34,6 +34,7 @@ import { PRODUCTION_STYLE_PRESETS } from "@/lib/promptArchitecture";
 import { seriesRequest } from "@/lib/series/runner";
 import { episodeScreenplay } from "@/lib/series/domain";
 import { seriesStageBlocker } from "@/lib/series/readiness";
+import { partitionSeriesJobs } from '@/lib/series/jobHistory';
 import type {
   SeriesCharacter,
   SeriesLibraryActor,
@@ -475,6 +476,7 @@ export default function SeriesPage() {
     () => snapshot.jobs.filter((j) => j.seriesId === selectedId),
     [snapshot.jobs, selectedId],
   );
+  const { current: currentJobs, history: historicalJobs } = useMemo(() => partitionSeriesJobs(jobs), [jobs]);
   const editingLocked = jobs.some((j) =>
     ["queued", "running"].includes(j.status),
   );
@@ -1389,7 +1391,7 @@ export default function SeriesPage() {
                       </p>
                     </div>
                     <div className="space-y-3">
-                      {[...jobs].reverse().map((j) => (
+                      {currentJobs.map((j) => (
                         <article
                           key={j.id}
                           className="flex items-start gap-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]/40 p-4"
@@ -1419,6 +1421,7 @@ export default function SeriesPage() {
                             <p className="mt-2 break-words text-xs leading-5 text-[var(--text-secondary)]">
                               {j.stage}
                             </p>
+                            <p className="mt-1 text-[10px] text-[var(--text-muted)]">上次更新：{new Date(j.updatedAt).toLocaleString()}</p>
                             {j.error && (
                               <p className="mt-2 break-words text-xs leading-5 text-red-300">
                                 {j.error}
@@ -1448,6 +1451,16 @@ export default function SeriesPage() {
                           </div>
                         </article>
                       ))}
+                      {historicalJobs.length > 0 && (
+                        <details className="rounded-xl border border-[var(--border-color)] p-4">
+                          <summary className="cursor-pointer text-xs text-[var(--text-secondary)]">历史任务记录 · {historicalJobs.length}（不代表当前执行结果）</summary>
+                          <p className="mt-3 text-xs text-[var(--text-muted)]">同阶段已有较新任务，请使用上方当前任务重试。历史记录保留，不再重复加入队列。</p>
+                          {historicalJobs.map(j => <article key={j.id} className="mt-4 border-t border-[var(--border-color)] pt-3 text-xs text-[var(--text-muted)]">
+                            <p>{jobNames[j.kind]} · {statusNames[j.status]} · {new Date(j.updatedAt).toLocaleString()}</p>
+                            <p className="mt-2 break-words">{j.error || j.stage}</p>
+                          </article>)}
+                        </details>
+                      )}
                       {!jobs.length && (
                         <p className="py-14 text-center text-sm text-[var(--text-secondary)]">
                           还没有制作任务。从故事开发开始，所有步骤都会记录在这里。

@@ -27,6 +27,9 @@ export interface SeriesCharacter extends Character {
     title: string;
     licensed: boolean;
     source?: 'workspace' | 'licensed';
+    requiresLanguageCheck?: boolean;
+    languageMode?: 'native' | 'cross_language';
+    sourceLanguages?: string[];
     score: number;
   }>;
   voiceSelectionReason?: string;
