@@ -47,9 +47,9 @@ const button =
   "inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 py-2 text-xs font-medium transition hover:border-[#a78bfa]/60 hover:bg-[var(--bg-hover)] disabled:pointer-events-none disabled:opacity-40";
 const primary = `${button} !border-[#a78bfa] !bg-[#a78bfa] !text-[#1d1534] hover:!bg-[#bca7fa]`;
 const tabs = [
-  { id: "episodes", label: "分集故事", icon: Layers3 },
   { id: "outline", label: "故事总纲", icon: BookOpen },
   { id: "cast", label: "角色与场景", icon: Users },
+  { id: "episodes", label: "分集故事", icon: Layers3 },
   { id: "queue", label: "制作队列", icon: Workflow },
   { id: "films", label: "成片", icon: Film },
 ] as const;
@@ -455,7 +455,7 @@ export default function SeriesPage() {
   const [base, setBase] = useState<string>();
   const [connected, setConnected] = useState(false);
   const [selectedId, setSelectedId] = useState("");
-  const [tab, setTab] = useState<Tab>("episodes");
+  const [tab, setTab] = useState<Tab>("outline");
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -720,7 +720,7 @@ export default function SeriesPage() {
                 className={`min-w-[180px] rounded-xl border p-3 text-left transition lg:w-full ${p.id === selectedId ? "border-[#a78bfa]/40 bg-[#a78bfa]/10" : "border-transparent hover:bg-[var(--bg-tertiary)]"}`}
                 onClick={() => {
                   setSelectedId(p.id);
-                  setTab("episodes");
+                  setTab("outline");
                 }}
               >
                 <p className="truncate text-sm font-medium">{p.name}</p>

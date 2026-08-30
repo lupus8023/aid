@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.104 - 2026-08-30
+
+### Fixed
+
+- Series Studio navigation now follows outline → characters and locations → episode stories → production queue → films. Opening or switching a series defaults to its outline.
+- This is a website navigation update only; scripts, assets, queue behavior and stored projects are unchanged. Companion v0.1.103 remains compatible and does not need reinstalling.
+
 ## 0.1.103 - 2026-08-30
 
 ### Added
