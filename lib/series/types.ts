@@ -29,6 +29,21 @@ export interface SeriesCharacter extends Character {
     score: number;
   }>;
   voiceSelectionReason?: string;
+  casting?: SeriesLibraryActor;
+}
+
+// A production snapshot, not a live link: library edits cannot change a released cast.
+export interface SeriesLibraryActor {
+  id: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+  bibleUrl?: string;
+  voiceId?: string;
+  voiceProfile?: string;
+  voiceReferenceUrl?: string;
+  gender?: Character["gender"];
+  ageGroup?: Character["ageGroup"];
 }
 
 export interface SeriesLocation {

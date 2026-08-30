@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.103 - 2026-08-30
+
+### Added
+
+- Series characters can cast an existing actor from character designs or Story history. Search and preview saved appearances without changing the episode character's name, dramatic role, relationships, or storyline.
+- Reuse complete character cards or existing reference images without new image generation. Inherit saved voices and only synthesize missing voice samples; preserve deliberate per-role voice overrides when the selected actor has no stored voice.
+- Cast changes invalidate production only for affected episodes and preserve scripts and old deliveries. Re-selecting the same actor preserves completed preparation.
+- Legacy local image thumbnails are persisted through the existing image host only when selected. The library is read without modifying its original records and remains scoped to the browser and site.
+
+### Verification
+
+- All 249 tests, TypeScript checks, isolated casting API checks, and browser search/select/save checks pass without paid generation. Library casting requires Companion v0.1.103 or newer.
+
 ## 0.1.102 - 2026-08-30
 
 ### Added

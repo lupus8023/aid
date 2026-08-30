@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { castSeriesRole } from "@/lib/series/casting";
 import {
   createSeries,
   invalidateFrom,
@@ -52,6 +53,16 @@ export async function POST(request: NextRequest) {
           const created = createSeries(body.project || {});
           db.projects.unshift(created);
           return { project: created };
+        }
+        case "cast-character": {
+          if (!project) throw new Error("连续剧不存在");
+          if (busy(project.id))
+            throw new Error("请先暂停制作队列，待当前任务保存断点后再选角");
+          if (body.revision !== project.revision)
+            throw new Error("内容已有更新，请刷新后再选角，未覆盖新版本");
+          if (castSeriesRole(project, body.characterId, body.actor))
+            touchProject(project);
+          return { project };
         }
         case "edit": {
           if (!project) throw new Error("连续剧不存在");
@@ -132,6 +143,7 @@ export async function POST(request: NextRequest) {
                   characterChanged = true;
                   character[key] = value;
                   if (key === "description" || key === "imageUrl") {
+                    character.casting = undefined;
                     character.bibleUrl = undefined;
                     character.imageTaskId = undefined;
                   }
@@ -211,7 +223,9 @@ export async function POST(request: NextRequest) {
             throw new Error("请先完成／更新整季分集故事");
           if (
             ["prepare", "produce"].includes(kind) &&
-            project.characters.some((c) => c.speaking) &&
+            project.characters.some(
+              (c) => c.speaking && (!c.voiceId || !c.voiceReferenceUrl),
+            ) &&
             !body.settings.fishAudioKey
           )
             throw new Error("请先配置 Fish Audio API Key");

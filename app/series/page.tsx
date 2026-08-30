@@ -12,6 +12,7 @@ import {
   Download,
   Film,
   Layers3,
+  Library,
   Loader2,
   Pause,
   Play,
@@ -24,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import SettingsModal from "@/components/SettingsModal";
+import SeriesCastPicker from "@/components/SeriesCastPicker";
 import { useSettings } from "@/hooks/useSettings";
 import { readApiJson } from "@/lib/apiResponse";
 import { PRODUCTION_STYLE_PRESETS } from "@/lib/promptArchitecture";
@@ -31,6 +33,7 @@ import { seriesRequest } from "@/lib/series/runner";
 import { episodeScreenplay } from "@/lib/series/domain";
 import type {
   SeriesCharacter,
+  SeriesLibraryActor,
   SeriesEpisode,
   SeriesJob,
   SeriesJobKind,
@@ -321,10 +324,12 @@ function CharacterCard({
   character,
   disabled,
   onSave,
+  onLibrary,
 }: {
   character: SeriesCharacter;
   disabled: boolean;
   onSave: (patch: Record<string, unknown>) => void;
+  onLibrary: () => void;
 }) {
   return (
     <article className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]">
@@ -352,6 +357,20 @@ function CharacterCard({
           {character.role}{" "}
           {character.appearance === "voice_only" ? "· 仅声音" : ""}
         </p>
+        {character.casting && (
+          <p className="mt-3 text-xs text-[#c1afff]">
+            由角色库「{character.casting.name}」出演 · 形象已复用
+          </p>
+        )}
+        <button
+          type="button"
+          className={`${button} mt-3 w-full`}
+          disabled={disabled}
+          onClick={onLibrary}
+        >
+          <Library size={14} />
+          {character.casting ? "更换角色库演员" : "从角色库选角"}
+        </button>
         <p className="mt-3 text-xs leading-5 text-[var(--text-secondary)]">
           {character.voiceBrief}
         </p>
@@ -444,6 +463,7 @@ export default function SeriesPage() {
   const [selection, setSelection] = useState<string[]>([]);
   const [episodeId, setEpisodeId] = useState("");
   const [preview, setPreview] = useState("");
+  const [castingId, setCastingId] = useState("");
   const project = snapshot.projects.find((p) => p.id === selectedId);
   const jobs = useMemo(
     () => snapshot.jobs.filter((j) => j.seriesId === selectedId),
@@ -519,6 +539,7 @@ export default function SeriesPage() {
   useEffect(() => {
     setSelection([]);
     setEpisodeId("");
+    setCastingId("");
     setPreview("");
     setNotice("");
   }, [selectedId]);
@@ -568,6 +589,53 @@ export default function SeriesPage() {
       { action: "enqueue", kind, episodeIds, settings },
       "已加入队列，系统将自动补齐所需步骤。",
     );
+  const openCastLibrary = async (characterId: string) => {
+    if (base === undefined || busy || editingLocked) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`${base}/api/companion/status`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      });
+      const status = await readApiJson<{ seriesLibraryCasting?: boolean }>(
+        response,
+        "无法检查角色库支持",
+      );
+      if (!status.seriesLibraryCasting)
+        throw new Error(
+          "角色库选角需要 Companion v0.1.103 或更新版本，请更新后重新连接。",
+        );
+      setCastingId(characterId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "无法打开角色库");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const selectLibraryActor = async (actor: SeriesLibraryActor) => {
+    if (!project || base === undefined || editingLocked)
+      throw new Error("请连接服务并暂停制作队列后再选角");
+    setBusy(true);
+    try {
+      await seriesRequest(
+        {
+          action: "cast-character",
+          seriesId: project.id,
+          revision: project.revision,
+          characterId: castingId,
+          actor,
+        },
+        base,
+      );
+      await refresh(base);
+      setNotice(
+        `已由「${actor.name}」出演剧中角色；形象直接复用，旧成片保留。`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
   const deliveryUrl = (id: string, download = false) =>
     `${base || ""}/api/companion/series/delivery?seriesId=${encodeURIComponent(selectedId)}&id=${encodeURIComponent(id)}${download ? "&download=1" : ""}`;
   const episodeStatus = (
@@ -1174,6 +1242,7 @@ export default function SeriesPage() {
                           key={`${c.id}-${c.version}`}
                           character={c}
                           disabled={editingLocked || busy}
+                          onLibrary={() => void openCastLibrary(c.id)}
                           onSave={(patch) =>
                             void action(
                               {
@@ -1527,6 +1596,17 @@ export default function SeriesPage() {
           aria-hidden="true"
         />
       )}
+      {project &&
+        castingId &&
+        project.characters.some((c) => c.id === castingId) && (
+          <SeriesCastPicker
+            key={`${project.id}-${castingId}`}
+            character={project.characters.find((c) => c.id === castingId)!}
+            disabled={editingLocked || busy}
+            onClose={() => setCastingId("")}
+            onSelect={selectLibraryActor}
+          />
+        )}
       <SettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
