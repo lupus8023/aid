@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
         voiceId: planned.voiceId,
         voiceProfile: planned.voiceProfile,
         voiceSource: planned.voiceSource,
+        voiceLocked: planned.voiceLocked,
       });
     }
 

@@ -54,6 +54,7 @@
 - **Real-time Progress**: Live status updates during image and video generation
 - **Batch Processing**: Generate multiple storyboard scenes simultaneously
 - **Project Management**: Save, load, and export your projects with ease
+- **Series Studio**: Plan a season, manage shared characters and voices, produce 18-shot episodes, and download each episode separately. See [连续剧制片说明](docs/series-studio.md).
 
 ---
 

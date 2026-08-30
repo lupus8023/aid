@@ -33,6 +33,15 @@ const creationModes = [
     accent: 'teal',
   },
   {
+    href: '/series',
+    icon: Layers3,
+    label: '连续剧制片',
+    english: 'Series Studio',
+    description: '从整季总纲、分集悬念到角色定稿，连续制作每集18镜短剧。',
+    meta: '18镜 / 约2分钟 · 自动选声 · 分集交付',
+    accent: 'purple',
+  },
+  {
     href: '/character-design',
     icon: Palette,
     label: '角色设计',

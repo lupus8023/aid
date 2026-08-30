@@ -10,7 +10,7 @@ const ALLOWED_COMPANION_ORIGINS = new Set([
 function corsHeaders(response: NextResponse, origin: string): NextResponse {
   response.headers.set('Access-Control-Allow-Origin', origin);
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  response.headers.set('Access-Control-Allow-Headers', 'Content-Type');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, X-AID-Lease, Range');
   response.headers.set('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length');
   response.headers.set('Access-Control-Allow-Private-Network', 'true');
   response.headers.set('Access-Control-Max-Age', '86400');
@@ -46,6 +46,8 @@ export const config = {
     '/api/companion/status',
     '/api/companion/audio/:path*',
     '/api/companion/export/:path*',
+    '/api/companion/series/:path*',
+    '/api/series/:path*',
     '/api/comfyui/download',
     '/api/comfyui/character-replace',
     '/api/generate-video',

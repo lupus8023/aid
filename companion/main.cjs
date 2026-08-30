@@ -16,6 +16,33 @@ let resolvedSshHost = '';
 let isQuitting = false;
 let serverRestartTimer;
 let serverLaunchConfig;
+let seriesWorker;
+let seriesWorkerTimer;
+
+// A separate sandboxed renderer runs the existing browser-based Story engine.
+// It survives closing the website or hiding the Companion window. The queue,
+// leases and checkpoints themselves live in the Companion's private disk store.
+function startSeriesWorker() {
+  if (isQuitting) return;
+  if (seriesWorker && !seriesWorker.isDestroyed()) { seriesWorker.reload(); return; }
+  seriesWorker = new BrowserWindow({ show: false, width: 1440, height: 1000,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } });
+  seriesWorker.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  seriesWorker.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith(`http://127.0.0.1:${PORT}/`)) event.preventDefault();
+  });
+  const reload = () => {
+    if (isQuitting) return;
+    clearTimeout(seriesWorkerTimer);
+    seriesWorkerTimer = setTimeout(() => {
+      if (seriesWorker && !seriesWorker.isDestroyed()) seriesWorker.loadURL(`http://127.0.0.1:${PORT}/series/worker?mode=companion`).catch(() => {});
+    }, 5000);
+  };
+  seriesWorker.webContents.on('did-fail-load', reload);
+  seriesWorker.webContents.on('render-process-gone', reload);
+  seriesWorker.on('closed', () => { seriesWorker = undefined; if (!isQuitting) { clearTimeout(seriesWorkerTimer); seriesWorkerTimer = setTimeout(startSeriesWorker, 5000); } });
+  seriesWorker.loadURL(`http://127.0.0.1:${PORT}/series/worker?mode=companion`).catch(reload);
+}
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
@@ -329,6 +356,7 @@ app.whenReady().then(async () => {
   );
   createWindow();
   createTray();
+  startSeriesWorker();
 
   ipcMain.handle('companion:get-state', () => ({
     publicKey,
@@ -355,6 +383,8 @@ app.on('second-instance', () => {
 app.on('before-quit', () => {
   isQuitting = true;
   serverLaunchConfig = undefined;
+  clearTimeout(seriesWorkerTimer);
+  if (seriesWorker && !seriesWorker.isDestroyed()) seriesWorker.destroy();
   if (serverRestartTimer) {
     clearTimeout(serverRestartTimer);
     serverRestartTimer = undefined;

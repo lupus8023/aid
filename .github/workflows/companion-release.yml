@@ -77,6 +77,7 @@ jobs:
       - run: npm run test:voice-casting
       - run: npm run test:image-prompt-safety
       - run: npm run test:grid-recovery
+      - run: npm run test:series
       - run: npm run build:companion
       - run: node scripts/package-companion.mjs --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
       - name: Archive macOS app

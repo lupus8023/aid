@@ -17,6 +17,9 @@ export interface FishVoiceModel {
   task_count?: number;
   like_count?: number;
   mark_count?: number;
+  licensed?: boolean;
+  dmca_taken_down?: boolean;
+  pvc_release_state?: string;
 }
 
 export interface FishVoiceSelectionInput extends VoiceCastInput {
@@ -38,8 +41,8 @@ function normalizedText(model: FishVoiceModel): string {
 }
 
 function genderEvidence(text: string): VoiceGender {
-  const female = /(?:女性|女声|少女|女孩|姐姐|妹妹|母亲|妈妈|奶奶|female|woman|girl|feminine|mother|sister|queen|princess)/iu.test(text);
-  const male = /(?:男性|男声|少年|男孩|哥哥|弟弟|父亲|爸爸|爷爷|male|man|boy|masculine|father|brother|king|prince)/iu.test(text);
+  const female = /(?:女性|女声|少女|女孩|姐姐|妹妹|母亲|妈妈|奶奶|\bfemale\b|\bwoman\b|\bgirl\b|feminine|mother|sister|queen|princess)/iu.test(text);
+  const male = /(?:男性|男声|少年|男孩|哥哥|弟弟|父亲|爸爸|爷爷|\bmale\b|\bman\b|\bboy\b|masculine|father|brother|\bking\b|\bprince\b)/iu.test(text);
   if (female && !male) return 'female';
   if (male && !female) return 'male';
   return 'unknown';
@@ -70,7 +73,8 @@ export function rankFishVoiceModels(
   return models
     .filter(model => Boolean(model._id) && (!model.type || model.type === 'tts'))
     .filter(model => !model.visibility || model.visibility === 'public' || model.visibility === 'unlist')
-    .filter(model => !model.state || ['created', 'ready'].includes(model.state))
+    .filter(model => !model.state || ['created', 'ready', 'trained'].includes(model.state))
+    .filter(model => !model.dmca_taken_down && model.pvc_release_state !== 'retiring')
     .map(model => {
       const text = normalizedText(model);
       const foundGender = genderEvidence(text);

@@ -15,6 +15,7 @@ export interface PlannedCharacter {
   voiceId?: string; // 全片固定 Fish Audio reference_id
   voiceProfile?: string;
   voiceSource?: 'user' | 'auto';
+  voiceLocked?: boolean;
 }
 
 export interface Beat {
@@ -150,5 +151,5 @@ export interface PipelineState {
 }
 
 // 参与编剧阶段的角色/物件输入（从 UI 状态规约而来）
-export type WriterCharacter = Pick<Character, 'name' | 'description' | 'voiceId' | 'voiceProfile' | 'voiceSource' | 'gender' | 'ageGroup'>;
+export type WriterCharacter = Pick<Character, 'name' | 'description' | 'voiceId' | 'voiceProfile' | 'voiceSource' | 'voiceLocked' | 'gender' | 'ageGroup'>;
 export type WriterObject = Pick<ObjectItem, 'name' | 'description'>;

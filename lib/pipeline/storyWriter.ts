@@ -965,6 +965,7 @@ export function sanitizeStoryPlan(
   voiceSources: Record<string, 'user' | 'auto' | undefined> = {},
   voiceGenders: Record<string, VoiceGender | undefined> = {},
   voiceAgeGroups: Record<string, VoiceAgeGroup | undefined> = {},
+  voiceLocks: Record<string, boolean | undefined> = {},
 ): StoryPlan {
   const characters: PlannedCharacter[] = (Array.isArray(raw?.characters) ? raw.characters : []).map((c: any) => ({
     name: asString(c?.name),
@@ -978,6 +979,7 @@ export function sanitizeStoryPlan(
     voiceId: voiceIds[asString(c?.name)],
     voiceProfile: voiceProfiles[asString(c?.name)] || asString(c?.voiceProfile).trim(),
     voiceSource: voiceSources[asString(c?.name)],
+    voiceLocked: voiceLocks[asString(c?.name)],
   })).filter((c: PlannedCharacter) => c.name && allowedCharacters.includes(c.name));
 
   let globalBeatIndex = 0;
@@ -1336,7 +1338,7 @@ export async function generateStoryPlan(input: {
   );
   characters = castStoryVoices(characters.map(character => {
     const planned = plannedByName.get(character.name);
-    if (!planned || character.voiceSource === 'user') return character;
+    if (!planned || character.voiceSource === 'user' || character.voiceLocked) return character;
     const role = asString(planned?.role).trim();
     const plannedVoiceProfile = asString(planned?.voiceProfile).trim();
     const storyIdentity = {
@@ -1657,6 +1659,7 @@ export async function generateStoryPlan(input: {
     Object.fromEntries(characters.map(character => [character.name, character.voiceSource])),
     Object.fromEntries(characters.map(character => [character.name, character.gender])),
     Object.fromEntries(characters.map(character => [character.name, character.ageGroup])),
+    Object.fromEntries(characters.map(character => [character.name, character.voiceLocked])),
   );
   const actualShotCount = storyPlanBeatCount(plan);
   if (actualShotCount !== targetShotCount) {

@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { AppSettings } from '@/types';
 import { SEEDREAM_5_PRO } from '@/lib/imageModels';
+import { storyStorageKeys } from '@/lib/series/storageScope';
 
 const DEFAULT_SETTINGS: AppSettings = {
   apiProvider: 'apimart',
@@ -84,7 +85,7 @@ export function useSettings() {
 
   // 从 localStorage 加载设置
   useEffect(() => {
-    const saved = localStorage.getItem('appSettings');
+    const saved = localStorage.getItem(storyStorageKeys().settings);
     if (saved) {
       try {
         const parsed = migrateSettings(JSON.parse(saved) as AppSettings);
@@ -94,7 +95,7 @@ export function useSettings() {
           localStorage.setItem(h3MigrationKey, '1');
         }
         setSettings(parsed);
-        localStorage.setItem('appSettings', JSON.stringify(parsed));
+        localStorage.setItem(storyStorageKeys().settings, JSON.stringify(parsed));
       } catch (error) {
         console.error('Failed to load settings:', error);
       }
@@ -105,13 +106,13 @@ export function useSettings() {
   const saveSettings = useCallback((newSettings: AppSettings) => {
     const migrated = migrateSettings(newSettings);
     setSettings(migrated);
-    localStorage.setItem('appSettings', JSON.stringify(migrated));
+    localStorage.setItem(storyStorageKeys().settings, JSON.stringify(migrated));
   }, []);
 
   // 重置为默认设置
   const resetSettings = useCallback(() => {
     setSettings(DEFAULT_SETTINGS);
-    localStorage.setItem('appSettings', JSON.stringify(DEFAULT_SETTINGS));
+    localStorage.setItem(storyStorageKeys().settings, JSON.stringify(DEFAULT_SETTINGS));
     console.log('Settings reset to defaults');
   }, []);
 

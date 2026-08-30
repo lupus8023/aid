@@ -8,6 +8,7 @@ export async function GET() {
     name: 'AID Companion',
     version: process.env.AID_COMPANION_VERSION || 'development',
     nativeVideoExport: true,
+    seriesProduction: true,
     sshDirectHost: process.env.COMFYUI_SSH_DIRECT_HOST || '',
     sshTransport: process.env.AID_COMPANION_SYSTEM_SSH === '1' ? 'system' : 'embedded',
   });

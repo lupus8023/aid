@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.102 - 2026-08-30
+
+### Added
+
+- Series Studio at `/series`: season outlines, episode stories, planned payoffs and cliffhangers, and editable 18-shot scripts targeting two minutes per episode.
+- Shared character and location preparation, with automatic discovery of licensed Fish Audio voice candidates, synthesis availability checks, and persistent voice locking across episodes.
+- Local persistent production queues with pause, recovery, duplicate prevention, and an independent Companion worker that continues while the website is closed.
+- Per-episode production, batch production, validated MP4 delivery, individual downloads, and retained historical versions. User story edits invalidate dependent drafts without deleting old films.
+
+### Verification and requirements
+
+- All 244 repository tests and the Companion production build pass. Isolated queue/API, media validation, range-download, desktop, and narrow-screen checks pass without paid generation.
+- Series Studio requires Companion v0.1.102 or newer for local storage and background execution. Existing Story projects remain isolated from series jobs.
+- Real provider-generated voice and video quality still require sample production; automatic voice selection currently checks metadata fit and synthesis availability, not acting quality.
+
 ## 0.1.101 - 2026-08-30
 
 ### Fixed

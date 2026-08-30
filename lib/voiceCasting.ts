@@ -8,6 +8,7 @@ export interface VoiceCastInput {
   voiceId?: string;
   voiceProfile?: string;
   voiceSource?: VoiceSource;
+  voiceLocked?: boolean;
   gender?: VoiceGender;
   ageGroup?: VoiceAgeGroup;
   role?: string;
@@ -164,7 +165,7 @@ export function castCharacterVoice<T extends VoiceCastInput>(
   character: T,
   language: 'zh' | 'en' = 'zh',
 ): T & VoiceCastResult {
-  const existing = normalizeFishVoiceId(character.voiceId);
+  const existing = character.voiceLocked ? String(character.voiceId || '').trim() : normalizeFishVoiceId(character.voiceId);
   if (existing) {
     return {
       ...character,
@@ -202,15 +203,15 @@ export function castStoryVoices<T extends VoiceCastInput>(
 ): Array<T & VoiceCastResult> {
   const usedVoiceIds = new Set(
     characters
-      .filter(character => String(character.voiceId || '').trim() && character.voiceSource !== 'auto')
+      .filter(character => String(character.voiceId || '').trim() && (character.voiceSource !== 'auto' || character.voiceLocked))
       .map(character => normalizeFishVoiceId(character.voiceId)!),
   );
 
   return characters.map(character => {
-    const existing = normalizeFishVoiceId(character.voiceId);
-    if (existing && character.voiceSource !== 'auto') {
+    const existing = character.voiceLocked ? String(character.voiceId || '').trim() : normalizeFishVoiceId(character.voiceId);
+    if (existing && (character.voiceSource !== 'auto' || character.voiceLocked)) {
       usedVoiceIds.add(existing);
-      return castCharacterVoice(character, language);
+      return { ...castCharacterVoice(character, language), voiceId: existing };
     }
 
     const profile = inferredProfile(character, language);
@@ -249,6 +250,7 @@ export function lockStoryboardVoiceIds<T extends {
   speech?: Array<{ character: string; voiceId?: string }>;
 }>(storyboards: T[], characters: VoiceCastInput[]): T[] {
   const voiceByName = new Map(characters.map(character => [character.name.trim().toLocaleLowerCase(), character.voiceId]));
+  const lockedNames = new Set(characters.filter(character => character.voiceLocked).map(character => character.name.trim().toLocaleLowerCase()));
   return storyboards.map(storyboard => ({
     ...storyboard,
     speech: storyboard.speech?.map(line => {
@@ -258,7 +260,7 @@ export function lockStoryboardVoiceIds<T extends {
         // The project cast is authoritative. An explicit but unresolved cast
         // member also clears a legacy per-line id; otherwise an old wrong-
         // gender voice could survive behind a UI row marked "待确认".
-        voiceId: voiceByName.has(nameKey)
+        voiceId: lockedNames.has(nameKey) ? voiceByName.get(nameKey) : voiceByName.has(nameKey)
           ? normalizeFishVoiceId(voiceByName.get(nameKey))
           : normalizeFishVoiceId(line.voiceId),
       };

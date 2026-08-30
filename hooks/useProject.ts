@@ -6,6 +6,7 @@ import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { StoryPlan, PipelineState } from '@/lib/pipeline/types';
 import { createProjectId } from '@/lib/projectIdentity';
 import type { VideoSegmentPlan } from '@/lib/videoSegments';
+import { storyStorageKeys } from '@/lib/series/storageScope';
 
 const CURRENT_PROJECT_V2_KEY = 'aid:current-project:v2';
 const LEGACY_CURRENT_PROJECT_KEY = 'currentProject';
@@ -51,6 +52,7 @@ function cleanCharacter(char: Character): Character {
     voiceId: char.voiceId,
     voiceProfile: char.voiceProfile,
     voiceSource: char.voiceSource,
+    voiceLocked: char.voiceLocked,
     gender: char.gender,
     ageGroup: char.ageGroup,
     ...(hasPublicUrl(char.imageUrl) ? {} : { imageBase64: char.imageBase64 }),
@@ -84,6 +86,7 @@ export function useProject() {
 
   // 保存项目到本地存储
   const saveProject = useCallback((data: Partial<ProjectData>) => {
+    const { current: CURRENT_PROJECT_V2_KEY, legacy: LEGACY_CURRENT_PROJECT_KEY, isolated } = storyStorageKeys();
     const targetId = data.id || projectId;
     try {
       // New builds read from a private v2 slot. Tabs that still execute an
@@ -135,9 +138,15 @@ export function useProject() {
       // as the authority once v2 exists.
       localStorage.setItem(LEGACY_CURRENT_PROJECT_KEY, serialized);
       lastKnownUpdatedAtRef.current = updatedAt;
+      if (isolated) window.dispatchEvent(new CustomEvent('aid-series-project-saved', { detail: projectData }));
       console.log('项目已保存:', projectName);
     } catch (error) {
       console.error('保存项目失败:', error);
+      if (isolated) {
+        // Do not silently discard paid task identifiers in a production runner.
+        window.dispatchEvent(new CustomEvent('aid-series-project-saved', { detail: projectData }));
+        return;
+      }
       // 如果仍然超限，尝试只保存基本信息（丢弃体积大的资产）
       try {
         const minimalData = {
@@ -168,6 +177,7 @@ export function useProject() {
 
   // 从本地存储加载项目
   const loadProject = useCallback(() => {
+    const { current: CURRENT_PROJECT_V2_KEY, legacy: LEGACY_CURRENT_PROJECT_KEY } = storyStorageKeys();
     const saved = localStorage.getItem(CURRENT_PROJECT_V2_KEY)
       || localStorage.getItem(LEGACY_CURRENT_PROJECT_KEY);
     if (saved) {
@@ -211,6 +221,7 @@ export function useProject() {
 
   // 创建新项目
   const newProject = useCallback(() => {
+    const { current: CURRENT_PROJECT_V2_KEY, legacy: LEGACY_CURRENT_PROJECT_KEY } = storyStorageKeys();
     if (confirm('创建新项目将清空当前数据，是否继续？')) {
       localStorage.removeItem(CURRENT_PROJECT_V2_KEY);
       localStorage.removeItem(LEGACY_CURRENT_PROJECT_KEY);

@@ -261,7 +261,7 @@ async function retryCommand(label: string, operation: () => Promise<void>): Prom
   throw new Error(`${label}连续重试 ${COMMAND_ATTEMPTS} 次仍失败：${cleanError(lastError)}`);
 }
 
-type MediaProbe = { width: number; height: number; hasAudio: boolean };
+type MediaProbe = { width: number; height: number; hasAudio: boolean; duration: number };
 
 function normalizeExportAspectRatio(value: unknown): CompanionExportJob['aspectRatio'] | undefined {
   return value === '16:9' || value === '9:16' || value === '1:1' ? value : undefined;
@@ -289,17 +289,18 @@ export function selectExportTarget(
   return { width: even(height * ratio), height: even(height) };
 }
 
-async function probeMedia(filePath: string): Promise<MediaProbe> {
+export async function probeMedia(filePath: string): Promise<MediaProbe> {
   const output = await new Promise<string>((resolve, reject) => {
     const child = spawn(ffprobePath(), [
-      '-v', 'error', '-show_streams', '-of', 'json', filePath,
+      '-v', 'error', '-show_streams', '-show_format', '-of', 'json', filePath,
     ], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
+    const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('媒体检查超时')); }, 30000);
     child.stdout.on('data', chunk => { stdout += String(chunk); });
     child.stderr.on('data', chunk => { stderr += String(chunk); });
-    child.once('error', reject);
-    child.once('close', code => code === 0 ? resolve(stdout) : reject(new Error(stderr || `FFprobe 退出码 ${code}`)));
+    child.once('error', error => { clearTimeout(timer); reject(error); });
+    child.once('close', code => { clearTimeout(timer); code === 0 ? resolve(stdout) : reject(new Error(stderr || `FFprobe 退出码 ${code}`)); });
   });
   const streams = (JSON.parse(output).streams || []) as Array<Record<string, unknown>>;
   const video = streams.find(stream => stream.codec_type === 'video');
@@ -307,7 +308,7 @@ async function probeMedia(filePath: string): Promise<MediaProbe> {
   const width = Number(video.width);
   const height = Number(video.height);
   if (!width || !height) throw new Error('无法读取片段分辨率');
-  return { width, height, hasAudio: streams.some(stream => stream.codec_type === 'audio') };
+  return { width, height, hasAudio: streams.some(stream => stream.codec_type === 'audio'), duration: Number(JSON.parse(output).format?.duration || video.duration || 0) };
 }
 
 async function isValidVideo(filePath: string): Promise<boolean> {

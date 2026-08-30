@@ -21,6 +21,7 @@ export interface Character {
   voiceId?: string; // fish.audio reference_id
   voiceProfile?: string; // 角色音色画像；自动选角时用于复现同一声音
   voiceSource?: 'user' | 'auto';
+  voiceLocked?: boolean; // 定稿与来源分别保存；连续剧自动音色不得在每集重新选角
   gender?: VoiceGender; // 声音选角使用；未知时不得擅自按女性处理
   ageGroup?: VoiceAgeGroup;
 }

@@ -6,7 +6,7 @@ import { voiceReferencePublicId, voiceReferenceSample } from '@/lib/voiceReferen
 // 生成角色声音参考音频：用一段简短文本捕捉音色，上传到 Cloudinary
 export async function POST(request: NextRequest) {
   try {
-    const { characterName, voiceId, fishAudioKey, language = 'zh' } = await request.json();
+    const { characterName, voiceId, fishAudioKey, language = 'zh', strictVoice = false } = await request.json();
 
     if (!fishAudioKey || !voiceId?.trim()) {
       return NextResponse.json({ error: 'fishAudioKey 和已锁定的 voiceId 均为必填项' }, { status: 400 });
@@ -18,7 +18,8 @@ export async function POST(request: NextRequest) {
     // words and timing independently.
     const sampleText = voiceReferenceSample(language === 'en' ? 'en' : 'zh');
 
-    const { buffer: audioBuffer } = await generateFishSpeech(sampleText, voiceId, fishAudioKey);
+    const { buffer: audioBuffer, voiceId: actualVoiceId } = await generateFishSpeech(sampleText, voiceId, fishAudioKey, { strictVoice });
+    if (audioBuffer.length < 1000) throw new Error('音色试读返回内容过短，未通过可用性检查');
     const base64 = `data:audio/mpeg;base64,${audioBuffer.toString('base64')}`;
 
     const result = await uploadToCloudinary(base64, {
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
       url: result.secure_url,
       duration: result.duration ?? 0,
       characterName,
+      voiceId: actualVoiceId,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to generate voice reference' }, { status: 500 });

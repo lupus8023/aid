@@ -48,6 +48,8 @@ import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@
 import { storyboardSpeech } from '@/lib/speechAudioContract';
 import { castCharacterVoice, castStoryVoices, lockStoryboardVoiceIds } from '@/lib/voiceCasting';
 import { applyStoryAspectRatio, hasStoryMedia, projectStoryAspectRatio, type StoryAspectRatio } from '@/lib/storyAspectRatio';
+import { storyStorageKeys } from '@/lib/series/storageScope';
+import { validateSeriesProduction } from '@/lib/series/productionContract';
 import { autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, normalizeStoryboardImageArtifact, planAutoImageBatch } from '@/lib/autoProduction';
 import { effectiveStoryCast } from '@/lib/storyCast';
 import { resolveMidjourneyProfileSetting } from '@/lib/midjourney';
@@ -187,7 +189,7 @@ function replaceStoryboardAndInvalidateChangedVideo(current: Storyboard[], updat
   });
 }
 
-const AUTO_PRODUCTION_STORAGE_KEY = 'aid:auto-production';
+function autoProductionStorageKey() { return storyStorageKeys().auto; }
 
 type SavedAutoProduction = {
   projectId: string;
@@ -197,7 +199,7 @@ type SavedAutoProduction = {
 
 function savedAutoProduction(): SavedAutoProduction | undefined {
   try {
-    const saved = JSON.parse(localStorage.getItem(AUTO_PRODUCTION_STORAGE_KEY) || 'null');
+    const saved = JSON.parse(localStorage.getItem(autoProductionStorageKey()) || 'null');
     if (typeof saved?.projectId !== 'string') return undefined;
     return {
       projectId: saved.projectId,
@@ -215,13 +217,13 @@ function savedAutoProductionProjectId(): string | undefined {
 
 function markAutoProduction(projectId: string, status: 'running' | 'paused' = 'running'): void {
   try {
-    localStorage.setItem(AUTO_PRODUCTION_STORAGE_KEY, JSON.stringify({ projectId, status, updatedAt: Date.now() }));
+    localStorage.setItem(autoProductionStorageKey(), JSON.stringify({ projectId, status, updatedAt: Date.now() }));
   } catch {}
 }
 
 function clearAutoProduction(projectId: string): void {
   try {
-    if (savedAutoProductionProjectId() === projectId) localStorage.removeItem(AUTO_PRODUCTION_STORAGE_KEY);
+    if (savedAutoProductionProjectId() === projectId) localStorage.removeItem(autoProductionStorageKey());
   } catch {}
 }
 
@@ -236,6 +238,15 @@ export default function StoryPage() {
     if (!batchRunId || window.parent === window) return;
     window.parent.postMessage({ type: 'aid-story-batch', runId: batchRunId, ...payload }, window.location.origin);
   };
+  useEffect(() => {
+    if (!storyStorageKeys().isolated) return;
+    const saved = (event: Event) => postBatchEvent({ event: 'checkpoint', project: (event as CustomEvent).detail });
+    window.addEventListener('aid-series-project-saved', saved);
+    // Headless production must not get stuck on an invisible alert dialog.
+    const originalAlert = window.alert;
+    window.alert = message => postBatchEvent({ event: 'failed', error: String(message) });
+    return () => { window.removeEventListener('aid-series-project-saved', saved); window.alert = originalAlert; };
+  }, [batchRunId]);
   const { projectId, projectName, setProjectName, saveProject, loadProject, exportProject, adoptProjectId, newProject } = useProject();
   const { settings, saveSettings } = useSettings();
   const [showSettings, setShowSettings] = useState(false);
@@ -1117,7 +1128,7 @@ export default function StoryPage() {
     const voiceLockedCharacters = castStoryVoices(characters, language);
     charactersRef.current = voiceLockedCharacters;
     setCharacters(voiceLockedCharacters);
-    const writerCharacters = voiceLockedCharacters.map(({ name, description, voiceId, voiceProfile, voiceSource, gender, ageGroup }) => ({ name, description, voiceId, voiceProfile, voiceSource, gender, ageGroup }));
+    const writerCharacters = voiceLockedCharacters.map(({ name, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }) => ({ name, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }));
     const writerObjects = objects.map(({ name, description }) => ({ name, description }));
     const activeSettings = settingsRef.current;
     // Older Companion builds ignore the structured field below, so append the
@@ -2246,6 +2257,11 @@ export default function StoryPage() {
         setCurrentStep(3);
       }
 
+      if (storyStorageKeys().isolated) {
+        const contract = localStorage.getItem(storyStorageKeys().contract);
+        if (!contract) throw new Error('连续剧定稿合同缺失，停止制作以避免角色或台词漂移');
+        validateSeriesProduction(JSON.parse(contract), storyboardsRef.current);
+      }
       const productionCast = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters);
       for (const character of productionCast) {
         if (autoAbortRef.current) return;
@@ -2442,7 +2458,7 @@ export default function StoryPage() {
     if (batchRunId) {
       let project: unknown;
       try {
-        project = JSON.parse(localStorage.getItem('aid:current-project:v2') || 'null');
+        project = JSON.parse(localStorage.getItem(storyStorageKeys().current) || 'null');
       } catch {}
       postBatchEvent({
         event: 'completed',
