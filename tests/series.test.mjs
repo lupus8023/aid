@@ -10,6 +10,7 @@ import { castStoryVoices } from '../lib/voiceCasting.ts';
 import { rankFishVoiceModels } from '../lib/fishVoiceDiscovery.ts';
 import { withSeriesDb, publicSnapshot, sealSettings, openSettings, requireLease, deliveryPath } from '../lib/series/store.ts';
 import { outlineFixture, episodeFixtures, shotFixture } from './fixtures/series.mjs';
+import { moveSeriesToTrash, restoreSeriesFromTrash } from '../lib/series/trash.ts';
 
 function fixture() {
   const p = createSeries({ name: '回声档案', brief: '修复照片获得线索但失去记忆', episodeCount: 3 });
@@ -109,4 +110,41 @@ test('disk store serializes concurrent writes, encrypts credentials and rejects 
     await assert.rejects(withSeriesDb(() => {}), /已保留原文件/);
     assert.equal(await readFile(path.join(dir, 'series/index.json'), 'utf8'), 'not json');
   } finally { if (previous === undefined) delete process.env.AID_COMPANION_DATA_DIR; else process.env.AID_COMPANION_DATA_DIR = previous; await rm(dir, { recursive: true, force: true }); }
+});
+
+test('deleting a running series rejects before changing any saved content or task', () => {
+  const p = fixture(), jobs = [{ seriesId: p.id, status: 'running', lease: 'active' }];
+  const before = JSON.stringify({ p, jobs });
+  assert.throws(() => moveSeriesToTrash(p, jobs, '2026-08-30T00:00:00Z'), /暂停制作队列/);
+  assert.equal(JSON.stringify({ p, jobs }), before);
+});
+
+test('trash hides a series and its tasks, preserves media and failed work, and restores without paid execution', () => {
+  const p = fixture(), other = fixture();
+  p.episodes[0].deliveries = [{ id: 'paid-film', fileName: 'keep.mp4', bytes: 12345, episodeVersion: 1 }];
+  const contentBefore = structuredClone({ bible: p.bible, characters: p.characters, episodes: p.episodes });
+  const jobs = [
+    { id: 'queued', seriesId: p.id, status: 'queued', sealedSettings: 'encrypted-key', attempts: 0 },
+    { id: 'failed', seriesId: p.id, status: 'failed', error: 'p4 missing', attempts: 1 },
+    { id: 'completed', seriesId: p.id, status: 'completed' },
+    { id: 'other', seriesId: other.id, status: 'queued' },
+  ];
+  const unaffected = structuredClone(jobs.slice(1));
+  moveSeriesToTrash(p, jobs, '2026-08-30T00:00:00Z');
+  assert.equal(p.paused, true);
+  assert.equal(jobs[0].status, 'paused');
+  assert.equal(jobs[0].sealedSettings, 'encrypted-key');
+  assert.deepEqual(jobs.slice(1), unaffected);
+  const snapshot = publicSnapshot({ projects: [p, other], jobs, workers: {} });
+  assert.deepEqual(snapshot.projects.map(p => p.id), [other.id]);
+  assert.deepEqual(snapshot.jobs.map(j => j.id), ['other']);
+  assert.equal(snapshot.trashedProjects[0].deliveryCount, 1);
+  assert.doesNotMatch(JSON.stringify(snapshot), /encrypted-key|sealedSettings|paid-film/);
+  assert.throws(() => requireLease({ projects: [p], jobs: [{ id: 'late', seriesId: p.id, status: 'running', lease: 'old' }] }, 'late', 'old'), /回收站/);
+  restoreSeriesFromTrash(p);
+  assert.equal(p.deletedAt, undefined);
+  assert.equal(p.paused, true);
+  assert.equal(jobs[0].status, 'paused');
+  assert.deepEqual({ bible: p.bible, characters: p.characters, episodes: p.episodes }, contentBefore);
+  assert.equal(publicSnapshot({ projects: [p, other], jobs, workers: {} }).trashedProjects.length, 0);
 });

@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
       id = request.nextUrl.searchParams.get("id") || "";
     const delivery = await withSeriesDb((db) =>
       db.projects
-        .find((p) => p.id === seriesId)
+        .find((p) => p.id === seriesId && !p.deletedAt)
         ?.episodes.flatMap((e) => e.deliveries)
         .find((d) => d.id === id),
     );

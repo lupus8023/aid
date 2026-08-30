@@ -161,8 +161,13 @@ export function publicSnapshot(db: Database): SeriesSnapshot {
     ? db.workers[active.workerId]
     : undefined;
   return {
-    projects: db.projects,
-    jobs: db.jobs.map(
+    projects: db.projects.filter(p => !p.deletedAt),
+    trashedProjects: db.projects.filter(p => p.deletedAt).map(p => ({
+      id: p.id, name: p.name, revision: p.revision, episodeCount: p.episodeCount,
+      deletedAt: p.deletedAt!,
+      deliveryCount: p.episodes.reduce((count, e) => count + e.deliveries.length, 0),
+    })),
+    jobs: db.jobs.filter(j => !db.projects.find(p => p.id === j.seriesId)?.deletedAt).map(
       ({
         lease: _lease,
         sealedSettings: _settings,
@@ -190,6 +195,8 @@ export function requireLease(
   const job = db.jobs.find((j) => j.id === id);
   if (!job || job.status !== "running" || !lease || job.lease !== lease)
     throw new Error("执行租约已失效，已阻止过期执行器写入");
+  if (db.projects.find(p => p.id === job.seriesId)?.deletedAt)
+    throw new Error("连续剧已在回收站，已阻止执行器写入");
   return job;
 }
 export function touchProject(project: SeriesProject): void {

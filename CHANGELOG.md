@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.106 - 2026-08-30
+
+### Added
+
+- Series Studio now has a confirmed Delete Series action and a recoverable sidebar trash. Outlines, characters, locations, checkpoints and historical deliveries remain intact; ordinary Story projects and the source character library are untouched.
+- Running tasks must pause and save checkpoints before deletion. Queued tasks are paused atomically; trashed series cannot be edited, retried or produced. Restoring never resumes paid generation automatically.
+- This is reversible deletion, retaining media files rather than reclaiming disk space. Requires Companion v0.1.106 or newer.
+
+### Verification
+
+- All 253 tests, type checks, isolated trash/restore API checks and browser confirmation/cancel/restore checks pass. Retained media is downloadable after restore; stale writes and retries are rejected. No user project was deleted or paid generation triggered.
+
 ## 0.1.105 - 2026-08-30
 
 ### Fixed

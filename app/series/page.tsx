@@ -20,6 +20,8 @@ import {
   RefreshCw,
   Settings,
   Sparkles,
+  Trash2,
+  Undo2,
   Users,
   Workflow,
   X,
@@ -458,6 +460,9 @@ export default function SeriesPage() {
   const [selectedId, setSelectedId] = useState("");
   const [tab, setTab] = useState<Tab>("outline");
   const [creating, setCreating] = useState(false);
+  const [trashTarget, setTrashTarget] = useState<SeriesProject>();
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashError, setTrashError] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -547,18 +552,52 @@ export default function SeriesPage() {
     setEpisodeId("");
     setCastingId("");
     setPreview("");
-    setNotice("");
   }, [selectedId]);
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setEpisodeId("");
         setCreating(false);
+        if (!busy) {
+          setTrashTarget(undefined);
+          setShowTrash(false);
+        }
       }
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
-  }, []);
+  }, [busy]);
+
+  const trashAction = async (kind: "trash" | "restore", target: { id: string; name: string; revision: number }) => {
+    if (busy || base === undefined || !connected) return;
+    setBusy(true);
+    setTrashError("");
+    try {
+      const response = await fetch(`${base}/api/companion/status`, {
+        cache: "no-store", signal: AbortSignal.timeout(5000),
+      });
+      const status = await readApiJson<{ seriesTrash?: boolean }>(response, "无法检查回收站支持");
+      if (!status.seriesTrash)
+        throw new Error("删除与恢复连续剧需要 Companion v0.1.106 或更新版本，请先更新 Companion。");
+      await seriesRequest({ action: kind, seriesId: target.id, revision: target.revision, confirmName: target.name }, base);
+      await refresh(base);
+      setTrashTarget(undefined);
+      if (kind === "restore") {
+        setShowTrash(false);
+        setSelectedId(target.id);
+        setTab("outline");
+      }
+      setNotice(kind === "trash"
+        ? `「${target.name}」已移入回收站，可从左栏恢复；素材与成片保留。`
+        : `「${target.name}」已恢复，制作队列保持暂停。需要制作时请手动继续。`);
+    } catch (err) {
+      setTrashError(err instanceof Error ? err.message : "回收站操作失败");
+      // Refresh stale revisions without silently approving a different project version.
+      await refresh(base).catch(() => setConnected(false));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const action = async (body: Record<string, unknown>, success = "") => {
     if (base === undefined) {
@@ -742,6 +781,7 @@ export default function SeriesPage() {
                 onClick={() => {
                   setSelectedId(p.id);
                   setTab("outline");
+                  setNotice("");
                 }}
               >
                 <p className="truncate text-sm font-medium">{p.name}</p>
@@ -752,6 +792,13 @@ export default function SeriesPage() {
               </button>
             ))}
           </div>
+          <button
+            className={`${button} mt-4 w-full`}
+            disabled={!connected || busy}
+            onClick={() => { setTrashError(""); setShowTrash(true); }}
+          >
+            <Trash2 size={14} />回收站 · {snapshot.trashedProjects?.length || 0}
+          </button>
           <div className="mt-8 hidden border-t border-[var(--border-color)] pt-5 lg:block">
             <p className="text-xs text-[var(--text-secondary)]">
               一次定稿，全剧复用
@@ -846,6 +893,13 @@ export default function SeriesPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <button
+                    className={`${button} text-red-300`}
+                    disabled={busy || !connected}
+                    onClick={() => { setTrashError(""); setTrashTarget(project); }}
+                  >
+                    <Trash2 size={14} />删除连续剧
+                  </button>
                   <button
                     className={button}
                     onClick={() =>
@@ -1475,6 +1529,58 @@ export default function SeriesPage() {
           )}
         </main>
       </div>
+      {trashTarget && (
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/75 p-4">
+          <section role="dialog" aria-modal="true" aria-labelledby="trash-title" aria-describedby="trash-description"
+            className="my-8 w-full max-w-lg rounded-2xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-6">
+            <h2 id="trash-title" className="text-lg font-semibold">删除「{trashTarget.name}」？</h2>
+            <p id="trash-description" className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
+              将这部连续剧移入回收站，并暂停待执行任务。总纲、分集、角色场景和历史成片全部保留，可以恢复；不会删除原角色库或普通 Story 项目。
+            </p>
+            <p className="mt-3 text-xs text-[var(--text-muted)]">这是可恢复的删除，不会释放素材占用的磁盘空间。</p>
+            {snapshot.jobs.some(j => j.seriesId === trashTarget.id && j.status === "running") && (
+              <p role="status" className="mt-4 text-sm leading-6 text-amber-200">当前还有任务执行中。请先取消此操作、暂停队列，待任务保存断点后再删除。</p>
+            )}
+            {trashError && <p role="alert" className="mt-4 text-sm text-red-300">{trashError}</p>}
+            <div className="mt-6 flex justify-end gap-3">
+              <button autoFocus className={button} disabled={busy} onClick={() => setTrashTarget(undefined)}>取消</button>
+              <button className={`${button} !border-red-400/40 !bg-red-400/10 text-red-200`}
+                disabled={busy || !connected || snapshot.jobs.some(j => j.seriesId === trashTarget.id && j.status === "running")}
+                onClick={() => void trashAction("trash", trashTarget)}>
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}确认删除
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {showTrash && (
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/75 p-4">
+          <section role="dialog" aria-modal="true" aria-label="连续剧回收站"
+            className="my-8 max-h-[85dvh] w-full max-w-xl overflow-y-auto rounded-2xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-6">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">连续剧回收站</h2>
+              <button autoFocus aria-label="关闭回收站" className={button} disabled={busy} onClick={() => setShowTrash(false)}><X size={16} /></button>
+            </div>
+            <p className="mt-3 text-xs leading-6 text-[var(--text-secondary)]">剧本、素材和成片保留在本机。恢复后队列保持暂停，不会自动开始生成或计费。</p>
+            {trashError && <p role="alert" className="mt-4 text-sm text-red-300">{trashError}</p>}
+            <div className="mt-5 space-y-3">
+              {(snapshot.trashedProjects || []).map(p => (
+                <article key={p.id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--border-color)] p-4">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="break-words text-sm">{p.name}</h3>
+                    <p className="mt-2 text-xs text-[var(--text-secondary)]">{p.episodeCount}集 · {p.deliveryCount}个成片版本保留</p>
+                    <p className="mt-1 text-[10px] text-[var(--text-muted)]">移入时间：{new Date(p.deletedAt).toLocaleString()}</p>
+                  </div>
+                  <button className={button} disabled={busy || !connected} aria-label={`恢复${p.name}`} onClick={() => void trashAction("restore", p)}>
+                    <Undo2 size={14} />恢复
+                  </button>
+                </article>
+              ))}
+              {!snapshot.trashedProjects?.length && <p className="py-10 text-center text-sm text-[var(--text-secondary)]">回收站为空</p>}
+            </div>
+          </section>
+        </div>
+      )}
       {creating && (
         <div className="fixed inset-0 z-40 grid place-items-center overflow-y-auto bg-black/65 p-4">
           <section

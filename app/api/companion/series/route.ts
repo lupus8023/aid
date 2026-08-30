@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { castSeriesRole } from "@/lib/series/casting";
 import { seriesAssetsReady, seriesStageBlocker } from "@/lib/series/readiness";
+import { moveSeriesToTrash, restoreSeriesFromTrash } from "@/lib/series/trash";
 import {
   createSeries,
   invalidateFrom,
@@ -45,11 +46,30 @@ export async function POST(request: NextRequest) {
     const result = await withSeriesDb(async (db) => {
       const now = new Date().toISOString();
       const project = db.projects.find((p) => p.id === body.seriesId);
+      if (project?.deletedAt && !["trash", "restore"].includes(body.action))
+        throw new Error("连续剧已在回收站，请先恢复后再操作");
       const busy = (id: string) =>
         db.jobs.some(
           (j) => j.seriesId === id && ["queued", "running"].includes(j.status),
         );
       switch (body.action) {
+        case "trash":
+        case "restore": {
+          if (!project) throw new Error("连续剧不存在");
+          if (body.revision !== project.revision)
+            throw new Error("内容已有更新，请刷新后重新确认，未更改项目");
+          if (body.action === "trash") {
+            if (body.confirmName !== project.name)
+              throw new Error("请先确认要删除的连续剧名称");
+            if (project.deletedAt) return { ok: true };
+            moveSeriesToTrash(project, db.jobs, now);
+          } else {
+            if (!project.deletedAt) throw new Error("连续剧不在回收站");
+            restoreSeriesFromTrash(project);
+          }
+          touchProject(project);
+          return { ok: true };
+        }
         case "create": {
           const created = createSeries(body.project || {});
           db.projects.unshift(created);
@@ -301,6 +321,9 @@ export async function POST(request: NextRequest) {
           const job = db.jobs.find((j) => j.id === body.jobId);
           if (!job || job.status !== "failed")
             throw new Error("任务不处于失败状态");
+          const owner = db.projects.find((p) => p.id === job.seriesId);
+          if (!owner || owner.deletedAt)
+            throw new Error("连续剧已在回收站或不存在，不能重试任务");
           if (body.settings)
             job.sealedSettings = await sealSettings(body.settings);
           job.status = "queued";
@@ -308,8 +331,7 @@ export async function POST(request: NextRequest) {
           job.error = undefined;
           job.cancelRequested = false;
           job.stage = "等待从断点重试";
-          const owner = db.projects.find((p) => p.id === job.seriesId);
-          if (owner) owner.paused = false;
+          owner.paused = false;
           return { ok: true };
         }
         case "claim": {
@@ -348,11 +370,10 @@ export async function POST(request: NextRequest) {
             )
           )
             return { claim: null };
-          const job = db.jobs.find(
-            (j) =>
-              j.status === "queued" &&
-              !db.projects.find((p) => p.id === j.seriesId)?.paused,
-          );
+          const job = db.jobs.find((j) => {
+            const owner = db.projects.find((p) => p.id === j.seriesId);
+            return j.status === "queued" && owner && !owner.paused && !owner.deletedAt;
+          });
           if (!job) return { claim: null };
           const owner = db.projects.find((p) => p.id === job.seriesId)!;
           const settings = await openSettings(job.sealedSettings!);
@@ -398,7 +419,7 @@ export async function POST(request: NextRequest) {
               incoming.revision !== owner.revision
             )
               throw new Error("生产快照版本冲突，拒绝覆盖");
-            const replacement = { ...incoming, paused: owner.paused };
+            const replacement = { ...incoming, paused: owner.paused, deletedAt: owner.deletedAt };
             touchProject(replacement);
             db.projects[db.projects.indexOf(owner)] = replacement;
           }

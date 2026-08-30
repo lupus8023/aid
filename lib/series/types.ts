@@ -135,6 +135,7 @@ export interface SeriesProject {
   episodes: SeriesEpisode[];
   episodeNotes?: Record<string, Record<string, string>>; // 用户对分集的修改，重规划时保持权威
   paused: boolean;
+  deletedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -163,6 +164,10 @@ export interface SeriesJob {
 
 export interface SeriesSnapshot {
   projects: SeriesProject[];
+  trashedProjects?: Array<Pick<SeriesProject, "id" | "name" | "revision" | "episodeCount"> & {
+    deletedAt: string;
+    deliveryCount: number;
+  }>;
   jobs: SeriesJob[];
   workerOnline: boolean;
   workerMode?: "companion" | "page";
