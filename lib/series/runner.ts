@@ -3,6 +3,7 @@
 import { readApiJson } from "@/lib/apiResponse";
 import { buildEpisodeProject } from "./domain";
 import { storyStorageKeys } from "./storageScope";
+import { seriesStageBlocker } from "./readiness";
 import type {
   SeriesClaim,
   SeriesEpisode,
@@ -197,15 +198,17 @@ export async function executeSeriesClaim(
   }
 
   const episode = project.episodes.find((e) => e.id === job.episodeId);
-  if (project.episodes.some((e) => e.needsReview))
-    throw new Error("分集存在过期内容，请先更新分集故事");
+  const blocker = seriesStageBlocker(project, job.kind);
+  if (blocker) throw new Error(blocker);
   if (job.kind === "prepare" || job.kind === "produce") {
     const cast = project.characters.filter(
       (c) => !episode || episode.characterIds.includes(c.id),
     );
     for (const character of cast) {
-      if (character.locked) continue;
-      if (character.speaking && !character.voiceReferenceUrl) {
+      if (character.locked &&
+        (character.appearance === "voice_only" || character.bibleUrl) &&
+        (!character.speaking || (character.voiceId && character.voiceReferenceUrl))) continue;
+      if (character.speaking && (!character.voiceId || !character.voiceReferenceUrl)) {
         const used = project.characters
           .filter((c) => c.id !== character.id && c.voiceId)
           .map((c) => c.voiceId!);

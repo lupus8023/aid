@@ -12,12 +12,25 @@ const record = (value: unknown): Record<string, unknown> =>
 const genders = ["female", "male", "nonbinary", "unknown"];
 const ages = ["child", "young_adult", "adult", "senior", "unknown"];
 
+// Only used while browsing. The server whitelists the chosen production snapshot.
+export type SeriesLibraryEntry = SeriesLibraryActor & { imageCandidates: string[] };
+const imageCandidates = (values: unknown[]) => [...new Set(values.map(text).filter(value =>
+  /^https:\/\//i.test(value) || /^data:image\/(png|jpeg|jpg|webp);base64,/i.test(value),
+))];
+
+export function selectLibraryImage(actor: SeriesLibraryEntry, source: string): SeriesLibraryActor {
+  if (!actor.imageCandidates.includes(source)) throw new Error("请选择已加载的角色图片");
+  const { imageCandidates: _candidates, ...snapshot } = actor;
+  // Never carry a failed full-card address into production after showing a fallback.
+  return { ...snapshot, imageUrl: source, bibleUrl: source === actor.bibleUrl ? source : undefined };
+}
+
 // Read both existing libraries without migrating or overwriting the user's data.
 // Design cards provide the appearance; matching history may provide a saved voice.
 export function seriesCastLibrary(
   history: unknown[],
   designs: unknown[],
-): SeriesLibraryActor[] {
+): SeriesLibraryEntry[] {
   const saved = history.map(record);
   const candidates: Record<string, unknown>[] = [
     ...designs.map((value) => {
@@ -33,6 +46,7 @@ export function seriesCastLibrary(
           .filter(Boolean)
           .join("；"),
         imageUrl: text(d.conceptUrl) || text(d.bibleUrl) || text(h.imageUrl),
+        imageCandidates: [d.bibleUrl, d.conceptUrl, d.imageUrl, d.imageBase64, h.bibleUrl, h.imageUrl, h.imageBase64],
         voiceId: text(d.voiceId) || text(h.voiceId),
         voiceProfile: text(d.voiceProfile) || text(h.voiceProfile),
         voiceReferenceUrl:
@@ -58,6 +72,8 @@ export function seriesCastLibrary(
         imageUrl,
         description: text(raw.description),
         bibleUrl: text(raw.bibleUrl) || undefined,
+        imageCandidates: imageCandidates(Array.isArray(raw.imageCandidates)
+          ? raw.imageCandidates : [raw.bibleUrl, raw.imageUrl, raw.imageBase64]),
         voiceId: text(raw.voiceId) || undefined,
         voiceProfile: text(raw.voiceProfile) || undefined,
         voiceReferenceUrl: text(raw.voiceReferenceUrl) || undefined,

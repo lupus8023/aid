@@ -7,7 +7,7 @@ import {
   CHARACTER_HISTORY_STORAGE_KEY,
   parseStoredArray,
 } from "@/lib/characterLibrary";
-import { seriesCastLibrary } from "@/lib/series/casting";
+import { selectLibraryImage, seriesCastLibrary, type SeriesLibraryEntry } from "@/lib/series/casting";
 import { readApiJson } from "@/lib/apiResponse";
 import type { SeriesCharacter, SeriesLibraryActor } from "@/lib/series/types";
 
@@ -51,7 +51,8 @@ export default function SeriesCastPicker({
   onClose: () => void;
   onSelect: (actor: SeriesLibraryActor) => Promise<void>;
 }) {
-  const [actors, setActors] = useState<SeriesLibraryActor[]>([]);
+  const [actors, setActors] = useState<SeriesLibraryEntry[]>([]);
+  const [images, setImages] = useState<Record<string, "loaded" | "failed">>({});
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(false);
@@ -104,18 +105,17 @@ export default function SeriesCastPicker({
     [actors, search],
   );
   const actor = actors.find((item) => item.id === selected);
+  const sourceFor = (item: SeriesLibraryEntry) => item.imageCandidates.find(url => images[url] !== "failed");
+  const selectedSource = actor && sourceFor(actor);
+  const imageReady = Boolean(selectedSource && images[selectedSource] === "loaded");
   const choose = async () => {
-    if (!actor || disabled || loading) return;
+    if (!actor || !selectedSource || !imageReady || disabled || loading) return;
     setLoading(true);
     setError("");
     try {
-      const imageUrl = await persistentImage(actor.imageUrl);
-      const bibleUrl = actor.bibleUrl
-        ? actor.bibleUrl === actor.imageUrl
-          ? imageUrl
-          : await persistentImage(actor.bibleUrl)
-        : undefined;
-      await onSelect({ ...actor, imageUrl, bibleUrl });
+      const chosen = selectLibraryImage(actor, selectedSource);
+      const imageUrl = await persistentImage(chosen.imageUrl);
+      await onSelect({ ...chosen, imageUrl, bibleUrl: chosen.bibleUrl ? imageUrl : undefined });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "选角失败");
@@ -163,7 +163,7 @@ export default function SeriesCastPicker({
               className="w-full bg-transparent py-2 text-sm outline-none"
             />
           </label>
-          <button className={button} onClick={readLibrary} disabled={loading}>
+          <button className={button} onClick={() => { setImages({}); readLibrary(); }} disabled={loading}>
             <RefreshCw size={14} />
             刷新
           </button>
@@ -179,7 +179,10 @@ export default function SeriesCastPicker({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
           {visible.length ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {visible.map((item) => (
+              {visible.map((item) => {
+                const source = sourceFor(item);
+                const fallback = source && source !== item.imageCandidates[0];
+                return (
                 <button
                   key={item.id}
                   type="button"
@@ -189,23 +192,31 @@ export default function SeriesCastPicker({
                   disabled={loading || disabled}
                   className={`overflow-hidden rounded-xl border text-left transition disabled:opacity-40 ${selected === item.id ? "border-[#a78bfa] bg-[#a78bfa]/10" : "border-[var(--border-color)] hover:border-[#a78bfa]/60"}`}
                 >
-                  <img
-                    src={item.bibleUrl || item.imageUrl}
+                  {source ? <img
+                    key={source}
+                    src={source}
                     alt={item.name}
+                    referrerPolicy="no-referrer"
+                    onLoad={() => setImages(previous => ({ ...previous, [source]: "loaded" }))}
+                    onError={() => setImages(previous => ({ ...previous, [source]: "failed" }))}
                     className="aspect-[4/3] w-full bg-black/20 object-contain"
-                  />
+                  /> : <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-black/20 px-3 text-center text-xs text-amber-200">
+                    <Library size={24} />图片暂时无法加载
+                    <span className="text-[10px] text-[var(--text-secondary)]">角色记录仍在，可刷新重试或回原库检查图片</span>
+                  </div>}
                   <div className="p-3">
                     <p className="truncate text-sm font-medium">{item.name}</p>
                     <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">
                       {item.description || "已有角色形象"}
                     </p>
                     <p className="mt-2 text-[10px] text-[#c1afff]">
-                      {item.bibleUrl ? "完整角色卡" : "已有参考形象"} ·{" "}
+                      {source === item.bibleUrl ? "完整角色卡" : "已有参考形象"} ·{" "}
                       {item.voiceId ? "含已存音色" : "未存音色"}
                     </p>
+                    {fallback && <p className="mt-1 text-[10px] text-amber-200">角色卡未加载，已切换库内参考图</p>}
                   </div>
                 </button>
-              ))}
+              ); })}
             </div>
           ) : (
             <div className="py-12 text-center">
@@ -237,10 +248,12 @@ export default function SeriesCastPicker({
               ? "将继承库内音色；缺少试音时仅补齐试音。"
               : "未存音色时，保留剧中已单独指定的音色，否则自动匹配。"}
             本地历史图片会保存到现有图床。
+            {actor && !imageReady && "图片尚未加载成功，暂不能选用。"}
+            {actor && selectedSource && selectedSource !== actor.imageCandidates[0] && "将使用当前显示的参考图，不重新生图。"}
           </p>
           <button
             className={`${button} !border-[#a78bfa] !bg-[#a78bfa] !text-[#1d1534]`}
-            disabled={!actor || loading || disabled}
+            disabled={!actor || !imageReady || loading || disabled}
             onClick={() => void choose()}
           >
             {loading ? (

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { seriesCastLibrary, applyLibraryActor, castSeriesRole } from '../lib/series/casting.ts';
+import { seriesCastLibrary, selectLibraryImage, applyLibraryActor, castSeriesRole } from '../lib/series/casting.ts';
 import { createSeries, parseOutline, parseEpisodes } from '../lib/series/domain.ts';
 import { executeSeriesClaim } from '../lib/series/runner.ts';
+import { seriesStageBlocker, seriesAssetsReady } from '../lib/series/readiness.ts';
 import { outlineFixture, episodeFixtures } from './fixtures/series.mjs';
 
 const actor = { id: 'library-actor', name: '库内演员', description: '黑色短发，灰色长外套', imageUrl: 'https://assets.test/portrait.png', bibleUrl: 'https://assets.test/bible.png', voiceId: 'saved-voice', voiceProfile: '低沉温和' };
@@ -79,6 +80,9 @@ test('preparation reuses selected library images and only synthesizes the missin
   const project = fixture();
   castSeriesRole(project, project.characters[0].id, actor);
   project.characters[1].locked = true;
+  project.characters[1].bibleUrl = 'https://assets.test/other.png';
+  project.characters[1].voiceId = 'other-voice';
+  project.characters[1].voiceReferenceUrl = 'https://assets.test/other.mp3';
   project.locations.forEach(location => { location.imageUrl = 'https://assets.test/location.png'; });
   const previousFetch = globalThis.fetch;
   const calls = [];
@@ -99,5 +103,58 @@ test('preparation reuses selected library images and only synthesizes the missin
     assert.equal(project.characters[0].locked, true);
     assert.equal(project.characters[0].bibleUrl, actor.bibleUrl);
     assert.ok(!calls.some(url => /costume|series\/voices/.test(url)));
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('same-name design merge retains the images shown by the original library and legacy thumbnails', () => {
+  const legacy = 'data:image/png;base64,bGVnYWN5';
+  const [entry] = seriesCastLibrary([{ id: 'history-id', name: actor.name, imageUrl: 'https://assets.test/history.png', imageBase64: legacy }],
+    [{ ...actor, id: 'design-id', conceptUrl: 'https://assets.test/visible-concept.png' }]);
+  assert.deepEqual(entry.imageCandidates, [actor.bibleUrl, 'https://assets.test/visible-concept.png', actor.imageUrl, 'https://assets.test/history.png', legacy]);
+  for (const fallback of entry.imageCandidates.slice(1)) {
+    const chosen = selectLibraryImage(entry, fallback);
+    assert.equal(chosen.bibleUrl, undefined, 'failed card must not be saved over the visible fallback');
+    assert.equal(chosen.imageUrl, fallback);
+    assert.equal(chosen.imageCandidates, undefined, 'do not save entire library image data in production');
+  }
+  assert.equal(selectLibraryImage(entry, actor.bibleUrl).bibleUrl, actor.bibleUrl);
+  assert.throws(() => selectLibraryImage(entry, 'https://unknown.test/new.png'));
+});
+
+test('preparation can finish with missing or outdated episodes, while script and production remain blocked', async () => {
+  const previousFetch = globalThis.fetch;
+  try {
+    for (const outdated of [false, true]) {
+      const project = fixture();
+      if (outdated) project.episodes[0].needsReview = '分集待修订';
+      else project.episodes = [];
+      project.characters.forEach(c => {
+        c.bibleUrl = 'https://assets.test/ready.png';
+        c.voiceId = `voice-${c.id}`;
+        c.voiceReferenceUrl = 'https://assets.test/ready.mp3';
+        c.locked = false;
+      });
+      project.locations.forEach(l => { l.imageUrl = 'https://assets.test/scene.png'; });
+      const calls = [];
+      globalThis.fetch = async (url, options) => {
+        calls.push(url);
+        if (url === '/api/companion/status') return Response.json({ ok: false });
+        if (url === '/api/companion/series') return Response.json({ revision: JSON.parse(options.body).project.revision + 1 });
+        throw new Error(`Unexpected provider call: ${url}`);
+      };
+      assert.equal(seriesStageBlocker(project, 'prepare'), '');
+      assert.equal(seriesAssetsReady(project), false);
+      for (const kind of ['script', 'produce']) {
+        assert.match(seriesStageBlocker(project, kind), /分集故事/);
+        await assert.rejects(executeSeriesClaim({ project, job: { kind, episodeId: 'ep-1' }, settings: {} }, new AbortController().signal, () => {}), /分集故事/);
+      }
+      await executeSeriesClaim({ project, job: { id: 'independent-prepare', kind: 'prepare', lease: 'fixture' }, settings: {} }, new AbortController().signal, () => {});
+      assert.equal(seriesAssetsReady(project), true);
+      assert.equal(project.episodes.length, outdated ? 3 : 0);
+      if (outdated) assert.equal(project.episodes[0].needsReview, '分集待修订');
+      assert.ok(!calls.some(url => /generate|voices|costume/.test(url)));
+      project.locations = [];
+      assert.match(seriesStageBlocker(project, 'prepare'), /清单/);
+    }
   } finally { globalThis.fetch = previousFetch; }
 });

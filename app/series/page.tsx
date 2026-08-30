@@ -31,6 +31,7 @@ import { readApiJson } from "@/lib/apiResponse";
 import { PRODUCTION_STYLE_PRESETS } from "@/lib/promptArchitecture";
 import { seriesRequest } from "@/lib/series/runner";
 import { episodeScreenplay } from "@/lib/series/domain";
+import { seriesStageBlocker } from "@/lib/series/readiness";
 import type {
   SeriesCharacter,
   SeriesLibraryActor,
@@ -481,6 +482,11 @@ export default function SeriesPage() {
     project?.episodes.filter((e) =>
       e.deliveries.some((d) => d.episodeVersion === e.version),
     ).length || 0;
+  const prepareBlocker = !connected ? "请先连接 Companion" :
+    busy ? "正在保存，请稍候" :
+    editingLocked ? "请等待当前任务完成，或先暂停制作队列" :
+    seriesStageBlocker(project, "prepare");
+  const latestDevelopment = jobs.filter(j => j.kind === "develop").at(-1);
 
   const refresh = useCallback(async (server: string) => {
     const response = await fetch(`${server}/api/companion/series`, {
@@ -584,11 +590,26 @@ export default function SeriesPage() {
       setBusy(false);
     }
   };
-  const enqueue = (kind: SeriesJobKind, episodeIds?: string[]) =>
-    action(
+  const enqueue = async (kind: SeriesJobKind, episodeIds?: string[]) => {
+    if (kind === "prepare") {
+      if (base === undefined || prepareBlocker) return;
+      try {
+        const response = await fetch(`${base}/api/companion/status`, {
+          cache: "no-store", signal: AbortSignal.timeout(5000),
+        });
+        const status = await readApiJson<{ seriesIndependentPreparation?: boolean }>(response, "无法检查定稿支持");
+        if (!status.seriesIndependentPreparation)
+          throw new Error("独立角色场景定稿需要 Companion v0.1.105 或更新版本，请更新后重新连接。");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "无法检查定稿支持");
+        return;
+      }
+    }
+    await action(
       { action: "enqueue", kind, episodeIds, settings },
       "已加入队列，系统将自动补齐所需步骤。",
     );
+  };
   const openCastLibrary = async (characterId: string) => {
     if (base === undefined || busy || editingLocked) return;
     setBusy(true);
@@ -1229,13 +1250,24 @@ export default function SeriesPage() {
                       </div>
                       <button
                         className={primary}
-                        disabled={busy || !ready}
+                        disabled={Boolean(prepareBlocker)}
+                        aria-describedby="prepare-status"
                         onClick={() => void enqueue("prepare")}
                       >
                         <Sparkles size={14} />
                         自动完成定稿
                       </button>
                     </div>
+                    <p id="prepare-status" className="mb-4 text-xs leading-5 text-[var(--text-secondary)]">
+                      {prepareBlocker || "总纲与资产清单已就绪，可以先定稿角色和场景，无需等待整季分集完成。"}
+                    </p>
+                    {latestDevelopment?.status === "failed" && (
+                      <div role="status" className="mb-5 rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 text-xs leading-6 text-amber-200">
+                        <p>分集编剧上次未完成：{latestDevelopment.error || latestDevelopment.stage}</p>
+                        <p>已保存的总纲、角色和场景仍可定稿。分集需从制作队列重试，完成后才能制作每集。</p>
+                        <button className={`${button} mt-2`} onClick={() => setTab("queue")}>查看失败任务</button>
+                      </div>
+                    )}
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                       {project.characters.map((c) => (
                         <CharacterCard

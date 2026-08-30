@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.105 - 2026-08-30
+
+### Fixed
+
+- Shared character/location preparation now requires the outline and asset lists, independently of unfinished or outdated episodes. Script and production still require valid season stories. The page explains blockers and shows the latest failed development task.
+- Series casting retains full-card, concept and matching historical image addresses. Failed cards fall back to usable saved references; selection persists the image that actually loaded, without carrying failed card URLs into production or regenerating characters.
+- Unavailable image candidates show a recoverable error and cannot be selected. Independent preparation requires Companion v0.1.105 or newer.
+
+### Verification
+
+- All 251 tests, type checks, isolated preparation API checks and browser fallback/select/save checks pass without real generation or changes to existing stories and failed jobs.
+
 ## 0.1.104 - 2026-08-30
 
 ### Fixed

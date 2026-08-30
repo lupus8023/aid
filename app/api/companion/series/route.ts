@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { castSeriesRole } from "@/lib/series/casting";
+import { seriesAssetsReady, seriesStageBlocker } from "@/lib/series/readiness";
 import {
   createSeries,
   invalidateFrom,
@@ -212,21 +213,16 @@ export async function POST(request: NextRequest) {
           const kind = body.kind as SeriesJobKind;
           if (!["develop", "prepare", "script", "produce"].includes(kind))
             throw new Error("无效任务类型");
-          if (!body.settings?.apiKey && !body.settings?.dmxApiKey)
+          if (kind !== "prepare" && !body.settings?.apiKey && !body.settings?.dmxApiKey)
             throw new Error("请先在设置中配置剧本API");
-          if (
-            kind !== "develop" &&
-            (!project.bible ||
-              project.episodes.length !== project.episodeCount ||
-              project.episodes.some((e) => e.needsReview))
-          )
-            throw new Error("请先完成／更新整季分集故事");
+          const blocker = seriesStageBlocker(project, kind);
+          if (blocker) throw new Error(blocker);
           if (
             ["prepare", "produce"].includes(kind) &&
             project.characters.some(
               (c) => c.speaking && (!c.voiceId || !c.voiceReferenceUrl),
             ) &&
-            !body.settings.fishAudioKey
+            !body.settings?.fishAudioKey
           )
             throw new Error("请先配置 Fish Audio API Key");
           const selectedIds = Array.isArray(body.episodeIds)
@@ -252,7 +248,7 @@ export async function POST(request: NextRequest) {
                 )
                 .map((e) => e.id)
             : [undefined];
-          const sealedSettings = await sealSettings(body.settings);
+          const sealedSettings = await sealSettings(body.settings || {});
           let added = 0;
           for (const episodeId of episodeIds) {
             if (
@@ -443,6 +439,8 @@ export async function POST(request: NextRequest) {
               throw new Error("整季编剧尚未完成，不能标记成功");
             if (job.kind === "script" && !episode?.script)
               throw new Error("镜头剧本尚未保存，不能标记成功");
+            if (job.kind === "prepare" && !seriesAssetsReady(owner))
+              throw new Error("角色形象、声音或场景尚未定稿，不能标记成功");
             if (
               job.kind === "produce" &&
               !episode?.deliveries.some(
