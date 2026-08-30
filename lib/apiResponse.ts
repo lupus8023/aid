@@ -1,3 +1,8 @@
+export class ApiResponseError extends Error {
+  code?: string;
+  constructor(message: string, code?: string) { super(message); this.code = code; }
+}
+
 function looksLikeHtml(body: string, contentType: string): boolean {
   return contentType.includes('text/html') || /^\s*(?:<!doctype\s+html|<html\b)/i.test(body);
 }
@@ -45,13 +50,13 @@ export async function readApiJson<T>(response: Response, context: string): Promi
       : typeof data?.message === 'string'
         ? data.message
         : statusHint(response.status);
-    throw new Error(`${context}：${message}`);
+    throw new ApiResponseError(`${context}：${message}`, data?.code);
   }
 
   // Streaming responses have already committed HTTP 200 before the long task
   // finishes, so task failures arrive as a structured final event.
   if (typeof data?.error === 'string' && data.error.trim()) {
-    throw new Error(`${context}：${data.error}`);
+    throw new ApiResponseError(`${context}：${data.error}`, data?.code);
   }
 
   if (data === undefined) throw new Error(`${context}：服务器返回了空响应`);

@@ -1,6 +1,6 @@
 "use client";
 
-import { readApiJson } from "@/lib/apiResponse";
+import { ApiResponseError, readApiJson } from "@/lib/apiResponse";
 import { buildEpisodeProject } from "./domain";
 import { storyStorageKeys } from "./storageScope";
 import { seriesStageBlocker } from "./readiness";
@@ -97,7 +97,7 @@ export async function executeSeriesClaim(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: submittingMedia ? AbortSignal.timeout(180000) : signal,
+        signal: submittingMedia ? AbortSignal.timeout(url === '/api/generate-voice-reference' ? 320000 : 180000) : signal,
       }),
       "生产请求失败",
     );
@@ -170,7 +170,7 @@ export async function executeSeriesClaim(
       const start = invalid >= 0 ? invalid : project.episodes.length;
       if (start >= project.episodeCount) break;
       await save(
-        `分集编剧：第${start + 1}–${Math.min(start + 4, project.episodeCount)}集`,
+        `分集编剧：第${start + 1}集，逐集校验并保存`,
       );
       const context = {
         ...project,
@@ -180,6 +180,7 @@ export async function executeSeriesClaim(
         "episodes",
         context,
       );
+      if (!result.episodes.length || result.episodes[0].number !== start + 1) throw new Error('分集未返回预期进度，已停止以避免重复编剧');
       for (const episode of result.episodes) {
         const old = project.episodes.find((e) => e.id === episode.id);
         const replacement = {
@@ -191,7 +192,7 @@ export async function executeSeriesClaim(
         else project.episodes.push(replacement);
       }
       await save(
-        `已保存${Math.min(start + 4, project.episodeCount)}集故事与悬念承接`,
+        `第${result.episodes.at(-1)!.number}集故事与悬念承接已保存`,
       );
     }
     return;
@@ -212,7 +213,8 @@ export async function executeSeriesClaim(
         const used = project.characters
           .filter((c) => c.id !== character.id && c.voiceId)
           .map((c) => c.voiceId!);
-        if (!character.voiceId) {
+        character.voiceCandidates = character.voiceCandidates?.filter(c => !used.includes(c.voiceId));
+        if (!character.voiceId && !character.voiceCandidates?.length) {
           await save(`声音选角：搜索 ${character.name} 的授权候选`);
           const result = await call<{
             candidates: Array<{
@@ -266,7 +268,11 @@ export async function executeSeriesClaim(
             break;
           } catch (error) {
             lastError = error instanceof Error ? error.message : "试读失败";
-            if (signal.aborted) throw error;
+            if (signal.aborted || !(error instanceof ApiResponseError) || error.code !== 'VOICE_UNAVAILABLE') throw error;
+            if (!character.voiceId) {
+              character.voiceCandidates = character.voiceCandidates?.filter(c => c.voiceId !== candidate.voiceId);
+              await save(`${character.name} 的不可用候选已排除`);
+            }
           }
         }
         if (!character.voiceReferenceUrl)

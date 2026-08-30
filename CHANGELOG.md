@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.107 - 2026-08-30
+
+### Fixed
+
+- Companion obtains scoped upload signatures from the website when local Cloudinary credentials are absent. Media uploads directly to Cloudinary; account secrets are never bundled in the desktop app.
+- Voice references preflight storage and retain synthesized audio across upload failures/restarts. Concurrent identical requests share work; storage, quota and transport failures no longer cycle through paid voice candidates.
+- Series writing validates and checkpoints one episode at a time, includes the exact promise schedule, and repairs retained drafts instead of rewriting a whole batch. Invalid output is never accepted by inserting promise IDs.
+- Automatic series casting searches owned workspace voices as well as platform-licensed voices, retaining truthful provenance and filtering language, gender, availability and duplicates.
+
+### Verification
+
+- 260 tests and TypeScript checks pass, including failure/restart recovery without repeated synthesis and missing-p4 draft repair. Provider generation is mocked; real acting quality is not certified.
+
 ## 0.1.106 - 2026-08-30
 
 ### Added

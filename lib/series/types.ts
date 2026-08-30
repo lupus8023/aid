@@ -26,6 +26,7 @@ export interface SeriesCharacter extends Character {
     voiceId: string;
     title: string;
     licensed: boolean;
+    source?: 'workspace' | 'licensed';
     score: number;
   }>;
   voiceSelectionReason?: string;

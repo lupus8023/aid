@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatOnce } from "@/lib/pipeline/llm";
-import { extractJson } from "@/lib/pipeline/json";
 import { streamingJsonResponse } from "@/lib/streamingJsonResponse";
-import { parseEpisodes, parseOutline, parseScript } from "@/lib/series/domain";
 import { seriesPrompt } from "@/lib/series/prompts";
+import { generateSeriesStage } from '@/lib/series/generation';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
+import path from 'node:path';
 import type { SeriesProject } from "@/lib/series/types";
 
 export const maxDuration = 300;
@@ -28,36 +30,28 @@ export async function POST(request: NextRequest) {
     const series = project as SeriesProject;
     const prompt = seriesPrompt(stage, series, episodeId);
     return streamingJsonResponse(async () => {
-      let correction = "";
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const response = await chatOnce(`${prompt}${correction}`, {
+      const root = process.env.AID_COMPANION_DATA_DIR;
+      const key = createHash('sha256').update(JSON.stringify([series.id, prompt, settings.scriptProvider, settings.scriptModel, settings.apiKey, settings.dmxApiKey])).digest('hex');
+      const filename = root ? path.join(root, 'series-drafts', `${key}.txt`) : undefined;
+      return generateSeriesStage(stage, series, episodeId, {
+        read: filename ? async () => {
+          try { return await readFile(filename, 'utf8'); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+        } : undefined,
+        save: filename ? async raw => {
+          await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
+          const temporary = `${filename}.${randomUUID()}.tmp`;
+          await writeFile(temporary, raw, { mode: 0o600 });
+          await rename(temporary, filename);
+        } : undefined,
+        chat: input => chatOnce(input, {
           apiKey: settings.apiKey,
           dmxApiKey: settings.dmxApiKey,
           provider: settings.scriptProvider,
           model: settings.scriptModel,
-          maxOutputTokens: stage === "outline" ? 9000 : 7000,
-        });
-        try {
-          const raw = extractJson(response);
-          if (stage === "outline") return parseOutline(raw, series);
-          if (stage === "episodes")
-            return {
-              episodes: parseEpisodes(
-                raw,
-                series,
-                series.episodes.length + 1,
-                Math.min(4, series.episodeCount - series.episodes.length),
-              ),
-            };
-          const episode = series.episodes.find((e) => e.id === episodeId);
-          if (!episode) throw new Error("分集不存在");
-          return { script: parseScript(raw, series, episode) };
-        } catch (error) {
-          if (attempt) throw error;
-          correction = `\n上一次输出未通过检查：${error instanceof Error ? error.message : "格式错误"}。请完整重写并修复此问题。`;
-        }
-      }
-      throw new Error("编剧生成未完成");
+          maxOutputTokens: stage === "outline" ? 9000 : stage === 'episodes' ? 3500 : 7000,
+        }),
+      });
     });
   } catch (error) {
     return NextResponse.json(

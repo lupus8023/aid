@@ -17,13 +17,18 @@ export function seriesPrompt(
 主角与主要配角应可在视觉和声音上区分。所有已知的发声配角在这里登记，避免分集新增无档案人物。`;
   if (stage === "episodes") {
     const start = project.episodes.length + 1,
-      count = Math.min(4, project.episodeCount - project.episodes.length);
+      count = 1;
+    const promises = project.bible?.promises || [];
+    const requiredPlants = promises.filter(p => p.plantedIn === start);
+    const requiredPayoffs = promises.filter(p => p.payoffIn === start);
     return `${base}
 权威总纲与固定编号：${JSON.stringify({ bible: project.bible, characters: project.characters.map(({ id, name, role, want, secret, arc }) => ({ id, name, role, want, secret, arc })), locations: project.locations.map(({ id, name, description }) => ({ id, name, description })) })}
 已完成分集简表：${JSON.stringify(project.episodes.map(({ number, synopsis, resolution, hook, nextOpening, stateChanges, knowledgeChanges, plants, paysOff }) => ({ number, synopsis, resolution, hook, nextOpening, stateChanges, knowledgeChanges, plants, paysOff })))}
 用户分集修订（键ep-N对应第N集；这些字段是用户最新意图，必须保留，其余内容与事实/人物知情表据此重新推导，不能退回旧稿）：${JSON.stringify(project.episodeNotes || {})}
+本集强制伏笔清单（逐条核对，不是示例）：${JSON.stringify({ number: start, plants: requiredPlants.map(p => ({ id: p.id, question: p.question, payoffIn: p.payoffIn })), paysOff: requiredPayoffs.map(p => ({ id: p.id, question: p.question, answer: p.answer })), forbiddenPayoffs: promises.filter(p => p.payoffIn !== start).map(p => p.id) })}
+每一条plants必须在synopsis中通过具体可拍的行动、物件、对话或代价埋下疑问；每一条paysOff必须在synopsis/resolution实际给出答案。不能只补编号却不写故事，也不能因本集有多个伏笔只保留第一条。回复前逐项自查这一清单。
 只写第${start}–${start + count - 1}集，共${count}集。使用已登记的人物/场景ID，别名统一为正名，不新增人物。plants/paysOff必须准确遵守总纲埋设/回收集数，不许提前透露未来真相。每集开场承接上一集hook，并实际实现上一集nextOpening承诺。stateChanges只记录本集结束后成立的新事实，knowledgeChanges只记录具体某人获得的信息（作者知道不等于人物知道）。保持故事因果，不让人物使用尚未获得的信息。
-返回：{"episodes":[{"number":${start},"title":"集名","synopsis":"150–250字有行动、有选择、有结果的故事","opening":"开场兑现上集悬念","goal":"具体目标","conflict":"阻力","choice":"人物主动选择与代价","resolution":"本集兑现的回报","hook":"最后可拍的画面/动作/一句台词引出的问题","hookType":"悬念类型","nextOpening":"下一集应如何实质回应（最后一集为空）","characterIds":["c1"],"locationIds":["l1"],"plants":["p1"],"paysOff":[],"stateChanges":["新的事实"],"knowledgeChanges":[{"characterId":"c1","learns":"新获知的信息"}]}]}`;
+返回：{"episodes":[{"number":${start},"title":"集名","synopsis":"150–250字有行动、有选择、有结果的故事","opening":"开场兑现上集悬念","goal":"具体目标","conflict":"阻力","choice":"人物主动选择与代价","resolution":"本集兑现的回报","hook":"最后可拍的画面/动作/一句台词引出的问题","hookType":"悬念类型","nextOpening":"下一集应如何实质回应（最后一集为空）","characterIds":["c1"],"locationIds":["l1"],"plants":${JSON.stringify(requiredPlants.map(p => p.id))},"paysOff":${JSON.stringify(requiredPayoffs.map(p => p.id))},"stateChanges":["新的事实"],"knowledgeChanges":[{"characterId":"c1","learns":"新获知的信息"}]}]}`;
   }
   const episode = project.episodes.find((e) => e.id === episodeId);
   if (!episode) throw new Error("找不到待编剧的集数");
