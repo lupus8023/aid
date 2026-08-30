@@ -26,7 +26,7 @@ import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
-import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedVideoSegment, normalizeVideoSegmentPlan, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
+import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedPlannedVideoSegment, normalizeVideoSegmentPlan, refreshPlannedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS, previousSegmentTailSource } from '@/lib/videoContinuity';
@@ -2341,10 +2341,10 @@ export default function StoryPage() {
         if (autoAbortRef.current) return;
         const groupLabel = `视频片段 ${group.map(item => item.sceneNumber).join('·')}`;
         await retryUntilCompleted(groupLabel, async () => {
-          const latestGroup = group.map(item => storyboardsRef.current.find(current => current.id === item.id) || item);
+          const latestGroup = refreshPlannedVideoSegment(storyboardsRef.current, group);
           const latestLeader = latestGroup[0];
           const alreadyDone = isH3SegmentProvider
-            ? isCompletedVideoSegment(latestGroup)
+            ? isCompletedPlannedVideoSegment(storyboardsRef.current, group)
             : latestGroup.every(item => item.videoStatus === 'completed' && item.videoUrl);
           if (alreadyDone) return;
 
@@ -2367,7 +2367,7 @@ export default function StoryPage() {
             }
             const recovered = latestGroup.map(item => storyboardsRef.current.find(current => current.id === item.id) || item);
             const recoveredDone = isH3SegmentProvider
-              ? isCompletedVideoSegment(recovered)
+              ? isCompletedPlannedVideoSegment(storyboardsRef.current, group)
               : recovered.every(item => item.videoStatus === 'completed' && item.videoUrl);
             if (recoveredDone) return;
           }
@@ -2375,7 +2375,7 @@ export default function StoryPage() {
           await handleGenerateVideo(latestLeader, latestGroup, { throwOnError: true });
           const completed = latestGroup.map(item => storyboardsRef.current.find(current => current.id === item.id) || item);
           const isDone = isH3SegmentProvider
-            ? isCompletedVideoSegment(completed)
+            ? isCompletedPlannedVideoSegment(storyboardsRef.current, group)
             : completed.every(item => item.videoStatus === 'completed' && item.videoUrl);
           if (!isDone) throw new Error('任务结束但没有返回完整视频');
         });

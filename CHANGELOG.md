@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.101 - 2026-08-30
+
+### Fixed
+
+- Automatic production now retains segment-authoritative dialogue while refreshing current media and task state, matching manual generation and avoiding unnecessary paid reruns.
+- Completed manual clips are recognized after automatic resume or project restoration. Older raw-dialogue caches remain reusable only when their compiled segment speech is unchanged; changed images or edited segment dialogue still invalidate them.
+
 ## 0.1.100 - 2026-08-30
 
 ### Fixed

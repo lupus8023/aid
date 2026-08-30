@@ -515,6 +515,36 @@ export function resolveVideoSegmentGroups(
   ));
 }
 
+/** Refresh media/job state without replacing the segment's authoritative speech. */
+export function refreshPlannedVideoSegment(storyboards: Storyboard[], planned: Storyboard[]): Storyboard[] {
+  const byId = new Map(storyboards.map(item => [item.id, item]));
+  return planned.map(item => ({
+    ...item,
+    ...(byId.get(item.id) || {}),
+    speech: item.speech,
+    dialogueLines: item.dialogueLines,
+    dialogue: item.dialogue,
+  }));
+}
+
+function equivalentSegmentSpeech(first: Storyboard[], second: Storyboard[]): boolean {
+  try {
+    return JSON.stringify(authorSegmentSpeech(first)) === JSON.stringify(authorSegmentSpeech(second));
+  } catch {
+    return false;
+  }
+}
+
+/** Both manual and automatic production check the same planned creative input. */
+export function isCompletedPlannedVideoSegment(storyboards: Storyboard[], planned: Storyboard[]): boolean {
+  const current = refreshPlannedVideoSegment(storyboards, planned);
+  if (isCompletedVideoSegment(current)) return true;
+  const raw = planned.map(item => storyboards.find(candidate => candidate.id === item.id) || item);
+  // Old automatic jobs hashed the raw per-shot speech. Reuse only when it
+  // compiles to the very same segment speech; an edited plan is never ignored.
+  return equivalentSegmentSpeech(raw, current) && isCompletedVideoSegment(raw);
+}
+
 function hasMatchingVideoGeneration(storyboards: Storyboard[]): boolean {
   const leader = storyboards[0];
   if (!leader || hasLegacyAutomaticContinuity(leader)) return false;
@@ -595,7 +625,11 @@ export function restoredStoryStep(storyboards: Storyboard[], plan?: VideoSegment
   if (!plan && historicalGroups.length && historicalGroups.flat().length === storyboards.length
     && historicalGroups.every(isPersistedVideoSegment)) return 6;
   const groups = resolveVideoSegmentGroups(storyboards, plan);
-  return groups.length > 0 && groups.every(isPersistedVideoSegment) ? 6 : 5;
+  return groups.length > 0 && groups.every(group => {
+    if (isPersistedVideoSegment(group)) return true;
+    const raw = group.map(item => storyboards.find(candidate => candidate.id === item.id) || item);
+    return equivalentSegmentSpeech(raw, group) && isPersistedVideoSegment(raw);
+  }) ? 6 : 5;
 }
 
 export function allocateSegmentTimeline(storyboards: Storyboard[], totalSeconds: number): Array<{ start: number; end: number }> {

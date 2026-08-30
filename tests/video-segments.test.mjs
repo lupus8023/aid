@@ -9,10 +9,12 @@ import {
   estimateVideoSegmentSeconds,
   H3_PROMPT_CONTRACT_VERSION,
   isCompletedVideoSegment,
+  isCompletedPlannedVideoSegment,
   normalizeVideoSegmentPlan,
   persistedVideoClipCount,
   releaseUnsubmittedVideoGenerations,
   resolveVideoSegmentGroups,
+  refreshPlannedVideoSegment,
   restoredStoryStep,
   suggestVideoSegments,
   validateVideoSegment,
@@ -190,6 +192,33 @@ test('keeps ordered multi-speaker dialogue at segment level with one block per i
   assert.deepEqual(plan.segments[0].speech.map(line => line.character), ['A', 'B']);
   const [resolved] = resolveVideoSegmentGroups(storyboards, plan);
   assert.deepEqual(resolved.flatMap(item => item.speech).map(line => line.exactLine), ['你确认入口安全吗？', '我已经检查过两次。']);
+});
+
+test('automatic recovery reuses manually generated planned speech without changing its provenance', () => {
+  const raw = [shot(1, { characters: ['A'], speech: [{ character: 'A', voiceId: 'voice-a', exactLine: 'Hello there.', source: 'story_required' }] })];
+  const plan = createVideoSegmentPlan(raw, [raw]);
+  const [planned] = resolveVideoSegmentGroups(raw, plan);
+  const signature = videoSegmentGenerationSignature(planned);
+  const stored = raw.map(item => ({ ...item, videoStatus: 'completed', videoUrl: 'paid.mp4', videoSegmentId: 'seg', videoSegmentStoryboardIds: ['scene-1'], videoGenerationSignature: signature }));
+  assert.equal(isCompletedVideoSegment(stored), false);
+  assert.equal(isCompletedPlannedVideoSegment(stored, planned), true);
+  assert.equal(restoredStoryStep(stored, plan), 6);
+  assert.equal(stored[0].videoGenerationSignature, signature);
+  assert.equal(refreshPlannedVideoSegment(stored, planned)[0].speech[0].sourceStoryboardId, 'scene-1');
+  assert.equal(isCompletedPlannedVideoSegment([{ ...stored[0], imageUrl: 'new-stairs.jpg' }], planned), false);
+});
+
+test('legacy raw-speech cache is reusable only when the segment plan has equivalent dialogue', () => {
+  const raw = [shot(1, { characters: ['A'], speech: [{ character: 'A', voiceId: 'voice-a', exactLine: 'Hello there.', source: 'story_required' }] })];
+  const plan = createVideoSegmentPlan(raw, [raw]);
+  const stored = raw.map(item => ({ ...item, videoStatus: 'completed', videoUrl: 'paid.mp4', videoSegmentId: 'seg', videoSegmentStoryboardIds: ['scene-1'], videoGenerationSignature: videoSegmentGenerationSignature(raw) }));
+  assert.equal(isCompletedPlannedVideoSegment(stored, resolveVideoSegmentGroups(stored, plan)[0]), true);
+  assert.equal(restoredStoryStep(stored, plan), 6);
+  plan.segments[0].speech[0].exactLine = 'An explicitly edited line.';
+  const [edited] = resolveVideoSegmentGroups(stored, plan);
+  assert.equal(isCompletedPlannedVideoSegment(stored, edited), false);
+  assert.equal(restoredStoryStep(stored, plan), 5);
+  assert.equal(refreshPlannedVideoSegment(stored, edited)[0].speech[0].exactLine, 'An explicitly edited line.');
 });
 
 test('splits an A-B-A recurrence into valid consecutive dialogue edit units', () => {
