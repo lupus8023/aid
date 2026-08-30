@@ -9,6 +9,7 @@ test('allows every browser-to-Companion Story media route through CORS', async (
     '/api/companion/audio/:path*',
     '/api/generate-audio',
     '/api/generate-video',
+    '/api/generate-video-prompt',
     '/api/check-video-status',
     '/api/comfyui/download',
     '/api/generate',

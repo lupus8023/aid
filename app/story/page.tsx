@@ -29,7 +29,7 @@ import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitec
 import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedVideoSegment, normalizeVideoSegmentPlan, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
-import { CONTINUITY_HANDOFF_LEAD_SECONDS } from '@/lib/videoContinuity';
+import { CONTINUITY_HANDOFF_LEAD_SECONDS, previousSegmentTailSource } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
 
 async function persistLocalGeneratedImage(imageUrl: string): Promise<string> {
@@ -1764,17 +1764,9 @@ export default function StoryPage() {
     const segmentStoryboards = storyboardsRef.current
       .filter(item => segmentIds.includes(item.id))
       .sort((a, b) => a.sceneNumber - b.sceneNumber)
-      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), visualStyle, capturePreset: capturePresetRef.current }));
+      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), imageUrl: item.imageUrl, visualStyle, capturePreset: capturePresetRef.current }));
     const leader = segmentStoryboards[0];
-    const leaderIndex = storyboardsRef.current.findIndex(item => item.id === leader?.id);
-    const immediatePrevious = leaderIndex > 0 ? storyboardsRef.current[leaderIndex - 1] : undefined;
-    const shouldContinuePreviousSegment = Boolean(leader?.continuousFromPrev || (leader && immediatePrevious
-      && immediatePrevious.sequenceId === leader.sequenceId
-      && immediatePrevious.locationId === leader.locationId
-      && immediatePrevious.transition !== 'fade'));
-    const hasFirstFrame = shouldContinuePreviousSegment && leaderIndex > 0
-      ? storyboardsRef.current.slice(0, leaderIndex).some(item => Boolean(item.videoUrl))
-      : false;
+    const hasFirstFrame = Boolean(leader && previousSegmentTailSource(storyboardsRef.current, leader));
     const videoProvider = settingsRef.current.videoProvider || 'apimart';
     const referenceAudioNames = videoProvider === 'fal' ? [] : [...new Set(segmentStoryboards
       .flatMap(item => storyboardSpeech(item).map(line => line.character)))]
@@ -1785,7 +1777,9 @@ export default function StoryPage() {
       .map(character => [character.name, character.voiceProfile!]));
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: 'generating...' } : sb));
     try {
-      const response = await fetch('/api/generate-video-prompt', {
+      const response = await fetch(videoProvider === 'comfyui'
+        ? comfyUIApiUrl('/api/generate-video-prompt', settingsRef.current.comfyui)
+        : '/api/generate-video-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ storyboard: { ...storyboard, visualStyle, capturePreset: capturePresetRef.current }, segmentStoryboards, referenceAudioNames, voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, language: projectLanguageRef.current, hasFirstFrame })
@@ -1831,7 +1825,7 @@ export default function StoryPage() {
     const segment = currentShots
       .filter(item => requestedIds.includes(item.id))
       .sort((a, b) => a.sceneNumber - b.sceneNumber)
-      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}) }));
+      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), imageUrl: item.imageUrl }));
     const validationError = validateVideoSegment(segment, projectLanguageRef.current);
     if (validationError) {
       failBeforeSubmission(validationError);
@@ -1859,12 +1853,12 @@ export default function StoryPage() {
     const leader = segment[0];
     const segmentId = `segment-${Date.now()}-${leader.sceneNumber}`;
     const duration = estimateVideoSegmentSeconds(segment);
-    const leaderIndex = currentShots.findIndex(item => item.id === leader.id);
-    const immediatePrevious = leaderIndex > 0 ? currentShots[leaderIndex - 1] : undefined;
-    const shouldContinuePreviousSegment = Boolean(leader.continuousFromPrev || (immediatePrevious
-      && immediatePrevious.sequenceId === leader.sequenceId
-      && immediatePrevious.locationId === leader.locationId
-      && immediatePrevious.transition !== 'fade'));
+    const prevShot = previousSegmentTailSource(currentShots, leader);
+    if (leader.videoStartMode === 'previous-segment-tail' && !prevShot) {
+      failBeforeSubmission('无法接续上一段：必须同场同地点、相邻片段已完成且不是换场转场；请选择“当前分镜首帧”。');
+      return;
+    }
+    const shouldContinuePreviousSegment = Boolean(prevShot);
     const generationInputs = segment.map(item => ({
       ...item,
       videoProviderUsed: videoProvider,
@@ -1959,16 +1953,13 @@ export default function StoryPage() {
         .map(character => [character.name, character.voiceProfile!]));
       const storyboardForRequest = {
         ...portableSegment[0],
+        continuousFromPrev: shouldContinuePreviousSegment,
+        videoStartMode: shouldContinuePreviousSegment ? 'previous-segment-tail' : 'storyboard',
         videoDuration: duration,
         videoSegmentId: segmentId,
         videoSegmentStoryboardIds: segmentIds,
       };
 
-      // A previous generated segment may cover several storyboards, so use the
-      // nearest preceding segment leader that actually owns a video URL.
-      const prevShot = shouldContinuePreviousSegment && leaderIndex > 0
-        ? currentShots.slice(0, leaderIndex).reverse().find(item => item.videoUrl)
-        : undefined;
       let firstFrameUrl: string | undefined;
       if (prevShot?.videoUrl) {
         // Extract a moving handoff frame from local or CORS-enabled remote video.
@@ -1982,8 +1973,6 @@ export default function StoryPage() {
           // decoded by this browser. New Companion clips use the motion frame.
           firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_100p/').replace(/\.\w+$/, '.jpg');
         }
-      } else if (videoProvider === 'comfyui' && prevShot?.imageUrl) {
-        firstFrameUrl = await prepareStoryboardReference(prevShot.imageUrl, `场景 ${prevShot.sceneNumber} 分镜图`, projectAspectRatioRef.current);
       }
 
       const generationUrl = videoProvider === 'comfyui'

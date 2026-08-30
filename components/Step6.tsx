@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import type { AppSettings } from '@/types';
 import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { formatProductionElapsed, productionElapsedMs } from '@/lib/productionTiming';
+import { hasLegacyAutomaticContinuity } from '@/lib/videoContinuity';
 
 interface Step6Props {
   storyboards: Storyboard[];
@@ -32,6 +33,7 @@ export default function Step6({
   downloadAfterExport = true,
   productionTiming,
 }: Step6Props) {
+  const outdated = storyboards.filter(item => item.videoUrl && hasLegacyAutomaticContinuity(item));
   const seenSegments = new Set<string>();
   const completedShots = storyboards
     .map((storyboard, originalIndex) => ({ storyboard, originalIndex }))
@@ -76,7 +78,9 @@ export default function Step6({
         )}
       </div>
 
-      {videoUrls.length > 0 ? (
+      {outdated.length > 0 ? (
+        <p className="rounded-lg border border-amber-400/40 p-4 text-amber-300">镜 {outdated.map(item => item.sceneNumber).join('、')} 仍使用旧版自动接续首帧，请返回视频步骤重新生成后再合并，避免把错误场景混入成片。</p>
+      ) : videoUrls.length > 0 ? (
         <div className="flex-1 border border-[var(--border-color)] rounded overflow-hidden">
           <VideoEditor
             initialVideos={videoUrls}

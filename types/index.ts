@@ -164,6 +164,7 @@ export interface Storyboard {
   videoPromptOverride?: boolean; // 用户或模块化引擎明确生成/编辑的最终提示词
   videoDuration?: number; // 视频时长（秒）；ComfyUI H3 为 2-15，其他模型按各自限制
   continuousFromPrev?: boolean; // 是否与上一个镜头连贯（使用上一镜头尾帧=本镜头首帧）
+  videoStartMode?: 'storyboard' | 'previous-segment-tail'; // 默认当前分镜；尾帧接续必须在片段面板明确选择
   sequenceId?: string; // 所属场/段落（导演阶段产出，用于共享场景参考与连续性）
   durationHint?: number; // 内容推导的建议时长（秒），作为 videoDuration 的默认取值来源
   transition?: 'cut' | 'dissolve' | 'fade' | 'wipe'; // 转场

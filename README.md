@@ -152,6 +152,8 @@ Story 长片生成采用分阶段流程：一句话构想也可以先扩写为�
 
 普通用户可直接从 AID 首页下载桌面版 Companion。桌面版内置 Node.js 运行环境、FFmpeg/FFprobe 和独立 SSH 客户端，支持 macOS Apple Silicon、macOS Intel 与 Windows x64；启动时会生成仅保存在本机应用数据目录的专属 Ed25519 密钥，并可使用仙宫云 SSH 密码一键完成公钥授权。
 
+Story 视频片段默认以本镜分镜图为首帧；只有在片段面板明确选择“上一段尾帧”且满足同场同地点的相邻接拍条件时才继承前段画面。原始分镜和视频预览分别显示。ComfyUI 的提示词预览及提交均由 Companion 编译，因此相关提示词更新也需要同步 Companion（当前最低 v0.1.100）；旧版自动接续的片段需重生成后再合并。
+
 维护者可创建 `companion-v*` Git tag，或在 GitHub Actions 手动运行 `Release AID Companion`，自动生成三个平台包并发布到 GitHub Releases。首页下载链接始终指向 latest release。
 
 无人值守的纯服务端部署仍可用 `COMFYUI_SSH_PRIVATE_KEY_B64` 作为后备密钥，并用 `COMFYUI_SSH_HOST_FINGERPRINT` 固定远端主机指纹；该模式不是浏览器默认路径。

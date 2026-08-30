@@ -1,4 +1,5 @@
 import type { Storyboard, StorySpeechLine } from '@/types';
+import { hasLegacyAutomaticContinuity } from './videoContinuity';
 import { compileTimedSpeech, consolidateSegmentSpeech, H3_SPEAKER_HANDOFF_SECONDS, speechSeconds, storyboardAudioPlan, storyboardSpeech, validateSpeechContract, validateSpeechLanguage, validateVoiceBindings } from './speechAudioContract';
 
 export const MAX_H3_SEGMENT_SECONDS = 15;
@@ -7,7 +8,7 @@ export const VIDEO_SEGMENT_PLANNING_CONTRACT = 'cinematic-edit-v2';
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v33';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v34';
 
 export interface VideoSegmentDefinition {
   id: string;
@@ -144,6 +145,7 @@ export function videoSegmentGenerationSignature(storyboards: Storyboard[]): stri
     durationHint: storyboard.durationHint || 0,
     transition: storyboard.transition || '',
     continuousFromPrev: Boolean(storyboard.continuousFromPrev),
+    ...(storyboard.videoStartMode === 'previous-segment-tail' ? { videoStartMode: storyboard.videoStartMode } : {}),
     continuityFrom: storyboard.continuityFrom || '',
     aspectRatio: storyboard.aspectRatio || '',
     visualStyle: storyboard.visualStyle || '',
@@ -513,11 +515,23 @@ export function resolveVideoSegmentGroups(
   ));
 }
 
+function hasMatchingVideoGeneration(storyboards: Storyboard[]): boolean {
+  const leader = storyboards[0];
+  if (!leader || hasLegacyAutomaticContinuity(leader)) return false;
+  const saved = leader.videoGenerationSignature;
+  if (!saved) return true;
+  const current = videoSegmentGenerationSignature(storyboards);
+  if (saved === current) return true;
+  // Preserve paid v33 clips that already started from their own storyboard
+  // and whose creative inputs are unchanged. Do not rewrite their provenance.
+  return !leader.continuousFromPrev && leader.videoStartMode !== 'previous-segment-tail'
+    && saved.startsWith('h3-v33-') && saved.slice(7) === current.slice(7);
+}
+
 export function isCompletedVideoSegment(storyboards: Storyboard[]): boolean {
   const leader = storyboards[0];
   if (!leader || !leader.videoUrl || !leader.videoSegmentId) return false;
-  if (leader.videoGenerationSignature
-    && leader.videoGenerationSignature !== videoSegmentGenerationSignature(storyboards)) return false;
+  if (!hasMatchingVideoGeneration(storyboards)) return false;
   const expectedIds = storyboards.map(storyboard => storyboard.id);
   const savedIds = leader.videoSegmentStoryboardIds || [];
   if (savedIds.length !== expectedIds.length || savedIds.some((id, index) => id !== expectedIds[index])) return false;
@@ -530,8 +544,7 @@ export function isCompletedVideoSegment(storyboards: Storyboard[]): boolean {
 function isPersistedVideoSegment(storyboards: Storyboard[]): boolean {
   const leader = storyboards[0];
   if (!leader || !leader.videoSegmentId || !hasPersistedVideoArtifact(leader)) return false;
-  if (leader.videoGenerationSignature
-    && leader.videoGenerationSignature !== videoSegmentGenerationSignature(storyboards)) return false;
+  if (!hasMatchingVideoGeneration(storyboards)) return false;
   const expectedIds = storyboards.map(storyboard => storyboard.id);
   const savedIds = leader.videoSegmentStoryboardIds || [];
   if (savedIds.length !== expectedIds.length || savedIds.some((id, index) => id !== expectedIds[index])) return false;

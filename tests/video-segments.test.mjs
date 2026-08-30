@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   allocateSegmentTimeline,
@@ -20,6 +21,8 @@ import {
 import {
   CONTINUITY_HANDOFF_LEAD_SECONDS,
   CONTINUITY_HEAD_TRIM_SECONDS,
+  previousSegmentTailSource,
+  hasLegacyAutomaticContinuity,
 } from '../lib/videoContinuity.ts';
 
 const shot = (sceneNumber, extra = {}) => ({
@@ -34,6 +37,57 @@ const shot = (sceneNumber, extra = {}) => ({
   sequenceId: 'seq-1',
   locationId: 'loc-1',
   ...extra,
+});
+
+test('shared/empty location metadata and legacy continuity never opt into tail-frame replacement', () => {
+  const previous = shot(5, { videoUrl: 'bedroom.mp4', videoStatus: 'completed' });
+  for (const current of [shot(6), shot(6, { continuousFromPrev: true, continuityFrom: previous.id }), shot(6, { sequenceId: undefined, locationId: undefined })]) {
+    assert.equal(previousSegmentTailSource([previous, current], current), undefined);
+  }
+});
+
+test('tail-frame opt-in requires known matching location and an immediately adjacent completed segment', () => {
+  const previous = shot(5, { videoUrl: 'bedroom.mp4', videoStatus: 'completed' });
+  const current = shot(6, { videoStartMode: 'previous-segment-tail' });
+  assert.equal(previousSegmentTailSource([previous, current], current), previous);
+  for (const extra of [{ locationId: 'stairs' }, { locationId: '' }, { sequenceId: '' }]) {
+    assert.equal(previousSegmentTailSource([previous, { ...current, ...extra }], { ...current, ...extra }), undefined);
+  }
+  assert.equal(previousSegmentTailSource([{ ...previous, transition: 'fade' }, current], current), undefined);
+  assert.equal(previousSegmentTailSource([previous, shot(6), shot(7, { videoStartMode: 'previous-segment-tail' })], shot(7, { videoStartMode: 'previous-segment-tail' })), undefined);
+});
+
+test('a multi-shot predecessor resolves only its own completed segment leader', () => {
+  const owner = shot(4, { videoUrl: 'segment.mp4', videoStatus: 'completed', videoSegmentId: 'prev', videoSegmentStoryboardIds: ['scene-4', 'scene-5'] });
+  const previous = shot(5, { videoStatus: 'completed', videoSegmentId: 'prev' });
+  const current = shot(6, { videoStartMode: 'previous-segment-tail' });
+  assert.equal(previousSegmentTailSource([owner, previous, current], current), owner);
+  assert.equal(previousSegmentTailSource([{ ...owner, videoStatus: 'failed' }, previous, current], current), undefined);
+});
+
+test('preserves unchanged paid v33 storyboard-start clips but rejects legacy automatic continuity', () => {
+  const old = shot(1, { videoUrl: 'clip.mp4', videoStatus: 'completed', videoSegmentId: 'seg', videoSegmentStoryboardIds: ['scene-1'] });
+  old.videoGenerationSignature = videoSegmentGenerationSignature([old]).replace('h3-v34-', 'h3-v33-');
+  assert.equal(isCompletedVideoSegment([old]), true);
+  assert.equal(isCompletedVideoSegment([{ ...old, imageUrl: 'changed.jpg' }]), false);
+  const inherited = { ...old, continuousFromPrev: true };
+  inherited.videoGenerationSignature = videoSegmentGenerationSignature([inherited]).replace('h3-v34-', 'h3-v33-');
+  assert.equal(hasLegacyAutomaticContinuity(inherited), true);
+  assert.equal(isCompletedVideoSegment([inherited]), false);
+  assert.equal(restoredStoryStep([inherited]), 5);
+});
+
+test('segment preview keeps the storyboard image and server rejects implicit tail frames', () => {
+  const step5 = readFileSync(new URL('../components/Step5.tsx', import.meta.url), 'utf8');
+  const thumbnails = step5.slice(step5.indexOf('{group.map((item, shotIndex)'), step5.indexOf('{shotIndex < group.length - 1'));
+  assert.match(thumbnails, /src=\{item.imageUrl\}/);
+  assert.doesNotMatch(thumbnails, /<video/);
+  assert.match(step5, /视频首帧来源/);
+  const route = readFileSync(new URL('../app/api/generate-video/route.ts', import.meta.url), 'utf8');
+  assert.match(route, /firstFrameUrl && storyboard.videoStartMode !== 'previous-segment-tail'/);
+  const page = readFileSync(new URL('../app/story/page.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(page, /immediatePrevious\.sequenceId === leader\.sequenceId/);
+  assert.match(page, /comfyUIApiUrl\('\/api\/generate-video-prompt'/);
 });
 
 test('groups complete cinematic phrases while protecting hero shots', () => {

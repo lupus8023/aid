@@ -49,6 +49,7 @@ export const config = {
     '/api/comfyui/download',
     '/api/comfyui/character-replace',
     '/api/generate-video',
+    '/api/generate-video-prompt',
     '/api/image-to-video',
     '/api/check-video-status',
     '/api/generate',

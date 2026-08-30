@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.100 - 2026-08-30
+
+### Fixed
+
+- Story video segments now start from their selected storyboard by default. Shared or missing sequence/location metadata and legacy narrative-continuity flags cannot silently replace it with an earlier video's tail.
+- Added an explicit first-frame source selector. Tail-frame handoff requires a completed adjacent segment, matching nonempty sequence/location IDs, and no scene-change transition; it cannot skip missing segments.
+- Segment thumbnails always show original storyboard images. Generated video remains a separately labelled preview; legacy automatic handoffs are flagged for regeneration and blocked from final merging while keeping their paid artifacts recoverable.
+- Unchanged v0.1.99-and-earlier storyboard-start clips remain reusable; obsolete automatic handoff clips must be regenerated. New signatures use h3-v34.
+- Prompt previews for ComfyUI now compile in the same Companion as actual submission. Companion v0.1.100 is required and includes the previously hosted-only observational prompt changes.
+
+### Verification
+
+- Added regressions for default first-frame identity, empty metadata, scene changes, multi-shot predecessors, missing segments, legacy artifact compatibility, preview separation, and Companion prompt CORS.
+
 ## 0.1.99 - 2026-08-30
 
 ### Changed

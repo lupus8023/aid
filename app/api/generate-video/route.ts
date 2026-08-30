@@ -52,6 +52,12 @@ export async function POST(request: NextRequest) {
     } = await request.json();
 
     if (!storyboard) return NextResponse.json({ error: 'Storyboard is required' }, { status: 400 });
+    if (firstFrameUrl && storyboard.videoStartMode !== 'previous-segment-tail') {
+      return NextResponse.json({ error: '上一段尾帧不能自动替换当前分镜；请刷新网页，并在片段面板明确选择接续模式。' }, { status: 400 });
+    }
+    if (storyboard.videoStartMode === 'previous-segment-tail' && !firstFrameUrl) {
+      return NextResponse.json({ error: '缺少已选择的上一段尾帧，请检查接续条件或改用当前分镜。' }, { status: 400 });
+    }
     const videoStoryboards = Array.isArray(segmentStoryboards) && segmentStoryboards.length
       ? segmentStoryboards.slice(0, 4)
       : [storyboard];
