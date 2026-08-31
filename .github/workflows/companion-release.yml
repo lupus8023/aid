@@ -62,6 +62,7 @@ jobs:
       - run: npm run test:h3-prompt
       - run: npm run test:no-subtitles
       - run: npm run test:grid-preprocess
+      - run: npm run test:image-upload
       - run: npm run test:character-design
       - run: npm run test:character-library
       - run: npm run test:image-capture
@@ -69,6 +70,7 @@ jobs:
       - run: npm run test:shot-count
       - run: npm run test:video-segments
       - run: npm run test:video-pacing
+      - run: node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/film-ending.test.mjs
       - run: npm run test:project-isolation
       - run: npm run test:provider-payload
       - run: npm run test:story-engine
@@ -78,6 +80,7 @@ jobs:
       - run: npm run test:image-prompt-safety
       - run: npm run test:grid-recovery
       - run: npm run test:series
+      - run: npm run test:pipeline-recovery
       - run: node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/series-cross-language.test.mjs
       - run: npm run build:companion
       - run: node scripts/package-companion.mjs --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}

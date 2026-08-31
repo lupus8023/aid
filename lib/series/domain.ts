@@ -6,6 +6,8 @@ import type {
   SeriesShot,
 } from "./types";
 import type { ProjectData } from "@/hooks/useProject";
+import { checkEpisodeTextFields } from './fieldRepair';
+import { checkScriptDialogue } from './scriptRepair';
 
 export function seriesId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -24,6 +26,15 @@ function required(value: unknown, label: string): string {
   return v;
 }
 
+// Generated labels alone are not enough to skip a character's visual design.
+// Require an explicit invisible/voice-only design; ambiguous roles keep a card.
+export function generatedCharacterAppearance(c: { appearance?: unknown; description?: unknown }): SeriesCharacter['appearance'] {
+  if (c.appearance !== 'voice_only') return 'on_screen';
+  const description = text(c.description);
+  return /\b(?:disembodied|voice[- ]only|audio[- ]only|no (?:visible )?(?:body|physical form)|never (?:seen|visible|shown)|never appears (?:on[- ]screen|visually))\b|(?:全程不|始终不|从不|永不)(?:出镜|露脸|显形)|无(?:可见)?(?:身体|实体|形象)|纯(?:旁白|画外音|声音)|仅(?:有)?声音/.test(description.toLowerCase())
+    ? 'voice_only' : 'on_screen';
+}
+
 export function createSeries(input: Partial<SeriesProject>): SeriesProject {
   const count = Number(input.episodeCount ?? 12);
   if (!Number.isInteger(count) || count < 2 || count > 100)
@@ -39,7 +50,7 @@ export function createSeries(input: Partial<SeriesProject>): SeriesProject {
     shotCount: 18,
     durationSeconds: 120,
     language: input.language === "en" ? "en" : "zh",
-    aspectRatio: input.aspectRatio === "16:9" ? "16:9" : "9:16",
+    aspectRatio: input.aspectRatio === "1:1" ? "1:1" : input.aspectRatio === "16:9" ? "16:9" : "9:16",
     visualStyle: input.visualStyle || "cinematic-natural",
     characters: [],
     locations: [],
@@ -76,7 +87,7 @@ export function parseOutline(
       arc: required(c.arc, "人物变化"),
       voiceBrief: required(c.voiceBrief, "声音简报"),
       speaking: c.speaking !== false,
-      appearance: c.appearance === "voice_only" ? "voice_only" : "on_screen",
+      appearance: generatedCharacterAppearance(c),
       importance: ["lead", "supporting", "guest"].includes(c.importance)
         ? c.importance
         : "supporting",
@@ -164,6 +175,7 @@ export function parseEpisodes(
 ): SeriesEpisode[] {
   if (!Array.isArray(raw?.episodes) || raw.episodes.length !== count)
     throw new Error(`必须返回 ${count} 集分集故事`);
+  checkEpisodeTextFields(raw.episodes, start, project.episodeCount);
   const characterIds = new Set(project.characters.map((c) => c.id)),
     locationIds = new Set(project.locations.map((l) => l.id));
   const promiseIds = new Set(project.bible?.promises.map((p) => p.id));
@@ -268,16 +280,6 @@ export function parseScript(
       )
     )
       throw new Error("台词角色未登记为本镜发声角色");
-    const speechSeconds = dialogue.reduce(
-      (sum, d) =>
-        sum +
-        (project.language === "zh"
-          ? d.text.length / 4.2
-          : d.text.split(/\s+/).length / 2.4),
-      0,
-    );
-    if (speechSeconds > seconds - 0.8)
-      throw new Error(`第 ${i + 1} 镜台词超时，请缩短普通台词或调整时长`);
     return {
       number: i + 1,
       seconds,
@@ -293,6 +295,7 @@ export function parseScript(
   const duration = shots.reduce((n, s) => n + s.seconds, 0);
   if (Math.abs(duration - 120) > 5)
     throw new Error(`镜头总时长 ${duration} 秒，应为115–125秒`);
+  checkScriptDialogue(shots, project.language);
   return shots;
 }
 
@@ -302,7 +305,7 @@ export function episodeContext(project: SeriesProject, episode: SeriesEpisode) {
     bible: project.bible,
     characters: project.characters
       .filter((c) => episode.characterIds.includes(c.id))
-      .map(({ id, name, role, want, secret, arc, description }) => ({
+      .map(({ id, name, role, want, secret, arc, description, appearance }) => ({
         id,
         name,
         role,
@@ -310,6 +313,7 @@ export function episodeContext(project: SeriesProject, episode: SeriesEpisode) {
         secret,
         arc,
         description,
+        appearance,
       })),
     locations: project.locations
       .filter((l) => episode.locationIds.includes(l.id))

@@ -1,3 +1,15 @@
+export function chatInputContent(prompt: string, imageUrls: string[] = []) {
+  return imageUrls.length ? [{ type: 'text', text: prompt }, ...imageUrls.map(url => ({ type: 'image_url', image_url: { url, detail: 'auto' } }))] : prompt;
+}
+
+export function isProviderContentRejection(error: unknown): boolean {
+  return /content policy violation|content safety system|image processing blocked|content_filter|content moderation|safety policy/i.test(error instanceof Error ? error.message : String(error));
+}
+
+export function responsesInput(prompt: string, imageUrls: string[] = []) {
+  return imageUrls.length ? [{ role: 'user', content: [{ type: 'input_text', text: prompt }, ...imageUrls.map(image_url => ({ type: 'input_image', image_url, detail: 'auto' }))] }] : prompt;
+}
+
 function textFromContent(content: unknown): string {
   if (typeof content === 'string') return content.trim();
   if (!Array.isArray(content)) return '';
@@ -78,4 +90,3 @@ export function providerPayloadSummary(payload: unknown): string {
 export function isResponsesPreferredModel(model: string): boolean {
   return /^gpt-5(?:[.\-]|$)/i.test(model.trim());
 }
-

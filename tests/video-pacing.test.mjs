@@ -9,6 +9,8 @@ import {
   outputOffsetForSourceTime,
   playbackRateAtSourceTime,
   sourceTimeForOutputOffset,
+  clippedPacingSections,
+  withFilmEndingPacing,
 } from '../lib/videoPacing.ts';
 
 function storyboard(overrides = {}) {
@@ -39,6 +41,40 @@ test('classifies emotional performance, dialogue and transitions before assignin
 
   assert.equal(classifyStoryboardPacing(storyboard({ clipType: 'establishing' })).kind, 'transition');
   assert.equal(classifyStoryboardPacing(storyboard({ clipType: 'action', action: '她快速游向洞口。' })).kind, 'action');
+});
+
+test('only film ending keeps its last source second, and reordering clears the former ending', () => {
+  const clips = Array.from({ length: 18 }, (_, index) => ({
+    id: index + 1, duration: 6, trimStart: 0, trimEnd: 0,
+    pacingSections: [{ sourceStart: 0, sourceEnd: 6, rate: 1.25, kind: 'action', reason: 'action' }],
+  }));
+  const protectedClips = withFilmEndingPacing(clips);
+  for (const clip of protectedClips.slice(0, -1)) {
+    assert.equal(effectiveClipDuration(clip), 4.8);
+    assert.equal(clippedPacingSections(clip).length, 1);
+  }
+  const last = protectedClips.at(-1);
+  assert.equal(effectiveClipDuration(last), 5);
+  assert.equal(effectiveClipDuration(last) - outputOffsetForSourceTime(last, 5), 1);
+  assert.equal(sourceTimeForOutputOffset(last, 4.5), 5.5);
+  assert.deepEqual(withFilmEndingPacing(protectedClips), protectedClips);
+  const reordered = withFilmEndingPacing([last, ...protectedClips.slice(0, -1)]);
+  assert.equal(effectiveClipDuration(reordered[0]), 4.8);
+  assert.equal(effectiveClipDuration(reordered.at(-1)), 5);
+  assert.equal(clips[17].preserveEndingSeconds, undefined);
+});
+
+test('ending protection respects trimmed boundaries, slow motion and genuinely short footage', () => {
+  const [trimmed] = withFilmEndingPacing([{
+    duration: 6, trimStart: 1, trimEnd: 1,
+    pacingSections: [{ sourceStart: 0, sourceEnd: 6, rate: 1.25, kind: 'action', reason: 'action' }],
+  }]);
+  assert.equal(Number(effectiveClipDuration(trimmed).toFixed(3)), 3.4);
+  assert.equal(clippedPacingSections(trimmed).at(-1).sourceEnd, 5);
+  const [slow] = withFilmEndingPacing([{ ...trimmed, pacingSections: [{ sourceStart: 0, sourceEnd: 6, rate: 0.8, kind: 'emotion', reason: 'slow' }] }]);
+  assert.equal(effectiveClipDuration(slow), 5);
+  const [short] = withFilmEndingPacing([{ ...trimmed, duration: 0.5, trimStart: 0, trimEnd: 0 }]);
+  assert.equal(effectiveClipDuration(short), 0.5);
 });
 
 test('standard pacing protects emotion while accelerating narrative and action beats', () => {

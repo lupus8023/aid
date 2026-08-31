@@ -2,11 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  AwaitingMediaTaskError,
   autoProductionLockName,
   autoRetryDelayMs,
+  imagePollingTimeoutError,
+  isTransientAutoProductionError,
   normalizeStoryboardImageArtifact,
   planAutoImageBatch,
 } from '../lib/autoProduction.ts';
+
+test('a recent active paid task is awaited without counting a failed generation', () => {
+  const pending = imagePollingTimeoutError('paid-task', 90_000, 100_000);
+  assert.ok(pending instanceof AwaitingMediaTaskError);
+  assert.equal(pending.taskId, 'paid-task');
+  for (const lastActiveAt of [undefined, 0, 110_000]) {
+    assert.equal(imagePollingTimeoutError('paid-task', lastActiveAt, 100_000) instanceof AwaitingMediaTaskError, false);
+  }
+});
+
+test('infrastructure retry policy distinguishes explicit congestion from unsafe or permanent failures', () => {
+  for (const message of ['The service is receiving a lot of requests right now. Please try again shortly.', 'HTTP 429', 'Client network socket disconnected before secure TLS connection was established']) {
+    assert.equal(isTransientAutoProductionError(new Error(message)), true);
+  }
+  for (const message of ['Request timed out after submitting payment', 'HTTP 401 invalid API key', 'HTTP 402 insufficient balance', 'Content safety policy rejection', 'Missing required character']) {
+    assert.equal(isTransientAutoProductionError(new Error(message)), false);
+  }
+});
 
 test('uses one cross-tab orchestration lock per project', () => {
   assert.equal(autoProductionLockName('project-1'), 'aid:auto-production:project-1');

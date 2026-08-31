@@ -1,6 +1,29 @@
 import type { Storyboard } from '@/types';
+import { storyboardImageMode } from './imageModels';
 
 export const AUTO_RETRY_DELAYS_MS = [3_000, 8_000, 15_000, 30_000, 60_000] as const;
+
+export class AwaitingMediaTaskError extends Error {
+  constructor(readonly taskId: string) {
+    super('已提交任务仍在处理中，继续查询原任务，不重复提交');
+    this.name = 'AwaitingMediaTaskError';
+  }
+}
+
+export function imagePollingTimeoutError(taskId: string, lastActiveAt?: number, now = Date.now()): Error {
+  // Only a recent successful provider status permits a wait without spending
+  // a failure attempt. An outage or invalid credential must not wait forever.
+  return lastActiveAt !== undefined && now >= lastActiveAt && now - lastActiveAt <= 60_000
+    ? new AwaitingMediaTaskError(taskId)
+    : new Error('Image generation timeout');
+}
+
+export function isTransientAutoProductionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  // These are explicit congestion responses or a connection that failed before
+  // TLS was established. Do not broadly retry uncertain paid POST timeouts.
+  return /\b(?:429|503)\b|rate[ -]?limit|too many requests|receiving a lot of requests|temporarily unavailable|try again shortly|socket disconnected before secure TLS connection was established/i.test(message);
+}
 
 export function autoProductionLockName(projectId: string): string {
   return `aid:auto-production:${String(projectId || 'unknown').trim() || 'unknown'}`;
@@ -35,9 +58,10 @@ export type AutoImageBatchPlan =
  * while a partially completed batch repairs only its missing cards so already
  * delivered storyboards are never purchased or replaced again.
  */
-export function planAutoImageBatch(group: Storyboard[]): AutoImageBatchPlan {
+export function planAutoImageBatch(group: Storyboard[], model = ''): AutoImageBatchPlan {
   const missing = group.filter(storyboard => !hasUsableStoryboardImage(storyboard));
   if (!missing.length) return { kind: 'skip' };
+  if (storyboardImageMode(model) === 'single') return { kind: 'generate-missing', storyboardIds: missing.map(s => s.id) };
 
   const recoverableTaskIds = [...new Set(missing
     .filter(storyboard => storyboard.imageTaskMode !== 'single')

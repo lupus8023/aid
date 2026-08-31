@@ -159,8 +159,8 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
       && visible.has(line.character)
       && generatedSpeakerMatchesVisibleAction(storyboard, line)
       && (line.source === 'user_exact' || !isDirectingInstructionDialogue(line.exactLine))
-      && !seen.has(`${line.character}\u0000${line.exactLine}`)
-      && Boolean(seen.add(`${line.character}\u0000${line.exactLine}`)))
+      && (line.source === 'user_exact' || (!seen.has(`${line.character}\u0000${line.exactLine}`)
+        && Boolean(seen.add(`${line.character}\u0000${line.exactLine}`)))))
     // Do not truncate here. Segment compilation may legally combine several
     // same-speaker screenplay lines into one continuous H3 vocal event.
 }
@@ -181,7 +181,9 @@ function joinContinuousSpeech(previous: string, next: string): string {
  * H3 is materially more reliable when one identity has one uninterrupted
  * vocal event. Consecutive screenplay lines from that identity are therefore
  * compiled into one longer exact line, even when the picture cuts underneath
- * it. A-B-A would require that A start twice, so it is rejected explicitly.
+ * it. Across shots, A-B-A stays a segment boundary. An already approved
+ * single-shot exchange retains its ordered turns and explicit onset times;
+ * reordering A's lines around B would change the authored dialogue.
  */
 export function consolidateSegmentSpeech(storyboards: Storyboard[]): IndexedSpeechLine[] {
   const source = storyboards.flatMap((storyboard, storyboardIndex) => storyboardSpeech(storyboard).map(line => {
@@ -198,6 +200,8 @@ export function consolidateSegmentSpeech(storyboards: Storyboard[]): IndexedSpee
   }));
   const consolidated: IndexedSpeechLine[] = [];
   const completedSpeakers = new Set<string>();
+  const approvedSingleShotExchange = source.length > 0 && source.every(line =>
+    line.source === 'user_exact' && line.storyboardIndex === source[0].storyboardIndex);
 
   for (const line of source) {
     const previous = consolidated[consolidated.length - 1];
@@ -215,7 +219,7 @@ export function consolidateSegmentSpeech(storyboards: Storyboard[]): IndexedSpee
       continue;
     }
     if (previous) completedSpeakers.add(previous.character);
-    if (completedSpeakers.has(line.character)) {
+    if (completedSpeakers.has(line.character) && !approvedSingleShotExchange) {
       throw new Error(`同一人物在一个 H3 片段中只能有一段连续台词；角色“${line.character}”在其他人物之后再次开口，请拆分片段或在剧本阶段合并台词`);
     }
     consolidated.push({ ...line });

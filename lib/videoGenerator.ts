@@ -3,6 +3,8 @@ import type { Storyboard } from '@/types';
 import { allocateSegmentTimeline, cinematicEditKind, estimateVideoSegmentSeconds } from './videoSegments';
 import { compileTimedSpeech, storyboardAudioPlan, storyboardSpeech, validateSpeechLanguage } from './speechAudioContract';
 import { buildVideoCapturePresetContract, isObservationalCapturePreset } from './capturePresets';
+import { currentVideoDirection, videoDirectionEntityNames } from './videoDirection';
+import { FILM_ENDING_SECONDS } from './filmEnding';
 
 function h3Timestamp(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -30,7 +32,7 @@ function fitH3PromptBudget(prompt: string): string {
   // budget, leaving room for the shot actions, expressions and exact dialogue.
   fitted = fitted.replace(
     /retention_analysis:\n[\s\S]*?\n\ndetailed_description:/i,
-    'retention_analysis:\nPreserve every declared subject identity and wardrobe, every picture composition and setting, and each bound audio timbre across its listed shots.\n\ndetailed_description:',
+    'retention_analysis:\nPreserve declared identities, wardrobes, settings and bound audio timbres. Picture composition anchors each shot opening; the authored camera path controls its evolution.\n\ndetailed_description:',
   );
   fitted = fitted
     .split(/(<d>[\s\S]*?<\/d>)/gi)
@@ -180,6 +182,7 @@ function officialShotFraming(storyboard: Storyboard): string {
 }
 
 type VideoSegmentPromptOptions = {
+  isFilmEnding?: boolean;
   firstFrameUrl?: string;
   duration?: number;
   hasVoiceReferences?: boolean;
@@ -190,6 +193,7 @@ type VideoSegmentPromptOptions = {
 };
 
 function officialVisibleExpression(storyboard: Storyboard): string {
+  if (!storyboard.characters?.length && !storyboard.performance?.length) return '';
   const source = [
     storyboard.stateBefore?.emotion,
     storyboard.stateAfter?.emotion,
@@ -244,12 +248,12 @@ function storyboardCastNames(storyboard: Storyboard): string[] {
 
 function officialReferencePriorityLock(storyboards: Storyboard[], isFirstLastMode: boolean): string {
   if (storyboards.length > 1) {
-    return 'REFERENCE PRIORITY: Each declared picture is the composition authority for its own discrete shot, never an interpolation target. Preserve the depicted cast identity, wardrobe, setting topology, material design, lighting direction, lens perspective, and color palette; do not merge identities, morph between pictures, or redesign one picture from another.';
+    return 'REFERENCE PRIORITY: Each declared picture is the composition authority for its own discrete shot opening. Preserve identity, wardrobe, setting topology, materials, lighting and palette. Framing, perspective, parallax, focus and occlusion may evolve continuously with the authored motion; never morph between pictures or merge identities.';
   }
   const endLock = isFirstLastMode
     ? ' <Picture 2> is the exact required final frame and must be reached without recasting or restyling the subject.'
     : '';
-  return `REFERENCE PRIORITY — LOCK to <Picture 1>; DO NOT REDRAW. <Picture 1> is the exact first frame at 00:00.000, not loose style inspiration. Preserve the depicted face and facial geometry, hairline and hairstyle, skin tone and natural skin appearance, body proportions, wardrobe and accessories, object design, environment layout, lighting direction, lens perspective, framing, and color palette throughout. Only the explicitly described physical action, micro-expression, gaze, breathing, camera movement, and physically caused effects may change.${endLock}`;
+  return `REFERENCE PRIORITY — LOCK to <Picture 1>; DO NOT REDRAW. <Picture 1> is the exact first frame at 00:00.000, not loose style inspiration. Preserve face, hair, skin, body proportions, wardrobe, object design, setting topology, lighting direction and color palette. Only the explicitly described physical action, micro-expression, gaze, breathing, camera movement, and physically caused effects may change. Framing, perspective, parallax, focus and occlusion may evolve continuously along the authored camera path; retain the lens unless a zoom is specified.${endLock}`;
 }
 
 function officialMaterialReality(style: unknown): string {
@@ -305,8 +309,16 @@ function containsHan(value: string): boolean {
   return /[\u3400-\u9fff]/.test(value);
 }
 
+function replaceChineseEntityNames(value: string, storyboard: Storyboard): string {
+  return videoDirectionEntityNames(storyboard).reduce((text, name) => {
+    if (!containsHan(name)) return text;
+    const index = storyboardCastNames(storyboard).indexOf(name);
+    return text.replaceAll(name, index >= 0 ? `the character ${index + 1}` : 'the referenced object');
+  }, value);
+}
+
 function firstEnglishActionFromImagePrompt(storyboard: Storyboard, exactLines: string[]): string {
-  const cleaned = sanitizeVisualDirection(storyboard.prompt, exactLines)
+  const cleaned = sanitizeVisualDirection(replaceChineseEntityNames(storyboard.prompt, storyboard), exactLines)
     .replace(/\[[^\]]*\]/g, ' ')
     .replace(/\b(?:SUBJECT|ACTION|CAMERA|COMPOSITION|FOCUS|LIGHT|EXPOSURE|COLOR|MATERIAL)\s*[:：]/gi, ' ')
     .replace(/\s+/g, ' ')
@@ -323,7 +335,7 @@ function firstEnglishActionFromImagePrompt(storyboard: Storyboard, exactLines: s
 function officialH3PhysicalAction(storyboard: Storyboard, primarySubject: string): string {
   const exactLines = storyboardSpeech(storyboard).map(line => line.exactLine);
   const authored = dialogueSafeVisualAction(
-    storyboard.action || storyboard.description,
+    replaceChineseEntityNames(storyboard.action || storyboard.description || '', storyboard),
     exactLines,
     containsHan(String(storyboard.action || storyboard.description || '')) ? 'zh' : 'en',
   );
@@ -337,12 +349,17 @@ function officialH3PhysicalAction(storyboard: Storyboard, primarySubject: string
 }
 
 function officialH3CameraSentence(storyboard: Storyboard, index: number): string {
-  const source = `${storyboard.cameraMove || ''} ${storyboard.description || ''}`.toLowerCase();
+  const authored = sanitizeVisualDirection(storyboard.cameraMove).trim();
+  const source = (authored || storyboard.description || '').toLowerCase();
   if (storyboard.capturePreset === 'surveillance') return 'The fixed high camera never follows, reframes, focuses, or anticipates.';
   if (storyboard.capturePreset === 'broadcast-candid' || storyboard.capturePreset === 'news-telephoto') return 'The remote camera reacts only after movement begins, with one late small reframe or focus recovery.';
   if (storyboard.capturePreset === 'documentary-follow') return 'The handheld operator reacts after movement begins with one small corrective reframe.';
   if (storyboard.capturePreset === 'phone-bystander') return 'The phone reacts after movement begins with one late handheld reframe or autofocus recovery.';
   if (storyboard.capturePreset === 'home-video') return 'The familiar camera holder follows a beat late with one casual handheld correction.';
+  // Do not replace a complete legacy camera instruction with a keyword-based
+  // "small slow push"; in particular a locked camera can still rack focus.
+  if (authored && !containsHan(authored) && authored.length <= 180 && /[.!?]$/.test(authored)) return authored;
+  if (/(?:移焦|拉焦|rack focus|focus pull)/i.test(source)) return 'With the camera locked, transfer focus once between the authored depth planes at the action cue.';
   if (/(?:静止|固定|static|locked)/i.test(source)) return 'The camera holds a static shot.';
   if (/(?:手持|handheld|shoulder)/i.test(source)) return 'The camera follows the action with restrained handheld movement and settles with the subject.';
   if (/(?:拉远|拉出|pull out|dolly out|zoom out)/i.test(source)) return 'The camera pulls out with small amplitude at slow speed.';
@@ -393,20 +410,25 @@ function officialH3EditSentence(
 
 function officialH3Soundscape(storyboards: Storyboard[]): string {
   const plans = storyboards.map(storyboardAudioPlan);
-  const environment = [...new Set(plans.flatMap(plan => plan.environment))].slice(0, 4);
-  const foley = [...new Set(plans.flatMap(plan => plan.foley))].slice(0, 4);
-  const sentences = [
-    environment.length
-      ? `${environment.join(', ')} form the continuous location ambience.`
-      : 'A quiet natural location room tone continues throughout the video.',
-    foley.length
-      ? `${foley.join(', ')} accompany their matching physical actions.`
-      : '',
-    plans.some(plan => plan.backgroundHuman === 'indistinct_nonverbal')
-      ? 'A low indistinct crowd murmur remains in the background.'
-      : '',
-  ].filter(Boolean);
-  return sentences.join(' ');
+  if (plans.every(plan => !plan.environment.length && !plan.foley.length && plan.backgroundHuman !== 'indistinct_nonverbal')) {
+    return 'Natural location ambience stays clearly audible beneath dialogue and through pauses, steady within each setting. Respect intentional silence.';
+  }
+  // A segment can cross locations. Flattening all plans and taking the first
+  // four sounds erased later shots' ambience and played early Foley everywhere.
+  // Keep each sound attached to the same shot as its visible source.
+  const shots = plans.map((plan, index) => {
+    return [
+      `[Shot ${index + 1}] Location bed: ${plan.environment.length ? plan.environment.join('; ') : 'natural ambience matching the visible setting'}.`,
+      plan.foley.length ? `Action Foley: ${plan.foley.join('; ')}.` : '',
+      plan.backgroundHuman === 'indistinct_nonverbal'
+        ? 'Background people form an indistinct, wordless murmur.'
+        : '',
+    ].filter(Boolean).join(' ');
+  });
+  return [
+    'Keep specified ambience clearly audible beneath dialogue; retain it through speech pauses. Respect intentional silence. Keep the bed steady across same-location cuts and change it with the location. Foley follows visible actions.',
+    ...shots,
+  ].join('\n');
 }
 
 function officialH3Music(storyboards: Storyboard[]): string {
@@ -483,14 +505,22 @@ function buildOfficialGuidePrompt(
       return useSubjectLabels && id ? `<Subject ${id}>` : name;
     });
     const primarySubject = cast[0] || 'The main subject';
-    const action = officialH3PhysicalAction(storyboard, primarySubject);
+    const directed = currentVideoDirection(storyboard);
+    // These four compact fields were authored and validated together. Never
+    // splice them, replace them with a still-image sentence, or add a second
+    // generic acting/timing instruction that competes with the authored event.
+    const bind = (value: string) => characters
+      .map((name, index) => ({ name, label: useSubjectLabels ? `<Subject ${index + 1}>` : name }))
+      .sort((a, b) => b.name.length - a.name.length)
+      .reduce((text, { name, label }) => containsHan(name) ? text.replaceAll(name, label) : text, value);
+    const action = directed ? bind(directed.action) : officialH3PhysicalAction(storyboard, primarySubject);
     const framing = officialShotFraming(storyboard);
-    const performance = officialPerformanceDirection(storyboard, storyboards.length);
+    const performance = directed ? '' : officialPerformanceDirection(storyboard, storyboards.length);
     // Detailed performance cues already include the authored facial change.
     // Adding a second generic expression sentence consumed prompt budget and
     // sometimes gave H3 two competing acting instructions for the same beat.
-    const expression = performance ? '' : officialVisibleExpression(storyboard);
-    const camera = officialH3CameraSentence(storyboard, index);
+    const expression = directed || performance ? '' : officialVisibleExpression(storyboard);
+    const camera = directed ? bind(directed.camera) : officialH3CameraSentence(storyboard, index);
     const dialogue = (dialogueByShot.get(index) || []).join(' ');
     let opening: string;
     if (index === 0 && isFirstLastMode) {
@@ -508,13 +538,14 @@ function buildOfficialGuidePrompt(
       : '';
     return [
       opening,
-      castSentence,
+      directed ? `From ${h3Timestamp(range.start)} to ${h3Timestamp(range.end)}:` : castSentence,
       /[.!?]$/.test(action) ? action : `${action}.`,
+      directed?.detail ? bind(directed.detail) : '',
       performance,
       expression,
-      officialTemporalPerformance(storyboard, range, picture, storyboards.length),
+      directed ? '' : officialTemporalPerformance(storyboard, range, picture, storyboards.length),
       camera,
-      'The established positions and eyelines remain consistent.',
+      directed ? bind(directed.ending) : 'The established positions and eyelines remain consistent.',
       dialogue,
       endFrameLanding,
     ].filter(Boolean).join(' ');
@@ -574,7 +605,7 @@ function buildOfficialGuidePrompt(
       .map((storyboard, storyboardIndex) => storyboardCastNames(storyboard).includes(name) ? `[Shot ${storyboardIndex + 1}]` : '')
       .filter(Boolean).join(', ')}): fully_preserved - identity and wardrobe remain consistent.`),
     ...(hasContinuityReference ? ['<Picture 1> ([Shot 1] opening frame): fully_preserved - its composition anchors the opening.'] : []),
-    ...storyboards.map((_, index) => `<Picture ${storyboardPictureOrdinal(index)}> ([Shot ${index + 1}] composition): fully_preserved - its subject placement, setting, and lighting guide the shot.`),
+    ...storyboards.map((_, index) => `<Picture ${storyboardPictureOrdinal(index)}> ([Shot ${index + 1}] composition): opening anchor - subject placement and viewpoint establish the start; identity, setting and lighting persist as the authored movement unfolds.`),
     ...referenceAudioNames.map((name, index) => `<Audio ${index + 1}>: reference - its voice timbre guides ${subjectId.get(name) ? `<Subject ${subjectId.get(name)}>` : name}${speakerId.get(name) ? ` (S${speakerId.get(name)})` : ''}.`),
   ];
   const prompt = `subject_definitions:\n${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}\n\nsummary:\n${summary}\n\nretention_analysis:\n${retention.join('\n')}\n\ndetailed_description:\n${detailed}\n\noverall_soundscape:\n${soundscape}\n\nnon_diegetic_music:\n${music}`;
@@ -586,7 +617,21 @@ export function buildVideoSegmentPrompt(
   characterAudios: { character: string; audioUrl: string }[] = [],
   options: VideoSegmentPromptOptions = {},
 ): string {
-  return buildOfficialGuidePrompt(storyboards, characterAudios, options);
+  const duration = Math.min(15, Math.max(4, options.duration || estimateVideoSegmentSeconds(storyboards)));
+  return applyFilmEndingPrompt(buildOfficialGuidePrompt(storyboards, characterAudios, options), duration, options.isFilmEnding === true);
+}
+
+/** Also applied to saved prompt overrides; dialogue remains byte-for-byte intact. */
+export function applyFilmEndingPrompt(prompt: string, duration: number, isFilmEnding: boolean): string {
+  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi)
+    .map(part => /^<d>/i.test(part) ? part : part.replace(/^FILM ENDING:[^\n]*(?:\n\n?|$)/gm, ''))
+    .join('');
+  if (!isFilmEnding) return clean;
+  const ending = `FILM ENDING: Only the final shot, ${h3Timestamp(Math.max(0, duration - FILM_ENDING_SECONDS))}–${h3Timestamp(duration)}, has no dialogue or narration. The authored picture continues naturally, without a freeze or added black frames; retain planned ambience and music, or intentional silence.`;
+  const musicIndex = clean.search(/^non_diegetic_music:/m);
+  return fitH3PromptBudget(musicIndex >= 0
+    ? `${clean.slice(0, musicIndex)}${ending}\n\n${clean.slice(musicIndex)}`
+    : `${clean}\n${ending}`);
 }
 
 export function buildStoryboardVideoPrompt(
@@ -594,6 +639,7 @@ export function buildStoryboardVideoPrompt(
   characterAudios: { character: string; audioUrl: string }[] = [],
   firstFrameUrl?: string,
   language?: 'zh' | 'en',
+  isFilmEnding = false,
 ): string {
   if (storyboard.videoPromptOverride && storyboard.videoPrompt?.trim()) {
     return buildVideoSegmentPrompt([storyboard], characterAudios, {
@@ -603,12 +649,14 @@ export function buildStoryboardVideoPrompt(
       referenceAudioNames: characterAudios.map(audio => audio.character),
       visualOverride: storyboard.videoPrompt.trim(),
       language,
+      isFilmEnding,
     });
   }
   return buildVideoSegmentPrompt([storyboard], characterAudios, {
     firstFrameUrl,
     duration: storyboard.videoDuration,
     language,
+    isFilmEnding,
   });
 }
 
@@ -617,12 +665,13 @@ export async function generateStoryboardVideo(
   storyboard: Storyboard,
   apiKey: string,
   model: string = 'sora-2',
-  aspectRatio: '16:9' | '9:16' = '16:9',
+  aspectRatio: '16:9' | '9:16' | '1:1' = '16:9',
   audioFiles: string[] = [],
   characterAudios: { character: string; audioUrl: string }[] = [],
   firstFrameUrl?: string,
   generateAudio?: boolean,
   language?: 'zh' | 'en',
+  isFilmEnding = false,
 ): Promise<string> {
   // 确保有生成的图片
   if (!storyboard.imageUrl) {
@@ -634,7 +683,7 @@ export async function generateStoryboardVideo(
     throw new Error(`Scene ${storyboard.sceneNumber} image is not a public URL. Please regenerate the image individually first.`);
   }
 
-  const videoPrompt = buildStoryboardVideoPrompt(storyboard, characterAudios, firstFrameUrl, language);
+  const videoPrompt = buildStoryboardVideoPrompt(storyboard, characterAudios, firstFrameUrl, language, isFilmEnding);
 
 
   console.log(`Creating video task for storyboard scene ${storyboard.sceneNumber}`);

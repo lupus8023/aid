@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
         `成片时长${Math.round(media.duration)}秒不符合约2分钟规格（90–150秒），请调整镜头时长后重制`,
       );
     if (!media.hasAudio) throw new Error("成片缺少声音轨道");
-    const expectedRatio = meta.aspectRatio === "9:16" ? 9 / 16 : 16 / 9;
+    const expectedRatio = meta.aspectRatio === "1:1" ? 1 : meta.aspectRatio === "9:16" ? 9 / 16 : 16 / 9;
     if (Math.abs(media.width / media.height - expectedRatio) > 0.05)
       throw new Error("成片画幅与全剧规格不一致");
     await withSeriesDb(async (db) => {

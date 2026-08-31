@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import SettingsModal from "@/components/SettingsModal";
 import SeriesCastPicker from "@/components/SeriesCastPicker";
+import SeriesVoicePicker from '@/components/SeriesVoicePicker';
 import { useSettings } from "@/hooks/useSettings";
 import { readApiJson } from "@/lib/apiResponse";
 import { PRODUCTION_STYLE_PRESETS } from "@/lib/promptArchitecture";
@@ -329,11 +330,13 @@ function CharacterCard({
   disabled,
   onSave,
   onLibrary,
+  onVoice,
 }: {
   character: SeriesCharacter;
   disabled: boolean;
   onSave: (patch: Record<string, unknown>) => void;
   onLibrary: () => void;
+  onVoice: () => void;
 }) {
   return (
     <article className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]">
@@ -344,8 +347,9 @@ function CharacterCard({
           className="aspect-[4/3] w-full bg-[#141517] object-contain"
         />
       ) : (
-        <div className="flex aspect-[4/3] items-center justify-center bg-[#1d1e23]">
+        <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 bg-[#1d1e23]">
           <Users size={40} className="text-[#a78bfa]/30" />
+          <p className="text-xs text-[var(--text-secondary)]">{character.appearance === 'voice_only' ? '仅声音角色 · 无需角色卡' : '角色卡待生成'}</p>
         </div>
       )}
       <div className="p-4">
@@ -354,7 +358,7 @@ function CharacterCard({
           <span
             className={`text-xs ${character.locked ? "text-emerald-300" : "text-amber-200"}`}
           >
-            {character.locked ? "已定稿" : "待定稿"} · v{character.version}
+            {character.locked ? character.appearance === 'voice_only' ? '声音已定稿' : "已定稿" : "待定稿"} · v{character.version}
           </span>
         </div>
         <p className="mt-1 text-xs text-[var(--text-secondary)]">
@@ -378,6 +382,8 @@ function CharacterCard({
         <p className="mt-3 text-xs leading-5 text-[var(--text-secondary)]">
           {character.voiceBrief}
         </p>
+        {character.speaking && <button type="button" className={`${button} mt-3 w-full`} disabled={disabled} onClick={onVoice}>从 Fish 音色库选声</button>}
+        {character.voiceIssue && <p className="mt-3 text-xs leading-5 text-amber-200">{character.voiceIssue}</p>}
         {character.voiceId && (
           <p className="mt-3 text-xs text-[#c1afff]">
             {character.voiceSource === "user" ? "指定音色" : "自动选声"} ·{" "}
@@ -404,6 +410,12 @@ function CharacterCard({
               onSave(Object.fromEntries(new FormData(e.currentTarget)));
             }}
           >
+            <Labeled label="出镜类型">
+              <select className={field} name="appearance" defaultValue={character.appearance} disabled={disabled}>
+                <option value="on_screen">有可见形象（含闪回、肖像、录像）</option>
+                <option value="voice_only">全程仅声音（无需角色卡）</option>
+              </select>
+            </Labeled>
             <Labeled label="外形与服装">
               <textarea
                 className={field}
@@ -471,6 +483,7 @@ export default function SeriesPage() {
   const [episodeId, setEpisodeId] = useState("");
   const [preview, setPreview] = useState("");
   const [castingId, setCastingId] = useState("");
+  const [voiceCharacterId, setVoiceCharacterId] = useState('');
   const project = snapshot.projects.find((p) => p.id === selectedId);
   const jobs = useMemo(
     () => snapshot.jobs.filter((j) => j.seriesId === selectedId),
@@ -602,6 +615,7 @@ export default function SeriesPage() {
   };
 
   const action = async (body: Record<string, unknown>, success = "") => {
+    if (busy) return;
     if (base === undefined) {
       setError("请先连接连续剧服务");
       return;
@@ -610,6 +624,14 @@ export default function SeriesPage() {
     setError("");
     setNotice("");
     try {
+      if (body.action === "delete-job") {
+        const response = await fetch(`${base}/api/companion/status`, {
+          cache: "no-store", signal: AbortSignal.timeout(5000),
+        });
+        const status = await readApiJson<{ seriesJobDeletion?: boolean }>(response, "无法检查任务删除支持");
+        if (!status.seriesJobDeletion)
+          throw new Error("当前 Companion 不支持删除失败任务，请更新 Companion 后重试。");
+      }
       const result = await seriesRequest<{
         project?: SeriesProject;
         added?: number;
@@ -631,6 +653,10 @@ export default function SeriesPage() {
       setBusy(false);
     }
   };
+  const deleteFailedJob = (job: SeriesJob) => action(
+    { action: "delete-job", seriesId: job.seriesId, jobId: job.id },
+    "失败任务已删除，剧本、制作断点、素材和成片均保留。",
+  );
   const enqueue = async (kind: SeriesJobKind, episodeIds?: string[]) => {
     if (kind === "prepare") {
       if (base === undefined || prepareBlocker) return;
@@ -893,6 +919,15 @@ export default function SeriesPage() {
                     <span className="mx-2 opacity-40">/</span> {completed}{" "}
                     集成片就绪
                   </p>
+                  {project.episodes.some(ep => ep.production?.storyboards?.some(b => b.imageCastReviewWarning)) && (
+                    <details className="mt-3 max-w-2xl text-xs text-amber-300">
+                      <summary className="cursor-pointer">部分画面未取得自动角色核验结论，建议复核后发布</summary>
+                      <p className="mt-2">核验服务拒绝或不可用时保留原素材并明确记录，不计为核验通过；已发现的串角会自动补图。</p>
+                      {project.episodes.filter(ep => ep.production?.storyboards?.some(b => b.imageCastReviewWarning)).map(ep => (
+                        <p key={ep.id} className="mt-1">第{ep.number}集：镜头 {ep.production!.storyboards.filter(b => b.imageCastReviewWarning).map(b => b.sceneNumber).join('、')}</p>
+                      ))}
+                    </details>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -1301,7 +1336,7 @@ export default function SeriesPage() {
                       <div>
                         <p className="text-sm">全剧公共资产</p>
                         <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
-                          角色按固定编号复用。未指定声音时搜索授权音色、排除重复，再生成试读。当前自动评价依据描述与合成可用性，不代表表演质量评分。
+              角色按固定编号复用。未指定声音时自动搜索 Fish 工作区、平台授权库和公共库，试读校验后固定；也可手动试听并指定。公共音色来源会明确标记，不等于平台授权认证，请确保项目使用范围符合音色许可。音色不足时其余素材继续准备。
                         </p>
                       </div>
                       <button
@@ -1331,6 +1366,7 @@ export default function SeriesPage() {
                           character={c}
                           disabled={editingLocked || busy}
                           onLibrary={() => void openCastLibrary(c.id)}
+                          onVoice={() => setVoiceCharacterId(c.id)}
                           onSave={(patch) =>
                             void action(
                               {
@@ -1387,7 +1423,7 @@ export default function SeriesPage() {
                         {snapshot.workerMode === "companion"
                           ? "可以关闭网页；请保持 Companion 运行且电脑唤醒。退出 Companion 后任务暂停，重启后从断点恢复。"
                           : "请保持此页面打开。关闭页面会停止调度；已提交任务和制作断点保留。安装含连续剧执行器的新版 Companion 后支持关闭网页继续。"}{" "}
-                        队列顺序制作，每阶段最多3次尝试；按当前供应商设置计费，不会自动发布成片。
+                        队列顺序制作，每阶段最多3次内容纠错；临时拥堵最多6次退避重试，运行中的任务续查。按当前供应商设置计费，不会自动发布成片。
                       </p>
                     </div>
                     <div className="space-y-3">
@@ -1422,31 +1458,42 @@ export default function SeriesPage() {
                               {j.stage}
                             </p>
                             <p className="mt-1 text-[10px] text-[var(--text-muted)]">上次更新：{new Date(j.updatedAt).toLocaleString()}</p>
-                            {j.error && (
+                            {j.status === "failed" && j.error && (
                               <p className="mt-2 break-words text-xs leading-5 text-red-300">
                                 {j.error}
                               </p>
                             )}
                           </div>
-                          <div className="text-right">
+                          <div className="shrink-0 text-right">
                             <p className="text-xs">{statusNames[j.status]}</p>
                             <p className="mt-2 text-[10px] text-[var(--text-muted)]">
                               启动 {j.attempts} 次
                             </p>
                             {j.status === "failed" && (
-                              <button
-                                className={`${button} mt-3`}
-                                disabled={busy}
-                                onClick={() =>
-                                  void action(
-                                    { action: "retry", jobId: j.id, settings },
-                                    "已加入重试队列。",
-                                  )
-                                }
-                              >
-                                <RefreshCw size={12} />
-                                从断点重试
-                              </button>
+                              <div className="mt-3 flex flex-col items-end gap-2">
+                                <button
+                                  className={button}
+                                  disabled={busy || !connected}
+                                  onClick={() =>
+                                    void action(
+                                      { action: "retry", jobId: j.id, settings },
+                                      "已加入重试队列。",
+                                    )
+                                  }
+                                >
+                                  <RefreshCw size={12} />
+                                  从断点重试
+                                </button>
+                                <button
+                                  className={`${button} text-red-300 hover:!border-red-400/60`}
+                                  disabled={busy || !connected}
+                                  title="仅删除失败任务记录，保留剧本、制作断点、素材和成片"
+                                  onClick={() => void deleteFailedJob(j)}
+                                >
+                                  <Trash2 size={12} />
+                                  删除任务
+                                </button>
+                              </div>
                             )}
                           </div>
                         </article>
@@ -1454,10 +1501,21 @@ export default function SeriesPage() {
                       {historicalJobs.length > 0 && (
                         <details className="rounded-xl border border-[var(--border-color)] p-4">
                           <summary className="cursor-pointer text-xs text-[var(--text-secondary)]">历史任务记录 · {historicalJobs.length}（不代表当前执行结果）</summary>
-                          <p className="mt-3 text-xs text-[var(--text-muted)]">同阶段已有较新任务，请使用上方当前任务重试。历史记录保留，不再重复加入队列。</p>
+                          <p className="mt-3 text-xs text-[var(--text-muted)]">同阶段已有较新任务，请使用上方当前任务重试。失败的历史记录可删除，不影响已保存的内容。</p>
                           {historicalJobs.map(j => <article key={j.id} className="mt-4 border-t border-[var(--border-color)] pt-3 text-xs text-[var(--text-muted)]">
                             <p>{jobNames[j.kind]} · {statusNames[j.status]} · {new Date(j.updatedAt).toLocaleString()}</p>
                             <p className="mt-2 break-words">{j.error || j.stage}</p>
+                            {j.status === "failed" && (
+                              <button
+                                className={`${button} mt-3 text-red-300 hover:!border-red-400/60`}
+                                disabled={busy || !connected}
+                                title="仅删除失败任务记录，保留剧本、制作断点、素材和成片"
+                                onClick={() => void deleteFailedJob(j)}
+                              >
+                                <Trash2 size={12} />
+                                删除任务
+                              </button>
+                            )}
                           </article>)}
                         </details>
                       )}
@@ -1679,6 +1737,7 @@ export default function SeriesPage() {
                   >
                     <option value="9:16">9:16 竖屏</option>
                     <option value="16:9">16:9 横屏</option>
+                    <option value="1:1">1:1 方形</option>
                   </select>
                 </Labeled>
                 <Labeled label="对白语言">
@@ -1758,6 +1817,27 @@ export default function SeriesPage() {
             onSelect={selectLibraryActor}
           />
         )}
+      {project && base !== undefined && voiceCharacterId && project.characters.some(c => c.id === voiceCharacterId) && (
+        <SeriesVoicePicker
+          key={`${project.id}-${voiceCharacterId}`}
+          character={project.characters.find(c => c.id === voiceCharacterId)!}
+          base={base}
+          fishAudioKey={settings.fishAudioKey || ''}
+          language={project.language}
+          usedVoices={Object.fromEntries(project.characters.filter(c => c.id !== voiceCharacterId && c.voiceId).map(c => [c.voiceId!, c.name]))}
+          onClose={() => setVoiceCharacterId('')}
+          onSelect={async voice => {
+            if (busy || editingLocked) throw new Error('请先暂停制作队列后选择音色');
+            setBusy(true);
+            try {
+              await seriesRequest({ action: 'edit', seriesId: project.id, revision: project.revision,
+                characterId: voiceCharacterId, patch: { voiceId: voice.id, voiceProfile: voice.title } }, base);
+              await refresh(base);
+              setNotice('Fish 音色已固定；形象与旧成片保留。请从断点重试，完成目标语言试读及剩余定稿。');
+            } finally { setBusy(false); }
+          }}
+        />
+      )}
       <SettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}

@@ -98,12 +98,22 @@ export interface StoryPerformanceCue {
   subtext: string;
 }
 
+// A compact, English, motion-only director brief; dialogue stays in speech.
+export interface StoryVideoDirection {
+  action: string;
+  camera: string;
+  detail: string;
+  ending: string;
+}
+
 // 分镜类型
 export interface Storyboard {
   id: string;
   sceneNumber: number;
   action?: string; // 编剧阶段锁定的权威可见动作；H3 必须逐镜按时间表执行
   performance?: StoryPerformanceCue[]; // 每个出场角色的动作、微表情、视线、呼吸和反应调度
+  videoDirection?: StoryVideoDirection;
+  videoDirectionSource?: string; // 源镜头指纹；修改动作/摄影后不复用过期导演描述
   description: string;
   prompt: string;
   characters: string[]; // 角色名称列表
@@ -113,9 +123,13 @@ export interface Storyboard {
   status: 'pending' | 'generating' | 'completed' | 'failed';
   taskId?: string; // APIMart 任务 ID
   imageTaskMode?: 'grid' | 'single'; // 断点恢复时区分九宫格母图与单张补图任务
+  imageCandidateUrls?: string[]; // Unused MJ candidates; inspect before paying for another task
   imagePromptOverride?: string; // 内容安全自动修订后的生图专用提示词，不改写原始分镜
   imageFailureReason?: string; // 最近一次生图失败或自动修订原因
   imageRetryCount?: number; // 内容安全自动重试次数
+  imageCastRepairAttempts?: number; // Persisted bound on automatic identity repairs
+  imageCastRepairPrompt?: string; // Image-only correction; never rewrites screenplay/video direction
+  imageCastReviewWarning?: string; // Unavailable quality checks are never reported as passed
   videoUrl?: string; // 视频 URL
   videoSourceUrl?: string; // 云端原始 URL；本地缓存丢失时用于恢复
   videoCacheKey?: string; // IndexedDB 中的持久化视频键

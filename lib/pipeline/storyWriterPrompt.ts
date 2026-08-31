@@ -1,6 +1,12 @@
 import type { WriterCharacter, WriterObject } from './types';
 import { normalizeTargetShotCount, targetDurationSeconds } from './shotCount';
 
+const AUDIO_PLAN_WRITING_CONTRACT = `
+- 仅整部成片的最后一镜：最后一句对白/旁白完整结束后保留至少1秒自然延续的画面，环境声或配乐可继续，也尊重剧情静默。把这1秒算入末镜时长；不截尾字、不加台词、不以黑帧或定格凑时长。此片尾要求不应用于中间镜头或每个生成片段。
+- 环境底声应清晰可辨但不盖过对白，同地点相邻镜头保持同一声场与远近关系，转场才更换声场。不能把“对白优先”写成没有环境声；silenceBefore/silenceAfter 只是对白留白，环境底声仍继续，除非用户或剧情明确要求真正静默。
+- environment 选择 1–2 个由地点支持的持续声源（如海浪、街道底声、室内设备低鸣）；foley 只写由本镜可见接触或动作触发的短声。不要把通知音、碗落桌等一次性动作声当作整段持续底声。
+- 不要对每个声源机械添加 faint、barely audible、hush 或 soft；距离和轻重服从真实声源。环境声用具体可听现象描述，不写“蒸汽飘动”“镜头举起”“握拳”等未必发声的视觉动作来代替声音。安静场景也可保留可辨的自然底声，但不得违背用户的静默要求。`;
+
 export interface SourceShotAdaptationGroup {
   targetIndex: number;
   sourceShotRefs: number[];
@@ -627,6 +633,7 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - beatMap.requiredDialogueLines 非空时，speech 必须逐条、逐字、按顺序等于该数组；requiredLine/requiredSpeaker 是首句兼容字段。绝不能漏句、串角色、合并旁白或把临时人物的话转嫁给主角。
 - 自行创作 story_required 台词时，说话者必须在 characters 中以已上传精确名称出现；action 还要用当前输出语言清楚表现该可见角色正在开口。不要因为英文叙述使用自然称呼而改写 characters / speech.character 中的精确库名称。
 - audioPlan 是唯一声音源。backgroundHuman 默认 none；环境声和拟音必须由地点或可见动作引起；未要求音乐时 music 为 none。
+${AUDIO_PLAN_WRITING_CONTRACT}
 - transition 固定写 "cut"；时空和情绪变化通过动作、视线、物体、构图、焦点或声音桥完成，不使用 dissolve、fade 或 wipe 特效代替导演调度。
 - 不生成摄影内容：不要输出 promptDraft、sceneStyle、shotSize、cameraMove、angle 或图像 prompt。
 
@@ -715,6 +722,7 @@ export function buildStoryPlanPrompt(input: {
 - 视频片段是对白骨架，beat 只是片段内部的画面参考。预计会连续装入同一个 15 秒 H3 片段的 1–3 个相邻 beat，必须先共同确定一组有序台词事件，再分配画面动作；不得先给每个 beat 各写一句、最后再拼接。同一片段允许 A→B、A→B→C 等多人对白，但每个人物只能有一个连续发声块，禁止 A→A 分段或 A→B→A 再次起声。
 - speech 是全片唯一权威台词源。一个片段中同一人物的多个信息点必须在第一个发声 beat 合并成一段较长、自然、完整的 speech；后续 beat 只用动作、反应、景别和走位承接该连续声音，speech=[]。speaker 必须在当前 characters 中；exactLine 只能包含角色真正说出口的逐字内容，绝不能填写“无人说话”“无其他角色在场”“其他角色沉默/闭嘴/无声反应”“先短暂停顿，再以坚定语气说”等导演或表演指令。情绪和说话方式写入 emotion/delivery，其他角色状态写进 action 或 state；不要用 silenceBefore 在同一人物的句子中间制造空档。
 - audioPlan 是唯一权威声音源。backgroundHuman 默认 none；只有剧情明确需要人群存在感时才可用 indistinct_nonverbal，且绝不能产生可辨识词语。环境、拟音、音乐必须分层，未要求音乐时 music 写 none。
+${AUDIO_PLAN_WRITING_CONTRACT}
 - 视觉母题（visualMotif）：一个反复出现的意象/道具，承载主题，首尾呼应（如一把伞、一盏灯、一封信）。
 
 🌐 输出语言要求（强制）：

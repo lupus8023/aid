@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSeries, parseOutline, parseEpisodes, parseScript, invalidateFrom, episodeContext, buildEpisodeProject } from '../lib/series/domain.ts';
 import { storyStorageKeys } from '../lib/series/storageScope.ts';
-import { validateSeriesProduction } from '../lib/series/productionContract.ts';
+import { buildApprovedSeriesPlan, validateSeriesProduction } from '../lib/series/productionContract.ts';
+import { auditStoryDelivery } from '../lib/storyDeliveryAudit.ts';
 import { castStoryVoices } from '../lib/voiceCasting.ts';
 import { rankFishVoiceModels } from '../lib/fishVoiceDiscovery.ts';
 import { withSeriesDb, publicSnapshot, sealSettings, openSettings, requireLease, deliveryPath } from '../lib/series/store.ts';
@@ -19,6 +20,64 @@ function fixture() {
   p.episodes[0].script = parseScript(shotFixture(), p, p.episodes[0]);
   return p;
 }
+
+test('square series keeps its chosen ratio when handed off to episode production', () => {
+  const p = createSeries({ name: 'Square story', brief: 'A square-framed story', episodeCount: 3, aspectRatio: '1:1' });
+  Object.assign(p, parseOutline(outlineFixture(), p));
+  p.episodes = parseEpisodes(episodeFixtures(), p, 1, 3);
+  p.episodes[0].script = parseScript(shotFixture(), p, p.episodes[0]);
+  p.characters = p.characters.map(c => ({ ...c, locked: true, voiceId: 'fixture-voice' }));
+  assert.equal(p.aspectRatio, '1:1');
+  assert.equal(buildEpisodeProject(p, p.episodes[0]).aspectRatio, '1:1');
+});
+
+test('outline does not skip visual design for a deceased king in flashbacks or portraits', () => {
+  const p = createSeries({ name: 'The Pearl Throne', brief: 'The late king appears in portraits.', episodeCount: 3 });
+  const raw = outlineFixture();
+  Object.assign(raw.characters[0], { name: 'King Corallus', appearance: 'voice_only', role: 'Recently deceased ruler; appears only in flashback, portrait, and recorded ceremonial material', description: 'Regal elderly mer-king with white beard, ceremonial armor and a heavy crown.' });
+  assert.equal(parseOutline(raw, p).characters[0].appearance, 'on_screen');
+  raw.characters[0].description = '全程出镜的老人，白胡须、金色王冠，照片和闪回保持一致。';
+  assert.equal(parseOutline(raw, p).characters[0].appearance, 'on_screen');
+  raw.characters[0].description = 'Disembodied ripple-like voice. No body is visible.';
+  assert.equal(parseOutline(raw, p).characters[0].appearance, 'voice_only');
+  raw.characters[0].description = '全程不出镜，无实体形象的旁白。';
+  assert.equal(parseOutline(raw, p).characters[0].appearance, 'voice_only');
+});
+
+test('screenwriter receives the appearance classification for every episode character', () => {
+  const p = fixture();
+  p.characters[1].appearance = 'voice_only';
+  const context = episodeContext(p, p.episodes[0]);
+  assert.deepEqual(context.characters.map(c => c.appearance), ['on_screen', 'voice_only']);
+});
+
+test('approved series dialogue goes straight to direction, retaining A-B-A exchanges, silence and sound', () => {
+  const p = fixture(), cast = p.characters.map(c => ({ ...c, voiceId: `voice-${c.id}` }));
+  const names = new Map(cast.map(c => [c.id, c.name]));
+  const contract = { shotCount: 18, story: { ...p.episodes[0], theme: p.bible.theme, logline: p.episodes[0].synopsis }, voices: Object.fromEntries(cast.map(c => [c.name, c.voiceId])), shots: p.episodes[0].script.map(s => ({
+    number: s.number, seconds: s.seconds, action: s.action, visual: s.visual, purpose: s.purpose, locationId: s.locationId, sceneStyle: 'Reef hall', sound: s.sound,
+    characters: [names.get('c1'), names.get('c2')], dialogue: s.dialogue.map(d => ({ ...d, character: names.get(d.characterId) })),
+  })) };
+  contract.shots[3].dialogue = [{ character: names.get('c1'), text: 'Luna leads.', emotion: 'official' }, { character: names.get('c2'), text: 'Absurd.', emotion: 'restrained' }, { character: names.get('c1'), text: 'They trust refusal.', emotion: 'careful' }];
+  contract.dialogue = contract.shots.flatMap(s => s.dialogue.map(({ character, text }) => ({ character, text })));
+  const original = structuredClone(contract);
+  const plan = buildApprovedSeriesPlan(contract, 'Approved screenplay', cast), beats = plan.sequences.flatMap(s => s.beats);
+  assert.equal(beats.length, 18); assert.equal(plan.estimatedDurationSeconds, 120);
+  assert.deepEqual(beats[3].speech.map(s => [s.character, s.exactLine]), contract.shots[3].dialogue.map(s => [s.character, s.text]));
+  assert.equal(beats[0].speech.length, 0);
+  assert.deepEqual(beats[3].audioPlan.environment, [contract.shots[3].sound]);
+  assert.deepEqual(contract, original); validateSeriesProduction(contract, beats);
+  const boards = beats.map(beat => ({ ...beat, id: `scene-${beat.index}`, sceneNumber: beat.index }));
+  assert.deepEqual(auditStoryDelivery(plan, boards).errors, [], 'episode contract is audited without inventing a standalone seven-act structure');
+  const brokenPlan = structuredClone(plan); brokenPlan.seriesEpisode.goal = '';
+  assert.match(auditStoryDelivery(brokenPlan, boards).errors.join(' '), /分集缺少/);
+  const ordinaryPlan = { ...plan, seriesEpisode: undefined };
+  assert.match(auditStoryDelivery(ordinaryPlan, boards).errors.join(' '), /七个叙事里程碑/);
+  const invalid = structuredClone(contract); invalid.shots[0].number = 2;
+  assert.throws(() => buildApprovedSeriesPlan(invalid, '', cast), /顺序/);
+  const recast = structuredClone(cast); recast[0].voiceId = 'wrong';
+  assert.throws(() => buildApprovedSeriesPlan(contract, '', recast), /音色/);
+});
 
 test('series screenplay enforces count, timing, canonical speakers and payoff promises', () => {
   const p = fixture();

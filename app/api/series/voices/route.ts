@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findSeriesVoices } from "@/lib/series/voices";
+import { findSeriesVoices, SeriesVoiceSelectionRequired } from "@/lib/series/voices";
 
 export const maxDuration = 60;
 export async function POST(request: NextRequest) {
@@ -9,6 +9,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "缺少音色搜索参数或Fish API Key" }, { status: 400 });
     return NextResponse.json(await findSeriesVoices(character, language === 'en' ? 'en' : 'zh', fishAudioKey, excludedIds));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "自动选声失败" }, { status: 502 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "自动选声失败", code: error instanceof SeriesVoiceSelectionRequired ? error.code : undefined }, { status: error instanceof SeriesVoiceSelectionRequired ? 409 : 502 });
   }
 }

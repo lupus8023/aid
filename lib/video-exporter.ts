@@ -1,6 +1,6 @@
 import { VideoClip } from '../components/video-editor/types';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { clippedPacingSections, effectiveClipDuration } from './videoPacing';
+import { clippedPacingSections, effectiveClipDuration, withFilmEndingPacing } from './videoPacing';
 
 const STORY_AUDIO_TAIL_FADE_SECONDS = 0.05;
 
@@ -37,6 +37,7 @@ export async function exportVideo(
   clips: VideoClip[],
   onProgress: ProgressCallback
 ): Promise<Blob> {
+  clips = withFilmEndingPacing(clips);
   const tempPrefix = `export_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const tempFiles: string[] = [];
 

@@ -1,6 +1,10 @@
 import type { CapturePreset, VisualStyle } from '@/types';
 import { buildCompactImageCaptureContract } from './promptArchitecture';
 import { buildGridCapturePresetContract, isObservationalCapturePreset } from './capturePresets';
+import { isGptImage2Model } from './imageModels';
+import { usesPhotographicReferences } from './gptImageReferences';
+
+export class GridPromptCapacityError extends Error {}
 
 function clipAtWord(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
@@ -72,77 +76,59 @@ export function buildGridPrompt(
   sceneNumbers?: Array<number | string>,
   visualStyle?: VisualStyle,
   capturePreset?: CapturePreset,
+  imageModel = '',
 ): string {
-  const GRID_PROMPT_BUDGET = 3500;
-  const PANEL_PROMPT_BUDGET = 180;
-  const orientation = aspectRatio === '9:16' ? 'vertical portrait' : aspectRatio === '1:1' ? 'square' : 'horizontal landscape';
-  const shots = shotDescriptions.slice(0, 9).map(shot => {
-    const requirementIndex = Math.max(
-      shot.indexOf('Only '),
-      shot.indexOf('No person or story character'),
-      shot.indexOf('CAST['),
-      shot.indexOf('REQUIRED CHARACTERS'),
-    );
-    if (requirementIndex === -1) return clipAtWord(shot, 160);
-    if (shot.length <= PANEL_PROMPT_BUDGET) return shot;
-    const requirements = shot.slice(requirementIndex);
-    const visualBudget = Math.max(90, PANEL_PROMPT_BUDGET - requirements.length - 1);
-    return `${clipAtWord(shot.slice(0, requirementIndex).trim(), visualBudget)} ${requirements}`;
-  });
-  while (shots.length < 9) shots.push(shots[shots.length - 1] || 'medium shot');
-
-  const refSection = referenceImageLabels && referenceImageLabels.length > 0
-    ? `Reference mapping: ${referenceImageLabels.map((label, i) => `#${i + 1}=${label}`).join('; ').slice(0, 340)}`
-    : '';
   const objectLock = referenceImageLabels?.some(label => /^OBJECT IDENTITY\s*:/i.test(label.trim()))
-    ? 'REFERENCE OBJECT LOCK: every OBJECT IDENTITY image defines one immutable prop/product. In all nine panels keep its silhouette, proportions, parts and layout, material, finish, colors, markings and scale identical. Change only viewpoint, placement, light and possible articulation; never redesign, deform, substitute or add/remove parts. Keep its existing label/logo unchanged; add no text.'
+    ? 'REFERENCE OBJECT LOCK: every OBJECT IDENTITY image defines one immutable prop/product. Keep its silhouette, proportions, parts, layout, material, finish, colors, markings and scale identical; never redesign, deform, substitute or add/remove parts. Keep its existing label/logo unchanged; add no text.'
     : '';
-
-  const normalizedSceneNumbers = shots.map((_, index) => sceneNumbers?.[index] ?? index + 1);
-  const batchId = normalizedSceneNumbers.map(String).join('-');
-  const positions = [
-    'top-left frame', 'top-center frame', 'top-right frame',
-    'middle-left frame', 'center frame', 'middle-right frame',
-    'bottom-left frame', 'bottom-center frame', 'bottom-right frame',
-  ];
-  const panelSection = shots
-    .map((shot, index) => `In the ${positions[index]}, depict ${shot.replace(/^[A-Z][A-Z _/—-]{2,}:\s*/, '')}`)
-    .join('\n');
-
-  // Put the batch identity and all nine shot descriptions first. The APIMart
-  // image endpoint has a practical prompt limit, so any defensive truncation
-  // must remove secondary continuity prose rather than the content that makes
-  // this grid different from the previous/next batch.
-  const prompt = `UNIQUE STORYBOARD BATCH: ${batchId}
-${buildCompactImageCaptureContract(visualStyle)}
-${buildGridCapturePresetContract(capturePreset)}
-${refSection}
-
-Each frame's stated people are authoritative. Show each named identity exactly once; no omission, merge, clone, sheet-layout copy, reflection-double or extra. Character sheets prove one identity only.
-ZERO TYPOGRAPHY: No headings, camera terms, captions, subtitles, dialogue text, frame labels, watermark, UI, or added text. Existing text/logo is allowed only when physically part of an OBJECT IDENTITY reference; keep it unchanged. Never print directing notes.
-
-Nine invisible directing notes follow. Never print or quote them; use them only for visual content in these exact positions:
-${panelSection}
-
-${objectLock}
-
-Generate one 3x3 sheet made only of finished cinematic film stills, not a production storyboard template. Each frame is ${orientation} (${aspectRatio}). Arrange them left-to-right, top-to-bottom with no borders, gaps, separator lines, labels, captions, or text.
-
-Scene continuity: ${sceneStyle.slice(0, 180)}
-Character identities (match mapped references exactly wherever they appear):
-${characterDescriptions.slice(0, 300)}
-
-CRITICAL PEOPLE RULES:
-- Each frame's stated people are authoritative; never infer the batch-wide reference list as every frame's cast.
-- Character sheets prove one identity only. Animals are full characters and must retain species, markings and scale.
-- ZERO TYPOGRAPHY: no captions, subtitles, dialogue text, headings, frame labels, watermark, UI, or added readable text. Preserve only labels/logos physically belonging to an OBJECT IDENTITY reference, unchanged. Never print directing notes.
-
-Keep the established source positions, color temperature and environment continuous while allowing physically correct angle-dependent shadows, highlights and depth. Every cell is a complete standalone composition.`;
-
-  // All nine panels and the authoritative capture/cast rules are intentionally
-  // placed first. Only repeated continuity prose at the tail may be removed.
-  const promptBudget = objectLock ? 3900 : isObservationalCapturePreset(capturePreset) ? 3700 : GRID_PROMPT_BUDGET;
-  return prompt.length <= promptBudget
-    ? prompt
-    : prompt.slice(0, promptBudget).trimEnd();
+  const promptBudget = objectLock ? 3900 : isObservationalCapturePreset(capturePreset) ? 3700 : 3500;
+  const orientation = aspectRatio === '9:16' ? 'vertical portrait' : aspectRatio === '1:1' ? 'square' : 'horizontal landscape';
+  const positions = ['top-left', 'top-center', 'top-right', 'middle-left', 'center', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+  const sourceShots = shotDescriptions.slice(0, 9);
+  while (sourceShots.length < 9) sourceShots.push(sourceShots.at(-1) || 'medium shot');
+  const parts = sourceShots.map(shot => {
+    const indexes = ['Only ', 'No person or story character', 'CAST[', 'REQUIRED CHARACTERS'].map(token => shot.indexOf(token)).filter(index => index >= 0);
+    const index = indexes.length ? Math.min(...indexes) : -1;
+    const rawRequirements = index >= 0 ? shot.slice(index) : '';
+    const requirements = rawRequirements.replace(/^Only (.*?) appear(?:s)? in this frame, one instance of each\./, 'CAST: $1; each exactly once.');
+    // Identity descriptions already live in the mapped references. Remove only
+    // inline Name(description) wrappers before shortening visual direction, so
+    // long cast names do not consume the action's entire budget.
+    let visual = index >= 0 ? shot.slice(0, index).trim() : shot;
+    const names = rawRequirements.match(/^Only (.*?) appear(?:s)?(?: in this frame)?[,.]/)?.[1]?.split(', ') || [];
+    for (const name of names) {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      visual = visual.replace(new RegExp(escaped + '\\([^)]*\\)', 'g'), name);
+    }
+    return { visual, requirements };
+  });
+  // Never truncate a reference mapping midway through an identity. Long object
+  // descriptions are secondary; the complete name/index binding is mandatory.
+  const references = (referenceImageLabels || []).map((label, i) => `#${i + 1}=${label.split(' — ')[0]}`).join('; ');
+  const prefix = [
+    `UNIQUE STORYBOARD BATCH: ${sourceShots.map((_, i) => sceneNumbers?.[i] ?? i + 1).join('-')}`,
+    `Generate one 3x3 sheet of finished film stills, each ${orientation} (${aspectRatio}), left-to-right then top-to-bottom. No borders, gaps or template layout.`,
+    buildCompactImageCaptureContract(visualStyle).split('\nCAPTURE COHERENCE:')[0],
+    buildGridCapturePresetContract(capturePreset),
+    isGptImage2Model(imageModel) && usesPhotographicReferences(visualStyle)
+      ? 'Photorealistic photographs. References lock identity, species, anatomy and costume design, not CG shading or illustration. Preserve age and distinguishing features; use natural skin variation, cloth weight and localized reflections. No beauty smoothing or invented scars.' : '',
+    references ? `Reference mapping: ${references}` : '',
+    "Each frame's stated people are authoritative: each exactly once, no omitted, merged, cloned or extra identities. Character sheets show one identity only.",
+    'ZERO TYPOGRAPHY: No headings, camera terms, captions, subtitles, dialogue text, labels, watermark or UI. Preserve only existing markings on mapped objects.',
+    objectLock,
+    'Nine invisible directing notes; never print them:',
+  ].filter(Boolean).join('\n');
+  const render = (visualBudget: number) => prefix + '\n' + parts.map(({ visual, requirements }, i) =>
+    `In the ${positions[i]} frame, depict ${clipAtWord(visual, visualBudget)}${requirements ? ' ' + requirements : ''}`,
+  ).join('\n');
+  // Allocate the remaining characters to every panel before composing the
+  // request. Slicing the finished prompt can silently delete the last shots.
+  let visualBudget = 200;
+  while (visualBudget > 96 && render(visualBudget).length > promptBudget) visualBudget--;
+  let prompt = render(visualBudget);
+  if (prompt.length > promptBudget) throw new GridPromptCapacityError(`九宫格人物与参考信息超过提示词容量（${prompt.length}/${promptBudget}），自动改为逐镜生成；未提交九宫格任务`);
+  const context = `\nScene continuity: ${sceneStyle}\nCharacter identities: ${characterDescriptions}`;
+  const remaining = promptBudget - prompt.length;
+  if (remaining > 60) prompt += clipAtWord(context, remaining);
+  return prompt;
 }

@@ -2,10 +2,13 @@ import type { CapturePreset, Storyboard } from '@/types';
 import type { StoryPlan, Beat, WriterCharacter, WriterObject } from './types';
 import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
+import { generationDraft, recoverGeneration } from './generationDraft';
 import type { VisualStyle } from '@/types';
 import { buildImageCaptureContract, getProductionStylePreset } from '@/lib/promptArchitecture';
 import { structuredRetryCorrection } from './storyWriter';
 import { buildDirectorCaptureContract } from '@/lib/capturePresets';
+import { VIDEO_DIRECTION_WRITING_CONTRACT, validateVideoDirection, videoDirectionSourceKey } from '@/lib/videoDirection';
+import { applyDirectorFieldRepairs, buildDirectorFieldRepairPrompt, directorFieldRepairs } from './directorRepair';
 
 // 导演阶段：把编剧产出的 StoryPlan 可视化成分镜（Storyboard[]）。
 // 关键点：镜头数量/顺序/台词/时长/转场/连续关系【忠实于 StoryPlan】，只补画面/视频提示词与定妆。
@@ -70,7 +73,7 @@ export function buildDirectorPrompt(input: {
 - informationGain 是本镜必须交付给观众的理解；用人物阻挡、视线、反应、道具状态与结果构图让它可读。audienceQuestion 决定镜尾要保留什么悬念，montageRole 决定它与相邻镜的语义关系。
 - editBridge 是编剧锁定的剪辑交棒：本镜镜尾必须留下其中指定的动作、视线、物体、声音或因果结果，让下一镜接住，并让两镜并置后产生指定的观众推论。不得改成淡入淡出、叠化等后期特效。
 - speech 是权威对白，不能改写、删减或写进图像 prompt。对白发生时，description 要安排清楚说话者与聆听者的可见表演；无对白时不要虚构开口动作。
-- 对白镜头不能按“谁说一句就切谁”机械覆盖。先用关系构图建立双方目标和空间，权力/信息发生变化时才切；说话者的策略、听者的即时反应以及 speech.listenerState 指定的说后变化必须同时可读。反应镜承担台词后果，不是漂亮头像。
+- 对白镜头不能按“谁说一句就切谁”机械覆盖。先用关系构图建立双方目标和空间，权力/信息发生变化时才切；用调度、景别或焦点先后交付说话者策略、听者反应与 speech.listenerState，不要求所有人全程同样清晰。lipSync 为 true 的说话者在其发声时须保留可辨认的口部。反应镜承担台词后果，不是漂亮头像。
 - 同一 dialogueUnitId 是一个不可拆散的交流动作：提问/挑战要在构图里明确指向对象，回答/拒绝要接住前句压力，承诺/关键词在 callback/payoff 镜头以动作或关系变化回收。
 - description 不得复述、翻译或引用 speech.exactLine，也不得把“停顿后说/以某种语气说”等声音导演指令写成画面动作；只描述可见的口型、视线、表情、阻挡与反应。精确台词和说法只由 speech 字段控制。
 - 不得添加 beat 中没有的情节、台词、旁白、画外音、声音或角色行为。
@@ -118,12 +121,12 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
    - 禁止字幕、标题、对白文字、气泡、Logo、水印或任何可读文字。
 3. characterCostume：为每个在本镜头出现的角色给一套服装/发型/配饰/颜色描述，跨镜头保持一致。
 4. shotSize / cameraMove / angle：为剧本动作选择一个明确且可执行的景别、单一物理运镜和机位；相邻镜头避免机械重复。
-   - 相机替观众感受剧情，不做装饰性漂移：动作镜跟住速度与触点；反应镜可做一次短推近；孤立/失落可克制拉远；关系纠偏可从轻微失衡机位回到水平。每镜只能有一个主要运镜，特殊情绪机位不能连续滥用。
+   - 先确定本镜要揭示的信息或关系变化，再选一个摄影任务；cameraMove 写具体方向与幅度，不以“轻微调整”代替设计。参照前后镜的景别、运动方向、焦点与落点组织节奏，不连续套用固定全景或慢推。固定构图有叙事作用时保留，不按比例强加运动。具体执行写入 videoDirection.camera，其他字段不得给出相反指令。
    - 动作按“进入→加速/施力→撞点/决定→短回落”组织；速度感来自加速度，不来自整段匀速快或匀速慢。除非 beat 明确要求主观时间，否则禁止慢动作、bullet time、长时间悬停和无目的 slow push。
-   - 微表演必须错峰启动：通常眼球先于头部，视线/呼吸先于眉眼，眉眼先于嘴唇/下颌，身体重心先于手臂；相邻通道保留约 0.1–0.3 秒自然时差，不要所有五官和肢体同时动作。每镜只设一个清晰动作峰值，其余时间允许稳定观察，禁止人物从头到尾不停活动。
+   - 微表演只选择本镜需要的可见反应，不罗列五官运动清单。视线、转头和重心变化应符合动作因果，避免所有部位同时启动；每镜只保留一个主动作，其余时间允许稳定观察。
    - 有接触或施力时写出真实物理链：接近→接触→软组织/衣物/道具先受压或蓄力→压力增加→短保持→逐渐释放→惯性/弹性回弹。只让受力区域明显变形，松开后保留约 0.2–0.4 秒残余状态，不能一帧复原。
    - 关键信息或反应落定后保留 0.25–0.6 秒可读呼吸；普通内容不额外停顿。镜尾仍要留下动作、视线、道具、前景遮挡、焦点或可见后果作为下一镜的交棒。
-   - 人物行为与摄影机行为是两条独立因果线：人物按“原本在做事→剧情触发→延迟的可见反应→一个不完全的小调整→回到任务或进入新状态”行动；摄影机只能在动作发生后跟随、重构图或恢复焦点，不能预知下一个动作。广告棚拍和固定监控除外，按其拍摄合同执行。
+   - 人物行为与摄影机行为分开设计：人物按剧情触发产生可见反应，不机械套用“先眼球后头部再手臂”的全套过程；摄影机按下方拍摄方式合同执行，电影调度可以同步运动，观察拍摄才要求滞后跟随，固定监控保持固定。
    - “自然”不能靠随机晃动或瑕疵词堆砌。每个构图漂移、遮挡、失焦、曝光修正或动态模糊都必须由人物突然移动、受限机位、前景穿过或具体成像系统引起。允许短暂无事发生、动作做到一半停下、头发/衣物没有整理完以及反应逐渐消退；不要为了填满时长让人物持续活动。
    - prompt 是静态分镜，只选择行为链中一个可拍到的物理瞬间；不得在同一张图里同时描述“先做 A、随后做 B、最后做 C”。完整动作顺序留给 description/performance 和下游视频时间线。
    - 无对白镜头禁止出现“自言自语、像要说话、嘴唇说了半句、听见某种声音”等可能触发模型生成人声的暗示；只能描述无歧义的可见触发和身体反应。对白内容只存在于 speech 字段。
@@ -138,7 +141,8 @@ ${buildDirectorCaptureContract(capturePreset)}
 
 连续镜头应共享同一相机/镜头家族、色彩响应、主光方向和场景材质；每镜只改变有叙事理由的机位、距离、焦点、遮挡和曝光反应。真实感来自一致的物理因果，而不是反复添加 cinematic、8K、masterpiece、photorealistic 等泛化词。
 
-不要输出视频生成提示词。下游会把 1–4 个分镜重新编组成一个不超过 15 秒的 H3 片段，并按统一制作风格生成时间轴式导演说明。
+不要输出完整 H3 提示词或章节模板。只输出逐镜 videoDirection；下游会把 1–4 个分镜重新编组成一个不超过 15 秒的 H3 片段，统一加入参考绑定、切镜时间与逐字对白。
+${VIDEO_DIRECTION_WRITING_CONTRACT}
 
 📝 输出（只输出 JSON 数组，按 beat 顺序，第 i 个元素对应第 i 个 beat）：
 [
@@ -146,6 +150,7 @@ ${buildDirectorCaptureContract(capturePreset)}
     "index": ${firstIndex},
     "description": "镜头描述",
     "prompt": "English image prompt",
+    "videoDirection": { "action": "English causal action", "camera": "English motivated camera task", "detail": "One visible detail or empty string", "ending": "English visible end state" },
     "shotSize": "景别",
     "cameraMove": "单一物理运镜",
     "angle": "机位",
@@ -161,6 +166,7 @@ function mergeBeats(
   rawShots: any[],
   aspectRatio: Storyboard['aspectRatio'],
   capturePreset?: CapturePreset,
+  visualStyle?: VisualStyle,
 ): Storyboard[] {
   const beats = storyPlan.sequences.flatMap(seq => seq.beats.map(beat => ({ ...beat, sceneStyle: beat.sceneStyle || seq.sceneStyle })));
 
@@ -170,7 +176,7 @@ function mergeBeats(
       ? `scene-${beat.continuityFrom}`
       : undefined;
 
-    return {
+    const storyboard: Storyboard = {
       id: `scene-${i + 1}`,
       sceneNumber: i + 1,
       action: beat.action,
@@ -180,6 +186,7 @@ function mergeBeats(
       description: typeof raw?.description === 'string' ? raw.description : beat.action,
       prompt: typeof raw?.prompt === 'string' ? raw.prompt : beat.promptDraft || beat.action,
       videoPrompt: undefined,
+      videoDirection: raw?.videoDirection,
       characters: beat.characters,
       objects: beat.objects,
       dialogueLines: beat.dialogueLines,
@@ -217,7 +224,10 @@ function mergeBeats(
       status: 'pending' as const,
       aspectRatio,
       capturePreset,
+      visualStyle,
     };
+    storyboard.videoDirectionSource = videoDirectionSourceKey(storyboard);
+    return storyboard;
   });
 }
 
@@ -306,17 +316,27 @@ export function validateDirectorShots(
   sourceShape: string,
   language: 'zh' | 'en' = 'zh',
   entityNames: string[] = [],
+  requireVideoDirection = false,
 ): void {
   if (shots.length !== beats.length) {
     throw new Error(`返回 ${shots.length} 镜，要求 ${beats.length} 镜（响应结构：${sourceShape}）`);
   }
+  const problems: string[] = [];
   shots.forEach((shot, index) => {
+    try {
     if (!shot || typeof shot !== 'object' || Array.isArray(shot)) {
       throw new Error(`第 ${beats[index]?.index || index + 1} 镜不是有效对象`);
     }
     const missing = ['description', 'prompt'].filter(key => typeof shot[key] !== 'string' || !shot[key].trim());
     if (missing.length) {
       throw new Error(`第 ${beats[index]?.index || index + 1} 镜缺少 ${missing.join('、')}`);
+    }
+    if (requireVideoDirection || shot.videoDirection !== undefined) {
+      try {
+        shot.videoDirection = validateVideoDirection(shot.videoDirection, entityNames, (beats[index]?.speech || []).map(line => line.exactLine), requireVideoDirection);
+      } catch (error) {
+        throw new Error(`第 ${beats[index]?.index || index + 1} 镜：${error instanceof Error ? error.message : error}`);
+      }
     }
     const description = withoutEntityNames(shot.description, entityNames);
     if (/\p{Script=Cyrillic}/u.test(description)) {
@@ -335,7 +355,9 @@ export function validateDirectorShots(
         throw new Error(`第 ${beats[index]?.index || index + 1} 镜 description 重复了权威台词`);
       }
     }
+    } catch (error) { problems.push(error instanceof Error ? error.message : String(error)); }
   });
+  if (problems.length) throw new Error(problems.join('；'));
 }
 
 export async function directStoryboard(input: {
@@ -352,7 +374,8 @@ export async function directStoryboard(input: {
   dmxApiKey?: string;
 }): Promise<Storyboard[]> {
   const { storyPlan, characters, objects, apiKey, aspectRatio, language = 'zh', visualStyle, capturePreset, scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
-  const batches = buildDirectorBatches(storyPlan);
+  // The motion brief is additional output, so keep each response bounded.
+  const batches = buildDirectorBatches(storyPlan, 6);
   const allBeats = storyPlan.sequences.flatMap(sequence => sequence.beats);
   const rawShots: any[] = [];
 
@@ -369,6 +392,8 @@ export async function directStoryboard(input: {
         description: shot.description,
         shotSize: shot.shotSize,
         angle: shot.angle,
+        cameraMove: shot.cameraMove,
+        videoDirection: shot.videoDirection,
         sceneStyle: shot.sceneStyle,
         characterCostume: shot.characterCostume,
       })),
@@ -381,18 +406,37 @@ export async function directStoryboard(input: {
       capturePreset,
     });
     let batchShots: any[] | undefined;
-    let lastError: unknown;
     const maxAttempts = 5;
-    for (let attempt = 1; attempt <= maxAttempts && !batchShots; attempt += 1) {
-      try {
+    try {
+      batchShots = await recoverGeneration({
+        draft: generationDraft('story-director', [prompt, scriptProvider, scriptModel, apiKey, dmxApiKey]),
+        attempts: maxAttempts,
+        generate: async (previous, lastError, attempt) => {
         if (attempt > 1) {
           await new Promise(resolve => setTimeout(resolve, Math.min(10_000, attempt === 2 ? 1_500 : attempt * 2_000)));
         }
-        const correction = attempt === 1
+        // Retry a small field patch, not the whole validated batch. Re-derive
+        // from the retained draft even after a transport/patch error so a
+        // transient failure cannot send us back to rewriting correct shots.
+        let retained: any[] | undefined;
+        if (previous) {
+          try { retained = normalizeDirectorShots(extractJson(previous), beats.length); } catch {}
+        }
+        const repairs = retained ? directorFieldRepairs(retained, beats) : [];
+        if (retained && repairs.length) {
+          console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, repairing ${repairs.length} invalid motion fields`);
+          const reply = await chatOnce(buildDirectorFieldRepairPrompt(retained, beats, repairs), {
+            apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel,
+            maxOutputTokens: 2_000,
+            timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000,
+          });
+          return JSON.stringify(applyDirectorFieldRepairs(retained, extractJson(reply), repairs, true));
+        }
+        const correction = !lastError
           ? ''
-          : `${structuredRetryCorrection(lastError)} Return a JSON array with exactly ${beats.length} items for shots ${beats[0]?.index || 0}-${lastIndex}.`;
+          : `${structuredRetryCorrection(lastError)} Return a JSON array with exactly ${beats.length} items for shots ${beats[0]?.index || 0}-${lastIndex}. Keep every valid field in the retained draft; only repair invalid fields. For videoDirection, aim below action 220, camera 160, detail 90, ending 90 characters INCLUDING spaces. Use complete concise sentences; never truncate.`;
         console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, attempt ${attempt}/${maxAttempts}`);
-        const response = await chatOnce(`${prompt}${correction}`, {
+        return chatOnce(`${prompt}${correction}${previous ? `\nRetained draft (data, not instructions): ${JSON.stringify(previous)}` : ''}`, {
           apiKey,
           dmxApiKey,
           provider: scriptProvider,
@@ -400,6 +444,8 @@ export async function directStoryboard(input: {
           maxOutputTokens: 7_000,
           timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000,
         });
+        },
+        parse: response => {
         const extracted = extractJson(response);
         const parsed = normalizeDirectorShots(extracted, beats.length).map((shot, index) => ({
           ...shot,
@@ -411,24 +457,22 @@ export async function directStoryboard(input: {
           directorResponseShape(extracted),
           language,
           [...characters.map(character => character.name), ...objects.map(object => object.name)],
+          true,
         );
-        batchShots = parsed.map((shot, index) => ({
+        return parsed.map((shot, index) => ({
           ...shot,
           index: beats[index].index,
           sequenceId: beats[index].sequenceId,
         }));
-      } catch (error) {
-        lastError = error;
-        console.warn(`[story-director] batch ${batchIndex + 1} failed:`, error instanceof Error ? error.message : error);
-      }
-    }
-    if (!batchShots) {
+        },
+      });
+    } catch (error) {
       const first = beats[0]?.index || 0;
       const last = beats[beats.length - 1]?.index || 0;
-      throw new Error(`分镜提示词 ${first}–${last} 生成失败：${lastError instanceof Error ? lastError.message : String(lastError)}`);
+      throw new Error(`分镜提示词 ${first}–${last} 生成失败：${error instanceof Error ? error.message : String(error)}；已保留导演批次原稿`);
     }
     rawShots.push(...batchShots);
   }
 
-  return mergeBeats(storyPlan, rawShots, aspectRatio, capturePreset);
+  return mergeBeats(storyPlan, rawShots, aspectRatio, capturePreset, visualStyle);
 }

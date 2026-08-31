@@ -54,6 +54,7 @@ type CanvasNodeData = {
   completedCount?: number;
   segmentIds?: string[];
   duration?: number;
+  singleShotMode?: boolean;
   onGenerateGrid?: () => void;
   onGenerateImage?: () => void;
   onGenerateVideo?: () => void;
@@ -69,8 +70,9 @@ interface CanvasModeProps {
   onExit?: () => void;
   onUpdate?: (storyboard: Storyboard) => void;
   onGenerateImage?: (storyboard: Storyboard) => void | Promise<void>;
-  onGenerateVideoPrompt?: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => string | undefined | Promise<string | undefined>;
+  onGenerateVideoPrompt?: (storyboard: Storyboard, segmentStoryboards?: Storyboard[], rewriteDirection?: boolean) => string | undefined | Promise<string | undefined>;
   onGenerateVideo?: (storyboard: Storyboard, segmentStoryboards?: Storyboard[]) => void | Promise<void>;
+  singleShotMode?: boolean;
   onGenerateGrid?: (storyboards: Storyboard[]) => void | Promise<void>;
 }
 
@@ -108,13 +110,13 @@ function GridNode({ data, selected }: NodeProps<CanvasNodeData>) {
     <article className={`w-[270px] rounded-[14px] border bg-[var(--bg-secondary)] p-4 shadow-[0_20px_55px_-35px_#000] ${selected ? 'border-[#f0b95d] ring-1 ring-[#f0b95d]/25' : 'border-[var(--border-color)]'}`}>
       <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[#f0b95d]" />
       <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[#f0b95d]" />
-      <div className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-[#f0b95d]/12 text-[#f0b95d]">{generating ? <Loader2 size={18} className="animate-spin" /> : <Grid2X2Plus size={18} />}</span><div><p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#f0b95d]">Batch {String(data.batchNumber).padStart(2, '0')}</p><h3 className="mt-1 text-sm font-semibold text-white">九宫格生成</h3></div></div>
-      <p className="mt-3 text-[11px] leading-5 text-[var(--text-muted)]">本批 {data.sceneCount} 个镜头；生成完成后自动拆分并回填各分镜。</p>
+      <div className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-[#f0b95d]/12 text-[#f0b95d]">{generating ? <Loader2 size={18} className="animate-spin" /> : <Grid2X2Plus size={18} />}</span><div><p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#f0b95d]">Batch {String(data.batchNumber).padStart(2, '0')}</p><h3 className="mt-1 text-sm font-semibold text-white">{data.singleShotMode ? 'MJ 逐镜生成' : '九宫格生成'}</h3></div></div>
+      <p className="mt-3 text-[11px] leading-5 text-[var(--text-muted)]">本批 {data.sceneCount} 个镜头；{data.singleShotMode ? '独立出图，固定参考并核验人物一致性。' : '生成完成后自动拆分并回填各分镜。'}</p>
       <div className="mt-3 grid grid-cols-3 gap-1 rounded-[9px] border border-white/5 bg-black/25 p-1.5">
         {Array.from({ length: 9 }).map((_, index) => <div key={index} className="aspect-video overflow-hidden rounded-[3px] bg-white/5">{imageUrls[index] && <img src={imageUrls[index]} alt={`第 ${index + 1} 格`} className="h-full w-full object-cover" />}</div>)}
       </div>
-      <div className="mt-3 flex items-center gap-2 text-[10px] text-[var(--text-secondary)]"><StateDot status={data.status} />{completed ? `已拆分 ${data.completedCount}/${data.sceneCount}` : generating ? `生成和拆分中 ${data.completedCount}/${data.sceneCount}` : data.completedCount ? `已生成 ${data.completedCount}/${data.sceneCount}` : `等待生成 0/${data.sceneCount}`}</div>
-      <button type="button" disabled={generating} onClick={(event) => { event.stopPropagation(); data.onGenerateGrid?.(); }} className="nodrag mt-3 flex min-h-10 w-full items-center justify-center gap-2 rounded-[9px] bg-[#f0b95d] px-3 text-xs font-semibold text-[#17130b] disabled:opacity-60">{generating ? <Loader2 size={14} className="animate-spin" /> : completed ? <RefreshCw size={14} /> : <Sparkles size={14} />}{generating ? '生成并拆分中' : completed ? '重新生成本批' : '生成并自动拆分'}</button>
+      <div className="mt-3 flex items-center gap-2 text-[10px] text-[var(--text-secondary)]"><StateDot status={data.status} />{completed ? `${data.singleShotMode ? '已生成' : '已拆分'} ${data.completedCount}/${data.sceneCount}` : generating ? `生成中 ${data.completedCount}/${data.sceneCount}` : data.completedCount ? `已生成 ${data.completedCount}/${data.sceneCount}` : `等待生成 0/${data.sceneCount}`}</div>
+      <button type="button" disabled={generating} onClick={(event) => { event.stopPropagation(); data.onGenerateGrid?.(); }} className="nodrag mt-3 flex min-h-10 w-full items-center justify-center gap-2 rounded-[9px] bg-[#f0b95d] px-3 text-xs font-semibold text-[#17130b] disabled:opacity-60">{generating ? <Loader2 size={14} className="animate-spin" /> : completed ? <RefreshCw size={14} /> : <Sparkles size={14} />}{data.singleShotMode ? (generating ? '逐镜生成中' : '逐镜补齐本批') : generating ? '生成并拆分中' : completed ? '重新生成本批' : '生成并自动拆分'}</button>
     </article>
   );
 }
@@ -167,7 +169,7 @@ function OutputNode({ data, selected }: NodeProps<CanvasNodeData>) {
   );
 }
 
-function CanvasModeContent({ storyContent, storyboards, videoSegmentPlan, onExit, onUpdate, onGenerateImage, onGenerateVideoPrompt, onGenerateVideo, onGenerateGrid }: CanvasModeProps) {
+function CanvasModeContent({ storyContent, storyboards, videoSegmentPlan, onExit, onUpdate, onGenerateImage, onGenerateVideoPrompt, onGenerateVideo, onGenerateGrid, singleShotMode = false }: CanvasModeProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -175,7 +177,7 @@ function CanvasModeContent({ storyContent, storyboards, videoSegmentPlan, onExit
   const [editPrompt, setEditPrompt] = useState('');
   const [editVideoPrompt, setEditVideoPrompt] = useState('');
   const [previewVideo, setPreviewVideo] = useState<string | null>(null);
-  const [notice, setNotice] = useState('按流程从左向右：整体故事 → 九宫格 → 独立分镜 → H3 片段 → 最终时间线。');
+  const [notice, setNotice] = useState(singleShotMode ? '整体故事 → MJ逐镜生成与核验 → H3片段 → 最终时间线。' : '按流程从左向右：整体故事 → 九宫格 → 独立分镜 → H3 片段 → 最终时间线。');
   const previousPositions = useRef(new Map<string, { x: number; y: number }>());
 
   const batches = useMemo(() => {
@@ -194,9 +196,9 @@ function CanvasModeContent({ storyContent, storyboards, videoSegmentPlan, onExit
 
   const generateGridBatch = useCallback((batch: Storyboard[], batchNumber: number) => {
     setSelectedNodeId(`grid:${batchNumber}`);
-    setNotice(`正在生成第 ${batchNumber} 批九宫格，完成后会自动拆成 ${batch.length} 张分镜。`);
+    setNotice(singleShotMode ? `正在逐镜生成第 ${batchNumber} 批 ${batch.length} 张分镜。` : `正在生成第 ${batchNumber} 批九宫格，完成后会自动拆成 ${batch.length} 张分镜。`);
     void onGenerateGrid?.(batch);
-  }, [onGenerateGrid]);
+  }, [onGenerateGrid, singleShotMode]);
 
   const generateImage = useCallback((storyboard: Storyboard) => {
     setNotice(`正在单独生成分镜 ${storyboard.sceneNumber}。`);
@@ -204,7 +206,7 @@ function CanvasModeContent({ storyContent, storyboards, videoSegmentPlan, onExit
   }, [onGenerateImage]);
 
   const generateVideo = useCallback((storyboard: Storyboard, segment: Storyboard[] = [storyboard]) => {
-    if (segment.some(item => !item.imageUrl)) { setNotice(`片段仍有分镜没有图片，请先完成九宫格拆分。`); return; }
+    if (segment.some(item => !item.imageUrl)) { setNotice(`片段仍有分镜没有图片，请先完成分镜图片。`); return; }
     setNotice(`正在用分镜 ${segment.map(item => item.sceneNumber).join('、')} 生成一个 H3 片段。`);
     void onGenerateVideo?.(storyboard, segment);
   }, [onGenerateVideo]);
@@ -235,7 +237,7 @@ function CanvasModeContent({ storyContent, storyboards, videoSegmentPlan, onExit
       const batchHeight = Math.max(430, Math.ceil(batch.length / 3) * 245 + 120);
       const batchCenterY = batchY + Math.max(70, batchHeight / 2 - 130);
 
-      nextNodes.push({ id: gridId, type: 'gridNode', position: positionFor(gridId, { x: 470, y: batchCenterY }), data: { kind: 'grid', title: `第 ${batchNumber} 批 · 九宫格`, batchNumber, sceneCount: batch.length, completedCount, imageUrls: batch.map(item => item.imageUrl || ''), status: batchStatus, onGenerateGrid: () => generateGridBatch(batch, batchNumber) } });
+      nextNodes.push({ id: gridId, type: 'gridNode', position: positionFor(gridId, { x: 470, y: batchCenterY }), data: { kind: 'grid', singleShotMode, title: `第 ${batchNumber} 批 · ${singleShotMode ? 'MJ逐镜' : '九宫格'}`, batchNumber, sceneCount: batch.length, completedCount, imageUrls: batch.map(item => item.imageUrl || ''), status: batchStatus, onGenerateGrid: () => generateGridBatch(batch, batchNumber) } });
       nextEdges.push({ id: `${storyId}->${gridId}`, source: storyId, target: gridId, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } });
 
       batch.forEach((storyboard, shotIndex) => {
@@ -296,7 +298,7 @@ function CanvasModeContent({ storyContent, storyboards, videoSegmentPlan, onExit
         <MiniMap pannable zoomable nodeColor={node => node.data.kind === 'story' ? '#55d6c2' : node.data.kind === 'grid' || node.data.kind === 'output' ? '#f0b95d' : node.data.kind === 'scene' ? '#8be7da' : '#35bca7'} maskColor="rgba(10,13,15,.7)" className="!rounded-[10px] !border !border-[var(--border-color)] !bg-[var(--bg-secondary)]" />
         <Panel position="top-left" className="!m-4"><div className="flex items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-secondary)]/95 p-2 shadow-xl backdrop-blur"><div className="flex items-center gap-2 px-2 text-xs font-semibold text-white"><LayoutGrid size={15} className="text-[var(--workspace-accent)]" />无限画布</div><span className="h-6 w-px bg-[var(--border-color)]" /><span className="hidden max-w-[560px] truncate px-2 text-[11px] text-[var(--text-muted)] md:block">{notice}</span><button type="button" onClick={onExit} className="ml-1 flex min-h-9 items-center gap-2 rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs text-white"><List size={14} />返回列表</button></div></Panel>
 
-        {selectedStoryboard && <Panel position="top-right" className="!m-4 !mt-[72px]"><aside className="w-[340px] max-w-[calc(100vw-32px)] rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-secondary)]/97 p-4 shadow-2xl backdrop-blur"><div className="flex items-start justify-between gap-3"><div><p className="font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--workspace-accent)]">Node inspector</p><h3 className="mt-1 text-sm font-semibold text-white">{selectedNode?.data.title}</h3></div><button type="button" onClick={() => setSelectedNodeId(null)} className="rounded p-1 text-[var(--text-muted)] hover:text-white"><X size={15} /></button></div>{selectedSegment.length ? <div className="mt-4 space-y-3"><p className="text-[11px] text-[var(--text-secondary)]">{selectedSegment.length} 个分镜合成一个 {estimateVideoSegmentSeconds(selectedSegment)} 秒 H3 片段。</p><div className="flex gap-1.5">{selectedSegment.map(item => <img key={item.id} src={item.imageUrl} alt="" className="aspect-video min-w-0 flex-1 rounded object-cover" />)}</div><button type="button" onClick={() => generateVideo(selectedSegment[0], selectedSegment)} className="flex min-h-10 w-full items-center justify-center gap-2 rounded-[9px] bg-[var(--workspace-accent)] px-3 text-xs font-semibold text-[var(--workspace-on-accent)]"><Film size={14} />生成整个片段</button></div> : editing ? <div className="mt-4 space-y-3"><label className="block text-[11px] text-[var(--text-muted)]">图片提示词</label><textarea value={editPrompt} onChange={event => setEditPrompt(event.target.value)} rows={6} className="w-full rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 text-xs leading-5 text-white" /><label className="block text-[11px] text-[var(--text-muted)]">视频提示词</label><textarea value={editVideoPrompt} onChange={event => setEditVideoPrompt(event.target.value)} rows={5} className="w-full rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 text-xs leading-5 text-white" /><div className="flex gap-2"><button type="button" onClick={saveEditing} className="flex flex-1 items-center justify-center gap-2 rounded-[9px] bg-[var(--workspace-accent)] px-3 py-2 text-xs font-semibold text-[var(--workspace-on-accent)]"><Save size={13} />保存</button><button type="button" onClick={() => setEditing(false)} className="flex-1 rounded-[9px] border border-[var(--border-color)] px-3 py-2 text-xs text-white">取消</button></div></div> : <div className="mt-4 space-y-3"><p className="max-h-28 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[var(--text-secondary)]">{selectedStoryboard.prompt}</p><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => generateImage(selectedStoryboard)} className="flex min-h-10 items-center justify-center gap-2 rounded-[9px] bg-[var(--workspace-accent)] px-3 text-xs font-semibold text-[var(--workspace-on-accent)]"><ImageIcon size={14} />生成分镜</button><button type="button" onClick={() => generateVideo(selectedStoryboard)} className="flex min-h-10 items-center justify-center gap-2 rounded-[9px] border border-[var(--workspace-accent)]/40 bg-[var(--workspace-accent)]/10 px-3 text-xs font-semibold text-[var(--workspace-accent)]"><Video size={14} />生成视频</button><button type="button" onClick={() => void onGenerateVideoPrompt?.(selectedStoryboard)} className="flex min-h-9 items-center justify-center gap-2 rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs text-white"><Sparkles size={13} />视频提示词</button><button type="button" onClick={startEditing} className="flex min-h-9 items-center justify-center gap-2 rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs text-white"><Edit3 size={13} />编辑提示词</button></div></div>}</aside></Panel>}
+        {selectedStoryboard && <Panel position="top-right" className="!m-4 !mt-[72px]"><aside className="w-[340px] max-w-[calc(100vw-32px)] rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-secondary)]/97 p-4 shadow-2xl backdrop-blur"><div className="flex items-start justify-between gap-3"><div><p className="font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--workspace-accent)]">Node inspector</p><h3 className="mt-1 text-sm font-semibold text-white">{selectedNode?.data.title}</h3></div><button type="button" onClick={() => setSelectedNodeId(null)} className="rounded p-1 text-[var(--text-muted)] hover:text-white"><X size={15} /></button></div>{selectedSegment.length ? <div className="mt-4 space-y-3"><p className="text-[11px] text-[var(--text-secondary)]">{selectedSegment.length} 个分镜合成一个 {estimateVideoSegmentSeconds(selectedSegment)} 秒 H3 片段。</p><div className="flex gap-1.5">{selectedSegment.map(item => <img key={item.id} src={item.imageUrl} alt="" className="aspect-video min-w-0 flex-1 rounded object-cover" />)}</div><button type="button" onClick={() => generateVideo(selectedSegment[0], selectedSegment)} className="flex min-h-10 w-full items-center justify-center gap-2 rounded-[9px] bg-[var(--workspace-accent)] px-3 text-xs font-semibold text-[var(--workspace-on-accent)]"><Film size={14} />生成整个片段</button></div> : editing ? <div className="mt-4 space-y-3"><label className="block text-[11px] text-[var(--text-muted)]">图片提示词</label><textarea value={editPrompt} onChange={event => setEditPrompt(event.target.value)} rows={6} className="w-full rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 text-xs leading-5 text-white" /><label className="block text-[11px] text-[var(--text-muted)]">视频提示词</label><textarea value={editVideoPrompt} onChange={event => setEditVideoPrompt(event.target.value)} rows={5} className="w-full rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 text-xs leading-5 text-white" /><div className="flex gap-2"><button type="button" onClick={saveEditing} className="flex flex-1 items-center justify-center gap-2 rounded-[9px] bg-[var(--workspace-accent)] px-3 py-2 text-xs font-semibold text-[var(--workspace-on-accent)]"><Save size={13} />保存</button><button type="button" onClick={() => setEditing(false)} className="flex-1 rounded-[9px] border border-[var(--border-color)] px-3 py-2 text-xs text-white">取消</button></div></div> : <div className="mt-4 space-y-3"><p className="max-h-28 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[var(--text-secondary)]">{selectedStoryboard.prompt}</p><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => generateImage(selectedStoryboard)} className="flex min-h-10 items-center justify-center gap-2 rounded-[9px] bg-[var(--workspace-accent)] px-3 text-xs font-semibold text-[var(--workspace-on-accent)]"><ImageIcon size={14} />生成分镜</button><button type="button" onClick={() => generateVideo(selectedStoryboard)} className="flex min-h-10 items-center justify-center gap-2 rounded-[9px] border border-[var(--workspace-accent)]/40 bg-[var(--workspace-accent)]/10 px-3 text-xs font-semibold text-[var(--workspace-accent)]"><Video size={14} />生成视频</button><button type="button" onClick={() => void onGenerateVideoPrompt?.(selectedStoryboard, undefined, true)} className="flex min-h-9 items-center justify-center gap-2 rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs text-white"><Sparkles size={13} />视频提示词</button><button type="button" onClick={startEditing} className="flex min-h-9 items-center justify-center gap-2 rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs text-white"><Edit3 size={13} />编辑提示词</button></div></div>}</aside></Panel>}
       </ReactFlow>
       {previewVideo && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6" onClick={() => setPreviewVideo(null)}><div className="relative flex h-full w-full items-center justify-center" onClick={event => event.stopPropagation()}><button type="button" onClick={() => setPreviewVideo(null)} className="absolute right-0 top-0 rounded-full bg-white/10 p-2 text-white"><X size={20} /></button><video src={previewVideo} controls autoPlay className="max-h-full max-w-full rounded-[14px] border border-white/15" /></div></div>}
     </div>

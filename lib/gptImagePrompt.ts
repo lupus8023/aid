@@ -1,6 +1,7 @@
 import type { CapturePreset, VisualStyle } from '@/types';
 import { getCapturePreset } from './capturePresets';
 import { getProductionStylePreset, normalizeVisualStyle } from './promptArchitecture';
+import { PHOTOGRAPHIC_IDENTITY_RULE, usesPhotographicReferences } from './gptImageReferences';
 
 const collapse = (value?: string) => String(value || '').replace(/\s+/g, ' ').trim();
 
@@ -24,7 +25,7 @@ function captureSystem(capturePreset?: CapturePreset): string {
       return 'A photorealistic image captured with the single real photographic system already established by the supplied scene reference. Preserve its camera distance, perspective, exposure, white balance, focus behavior and justified imperfections. Do not add a second capture style.';
     case 'cinematic-narrative':
     default:
-      return 'A photorealistic frame from a live-action feature film, photographed on location or on a physically built set with one real cinema camera. Use a motivated camera position, real adult actors, practical wardrobe and props, restrained performance and physically present light. It must read as a photographed moment, not key art, a movie poster or concept art.';
+      return 'A photorealistic frame from a live-action feature film, photographed on location or on a physically built set with one real cinema camera. Use a motivated camera position, practical wardrobe and props, restrained performance and physically present light. Human roles use real adult actors; animal and fantasy roles retain their approved nonhuman species, anatomy and reference design with physically believable creature effects. Never humanize or replace a nonhuman cast member. It must read as a photographed moment, not key art, a movie poster or concept art.';
   }
 }
 
@@ -62,6 +63,7 @@ Render the entire frame as ${preset.imageContract}. Keep this one medium coheren
 
   return `PHOTOGRAPHIC OUTPUT (authoritative):
 ${captureSystem(capturePreset)}
+${usesPhotographicReferences(visualStyle) ? PHOTOGRAPHIC_IDENTITY_RULE : ''}
 ${photographicLook(visualStyle, capturePreset)}
 Preserve visible pores, mild facial asymmetry, fine hair, fabric weave, ordinary wear, physically plausible object contact, scale, occlusion and shadows. Use only imperfections caused by the declared camera. Do not render illustration, animation, CGI, concept art, a doll, waxy skin or an airbrushed face.`;
 }

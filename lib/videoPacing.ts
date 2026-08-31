@@ -1,5 +1,6 @@
 import type { Storyboard } from '@/types';
 import { allocateSegmentTimeline } from './videoSegments';
+import { FILM_ENDING_SECONDS } from './filmEnding';
 
 export type PacingMode = 'original' | 'cinematic' | 'standard' | 'compact';
 export type PacingKind = 'original' | 'emotion' | 'dialogue' | 'narrative' | 'transition' | 'action';
@@ -17,6 +18,8 @@ export interface PaceableClip {
   trimStart: number;
   trimEnd: number;
   pacingSections?: PacingSection[];
+  /** Derived from film order; does not alter the authored pacing sections. */
+  preserveEndingSeconds?: number;
 }
 
 export const DEFAULT_PACING_MODE: PacingMode = 'standard';
@@ -185,7 +188,19 @@ export function clippedPacingSections(clip: PaceableClip): PacingSection[] {
   if (cursor < sourceEnd - 0.002) {
     complete.push({ sourceStart: cursor, sourceEnd, rate: 1, kind: 'original', reason: '未规划区间保持原速' });
   }
-  return mergeAdjacentSections(complete);
+  const protectedStart = Math.max(sourceStart, sourceEnd - Math.max(0, Number(clip.preserveEndingSeconds) || 0));
+  return mergeAdjacentSections(complete.flatMap(section => {
+    if (section.sourceEnd <= protectedStart || section.rate <= 1) return [section];
+    const tail = { ...section, sourceStart: Math.max(section.sourceStart, protectedStart), rate: 1, reason: '整片末镜结尾保持原速' };
+    return section.sourceStart < protectedStart
+      ? [{ ...section, sourceEnd: protectedStart }, tail]
+      : [tail];
+  }));
+}
+
+/** Re-evaluate on reorder, without leaving protection on the previous last clip. */
+export function withFilmEndingPacing<T extends PaceableClip>(clips: T[]): T[] {
+  return clips.map((clip, index) => ({ ...clip, preserveEndingSeconds: index === clips.length - 1 ? FILM_ENDING_SECONDS : 0 }));
 }
 
 export function effectiveClipDuration(clip: PaceableClip): number {

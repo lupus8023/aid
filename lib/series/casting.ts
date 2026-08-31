@@ -161,6 +161,9 @@ export function applyLibraryActor(
       ? `复用角色库「${actor.name}」的指定音色`
       : undefined,
     imageTaskId: undefined,
+    photographicAnchor: undefined,
+    photographicSheetUrl: undefined,
+    photographicCardReview: undefined,
     locked: !character.speaking || Boolean(voiceId && voiceReferenceUrl),
   };
   // Re-selecting the same actor is not a new production version and retains completed work.

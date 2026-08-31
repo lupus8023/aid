@@ -36,13 +36,13 @@ export function isMidjourneyImageModel(model: string): boolean {
   return model.trim().toLowerCase() === MIDJOURNEY_IMAGE_MODEL;
 }
 
-/**
- * Midjourney supplies the cinematic identity/location anchors for Story, but
- * it is not reliable enough to typeset a strict 3x3 contact sheet. Nano
- * Banana 2 performs that layout step while preserving the MJ references.
- */
+export function storyboardImageMode(model: string): 'single' | 'grid' {
+  return isMidjourneyImageModel(model) ? 'single' : 'grid';
+}
+
 export function resolveStoryboardGridImageModel(model: string): string {
-  return isMidjourneyImageModel(model) ? NANO_BANANA_2 : model;
+  if (isMidjourneyImageModel(model)) throw new Error('MJ 分镜必须逐镜生成，不能生成九宫格或自动切换生图模型');
+  return model;
 }
 
 export function imageModelRequiresApiKey(model: string): boolean {

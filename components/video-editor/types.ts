@@ -9,6 +9,7 @@ export interface VideoClip {
   trimStart: number;
   trimEnd: number;
   pacingSections?: PacingSection[];
+  preserveEndingSeconds?: number;
 }
 
 export interface Transition {

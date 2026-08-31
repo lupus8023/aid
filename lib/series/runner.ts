@@ -2,8 +2,12 @@
 
 import { ApiResponseError, readApiJson } from "@/lib/apiResponse";
 import { buildEpisodeProject } from "./domain";
+import { copiedDialogueShotNumbers } from "./scriptRepair";
+import { repairEpisodeDialogue, synchronizeEpisodeDialogue } from "./productionDialogueRepair";
 import { storyStorageKeys } from "./storageScope";
 import { seriesStageBlocker } from "./readiness";
+import { isGptImage2Model } from '@/lib/imageModels';
+import { usesPhotographicReferences } from '@/lib/gptImageReferences';
 import type {
   SeriesClaim,
   SeriesEpisode,
@@ -69,7 +73,9 @@ export async function executeSeriesClaim(
       : settings.comfyui,
   };
   let saves: Promise<void> = Promise.resolve();
+  let currentStage = job.stage;
   const save = (stage: string) => {
+    currentStage = stage;
     report(stage);
     saves = saves.then(async () => {
       const result = await seriesRequest<{ revision: number }>({
@@ -205,101 +211,137 @@ export async function executeSeriesClaim(
     const cast = project.characters.filter(
       (c) => !episode || episode.characterIds.includes(c.id),
     );
+    const missingVoices: string[] = [];
     for (const character of cast) {
       if (character.locked &&
         (character.appearance === "voice_only" || character.bibleUrl) &&
         (!character.speaking || (character.voiceId && character.voiceReferenceUrl))) continue;
       if (character.speaking && (!character.voiceId || !character.voiceReferenceUrl)) {
-        const used = project.characters
-          .filter((c) => c.id !== character.id && c.voiceId)
-          .map((c) => c.voiceId!);
-        character.voiceCandidates = character.voiceCandidates?.filter(c => !used.includes(c.voiceId));
-        if (!character.voiceId && !character.voiceCandidates?.length) {
-          await save(`声音选角：搜索 ${character.name} 的授权候选`);
-          const result = await call<{
-            candidates: Array<{
-              voiceId: string;
-              title: string;
-              licensed: boolean;
-              score: number;
-              reason: string;
-            }>;
-          }>("/api/series/voices", {
-            character,
-            language: project.language,
-            fishAudioKey: settings.fishAudioKey,
-            excludedIds: used,
-          });
-          character.voiceCandidates = result.candidates;
-          character.voiceSelectionReason = result.candidates[0]?.reason;
-          await save(`${character.name} 的声音候选已保存`);
-        }
-        const candidates = character.voiceId
-          ? [
-              {
-                voiceId: character.voiceId,
-                title: character.voiceProfile || "已指定音色",
-              },
-            ]
-          : character.voiceCandidates || [];
-        let lastError = "";
-        for (const candidate of candidates) {
-          try {
-            await save(`声音试读：${character.name} · ${candidate.title}`);
+        try {
+          const used = project.characters
+            .filter((c) => c.id !== character.id && c.voiceId)
+            .map((c) => c.voiceId!);
+          character.voiceCandidates = character.voiceCandidates?.filter(c => !used.includes(c.voiceId));
+          if (!character.voiceId && !character.voiceCandidates?.length) {
+            await save(`声音选角：搜索 ${character.name} 的授权候选`);
             const result = await call<{
-              url: string;
-              voiceId: string;
-              duration: number;
-              languageCheck?: { passed: boolean; matchScore: number };
-            }>("/api/generate-voice-reference", {
-              characterName: character.name,
-              voiceId: candidate.voiceId,
-              fishAudioKey: settings.fishAudioKey,
+              candidates: Array<{
+                voiceId: string;
+                title: string;
+                licensed: boolean;
+                score: number;
+                reason: string;
+              }>;
+            }>("/api/series/voices", {
+              character,
               language: project.language,
-              strictVoice: true,
-              verifyLanguage: 'requiresLanguageCheck' in candidate && candidate.requiresLanguageCheck === true,
+              fishAudioKey: settings.fishAudioKey,
+              excludedIds: used,
             });
-            if (!result.url || result.voiceId !== candidate.voiceId)
-              throw new Error("试读音色与候选不一致");
-            if ('requiresLanguageCheck' in candidate && candidate.requiresLanguageCheck === true && !result.languageCheck?.passed)
-              throw new Error('跨语言试读尚未通过校验，请更新Companion后重试；不更换音色或重复合成');
-            character.voiceId = candidate.voiceId;
-            character.voiceProfile = candidate.title;
-            character.voiceSource ||= "auto";
-            character.voiceLocked = true;
-            character.voiceReferenceUrl = result.url;
-            if (result.languageCheck?.passed) character.voiceSelectionReason = `${character.voiceSelectionReason || ''}；目标语言试读已通过文字匹配检查（${Math.round(result.languageCheck.matchScore * 100)}%）`;
-            await save(`${character.name} 的声音已固定，试读可试听`);
-            break;
-          } catch (error) {
-            lastError = error instanceof Error ? error.message : "试读失败";
-            if (signal.aborted || !(error instanceof ApiResponseError) || error.code !== 'VOICE_UNAVAILABLE') throw error;
-            if (!character.voiceId) {
-              character.voiceCandidates = character.voiceCandidates?.filter(c => c.voiceId !== candidate.voiceId);
-              await save(`${character.name} 的不可用候选已排除`);
+            character.voiceCandidates = result.candidates;
+            character.voiceSelectionReason = result.candidates[0]?.reason;
+            await save(`${character.name} 的声音候选已保存`);
+          }
+          const candidates = character.voiceId
+            ? [
+                {
+                  voiceId: character.voiceId,
+                  title: character.voiceProfile || "已指定音色",
+                  requiresLanguageCheck: character.voiceSource === 'user',
+                },
+              ]
+            : character.voiceCandidates || [];
+          let lastError = "";
+          for (const candidate of candidates) {
+            try {
+              await save(`声音试读：${character.name} · ${candidate.title}`);
+              const result = await call<{
+                url: string;
+                voiceId: string;
+                duration: number;
+                languageCheck?: { passed: boolean; matchScore: number };
+              }>("/api/generate-voice-reference", {
+                characterName: character.name,
+                voiceId: candidate.voiceId,
+                fishAudioKey: settings.fishAudioKey,
+                language: project.language,
+                strictVoice: true,
+                verifyLanguage: 'requiresLanguageCheck' in candidate && candidate.requiresLanguageCheck === true,
+              });
+              if (!result.url || result.voiceId !== candidate.voiceId)
+                throw new Error("试读音色与候选不一致");
+              if ('requiresLanguageCheck' in candidate && candidate.requiresLanguageCheck === true && !result.languageCheck?.passed)
+                throw new Error('跨语言试读尚未通过校验，请更新Companion后重试；不更换音色或重复合成');
+              character.voiceId = candidate.voiceId;
+              character.voiceProfile = candidate.title;
+              character.voiceSource ||= "auto";
+              character.voiceLocked = true;
+              character.voiceReferenceUrl = result.url;
+              if (result.languageCheck?.passed) character.voiceSelectionReason = `${character.voiceSelectionReason || ''}；目标语言试读已通过文字匹配检查（${Math.round(result.languageCheck.matchScore * 100)}%）`;
+              await save(`${character.name} 的声音已固定，试读可试听`);
+              break;
+            } catch (error) {
+              lastError = error instanceof Error ? error.message : "试读失败";
+              if (signal.aborted || !(error instanceof ApiResponseError) || error.code !== 'VOICE_UNAVAILABLE') throw error;
+              if (!character.voiceId) {
+                character.voiceCandidates = character.voiceCandidates?.filter(c => c.voiceId !== candidate.voiceId);
+                await save(`${character.name} 的不可用候选已排除`);
+              }
             }
           }
+          if (!character.voiceReferenceUrl)
+            throw new ApiResponseError(
+              `${character.name} 的候选均无法完成试读：${lastError}`,
+              'VOICE_SELECTION_REQUIRED',
+            );
+          character.voiceIssue = undefined;
+        } catch (error) {
+          if (signal.aborted || !(error instanceof ApiResponseError) || error.code !== 'VOICE_SELECTION_REQUIRED') throw error;
+          character.voiceIssue = error.message;
+          character.locked = false;
+          missingVoices.push(character.name);
+          await save(`${character.name} 待从 Fish 选声；继续准备其余素材`);
         }
-        if (!character.voiceReferenceUrl)
-          throw new Error(
-            `${character.name} 的候选均无法完成试读：${lastError}`,
-          );
       }
       if (character.appearance !== "voice_only" && !character.bibleUrl) {
+        if (isGptImage2Model(settings.imageModel || '') && usesPhotographicReferences(project.visualStyle)) {
+          character.photographicAnchor ||= {};
+          if (!character.photographicAnchor.imageUrl) {
+            character.photographicAnchor.imageUrl = await image(character.photographicAnchor, {
+              type: 'costume-anchor', name: character.name, description: character.description,
+              referenceImageUrl: character.imageUrl || undefined,
+            }, `${character.name} 实拍定妆主图`);
+            await save(`${character.name} 实拍定妆主图已保存`);
+          }
+          if (!character.photographicAnchor.review) {
+            character.photographicAnchor.review = await call('/api/series/audit-appearance', {
+              imageUrl: character.photographicAnchor.imageUrl,
+              apiKey: settings.apiKey, dmxApiKey: settings.dmxApiKey,
+              scriptProvider: settings.scriptProvider, scriptModel: settings.scriptModel,
+            });
+            await save(`${character.name} 定妆质感核验已记录`);
+          }
+        }
         character.bibleUrl = await image(
           character,
           {
             type: "costume",
             name: character.name,
             description: character.description,
-            referenceImageUrl: character.imageUrl || undefined,
+            referenceImageUrl: character.photographicAnchor?.imageUrl || character.imageUrl || undefined,
           },
           `${character.name} 定妆角色卡`,
         );
+        if (character.photographicAnchor?.imageUrl) {
+          // Keep the sheet for inspection, but feed the single photographic
+          // anchor to downstream models: multi-view synthesis can re-stylize it.
+          character.photographicSheetUrl = character.bibleUrl;
+          character.bibleUrl = character.photographicAnchor.imageUrl;
+        }
         character.imageUrl = character.bibleUrl;
       }
-      character.locked = true;
-      await save(`${character.name} 角色定稿 v${character.version}`);
+      character.locked = !character.speaking || Boolean(character.voiceId && character.voiceReferenceUrl);
+      await save(character.locked ? `${character.name} 角色定稿 v${character.version}` : `${character.name} 形象已保存，声音待选择`);
     }
     for (const location of project.locations.filter(
       (l) => !episode || episode.locationIds.includes(l.id),
@@ -315,6 +357,7 @@ export async function executeSeriesClaim(
       );
       await save(`${location.name} 场景参考已保存`);
     }
+    if (missingVoices.length) throw new ApiResponseError(`可继续准备的角色和场景素材已保存；${missingVoices.length} 个角色仍待选择 Fish 音色：${missingVoices.join('、')}。请到“角色与场景 → 从 Fish 音色库选声”指定后从断点重试，已有素材不会重做。`, 'VOICE_SELECTION_REQUIRED');
     if (job.kind === "prepare") return;
   }
   if (!episode) throw new Error("本集不存在");
@@ -325,6 +368,17 @@ export async function executeSeriesClaim(
     }>("script", project, episode.id);
     episode.script = result.script;
     await save(`第${episode.number}集18镜已定稿`);
+  }
+  if (!episode.deliveries.some(d => d.episodeVersion === episode.version) && copiedDialogueShotNumbers(episode.script).length) {
+    await save(`第${episode.number}集自动纠正台词串镜，保留其余素材`);
+    const result = await generate<{ script: NonNullable<SeriesEpisode["script"]> }>("script", project, episode.id);
+    Object.assign(episode, repairEpisodeDialogue(project, episode, result.script));
+    await save(`第${episode.number}集台词归属已修正，仅重制受影响片段`);
+  }
+  const synchronizedDialogue = synchronizeEpisodeDialogue(project, episode);
+  if (synchronizedDialogue) {
+    Object.assign(episode, synchronizedDialogue);
+    await save(`第${episode.number}集已同步视频分段台词，仅重制过期片段`);
   }
   if (job.kind === "script") return;
   if (episode.deliveries.some((d) => d.episodeVersion === episode.version))
@@ -339,6 +393,7 @@ export async function executeSeriesClaim(
     keys.contract,
     JSON.stringify({
       shotCount: 18,
+      story: { title: `${project.name} · 第${episode.number}集 · ${episode.title}`, theme: project.bible?.theme || '', logline: episode.synopsis, opening: episode.opening, goal: episode.goal, conflict: episode.conflict, choice: episode.choice, resolution: episode.resolution, hook: episode.hook },
       voices: Object.fromEntries(
         project.characters
           .filter((c) => episode.characterIds.includes(c.id))
@@ -351,6 +406,14 @@ export async function executeSeriesClaim(
           text: d.text,
         })),
       ),
+      shots: episode.script.map(s => ({
+        number: s.number, seconds: s.seconds, action: s.action, visual: s.visual, purpose: s.purpose, sound: s.sound,
+        locationId: s.locationId,
+        sceneStyle: project.locations.find(l => l.id === s.locationId)?.description,
+        sceneImageUrl: project.locations.find(l => l.id === s.locationId)?.imageUrl,
+        characters: s.characterIds.map(id => project.characters.find(c => c.id === id)!.name),
+        dialogue: s.dialogue.map(d => ({ character: project.characters.find(c => c.id === d.characterId)!.name, text: d.text, emotion: d.emotion })),
+      })),
     }),
   );
   localStorage.setItem(
@@ -411,7 +474,7 @@ export async function executeSeriesClaim(
           episode.production = data.project;
         if (data.event === "checkpoint" || data.event === "progress") {
           void save(
-            data.stage || `第${episode.number}集制作中，断点已同步`,
+            data.stage || currentStage || `第${episode.number}集制作中，断点已同步`,
           ).catch((error) => fail(error));
           return;
         }

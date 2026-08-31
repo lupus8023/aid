@@ -9,7 +9,7 @@ import { checkVoiceTranscript, verifyFishVoiceLanguage } from '../lib/voiceLangu
 import { createVoiceReferenceService } from '../lib/voiceReferenceGeneration.ts';
 import { partitionSeriesJobs, seriesRetryBlocker } from '../lib/series/jobHistory.ts';
 
-test('an empty English library falls back to licensed cross-language voices, never arbitrary public voices', async () => {
+test('an empty English catalog retains licensed cross-language voices without mislabeling unlicensed results', async () => {
   const previous = globalThis.fetch, calls = [];
   globalThis.fetch = async url => {
     const q = new URL(url).searchParams; calls.push(q);
@@ -26,7 +26,7 @@ test('an empty English library falls back to licensed cross-language voices, nev
     assert.deepEqual(result.candidates.map(c => c.voiceId), ['male-ja']);
     assert.equal(result.candidates[0].requiresLanguageCheck, true);
     assert.equal(result.candidates[0].source, 'licensed');
-    assert.equal(calls.length, 3);
+    assert.equal(calls.length, 4);
   } finally { globalThis.fetch = previous; }
 });
 

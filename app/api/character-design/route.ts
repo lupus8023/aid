@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createProviderImageTask } from '@/lib/imageTaskProvider';
-import { getImageModelCapabilities, imageModelRequiresApiKey, isMidjourneyImageModel } from '@/lib/imageModels';
+import { getImageModelCapabilities, imageModelRequiresApiKey, isMidjourneyImageModel, isGptImage2Model } from '@/lib/imageModels';
+import { buildGptCharacterBiblePrompt, buildGptCharacterConceptPrompt } from '@/lib/gptImageReferences';
 import { buildCharacterBiblePrompt, buildCharacterConceptGridPrompt } from '@/lib/promptArchitecture';
 import type { VisualStyle } from '@/types';
 import { buildMidjourneyPrompt } from '@/lib/midjourney';
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
 
     if (stage === 'concepts') {
       const count: 4 | 9 = Number(candidateCount) === 4 ? 4 : 9;
-      const prompt = buildCharacterConceptGridPrompt({
+      const prompt = (isGptImage2Model(selectedModel) ? buildGptCharacterConceptPrompt : buildCharacterConceptGridPrompt)({
         name,
         role,
         age,
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
       if (!selectedConceptUrl || !/^https?:\/\//i.test(selectedConceptUrl)) {
         return NextResponse.json({ error: '请先选择一个角色草稿' }, { status: 400 });
       }
-      const prompt = buildCharacterBiblePrompt({
+      const prompt = (isGptImage2Model(selectedModel) ? buildGptCharacterBiblePrompt : buildCharacterBiblePrompt)({
         name,
         role,
         age,

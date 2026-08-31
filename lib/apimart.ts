@@ -11,11 +11,14 @@ import {
 import {
   MIDJOURNEY_TASK_PREFIX,
   buildMidjourneyImaginePayload,
+  midjourneyGenerationPath,
+  midjourneyEditPayload,
   unwrapMidjourneyTaskId,
   type MidjourneyReferenceMode,
   type MidjourneyTaskMode,
 } from './midjourney';
 import type { CapturePreset, VisualStyle } from '@/types';
+import { chatInputContent } from './pipeline/providerPayload';
 
 const APIMART_BASE_URL = 'https://api.apimart.ai/v1';
 let preferSystemNetworkStack = false;
@@ -36,13 +39,13 @@ export function apimartErrorSummary(error: any): { code?: string; status?: numbe
 }
 
 // 聊天 API - 用于分析故事
-export async function chatCompletion(prompt: string, apiKey: string, model: string = 'gpt-4o', timeoutMs = 120000, maxTokens = 16000): Promise<string> {
+export async function chatCompletion(prompt: string, apiKey: string, model: string = 'gpt-4o', timeoutMs = 120000, maxTokens = 16000, imageUrls: string[] = []): Promise<string> {
   try {
     const body = {
       model,
       stream: false,
       max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: chatInputContent(prompt, imageUrls) }],
     };
     const headers = {
       'Authorization': `Bearer ${apiKey}`,
@@ -214,9 +217,10 @@ export async function createMidjourneyImageTask(
       hasPeople,
       personalizationProfile,
     });
+    const endpoint = midjourneyGenerationPath(taskMode, imageUrls.length > 0);
     const response = await axios.post(
-      `${APIMART_BASE_URL}/midjourney/generations`,
-      body,
+      `${APIMART_BASE_URL}${endpoint}`,
+      endpoint.endsWith('/edits') ? midjourneyEditPayload(body) : body,
       {
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         timeout: 30_000,
@@ -224,7 +228,8 @@ export async function createMidjourneyImageTask(
     );
     const taskId = extractImageTaskId(response.data);
     if (!taskId) throw new Error(`APIMart response did not include a Midjourney task ID: ${JSON.stringify(response.data)}`);
-    console.log('[midjourney] imagine task created', {
+    console.log('[midjourney] image task created', {
+      operation: endpoint.endsWith('/edits') ? 'edits' : 'imagine',
       taskId,
       promptLength: String(body.prompt || '').length,
       referenceMode: imageUrls.length ? referenceMode : 'none',

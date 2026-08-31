@@ -31,7 +31,10 @@ export async function POST(request: NextRequest) {
     const prompt = seriesPrompt(stage, series, episodeId);
     return streamingJsonResponse(async () => {
       const root = process.env.AID_COMPANION_DATA_DIR;
-      const key = createHash('sha256').update(JSON.stringify([series.id, prompt, settings.scriptProvider, settings.scriptModel, settings.apiKey, settings.dmxApiKey])).digest('hex');
+      const identity: unknown[] = [series.id, prompt, settings.scriptProvider, settings.scriptModel, settings.apiKey, settings.dmxApiKey];
+      const savedScript = stage === 'script' ? series.episodes.find(e => e.id === episodeId)?.script : undefined;
+      if (savedScript) identity.push('dialogue-source-v2', savedScript);
+      const key = createHash('sha256').update(JSON.stringify(identity)).digest('hex');
       const filename = root ? path.join(root, 'series-drafts', `${key}.txt`) : undefined;
       return generateSeriesStage(stage, series, episodeId, {
         read: filename ? async () => {

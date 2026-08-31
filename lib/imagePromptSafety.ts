@@ -19,10 +19,11 @@ const SAFE_PREFIX = 'CONTENT-SAFE STAGING (authoritative): non-graphic PG-13 cin
 const STRONG_SAFE_PREFIX = 'STRICT FAMILY-SAFE STAGING (authoritative): depict only a tense, non-contact cinematic confrontation and its emotional reaction. Weapons remain separated from bodies or outside frame; every person is fully clothed and visibly intact. No blood, injury, death, penetration, cruelty or graphic aftermath.';
 
 export function analyzeImagePromptSafety(prompt: string): ImageSafetyRisk[] {
+  const staging = prompt.replace(/\bblood[- ]red\b/gi, 'deep crimson');
   const risks = RISK_PATTERNS
     .filter(({ pattern }) => {
       pattern.lastIndex = 0;
-      return pattern.test(prompt);
+      return pattern.test(staging);
     })
     .map(({ risk }) => risk);
   return [...new Set(risks)];
@@ -30,6 +31,7 @@ export function analyzeImagePromptSafety(prompt: string): ImageSafetyRisk[] {
 
 function replaceUnsafePhrases(prompt: string): string {
   return prompt
+    .replace(/\bblood[- ]red\b/gi, 'deep crimson')
     .replace(/浑身是血|鲜血|血泊|血水|血迹|血痕|血珠|溢血|吐血/gi, '风雪和尘土留下的非伤害性痕迹')
     .replace(/伤口|贯穿|刺穿|开膛|断肢|断头|露骨|骨头外露|内脏/gi, '被衣物完整遮挡的画外冲击')
     .replace(/围杀|斩杀|杀死|杀人|处决/gi, '紧张追捕并逼停')
@@ -86,4 +88,3 @@ export function extractImageTaskError(payload: unknown): string {
   ];
   return String(candidates.find(value => typeof value === 'string' && value.trim()) || 'Unknown image generation error');
 }
-

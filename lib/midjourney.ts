@@ -143,6 +143,7 @@ export function buildMidjourneyPrompt(input: string, options: MidjourneyPromptOp
   const source = cleanText(input).replace(/--[a-z]+(?:\s+[^\s]+)?/gi, '');
   const objectLock = referencedObjectDirection(source);
   const taskMode = options.taskMode || inferTaskMode(source);
+  if (taskMode === 'grid' || /UNIQUE STORYBOARD BATCH:/i.test(source)) throw new Error('MJ 不再生成分镜九宫格，请逐镜生成');
   let visual = '';
 
   if (/UNIQUE STORYBOARD BATCH:/i.test(source)) {
@@ -172,15 +173,19 @@ export function buildMidjourneyPrompt(input: string, options: MidjourneyPromptOp
   const subjectFinish = hasPeople && !/anime|3D|stop-motion/i.test(styleDirection)
     ? 'natural anatomy, restrained expression and believable body weight'
     : 'coherent geometry, physical material response and intentional depth';
-  const taskFinish = taskMode === 'grid'
-    ? 'exactly nine complete cinematic frames in a uniform orthogonal grid of three equal columns and three equal rows, never two rows or six panels'
-    : taskMode === 'character-sheet'
+  const taskFinish = taskMode === 'character-sheet'
       ? 'one identity repeated consistently across the requested production views on a plain neutral studio background'
       : taskMode === 'story-shot'
         ? 'one complete narrative film frame staged inside the described location, the environment and action geometry remain clearly readable, use reference cards for identity only and ignore their layout, name and typography, never an isolated studio portrait or character turnaround'
       : 'one clean standalone frame with a clear subject hierarchy';
   const prompt = `${visual.replace(/[.;]+$/, '')}, ${objectLock ? `${objectLock}, ` : ''}${captureDirection}, ${styleDirection}, ${subjectFinish}, ${taskFinish}`;
-  const maxLength = taskMode === 'grid' ? 2400 : taskMode === 'character-sheet' ? 1400 : 1100;
+  if (taskMode === 'story-shot') {
+    const locks = ['LOCKED IDENTITIES', 'REFERENCE ROLES', 'CAST LOCK'].map(heading => section(source, heading)).filter(Boolean);
+    // Identity instructions cannot be clipped away by the general 1100-char
+    // style compiler. Only the current shot and its fixed references are sent.
+    return [visual, ...locks, objectLock, captureDirection, styleDirection, subjectFinish, taskFinish].filter(Boolean).join('\n');
+  }
+  const maxLength = taskMode === 'character-sheet' ? 1400 : 1100;
   return clipWords(prompt, maxLength);
 }
 
@@ -226,9 +231,8 @@ export function buildMidjourneyImaginePayload(input: {
       hasPeople,
     }),
     size: input.aspectRatio,
-    // Keep every AID Midjourney path on V8.2. V8.2 does not support Omni
-    // Reference, so character cards are intentionally supplied as a stronger
-    // ordinary image prompt. This favors image quality over strict identity.
+    // Character story shots with references use the V8.2 edit endpoint below.
+    // Ordinary image guidance remains available for unrelated single images.
     version: '8.2',
     speed: 'relax',
     quality: '1',
@@ -268,6 +272,19 @@ export function buildMidjourneyImaginePayload(input: {
       : taskMode === 'story-shot' ? 0.55 : taskMode === 'grid' ? 0.65 : 0.9;
   }
   return body;
+}
+
+export function midjourneyGenerationPath(taskMode: MidjourneyTaskMode | undefined, hasReferences: boolean): string {
+  return taskMode === 'story-shot' && hasReferences ? '/midjourney/generations/edits' : '/midjourney/generations';
+}
+
+/** Keep the tested edit contract separate from Imagine's generation controls. */
+export function midjourneyEditPayload(imagine: Record<string, unknown>): Record<string, unknown> {
+  return {
+    prompt: imagine.prompt, image_urls: imagine.image_urls, version: imagine.version,
+    size: imagine.size, speed: imagine.speed, metadata: imagine.metadata,
+    ...(imagine.extra ? { extra: imagine.extra } : {}),
+  };
 }
 
 export function isMidjourneyModel(model: string): boolean {

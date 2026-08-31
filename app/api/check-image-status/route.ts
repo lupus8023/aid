@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
       if (status.status === 'completed') {
         // The native MJ query exposes the four cropped candidates separately.
         // Never return grid_image_url: downstream video models would interpret
-        // the contact sheet as one frame. Automated production uses candidate 1
-        // while retaining all four URLs for a future/manual chooser.
+        // the contact sheet as one frame. Start with candidate 1, retaining
+        // alternatives for automatic identity checks before any paid retry.
         const imageUrl = status.imageUrls[0];
         if (!imageUrl) return NextResponse.json({
           status: 'failed',

@@ -1,4 +1,215 @@
+## 0.1.142
+
+- Reserve a natural one-second ending without dialogue or narration only for the film's final shot, identified from the complete screenplay. Intermediate shots and generation segments do not receive this rule.
+- Protect only the film ending from pacing acceleration in preview and browser/native export; reordering moves the protection. Preserve source audio and picture without forced muting, black frames or freeze padding. Previously generated speech is not automatically re-timed.
+
+## 0.1.141
+
+- Share the 720-character motion-brief budget across fields. Accept complete descriptions that exceed an individual writing target when the combined brief and final 7,000-character H3 prompt still fit; keep visual/dialogue validation intact.
+
+## 0.1.140
+
+- Retain intermediate camera-field repairs even when another field still exceeds its budget. Transport failures have a separate bounded retry allowance so they do not consume content-repair attempts.
+
+## 0.1.139
+
+- Write narrative camera directions as concrete starting views, motivated paths/focus transfers, speed and visible endpoints. Keep observational and surveillance capture behavior separate.
+- Remove framing locks that contradicted camera movement while preserving reference identity, materials and exact first/last frames.
+- Explicit prompt refresh redesigns motion against available storyboard images; ordinary preview still reuses valid directions and completed media stays intact.
+- Repair vague or contradictory new camera directions and overlong fields without needlessly rewriting valid visual details.
+
+## 0.1.138
+
+- Persist individual storyboard outputs in asset storage before completion. Storage failures retain the paid generation task for recovery instead of submitting a new image.
+
+## 0.1.137
+
+- Resolve conflicting cast/anatomy checks against the original approved reference before regenerating an image. Intentional anthropomorphic designs no longer fail solely for differing from natural zoology.
+- Confirmed missing/substituted roles still fail; unavailable review remains unknown.
+
+## 0.1.136
+
+- Reattach recently active paid image tasks without spending content-repair attempts.
+- Give explicit congestion and pre-TLS connection failures a separate six-attempt backoff budget; do not broaden retries for uncertain paid submissions, credentials or balance failures.
+
+## 0.1.135
+
+- Apply visible-anatomy evidence rules to both cast audit passes, preventing false mermaid repairs for cropped or concealed tails while retaining checks for visible species conflicts.
+- Show the current shot when automatic image generation falls back to individual frames.
+
+## 0.1.134
+
+- Preserve full structured GPT Image prompts at submission; the legacy 4,000-character truncation discarded cast/reference mapping and trailing output constraints.
+
+## 0.1.133
+
+- GPT实拍角色先生成单张定妆主图，再扩展辅助多视图卡；制作始终绑定主图，防止多视图再次引入CG媒介或错误解剖。
+- 主图与角色卡分别保存任务断点；加入独立摄影质感检查，失败或未知如实记录，不伪装通过。
+- 重选角色或修改外观会清理旧主图；保留既有已定稿资产。
+
+## 0.1.132
+
+- GPT实拍角色卡改为定妆摄影参考，锁定身份、服装和物种，不继承旧参考图的CG媒介；明确的动漫/CG/参考风格不变。
+- GPT场景采用单幅勘景照片，单镜和九宫格统一身份与摄影风格的职责。
+- 角色补图中断后先恢复缺图，再执行视觉核验；已有素材不覆盖。
+
+## 0.1.131
+
+- MJ 分镜改为逐镜生成，移除九宫格及自动转用其他生图模型；其他模型保持原流程。
+- 有参考图的单镜使用实测通过的 V8.2 编辑请求，完整保留角色身份、参考图映射、服装与镜头动作；固定原始参考，避免逐镜累积漂移。
+- 每镜核验人物与单画面构图，先检查已付费候选，再有限次局部重试；未知核验结果保留警告，不伪装通过。
+- 单镜任务号立即同步到断点，保留已有合格图片及视频。
+
+## 0.1.130
+
+- 连续剧新增1:1方形画幅，从项目保存、Story制作到成片交付保持一致；修复方形成片被误判为横屏规格的问题。
+- 保持既有项目画幅和已生成素材不变。
+
+## 0.1.129
+
+- 所有集共用导演字段局部修稿：自动重写超长、非英文或混入声音指令的运镜字段，不截断文本，不重写已通过的分镜和台词。
+- 提示词刷新复用相同纠错规则，临时请求失败保留原稿；整季台词超时改用独立局部修稿上下文。
+- 保持原有限额、有限次重试与断点缓存，网页和 Companion 同步使用完整运镜简报。
+
+## 0.1.128
+
+- 修稿同步视频分段的独立对白合同，避免分镜已改而 H3 仍生成旧台词。
+- 开始制作前自动修复旧断点的对白不一致，仅清理受影响片段，保留其他已付费视频及所有图片、音色。
+
+## 0.1.127
+
+- 自动检测相邻镜头对白错配到不同角色，按本镜职责和动作局部修稿；保留图片与固定音色，仅重制受影响的视频片段。
+- 修稿缓存绑定源剧本，避免复用过期台词；拒绝只替换虚词而保留错误角色含义的修稿。
+
 # Changelog
+
+## 0.1.126 - 2026-08-31
+
+- Bound same-origin storyboard responses to H3-ready 1600px and 1.6MB, retaining original project image URLs and paid task identities.
+
+## 0.1.125 - 2026-08-31
+
+- Read APIMart storyboard images through a same-origin server route before H3 preprocessing, preserving original images and task identities.
+- Restrict source hosts, reject redirects, and enforce a 45-second timeout and streamed 25MB limit.
+
+## 0.1.124 - 2026-08-31
+
+- On refresh, recover only missing grid cells; never replace completed single-image repairs or invalidate paid videos by re-splitting an old grid.
+
+## 0.1.123 - 2026-08-31
+
+- Synchronize frame state before and after targeted repair so deferred React updates cannot skip generation.
+- Limit the frame-only anatomy pass to nonhuman creatures; ignore empty extra-character findings and avoid cropped-tail false positives.
+
+## 0.1.122 - 2026-08-31
+
+### Fixed
+
+- Audit series frame identities before video generation and repair only mismatched frames with two persisted attempts, retaining completed segments.
+- Record unavailable/refused visual checks as review warnings rather than passes; stop provider fallback on content refusals.
+- Keep voice-only roles out of required image casts and preserve creature anatomy; distinguish crimson color descriptions from injury.
+
+## 0.1.121 - 2026-08-31
+
+### Fixed
+
+- Budget all nine grid panels, complete casts and reference mappings before composing the prompt; preserve the result at the provider boundary instead of truncating later shots.
+- Automatically use individual image generation with recovery when a grid cannot fit its mandatory content.
+
+## 0.1.120 - 2026-08-31
+
+### Fixed
+
+- Audit series episodes against their approved six-part episodic contract while retaining seven narrative milestones for standalone Story projects.
+- Preflight approved shots, exact dialogue, fixed voices and speech timing before direction; safely rebuild older series plans from saved screenplays.
+- Preserve ordered A-B-A turns and intentional repeated dialogue inside approved shots, retaining cross-shot segment boundaries.
+
+## 0.1.119 - 2026-08-31
+
+### Fixed
+
+- Adapt approved series screenplays directly to direction, preserving A-B-A exchanges, exact dialogue, sound and timing without a redundant writing pass. Ordinary Story generation is unchanged.
+- Expand automatic Fish casting to public catalog candidates when needed, preserving source provenance and validating audition language before locking. Public visibility is not a platform license assertion.
+
+## 0.1.118 - 2026-08-31
+
+### Fixed
+
+- Require explicit invisible design evidence before accepting generated voice-only roles; flashbacks, portraits and recorded appearances require character cards.
+- Allow editing character appearance type while retaining fixed voices and delivered versions, and pass appearance types into episode writing context.
+- Label voice-only placeholders and voice readiness explicitly.
+
+## 0.1.117 - 2026-08-30
+
+### Fixed
+
+- Browse and search Fish public, licensed and workspace voice catalogs directly from series roles, play existing samples, and pin a chosen voice without using a character name as the search query.
+- Keep public visibility separate from usage rights; require confirmation for non-platform-licensed selections and verify manually chosen references in the project language.
+- Mark roles without automatic candidates for selection while preparing other cast and locations; account, network and storage failures still stop immediately.
+- Preserve character artwork and historical deliveries when changing a voice; clear stale voice candidates, references and errors.
+
+## 0.1.116 - 2026-08-30
+
+### Fixed
+
+- Preserve per-shot ambience and action Foley in shared Story/series video prompts instead of truncating a flattened multi-shot sound list to four entries.
+- Request audible supporting ambience under dialogue, consistent beds within a location and intentional silence when authored; guide writing toward concrete sound sources instead of universally faint or non-audible visual descriptions.
+- Existing videos remain unchanged; no automatic regeneration or external audio overlay is introduced. Native model mixing still requires listening review.
+
+## 0.1.115 - 2026-08-30
+
+### Fixed
+
+- Save the latest story plan alongside submitted video IDs instead of a stale asynchronous closure snapshot.
+- Clear historical errors when resuming or claiming a job, and do not display a previous pause as an active failure.
+
+## 0.1.114 - 2026-08-30
+
+### Fixed
+
+- Bind structured, approved series actions, cast, timing and exact dialogue before directing instead of reparsing role-labelled display text.
+- Reject reordered source shots, unregistered speakers and missing voices before direction while preserving writing and directing checkpoints.
+- Bind approved environments per shot and map each grid environment reference to its shot numbers instead of always using the first location.
+
+## 0.1.113 - 2026-08-30
+
+### Fixed
+
+- Resume completed writing when the source, shot count and voices still match; persist it before directing so direction failures do not restart writing.
+- Retain individual writing/directing drafts and revalidate before reuse. Report oversized motion fields together and leave headroom under existing limits.
+- Keep the actual production stage visible when a routine checkpoint is saved.
+
+## 0.1.112 - 2026-08-30
+
+### Fixed
+
+- Repair all overlong dialogue with explicit per-line budgets while retaining 18 shots, shot timing, speakers, visuals and actions. Revalidate without extending the film or dropping lines.
+- Preserve resumable script drafts and reject unsafe dialogue patches.
+
+## 0.1.111 - 2026-08-30
+
+### Fixed
+
+- Report all missing episode text fields with exact paths and request only those values, retaining the rest of the draft while still enforcing cast, location, promise and user revision checks.
+- Reject invalid repair patches without replacing recoverable drafts, and reuse valid cached results after restart without buying the same writing again.
+
+## 0.1.110 - 2026-08-30
+
+### Fixed
+
+- Recover generated images rejected by storage size limits by uploading a WebP encoding of the same source, trying lossless first and then high quality while preserving resolution, orientation and transparency. Never request regeneration.
+- Bound download size and decoded pixels, retain task IDs on failure, and never treat network or account errors as image-size failures.
+
+## 0.1.109 - 2026-08-30
+
+### Added
+
+- Delete current and historical failed production tasks while retaining scripts, production checkpoints, assets and delivered films. Only the task record and its saved configuration are removed.
+- Validate project ownership and failed status inside the persistent database transaction; reject deletion of active, queued, paused or completed tasks. Older Companion builds display an update requirement.
+
+### Verification
+
+- 25 series regression tests, TypeScript checks, isolated API smoke tests and browser deletion/reload checks pass, including preservation of other tasks, projects and delivered media.
 
 ## 0.1.108 - 2026-08-30
 

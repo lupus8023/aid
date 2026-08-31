@@ -1,3 +1,5 @@
+import { storyboardImageFetchUrl } from './storyboardImageSource';
+
 const MAX_REFERENCE_BYTES = 1_600_000;
 
 const TARGETS = {
@@ -11,7 +13,7 @@ async function fetchSourceBlob(source: string, label: string): Promise<Blob> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
-      response = await fetch(source, {
+      response = await fetch(storyboardImageFetchUrl(source), {
         cache: source.startsWith('http') ? 'force-cache' : 'default',
         signal: AbortSignal.timeout(45_000),
       });

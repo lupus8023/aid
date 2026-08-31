@@ -20,19 +20,27 @@ export interface SeriesCharacter extends Character {
   locked: boolean;
   version: number;
   bibleUrl?: string;
+  photographicAnchor?: {
+    imageUrl?: string; imageTaskId?: string;
+    review?: { photographic: boolean | null; issues: string[] };
+    rejected?: Array<{ imageUrl: string; imageTaskId?: string; issues: string[] }>;
+  };
+  photographicCardReview?: { photographic: boolean | null; issues: string[] };
+  photographicSheetUrl?: string;
   imageTaskId?: string;
   voiceReferenceUrl?: string;
   voiceCandidates?: Array<{
     voiceId: string;
     title: string;
     licensed: boolean;
-    source?: 'workspace' | 'licensed';
+    source?: 'workspace' | 'licensed' | 'public';
     requiresLanguageCheck?: boolean;
     languageMode?: 'native' | 'cross_language';
     sourceLanguages?: string[];
     score: number;
   }>;
   voiceSelectionReason?: string;
+  voiceIssue?: string;
   casting?: SeriesLibraryActor;
 }
 
@@ -89,6 +97,8 @@ export interface SeriesShot {
 }
 
 export interface SeriesEpisode {
+  productionDialogueRepairs?: Array<{ at: string; shots: number[] }>;
+  dialogueRepairs?: Array<{ at: string; shots: number[]; reason: string; before: Array<Pick<SeriesShot, "number" | "dialogue">>; after: Array<Pick<SeriesShot, "number" | "dialogue">> }>;
   id: string;
   number: number;
   title: string;
@@ -130,7 +140,7 @@ export interface SeriesProject {
   shotCount: 18;
   durationSeconds: 120;
   language: "zh" | "en";
-  aspectRatio: "16:9" | "9:16";
+  aspectRatio: AppSettings['aspectRatio'];
   visualStyle: VisualStyle;
   bible?: SeriesBible;
   characters: SeriesCharacter[];

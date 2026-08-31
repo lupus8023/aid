@@ -148,6 +148,14 @@ export async function POST(request: NextRequest) {
             );
             if (!character) throw new Error("角色不存在");
             let characterChanged = false;
+            if (body.patch?.appearance !== undefined) {
+              if (!['on_screen', 'voice_only'].includes(body.patch.appearance))
+                throw new Error('无效的角色出镜类型');
+              if (character.appearance !== body.patch.appearance) {
+                character.appearance = body.patch.appearance;
+                characterChanged = true;
+              }
+            }
             const voiceBriefChanged =
               typeof body.patch?.voiceBrief === "string" &&
               text(body.patch.voiceBrief) !== character.voiceBrief;
@@ -168,11 +176,20 @@ export async function POST(request: NextRequest) {
                     character.casting = undefined;
                     character.bibleUrl = undefined;
                     character.imageTaskId = undefined;
+                    character.photographicAnchor = undefined;
+                    character.photographicSheetUrl = undefined;
+                    character.photographicCardReview = undefined;
                   }
                   if (key === "voiceId" || key === "voiceBrief") {
                     character.voiceReferenceUrl = undefined;
-                    if (key === "voiceId")
+                    character.voiceIssue = undefined;
+                    if (key === "voiceId") {
                       character.voiceSource = value ? "user" : "auto";
+                      character.voiceProfile = value ? text(body.patch?.voiceProfile).slice(0, 200) || '已指定 Fish 音色' : undefined;
+                      character.voiceSelectionReason = value ? '用户指定 Fish 音色；使用目标语言试读验证' : undefined;
+                      character.voiceCandidates = undefined;
+                      character.voiceLocked = false;
+                    }
                   }
                 }
               }
@@ -314,8 +331,22 @@ export async function POST(request: NextRequest) {
               job.status = "queued";
               job.cancelRequested = false;
               job.stage = "等待恢复";
+              job.error = undefined;
             }
           }
+          return { ok: true };
+        }
+        case "delete-job": {
+          if (!project) throw new Error("连续剧不存在");
+          const index = db.jobs.findIndex(
+            (j) => j.id === body.jobId && j.seriesId === project.id,
+          );
+          if (index < 0) throw new Error("任务不存在或已删除，请刷新列表");
+          if (db.jobs[index].status !== "failed")
+            throw new Error("只能删除失败任务；任务状态已更新，请刷新列表");
+          // Remove only the queue record, including its saved credentials.
+          // Project checkpoints and delivered media remain available for reuse.
+          db.jobs.splice(index, 1);
           return { ok: true };
         }
         case "retry": {
@@ -382,6 +413,7 @@ export async function POST(request: NextRequest) {
           const owner = db.projects.find((p) => p.id === job.seriesId)!;
           const settings = await openSettings(job.sealedSettings!);
           job.status = "running";
+          job.error = undefined;
           job.attempts++;
           job.workerId = workerId;
           job.lease = seriesId("lease");

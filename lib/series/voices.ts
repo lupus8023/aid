@@ -2,15 +2,18 @@ import { rankFishVoiceModels, type FishVoiceModel } from '@/lib/fishVoiceDiscove
 import { inferVoiceGender } from '@/lib/voiceCasting';
 import type { SeriesCharacter } from './types';
 
+export class SeriesVoiceSelectionRequired extends Error {
+  code = 'VOICE_SELECTION_REQUIRED';
+}
 export async function findSeriesVoices(character: SeriesCharacter, language: 'zh' | 'en', key: string, excludedIds: string[]) {
   const signal = AbortSignal.timeout(45000);
-  const load = async (owned: boolean, requestedLanguage?: string) => {
+  const load = async (owned: boolean, requestedLanguage?: string, publicLibrary = false) => {
     const models: FishVoiceModel[] = [];
     let limited = false;
     for (let page = 1; page <= 5; page++) {
-      const params = new URLSearchParams({ page_size: '100', page_number: String(page), sort_by: 'score', ...(owned ? { self: 'true' } : { licensed: 'true', ...(requestedLanguage ? { language: requestedLanguage } : {}) }) });
+      const params = new URLSearchParams({ page_size: '100', page_number: String(page), sort_by: 'score', ...(owned ? { self: 'true' } : { ...(!publicLibrary ? { licensed: 'true' } : {}), ...(requestedLanguage ? { language: requestedLanguage } : {}), ...(publicLibrary && ['male', 'female'].includes(character.gender || '') ? { title: character.gender! } : {}) }) });
       const response = await fetch(`https://api.fish.audio/model?${params}`, { headers: { Authorization: `Bearer ${key}` }, signal });
-      if (!response.ok) throw new Error(`Fish ${owned ? '自有工作区' : '授权库'}搜索失败（${response.status}）；未提交试读，请检查账户与服务状态`);
+      if (!response.ok) throw new Error(`Fish ${owned ? '自有工作区' : publicLibrary ? '公共库' : '授权库'}搜索失败（${response.status}）；未提交试读，请检查账户与服务状态`);
       const data = await response.json();
       const items = Array.isArray(data.items) ? data.items as FishVoiceModel[] : [];
       models.push(...items);
@@ -41,6 +44,15 @@ export async function findSeriesVoices(character: SeriesCharacter, language: 'zh
     licensed.limited ||= international.limited;
     pool = [...new Map([...licensed.models.filter(m => m.licensed === true), ...workspace.models].map(m => [m._id, m])).values()];
   }
+  let publicCount = 0;
+  if (pool.filter(m => eligible(m) && languageMatches(m)).length < 3) {
+    // Public visibility is an API discovery source, never proof of a license.
+    // The user's automated casting flow may audition public models; preserve
+    // their provenance and never alter an already fixed character voice.
+    const publicLibrary = await load(false, language, true);
+    publicCount = publicLibrary.models.length;
+    pool = [...new Map([...publicLibrary.models, ...pool].map(m => [m._id, m])).values()];
+  }
   const matches = pool.filter(eligible);
   // Private workspace voices may be used by their owner. Do not change the
   // shared public-library ranking policy or label these voices platform licensed.
@@ -51,14 +63,14 @@ export async function findSeriesVoices(character: SeriesCharacter, language: 'zh
     const description = [m.title, m.description, ...(m.tags || [])].join(' ').toLowerCase();
     return {
       voiceId: m._id, title: m.title || m._id, licensed: m.licensed === true,
-      source: owned ? 'workspace' as const : 'licensed' as const,
+      source: owned ? 'workspace' as const : m.licensed === true ? 'licensed' as const : 'public' as const,
       languageMode: languageMatches(m) ? 'native' as const : 'cross_language' as const,
       sourceLanguages: m.languages || [],
-      requiresLanguageCheck: !languageMatches(m),
+      requiresLanguageCheck: !languageMatches(m) || (!owned && m.licensed !== true),
       score: ranked.length - index + keywords.filter(k => description.includes(k.toLowerCase())).length * 15,
-      reason: `${languageMatches(m) ? '原始语言匹配' : `跨语言候选：将用${language === 'en' ? '英语' : '中文'}试读并转写校验`}；角色资料初筛，已排除本剧占用音色；${owned ? '来自你的Fish工作区（不等同于平台授权认证，请确保拥有使用权）' : '通过平台授权筛选'}`,
+      reason: `${languageMatches(m) ? '原始语言匹配' : `跨语言候选：将用${language === 'en' ? '英语' : '中文'}试读并转写校验`}；角色资料初筛，已排除本剧占用音色；${owned ? '来自你的Fish工作区（非平台授权认证）' : m.licensed === true ? '通过平台授权筛选' : '来自Fish公共库，自动试读后固定（公共展示不等于平台授权，请确保使用范围符合音色许可）'}`,
     };
-  }).sort((a, b) => Number(a.requiresLanguageCheck) - Number(b.requiresLanguageCheck) || b.score - a.score).slice(0, 3);
-  if (!candidates.length) throw new Error(`${character.name} 未找到可用的${language === 'en' ? '英语' : '中文'}音色：已检查自有工作区${workspace.models.length}个、平台授权库${new Set(licensed.models.map(m => m._id)).size}个模型${workspace.limited || licensed.limited ? '（达到本次搜索上限）' : ''}，已包含跨语言候选，并排除性别冲突、已占用及下架项。请补充有使用权的独立音色；不会随机换声或冒充平台授权。`);
+  }).sort((a, b) => Number(a.languageMode === 'cross_language') - Number(b.languageMode === 'cross_language') || b.score - a.score).slice(0, 3);
+  if (!candidates.length) throw new SeriesVoiceSelectionRequired(`待配音角色「${character.name}」暂无可用候选。已自动搜索 Fish 工作区${workspace.models.length}个、平台授权库${new Set(licensed.models.map(m => m._id)).size}个及公共库${publicCount}个模型，排除了性别冲突、已占用及下架项。请检查账户可用音色或在角色卡指定音色；不会随机更换已经固定的声音。`);
   return { candidates, evaluation: 'metadata-ranking; synthesis availability is checked separately, not an acting-quality rating' };
 }

@@ -15,7 +15,7 @@ import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { STORY_AUDIO_TAIL_FADE_SECONDS } from './audioTailCleanup';
-import { clippedPacingSections, type PacingSection } from './videoPacing';
+import { clippedPacingSections, withFilmEndingPacing, type PacingSection } from './videoPacing';
 
 export type CompanionExportClip = {
   clipId: string;
@@ -25,6 +25,7 @@ export type CompanionExportClip = {
   trimEnd: number;
   segmentSha256: string;
   pacingSections?: PacingSection[];
+  preserveEndingSeconds?: number;
 };
 
 export type CompanionExportJob = {
@@ -493,7 +494,7 @@ export async function createOrResumeExportJob(
   if (!projectId || !Array.isArray(clipsInput) || clipsInput.length === 0 || clipsInput.length > 200) {
     throw new Error('导出项目或片段列表无效');
   }
-  const clips = clipsInput.map(normalizeClip);
+  const clips = withFilmEndingPacing(clipsInput.map(normalizeClip));
   const aspectRatio = normalizeExportAspectRatio(requestedAspectRatio);
   for (const clip of clips) {
     await access(segmentPath(projectId, clip.clipId, clip.segmentSha256));

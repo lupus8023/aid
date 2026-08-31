@@ -62,6 +62,17 @@ test('observational capture contracts separate subject behavior from delayed cam
   assert.equal(isObservationalCapturePreset('commercial-studio'), false);
 });
 
+test('narrative coverage permits planned camera blocking without importing observational delay', () => {
+  const director = buildDirectorCaptureContract('cinematic-narrative');
+  assert.match(director, /预先占位、与人物同步运动或延后揭示/);
+  const video = buildVideoCapturePresetContract('cinematic-narrative');
+  assert.match(video, /authored camera path or focus transfer/);
+  assert.match(video, /locked-off shot stays locked/);
+  assert.doesNotMatch(video, /follows change after it occurs|reacts a beat late/);
+  assert.match(buildVideoCapturePresetContract('surveillance'), /never follows, reframes, focuses or anticipates/);
+  assert.match(buildVideoCapturePresetContract('documentary-follow'), /follows after movement begins/);
+});
+
 test('MJ world master and Nano grid both receive the project capture mode', () => {
   const master = buildStoryWorldAnchorPrompt({
     sceneStyle: 'a busy Shanghai shopping street in late afternoon',

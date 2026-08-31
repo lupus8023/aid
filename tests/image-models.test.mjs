@@ -54,7 +54,7 @@ test('advertises Midjourney as an APIMart quality-first model with scene plus id
   assert.equal(capabilities.maxResolution, '2K');
   assert.equal(imageModelRequiresApiKey('midjourney'), true);
   assert.equal(imageCreationInputError({ model: 'midjourney', referenceCount: 0, userIntent: 'Rainy laboratory at dawn' }), '');
-  assert.equal(resolveStoryboardGridImageModel('midjourney'), 'gemini-3.1-flash-image-preview');
+  assert.throws(() => resolveStoryboardGridImageModel('midjourney'), /逐镜/);
   assert.equal(resolveStoryboardGridImageModel('seedream-5-0-pro'), 'seedream-5-0-pro');
 });
 
@@ -137,23 +137,12 @@ test('compiles the project capture preset into the actual Midjourney prompt', ()
   assert.equal(payload.metadata.capture_preset, 'broadcast-candid');
 });
 
-test('keeps all nine Midjourney panels and uses grid-safe negative terms', () => {
+test('rejects legacy nine-panel Midjourney requests before submitting a paid task', () => {
   const panels = Array.from({ length: 9 }, (_, index) => `Panel ${index + 1} (story scene ${index + 1}): UNIQUE_MJ_SHOT_${index + 1}, a distinct camera position and action.`).join('\n');
   const source = `UNIQUE STORYBOARD BATCH: 1-9\nRender these nine distinct moments in exact order:\n${panels}\n\nScene continuity: one laboratory at dawn.`;
-  const payload = buildMidjourneyImaginePayload({
+  assert.throws(() => buildMidjourneyImaginePayload({
     prompt: source, aspectRatio: '16:9', imageUrls: ['https://example.com/soft-reference.png'], referenceMode: 'image', visualStyle: 'warm-film', taskMode: 'grid', hasPeople: true,
-  });
-  for (let index = 1; index <= 9; index += 1) assert.match(String(payload.prompt), new RegExp(`UNIQUE_MJ_SHOT_${index}`));
-  assert.match(String(payload.prompt), /exactly nine complete/i);
-  assert.match(String(payload.prompt), /three equal horizontal rows|three equal columns/i);
-  assert.doesNotMatch(String(payload.negative_prompt), /split screen|duplicate people/i);
-  assert.match(String(payload.negative_prompt), /irregular grid|missing panels/i);
-  assert.match(String(payload.negative_prompt), /six panels|2x3 layout/i);
-  assert.equal(payload.version, '8.2');
-  assert.equal(payload.hd, true);
-  assert.deepEqual(payload.image_urls, ['https://example.com/soft-reference.png']);
-  assert.equal(payload.iw, 0.65);
-  assert.match(String(payload.negative_prompt), /3D render|doll|plastic skin/i);
+  }), /逐镜/);
 });
 
 test('keeps character-card shots on V8.2 with a stronger soft image reference', () => {

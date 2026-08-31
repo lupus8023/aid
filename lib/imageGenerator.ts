@@ -1,12 +1,15 @@
 import { getMidjourneyImageStatus, getTaskStatus } from './apimart';
 import { createProviderImageTask } from './imageTaskProvider';
 import type { ComfyUIClientSettings } from './comfyui';
-import { Storyboard, Character, ObjectItem, VisualStyle, CapturePreset } from '@/types';
+import type { Storyboard, Character, ObjectItem, VisualStyle, CapturePreset } from '@/types';
 import { buildImageCaptureContract, buildMediumLock } from './promptArchitecture';
 import { buildImageCapturePresetContract } from './capturePresets';
 import { buildGptImage2PhotographicContract, buildGptImage2StoryPrompt } from './gptImagePrompt';
 import { getImageModelCapabilities, isComfyUIZImageTurbo, isGptImage2Model, isMidjourneyImageModel } from './imageModels';
+import { visibleImageCast } from './series/imageCastContract';
 import { isMidjourneyTask } from './midjourney';
+import { midjourneyShotInput } from './midjourneyStory';
+import { usesPhotographicReferences } from './gptImageReferences';
 
 // 为单个分镜生成图片
 export async function generateStoryboardImage(
@@ -26,11 +29,21 @@ export async function generateStoryboardImage(
   midjourneyProfile = '',
 ): Promise<string> {
   const selectedImageModel = imageModel || 'seedream-5-0-pro';
+  const photographicGpt = isGptImage2Model(selectedImageModel) && usesPhotographicReferences(visualStyle);
+  if (isMidjourneyImageModel(selectedImageModel)) {
+    if (/UNIQUE STORYBOARD BATCH:|3x3 storyboard contact sheet/i.test(storyboard.prompt) || preUploadedReferences?.length) {
+      throw new Error('MJ 分镜必须逐镜生成，不接受九宫格任务');
+    }
+    const shot = midjourneyShotInput(storyboard, characters, objects, globalCostumeImages, storyboard.sceneImageOverride || globalSceneImage);
+    return createProviderImageTask(shot.prompt, shot.imageUrls, apiKey, selectedImageModel, aspectRatio, undefined, comfyui, {
+      midjourneyReferenceMode: 'character', midjourneyTaskMode: 'story-shot',
+      midjourneyVisualStyle: visualStyle, midjourneyCapturePreset: capturePreset || storyboard.capturePreset,
+      midjourneyHasPeople: shot.hasPeople, midjourneyProfile,
+    });
+  }
   const maxReferenceImages = getImageModelCapabilities(selectedImageModel).maxReferenceImages;
   // 找到该分镜中出现的角色
-  const sceneCharacters = characters.filter(c =>
-    storyboard.characters.includes(c.name)
-  );
+  const sceneCharacters = visibleImageCast(storyboard, characters);
 
   // 找到该分镜中出现的物体(如果有)
   const sceneObjects = objects.filter(o =>
@@ -132,7 +145,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       .replace(/[\u200B-\u200D\uFEFF]/g, '');
 
     const promptLimit = isComfyUIZImageTurbo(selectedImageModel) ? 16000 : 4000;
-    const finalPrompt = cleanEnhancedPrompt.length > promptLimit
+    const finalPrompt = isStructuredGridPrompt ? cleanPrompt : isGptImage2Model(selectedImageModel) ? cleanEnhancedPrompt : cleanEnhancedPrompt.length > promptLimit
       ? (() => {
           const truncIndex = cleanEnhancedPrompt.lastIndexOf('. ', promptLimit - 100);
           const truncated = truncIndex > 0 ? cleanEnhancedPrompt.substring(0, truncIndex + 1) : cleanEnhancedPrompt.substring(0, promptLimit);
@@ -179,7 +192,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     const usingCostume = Boolean(globalCostumeImages[char.name]);
     characterReferenceEntries.push({
       image,
-      description: `CHARACTER IDENTITY ONLY — "${char.name}". ${usingCostume ? 'Preserve the exact face, body proportions, hairstyle, wardrobe, accessories, and visual medium.' : `${char.description}. Preserve this character's exact face, body, hair, wardrobe, and visual medium.`} Ignore the reference pose, camera, background, layout, duplicate views, labels, and text. Instantiate this identity exactly once when required by the cast contract.`,
+      description: `CHARACTER IDENTITY ONLY — "${char.name}". ${photographicGpt ? `${char.description}. Preserve identity, anatomy and costume design; the photographic output contract controls the medium.` : usingCostume ? 'Preserve the exact face, body proportions, hairstyle, wardrobe, accessories, and visual medium.' : `${char.description}. Preserve this character's exact face, body, hair, wardrobe, and visual medium.`} Ignore the reference pose, camera, background, layout, duplicate views, labels, and text. Instantiate this identity exactly once when required by the cast contract.`,
       fallback: `Character requirement: "${char.name}" - ${char.description}. Preserve this identity exactly once.`,
     });
   });
@@ -340,9 +353,11 @@ Obey EXACT CAST literally. Maintain exact face, body proportions, hairstyle, clo
   console.log(`Reference images count: ${referenceImages.length}`);
   console.log(`Prompt length: ${cleanEnhancedPrompt.length} characters`);
 
-  // 检查Prompt长度并警告/截断
+  // The legacy 4,000-character budget predates GPT Image. Cutting a structured
+  // GPT prompt here drops the CAST/reference map and trailing output rules,
+  // even though its photographic prefix survives. Send that contract intact.
   const promptLimit = isComfyUIZImageTurbo(selectedImageModel) ? 16000 : 4000;
-  const finalPrompt = cleanEnhancedPrompt.length > promptLimit
+  const finalPrompt = isGptImage2Model(selectedImageModel) ? cleanEnhancedPrompt : cleanEnhancedPrompt.length > promptLimit
     ? (() => {
         const truncIndex = cleanEnhancedPrompt.lastIndexOf('. ', promptLimit - 100);
         const truncated = truncIndex > 0 ? cleanEnhancedPrompt.substring(0, truncIndex + 1) : cleanEnhancedPrompt.substring(0, promptLimit);
@@ -351,7 +366,7 @@ Obey EXACT CAST literally. Maintain exact face, body proportions, hairstyle, clo
       })()
     : cleanEnhancedPrompt;
 
-  if (!isComfyUIZImageTurbo(selectedImageModel) && finalPrompt.length > 5000) {
+  if (!isComfyUIZImageTurbo(selectedImageModel) && !isGptImage2Model(selectedImageModel) && finalPrompt.length > 5000) {
     console.error(`❌ ERROR: Prompt is still too long (${finalPrompt.length} chars) after truncation. Generation may fail.`);
   }
 

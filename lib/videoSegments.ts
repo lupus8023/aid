@@ -8,7 +8,7 @@ export const VIDEO_SEGMENT_PLANNING_CONTRACT = 'cinematic-edit-v2';
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v34';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v35';
 
 export interface VideoSegmentDefinition {
   id: string;
@@ -120,6 +120,8 @@ export function videoSegmentGenerationSignature(storyboards: Storyboard[]): stri
     prompt: storyboard.prompt,
     action: storyboard.action || '',
     performance: storyboard.performance || [],
+    videoDirection: storyboard.videoDirection || null,
+    videoDirectionSource: storyboard.videoDirectionSource || '',
     videoPrompt: storyboard.videoPromptOverride ? storyboard.videoPrompt || '' : '',
     speech: storyboard.speech || storyboard.dialogueLines || storyboard.dialogue || null,
     audioPlan: storyboard.audioPlan || null,

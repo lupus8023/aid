@@ -27,7 +27,7 @@ test('Companion persists, reuses, retries and natively merges local clips', { ti
       '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', sourceFiles[0],
     ]);
     await execFileAsync(ffmpeg, [
-      '-y', '-f', 'lavfi', '-i', 'color=c=blue:s=180x320:d=0.7:r=24',
+      '-y', '-f', 'lavfi', '-i', 'color=c=blue:s=180x320:d=1.7:r=24',
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', sourceFiles[1],
     ]);
 
@@ -49,14 +49,14 @@ test('Companion persists, reuses, retries and natively merges local clips', { ti
       clips.push({
         clipId: `clip-${index}`,
         name: `Clip ${index}`,
-        duration: 0.7,
+        duration: index === 0 ? 0.7 : 1.7,
         trimStart: index === 1 ? 0.05 : 0,
         trimEnd: 0,
         pacingSections: index === 0 ? [
           { sourceStart: 0, sourceEnd: 0.35, rate: 1, kind: 'emotion', reason: 'protect emotion' },
           { sourceStart: 0.35, sourceEnd: 0.7, rate: 1.25, kind: 'action', reason: 'accelerate action' },
         ] : [
-          { sourceStart: 0, sourceEnd: 0.7, rate: 1.2, kind: 'narrative', reason: 'accelerate narrative' },
+          { sourceStart: 0, sourceEnd: 1.7, rate: 1.2, kind: 'narrative', reason: 'accelerate narrative' },
         ],
         segmentSha256: sha256,
       });
@@ -89,7 +89,8 @@ test('Companion persists, reuses, retries and natively merges local clips', { ti
       normalizedDurations.push(Number(stdout.trim()));
     }
     assert.ok(normalizedDurations[0] > 0.55 && normalizedDurations[0] < 0.7, `unexpected first paced clip duration ${normalizedDurations[0]}`);
-    assert.ok(normalizedDurations[1] > 0.45 && normalizedDurations[1] < 0.62, `unexpected second paced clip duration ${normalizedDurations[1]}`);
+    // 0.65 / 1.2 + 1 protected second; the preceding clip remains accelerated.
+    assert.ok(normalizedDurations[1] > 1.5 && normalizedDurations[1] < 1.62, `unexpected second paced clip duration ${normalizedDurations[1]}`);
     const { stdout: dimensions } = await execFileAsync(ffprobe, [
       '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', download.filePath,
     ]);
@@ -99,7 +100,7 @@ test('Companion persists, reuses, retries and natively merges local clips', { ti
       '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', download.filePath,
     ]);
     const outputDuration = Number(outputDurationText.trim());
-    assert.ok(outputDuration > 1 && outputDuration < 1.3, `expected smart-paced output near 1.17s, received ${outputDuration}s`);
+    assert.ok(outputDuration > 2.1 && outputDuration < 2.3, `expected paced output with a protected ending near 2.17s, received ${outputDuration}s`);
 
     const resumed = await server.createOrResumeExportJob(projectId, clips, 'recovered-film.mp4', '9:16');
     assert.equal(resumed.status, 'completed');

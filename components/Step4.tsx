@@ -14,9 +14,10 @@ interface Step4Props {
   onUpdate?: (storyboard: Storyboard) => void;
   onGenerateGrid?: (storyboards: Storyboard[]) => void;
   isGeneratingGrid?: boolean;
+  singleShotMode?: boolean;
 }
 
-export default function Step4({ storyboards, onBack, onNext, onGenerateImage, onRetry, onUpdate, onGenerateGrid, isGeneratingGrid }: Step4Props) {
+export default function Step4({ storyboards, onBack, onNext, onGenerateImage, onRetry, onUpdate, onGenerateGrid, isGeneratingGrid, singleShotMode = false }: Step4Props) {
   const completedCount = storyboards.filter(sb => sb.status === 'completed').length;
 
   const handleDownloadAll = async () => {
@@ -37,7 +38,7 @@ export default function Step4({ storyboards, onBack, onNext, onGenerateImage, on
           <span className="text-[var(--text-secondary)]">04.</span> Generate Images
         </h2>
         <p className="text-[var(--text-secondary)] font-mono text-sm mb-3">
-          Generate one 3×3 contact sheet per 9 shots, then split it into individual storyboards
+          {singleShotMode ? 'MJ 逐镜生成：固定角色参考、服装与场景，每镜核验人物一致性' : 'Generate one 3×3 contact sheet per 9 shots, then split it into individual storyboards'}
         </p>
         {onGenerateGrid && (
           <button
@@ -45,7 +46,7 @@ export default function Step4({ storyboards, onBack, onNext, onGenerateImage, on
             disabled={isGeneratingGrid}
             className="flex items-center gap-2 px-4 py-2 text-xs font-mono bg-[var(--accent-yellow)] hover:bg-[#e6b800] text-black disabled:opacity-50 rounded transition-colors"
           >
-            {isGeneratingGrid ? <><Loader2 size={12} className="animate-spin" /> Generating Grid...</> : <><Grid3x3 size={12} /> Batch Generate (3×3 Grid)</>}
+            {isGeneratingGrid ? <><Loader2 size={12} className="animate-spin" /> {singleShotMode ? '逐镜生成中…' : 'Generating Grid...'}</> : <><Grid3x3 size={12} /> {singleShotMode ? '逐镜生成未完成分镜（MJ）' : 'Batch Generate (3×3 Grid)'}</>}
           </button>
         )}
       </div>

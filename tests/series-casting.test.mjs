@@ -93,7 +93,8 @@ test('preparation reuses selected library images and only synthesizes the missin
     if (url === '/api/generate-voice-reference') {
       const body = JSON.parse(options.body);
       assert.equal(body.voiceId, actor.voiceId); assert.equal(body.strictVoice, true);
-      return Response.json({ url: 'https://assets.test/sample.mp3', voiceId: actor.voiceId, duration: 4 });
+      assert.equal(body.verifyLanguage, true, 'a manually selected voice is checked in the project language');
+      return Response.json({ url: 'https://assets.test/sample.mp3', voiceId: actor.voiceId, duration: 4, languageCheck: { passed: true, matchScore: 1 } });
     }
     throw new Error(`Unexpected regeneration: ${url}`);
   };

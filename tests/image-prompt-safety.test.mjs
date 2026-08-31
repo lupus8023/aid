@@ -30,3 +30,9 @@ test('recognizes provider safety rejection variants and extracts nested reasons'
   assert.match(imageSafetyReasonLabel(['graphic-injury', 'lethal-action']), /写实伤口.*致命动作/);
 });
 
+
+test('a blood-red lighting color is not a graphic injury instruction', () => {
+  assert.deepEqual(analyzeImagePromptSafety('Muted sea-glass versus blood-red color response.'), []);
+  assert.match(rewriteImagePromptForSafety('A blood-red curtain.'), /deep crimson curtain/);
+  assert.ok(analyzeImagePromptSafety('Blood-red light on an open wound.').includes('graphic-injury'));
+});

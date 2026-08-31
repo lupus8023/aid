@@ -87,7 +87,44 @@ test('keeps silent clips free of dialogue and quarantines refreshed-prompt speec
   });
   assert.match(prompt, /Camera pushes in/);
   assert.doesNotMatch(prompt, /临时加一句|Mei whispers|<d>/);
-  assert.match(prompt, /overall_soundscape:\s+A quiet natural location room tone/);
+  assert.match(prompt, /overall_soundscape:\s+Natural location ambience stays clearly audible beneath dialogue and through pauses/);
+});
+
+test('retains later-shot ambience and binds Foley to its own shot across locations', () => {
+  const shots = Array.from({ length: 4 }, (_, i) => shot(i + 1, {
+    locationId: `location-${i + 1}`,
+    audioPlan: {
+      backgroundHuman: i === 1 ? 'indistinct_nonverbal' : 'none',
+      environment: [`location-${i + 1} wind`, `location-${i + 1} water`],
+      foley: [`object-${i + 1} click`, `object-${i + 1} scrape`],
+      music: 'none', silenceBefore: 0.8, silenceAfter: 1,
+    },
+  }));
+  const prompt = buildVideoSegmentPrompt(shots, [], { duration: 15, language: 'en' });
+  const soundscape = prompt.split('overall_soundscape:')[1].split('non_diegetic_music:')[0];
+  for (let i = 1; i <= 4; i += 1) {
+    const scope = soundscape.split(`[Shot ${i}]`)[1].split('[Shot ')[0];
+    assert.match(scope, new RegExp(`location-${i} wind; location-${i} water`));
+    assert.match(scope, new RegExp(`object-${i} click; object-${i} scrape`));
+    assert.doesNotMatch(scope, new RegExp(`(?:location|object)-(?!${i})[1-4]`));
+    assert.equal(scope.includes('wordless murmur'), i === 2);
+  }
+  assert.match(soundscape, /retain it through speech pauses/);
+  assert.match(soundscape, /same-location cuts and change it with the location/);
+  assert.match(prompt, /non_diegetic_music:\s+N\/A/);
+  assert.ok(prompt.length <= 7000);
+});
+
+test('preserves intentionally silent and distant sound plans instead of replacing their sources', () => {
+  const prompt = buildVideoSegmentPrompt([
+    shot(1, { audioPlan: { environment: ['intentional complete silence'], foley: [], music: 'none', backgroundHuman: 'none' } }),
+    shot(2, { audioPlan: { environment: ['distant surf behind a closed window'], foley: [], music: 'none', backgroundHuman: 'none' } }),
+  ], [], { duration: 10, language: 'en' });
+  const soundscape = prompt.split('overall_soundscape:')[1].split('non_diegetic_music:')[0];
+  assert.match(soundscape, /Respect intentional silence/);
+  assert.match(soundscape, /\[Shot 1] Location bed: intentional complete silence/);
+  assert.match(soundscape, /\[Shot 2] Location bed: distant surf behind a closed window/);
+  assert.doesNotMatch(soundscape, /wordless murmur|Action Foley|natural ambience matching/);
 });
 
 test('locks generated speech to the project language', () => {

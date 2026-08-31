@@ -16,6 +16,7 @@ import {
   buildSmartPacingSections,
   DEFAULT_PACING_MODE,
   effectiveClipDuration,
+  withFilmEndingPacing,
   outputOffsetForSourceTime,
   PACING_MODE_LABELS,
   type PacingMode,
@@ -46,7 +47,7 @@ const EMPTY_CONTINUITY_FLAGS: boolean[] = [];
 
 function recalculateStartTimes(clipList: VideoClip[]): VideoClip[] {
   let startTime = 0;
-  return clipList.map(clip => {
+  return withFilmEndingPacing(clipList).map(clip => {
     const next = { ...clip, startTime };
     startTime += effectiveClipDuration(clip);
     return next;

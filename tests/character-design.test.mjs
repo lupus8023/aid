@@ -3,6 +3,47 @@ import test from 'node:test';
 
 import { buildCharacterBiblePrompt, buildCharacterConceptGridPrompt } from '../lib/promptArchitecture.ts';
 import { buildCloudinaryGridCellUrls } from '../lib/gridCloudinary.ts';
+import { buildGptCharacterBiblePrompt, buildGptCharacterConceptPrompt, buildGptSceneReferencePrompt, buildGptCharacterAnchorPrompt } from '../lib/gptImageReferences.ts';
+import { parseImageAppearanceCheck } from '../lib/series/imageAppearanceAudit.ts';
+
+test('photographic anchor keeps merfolk anatomy without requesting a multi-view layout', () => {
+  const prompt = buildGptCharacterAnchorPrompt({name:'Luna',description:'A mermaid with a silver hair streak',hasIdentityReference:true});
+  assert.match(prompt, /One photograph only, no character sheet/);
+  assert.match(prompt, /fish tail below the waist, never human legs/);
+});
+
+test('appearance review distinguishes failures and uncertainty from passed photography', () => {
+  assert.equal(parseImageAppearanceCheck('{"medium":"photographic","evidence":[]}').photographic,true);
+  assert.equal(parseImageAppearanceCheck('{"medium":"cg_or_illustration","evidence":["drawn hair"]}').photographic,false);
+  assert.equal(parseImageAppearanceCheck('{"medium":"uncertain","evidence":[]}').photographic,null);
+  assert.throws(()=>parseImageAppearanceCheck('{"medium":"good","evidence":[]}'));
+});
+
+test('photographic GPT role cards lock species and identity without inheriting CG medium', () => {
+  const prompt = buildGptCharacterBiblePrompt({ name: 'Bram', description: 'An elderly shark person with a scarred muzzle and dark armor', hasIdentityReference: true, visualStyle: 'cinematic-natural' });
+  assert.match(prompt, /photorealistic costume-continuity/);
+  assert.match(prompt, /not rendering style/);
+  assert.match(prompt, /Never humanize/);
+  assert.match(prompt, /Four supporting full-body photographs/);
+  assert.doesNotMatch(prompt, /source medium intact|8 consistent head|identity and medium authority/);
+  assert.match(prompt, /Do not invent freckles, scars/);
+});
+
+test('explicit nonphotographic styles retain the original reference-card contract', () => {
+  for (const visualStyle of ['anime', '3d-cg', 'stop-motion', 'follow-reference']) {
+    const input = { name: 'Hero', description: 'Fixed design', visualStyle, hasIdentityReference: true };
+    assert.equal(buildGptCharacterBiblePrompt(input), buildCharacterBiblePrompt(input));
+    const concept = { ...input, candidateCount: 4, hasReferences: true };
+    assert.equal(buildGptCharacterConceptPrompt(concept), buildCharacterConceptGridPrompt(concept));
+  }
+});
+
+test('GPT scouting reference depicts one usable location rather than several miniatures', () => {
+  const prompt = buildGptSceneReferencePrompt('Underwater throne hall with pearl columns', 'cinematic-natural', '1:1');
+  assert.match(prompt, /one photorealistic location-scouting photograph, 1:1/);
+  assert.match(prompt, /Underwater throne hall/);
+  assert.doesNotMatch(prompt, /hero establishing view plus/);
+});
 
 test('builds four- and nine-direction character selection boards', () => {
   const four = buildCharacterConceptGridPrompt({

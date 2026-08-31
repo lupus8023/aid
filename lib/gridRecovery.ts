@@ -1,6 +1,7 @@
 export type GridRecoveryItem = {
   status?: string;
   taskId?: string;
+  imageUrl?: string;
 };
 
 export type GridRecoveryPlan =
@@ -13,7 +14,7 @@ export type GridRecoveryPlan =
  * state is only valid when it can reconnect to one APIMart task.
  */
 export function planInterruptedGridRecovery(group: GridRecoveryItem[]): GridRecoveryPlan {
-  const interrupted = group.filter(item => item.status === 'generating');
+  const interrupted = group.filter(item => item.status === 'generating' && !item.imageUrl?.trim());
   if (interrupted.length === 0) return { kind: 'none' };
 
   const taskIds = [...new Set(interrupted.map(item => item.taskId).filter((value): value is string => Boolean(value)))];
@@ -32,4 +33,10 @@ export function normalizeSavedImageFailureReason(reason?: string): string | unde
   return reason.includes('[object Object]')
     ? '供应商返回了结构化错误；请重新生成本批以获取具体失败原因并自动修正'
     : reason;
+}
+
+/** A delayed grid poll must never overwrite an already saved or repaired cell. */
+export function preserveCompletedGridArtifacts<T extends { id: string; imageUrl?: string }>(current: T[], proposed: T[]): T[] {
+  const completed = new Map(current.filter(item => item.imageUrl?.trim()).map(item => [item.id, item]));
+  return proposed.map(item => completed.get(item.id) || item);
 }

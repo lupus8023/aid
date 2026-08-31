@@ -224,3 +224,25 @@ test('GPT Image 2 keeps explicit non-photographic media instead of forcing photo
   assert.match(anime, /Do not convert it into live-action photography/i);
   assert.doesNotMatch(anime, /visible pores|real cinema camera/i);
 });
+
+test('long named ensemble grids retain every panel, complete cast and reference mapping', () => {
+  const names = ['Luna Tideborne', 'Victoria Tideborne', 'Professor Silt'];
+  const refs = names.map(name => `CHARACTER IDENTITY: ${name}`).concat(['CHARACTER IDENTITY: Tilda Trashfin', 'CHARACTER IDENTITY: Rill', 'ENVIRONMENT: shots 1,2,3,4,5,6,9', 'ENVIRONMENT: shots 7,8']);
+  const prompt = buildGridPrompt('Multiple underwater palace locations', names.join(', '), Array.from({ length: 9 }, (_, i) =>
+    `${names[0]}(${'detailed costume identity '.repeat(10)}) performs ACTION_${i + 1} as ${names[1]} watches. ${'Long camera staging and atmosphere. '.repeat(20)} Only ${names.join(', ')} appear in this frame, one instance of each.`), '9:16', refs);
+  const panels = prompt.split(/In the (?:top-left|top-center|top-right|middle-left|center|middle-right|bottom-left|bottom-center|bottom-right) frame, depict /).slice(1);
+  assert.equal(panels.length, 9);
+  panels.forEach((panel, i) => {
+    assert.ok(panel.includes(`ACTION_${i + 1}`));
+    assert.ok(panel.includes(`CAST: ${names.join(', ')}; each exactly once.`));
+  });
+  refs.forEach((ref, i) => assert.ok(prompt.includes(`#${i + 1}=${ref}`)));
+  assert.match(prompt, /3x3.*9:16/);
+  assert.ok(prompt.length <= 3500);
+});
+
+test('over-capacity grids fail before payment instead of losing later panels', async () => {
+  const { GridPromptCapacityError } = await import('../lib/gridSplitter.ts');
+  const names = Array.from({ length: 40 }, (_, i) => `Character with a very long identity ${i}`).join(', ');
+  assert.throws(() => buildGridPrompt('', '', Array(9).fill(`A group reacts. Only ${names} appear in this frame, one instance of each.`), '9:16'), GridPromptCapacityError);
+});

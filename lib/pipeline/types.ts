@@ -93,6 +93,9 @@ export interface StoryPlan {
   targetDurationSeconds?: number; // 按制作规格估算的目标片长
   estimatedDurationSeconds?: number; // beats.durationHint 累加得到的实际预估片长
   sourceBrief?: string; // original user input, retained as the source of truth across stages
+  // Approved series episodes use their episodic story contract instead of
+  // reclassifying every episode as a standalone film with seven milestones.
+  seriesEpisode?: { opening: string; goal: string; conflict: string; choice: string; resolution: string; hook: string };
   intentSummary?: string; // concise understanding of what the user is asking for
   requirements?: StoryRequirement[]; // auditable mapping from explicit asks to beats
   title: string;

@@ -2,7 +2,7 @@ import axios from 'axios';
 import { chatCompletion } from '@/lib/apimart';
 import { providerHttpsAgent } from '@/lib/publicDns';
 import { scriptProviderOrder, type ScriptProvider } from './scriptProvider';
-import { extractProviderText, isResponsesPreferredModel, providerPayloadSummary } from './providerPayload';
+import { chatInputContent, responsesInput, isProviderContentRejection, extractProviderText, isResponsesPreferredModel, providerPayloadSummary } from './providerPayload';
 
 export { scriptProviderOrder } from './scriptProvider';
 export type { ScriptProvider } from './scriptProvider';
@@ -61,7 +61,7 @@ async function requestDmxText(
     return content;
 }
 
-async function dmxChatCompletion(prompt: string, apiKey: string, model: string, timeoutMs: number, maxOutputTokens: number): Promise<string> {
+async function dmxChatCompletion(prompt: string, apiKey: string, model: string, timeoutMs: number, maxOutputTokens: number, imageUrls: string[] = []): Promise<string> {
   try {
     const preferResponses = isResponsesPreferredModel(model);
     const transports: Array<'chat/completions' | 'responses'> = preferResponses
@@ -74,7 +74,7 @@ async function dmxChatCompletion(prompt: string, apiKey: string, model: string, 
         const body = endpoint === 'responses'
           ? {
               model,
-              input: prompt,
+              input: responsesInput(prompt, imageUrls),
               stream: false,
               max_output_tokens: maxOutputTokens,
               reasoning: { effort: 'low' },
@@ -85,12 +85,13 @@ async function dmxChatCompletion(prompt: string, apiKey: string, model: string, 
               ...(preferResponses
                 ? { max_completion_tokens: maxOutputTokens, reasoning_effort: 'low' }
                 : { max_tokens: maxOutputTokens }),
-              messages: [{ role: 'user', content: prompt }],
+              messages: [{ role: 'user', content: chatInputContent(prompt, imageUrls) }],
             };
         return await requestDmxText(endpoint, body, apiKey, timeoutMs);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         failures.push(`${endpoint}: ${message}`);
+        if (isProviderContentRejection(error)) break;
         // A timeout means the model did not finish this payload in time. Sending
         // the same oversized request through the alternate OpenAI transport only
         // doubles the wait; transport fallback remains useful for shape/endpoint
@@ -108,7 +109,7 @@ async function dmxChatCompletion(prompt: string, apiKey: string, model: string, 
 
 export async function chatOnce(
   prompt: string,
-  opts: { apiKey?: string; dmxApiKey?: string; provider?: ScriptProvider; model?: string; maxOutputTokens?: number; timeoutMs?: number },
+  opts: { apiKey?: string; dmxApiKey?: string; provider?: ScriptProvider; model?: string; maxOutputTokens?: number; timeoutMs?: number; imageUrls?: string[] },
 ): Promise<string> {
   const { apiKey = '', dmxApiKey = '', provider = 'auto', model = 'gpt-4o', maxOutputTokens = 24_000 } = opts;
   if (provider === 'dmx' && !dmxApiKey) throw new Error('剧本 API 选择了 DMX，但尚未配置 DMXAPI Key');
@@ -125,13 +126,14 @@ export async function chatOnce(
 
   for (const candidate of order) {
     try {
-      if (candidate === 'dmx') return await dmxChatCompletion(prompt, dmxApiKey, model, providerTimeout, maxOutputTokens);
-      return await chatCompletion(prompt, apiKey, model, providerTimeout, maxOutputTokens);
+      if (candidate === 'dmx') return await dmxChatCompletion(prompt, dmxApiKey, model, providerTimeout, maxOutputTokens, opts.imageUrls);
+      return await chatCompletion(prompt, apiKey, model, providerTimeout, maxOutputTokens, opts.imageUrls);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const label = candidate === 'dmx' ? 'DMXAPI' : 'APIMart';
       console.error(`[story-llm] ${label} failed:`, message);
       errors.push(`${label}：${message}`);
+      if (isProviderContentRejection(error)) break;
     }
   }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildStoryboardVideoPrompt, buildVideoSegmentPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
+import { applyFilmEndingPrompt, buildStoryboardVideoPrompt, buildVideoSegmentPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
 import { snapDurationToModel } from '@/lib/apimart';
 import { createComfyUIVideoTask } from '@/lib/comfyui';
 import { compileTimedSpeech, storyboardSpeech } from '@/lib/speechAudioContract';
@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
       fal = {},
       language = 'zh',
       voiceProfiles = {},
+      isFilmEnding = false,
     } = await request.json();
 
     if (!storyboard) return NextResponse.json({ error: 'Storyboard is required' }, { status: 400 });
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
       }
       const requestedDuration = Math.min(15, Math.max(5, Math.ceil(Number(storyboard.videoDuration) || minimumPlayableDuration)));
       const generatedPrompt = buildVideoSegmentPrompt(videoStoryboards, [], {
+        isFilmEnding: isFilmEnding === true,
         firstFrameUrl,
         duration: requestedDuration,
         hasVoiceReferences: false,
@@ -82,7 +84,7 @@ export async function POST(request: NextRequest) {
         language: language === 'en' ? 'en' : 'zh',
       });
       const editedPrompt = storyboard.videoPromptOverride ? String(storyboard.videoPrompt || '').trim() : '';
-      const submittedPrompt = editedPrompt && !isLegacyH3Prompt(editedPrompt) ? editedPrompt : generatedPrompt;
+      const submittedPrompt = applyFilmEndingPrompt(editedPrompt && !isLegacyH3Prompt(editedPrompt) ? editedPrompt : generatedPrompt, requestedDuration, isFilmEnding === true);
       const firstFrame = firstFrameUrl || videoStoryboards[0].imageUrl;
       const lastStoryboardImage = videoStoryboards.at(-1)?.imageUrl;
       const endFrame = (firstFrameUrl || videoStoryboards.length > 1) ? lastStoryboardImage : undefined;
@@ -158,6 +160,7 @@ export async function POST(request: NextRequest) {
         : [];
       console.log(`[comfyui] scene ${storyboard.sceneNumber || '?'} frame input: ${firstFrame.startsWith('data:') ? 'data-url' : 'url'}; continuity=${Boolean(firstFrameUrl)}; beats=${videoStoryboards.length}`);
       const generatedPrompt = buildVideoSegmentPrompt(isMultiBeatSegment ? videoStoryboards : [storyboard], [], {
+        isFilmEnding: isFilmEnding === true,
         firstFrameUrl,
         duration: requestedDuration,
         hasVoiceReferences: referenceAudios.length > 0,
@@ -168,9 +171,9 @@ export async function POST(request: NextRequest) {
       // but retire saved JSON/Chinese control contracts automatically so an
       // older project cannot bypass the new official prompt builder.
       const editedPrompt = storyboard.videoPromptOverride ? String(storyboard.videoPrompt || '').trim() : '';
-      const submittedPrompt = editedPrompt && !isLegacyH3Prompt(editedPrompt)
+      const submittedPrompt = applyFilmEndingPrompt(editedPrompt && !isLegacyH3Prompt(editedPrompt)
         ? editedPrompt
-        : generatedPrompt;
+        : generatedPrompt, requestedDuration, isFilmEnding === true);
       const result = await createComfyUIVideoTask({
         firstFrame,
         auxiliaryImages,
@@ -247,6 +250,7 @@ export async function POST(request: NextRequest) {
       firstFrameUrl,
       useGenerateAudio,
       language === 'en' ? 'en' : 'zh',
+      isFilmEnding === true,
     );
 
     console.log('Video task created, ID:', taskId);

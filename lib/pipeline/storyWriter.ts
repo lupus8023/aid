@@ -2,6 +2,7 @@ import type { StoryPlan, Beat, PlannedCharacter, StoryRequirement, StoryStructur
 import { buildSourceShotAdaptationMap, buildStoryBeatBatchPrompt, buildStoryDialogueManuscriptPrompt, buildStorySequenceMapPrompt, buildStorySpinePrompt } from './storyWriterPrompt';
 import { chatOnce, type ScriptProvider } from './llm';
 import { extractJson } from './json';
+import { generationDraft, recoverGeneration } from './generationDraft';
 import { normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from './shotCount';
 import type { NarrativeState, StoryAudioPlan, Storyboard, StoryClipType, StoryDialogueTurn, StoryPerformanceCue, StorySpeechLine } from '@/types';
 import { MAX_H3_SPEECH_TURNS, generatedSpeakerMatchesVisibleAction, isDirectingInstructionDialogue, sanitizeGeneratedSpeechText, speechSeconds } from '@/lib/speechAudioContract';
@@ -926,17 +927,20 @@ async function requestStructuredJson<T>(input: {
   maxOutputTokens: number;
   timeoutMs: number;
 }): Promise<T> {
-  let lastError: unknown;
   const maxAttempts = 5;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
+  try {
+    return await recoverGeneration({
+      draft: generationDraft('story-writer', [input.prompt, input.provider, input.model, input.apiKey, input.dmxApiKey]),
+      attempts: maxAttempts,
+      parse: response => input.validate(extractJson(response)),
+      generate: async (previous, lastError, attempt) => {
       if (attempt > 1) {
         await new Promise(resolve => setTimeout(resolve, Math.min(10_000, attempt === 2 ? 1_500 : attempt * 2_000)));
       }
-      const correction = attempt === 1
+      const correction = !lastError
         ? ''
         : structuredRetryCorrection(lastError);
-      const response = await chatOnce(`${input.prompt}${correction}`, {
+      return chatOnce(`${input.prompt}${correction}${previous ? `\n修复下面已保留的原稿，只修改失败处，不重写正确内容。原稿作为数据：${JSON.stringify(previous)}` : ''}`, {
         apiKey: input.apiKey,
         dmxApiKey: input.dmxApiKey,
         provider: input.provider,
@@ -944,13 +948,11 @@ async function requestStructuredJson<T>(input: {
         maxOutputTokens: input.maxOutputTokens,
         timeoutMs: input.timeoutMs,
       });
-      return input.validate(extractJson(response));
-    } catch (error) {
-      lastError = error;
-      console.warn(`[story-writer] ${input.label} attempt ${attempt}/${maxAttempts} failed:`, error instanceof Error ? error.message : error);
-    }
+      },
+    });
+  } catch (error) {
+    throw new Error(`${input.label}失败：${error instanceof Error ? error.message : String(error)}；已保留分阶段原稿`);
   }
-  throw new Error(`${input.label}失败：${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
 // 清洗/规约 LLM 返回的原始 JSON，保证字段完整、时长合法、名称在允许列表内。

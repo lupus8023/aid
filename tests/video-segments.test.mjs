@@ -10,6 +10,7 @@ import {
   H3_PROMPT_CONTRACT_VERSION,
   isCompletedVideoSegment,
   isCompletedPlannedVideoSegment,
+  isValidVideoSegmentPlan,
   normalizeVideoSegmentPlan,
   persistedVideoClipCount,
   releaseUnsubmittedVideoGenerations,
@@ -231,6 +232,19 @@ test('splits an A-B-A recurrence into valid consecutive dialogue edit units', ()
   assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
   assert.equal(validateVideoSegment(groups[0]), undefined);
   assert.match(validateVideoSegment([shot(1, { characters: ['A'], imageUrl: 'x', dialogueLines: [{ character: 'A', text: '一。' }] }), shot(2, { characters: ['B'], imageUrl: 'x', dialogueLines: [{ character: 'B', text: '二。' }] }), shot(3, { characters: ['C'], imageUrl: 'x', dialogueLines: [{ character: 'C', text: '三。' }] }), shot(4, { characters: ['D'], imageUrl: 'x', dialogueLines: [{ character: 'D', text: '四。' }] })]), /最多绑定 3 个/);
+});
+
+test('approved single-shot A-B-A exchanges preserve ordered onsets and intentional repeated words', () => {
+  const make = (character, text) => ({ speakerId: character, character, voiceId: `voice-${character}`, exactLine: text, emotion: 'calm', delivery: 'natural', volume: 'normal', lipSync: true, source: 'user_exact' });
+  const authored = shot(1, { durationHint: 9, characters: ['A', 'B'], speech: [make('A', 'No.'), make('B', 'Are you sure?'), make('A', 'No.')] });
+  assert.equal(validateVideoSegment([authored], 'en'), undefined);
+  const plan = createVideoSegmentPlan([authored], [[authored]]);
+  assert.deepEqual(plan.segments[0].speech.map(s => [s.character, s.exactLine]), [['A', 'No.'], ['B', 'Are you sure?'], ['A', 'No.']]);
+  assert.equal(isValidVideoSegmentPlan(plan, [authored], 'en'), true);
+  const generated = { ...authored, speech: authored.speech.map(s => ({ ...s, source: 'story_required' })) };
+  // Generated repeated words are deduplicated; distinct recurrences still need splitting.
+  generated.speech[2].exactLine = 'Absolutely not.';
+  assert.match(validateVideoSegment([generated], 'en'), /再次开口/);
 });
 
 test('rejects non-contiguous or oversized manual groups', () => {

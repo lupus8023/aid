@@ -1,0 +1,41 @@
+// Isolated loopback data only; no model calls or real credentials.
+import assert from 'node:assert/strict';
+import { parseOutline, parseEpisodes } from '../lib/series/domain.ts';
+import { outlineFixture, episodeFixtures } from '../tests/fixtures/series.mjs';
+const base = process.argv[2];
+assert.ok(base && ['localhost', '127.0.0.1'].includes(new URL(base).hostname));
+assert.notEqual(new URL(base).port, '3018', 'never seed fixtures into the real Companion');
+async function request(body) {
+  const r = await fetch(`${base}/api/companion/series`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await r.json(); if (!r.ok) throw new Error(data.error); return data;
+}
+const workerId = `appearance-test-${crypto.randomUUID()}`;
+let { project } = await request({ action: 'create', project: { name: '出镜分类验证', brief: '隔离样例', episodeCount: 3 } });
+const seriesId = project.id;
+await request({ action: 'enqueue', seriesId, kind: 'develop', settings: { apiKey: 'fixture' } });
+const { claim } = await request({ action: 'claim', workerId, mode: 'companion' });
+Object.assign(claim.project, parseOutline(outlineFixture(), claim.project));
+claim.project.episodes = parseEpisodes(episodeFixtures(), claim.project, 1, 3);
+claim.project.characters[0].appearance = 'voice_only';
+Object.assign(claim.project.characters[0], { voiceId: 'keep-fixed', voiceReferenceUrl: 'https://assets.test/voice.mp3', locked: true });
+claim.project.episodes[0].production = { id: 'old-design' };
+claim.project.episodes[0].deliveries = [{ id: 'keep-delivery', episodeVersion: 1 }];
+await assert.rejects(request({ action: 'edit', seriesId, revision: project.revision, characterId: 'c1', patch: { appearance: 'on_screen' } }), /暂停/);
+await request({ action: 'checkpoint', jobId: claim.job.id, lease: claim.job.lease, project: claim.project });
+await request({ action: 'finish', jobId: claim.job.id, lease: claim.job.lease });
+project = (await fetch(`${base}/api/companion/series`).then(r => r.json())).projects.find(p => p.id === seriesId);
+const original = structuredClone(project);
+await assert.rejects(request({ action: 'edit', seriesId, revision: 0, characterId: 'c1', patch: { appearance: 'on_screen' } }), /已有更新/);
+await assert.rejects(request({ action: 'edit', seriesId, revision: project.revision, characterId: 'c1', patch: { appearance: 'unknown' } }), /无效/);
+({ project } = await request({ action: 'edit', seriesId, revision: project.revision, characterId: 'c1', patch: { appearance: 'on_screen' } }));
+assert.equal(project.characters[0].appearance, 'on_screen');
+assert.equal(project.characters[0].locked, false);
+assert.equal(project.characters[0].voiceId, 'keep-fixed');
+assert.equal(project.characters[0].voiceReferenceUrl, 'https://assets.test/voice.mp3');
+assert.deepEqual(project.characters[1], original.characters[1]);
+assert.deepEqual(project.locations, original.locations);
+assert.equal(project.episodes[0].production, undefined);
+assert.deepEqual(project.episodes[0].deliveries, original.episodes[0].deliveries);
+const same = await request({ action: 'edit', seriesId, revision: project.revision, characterId: 'c1', patch: { appearance: 'on_screen' } });
+assert.deepEqual(same.project, project);
+console.log(JSON.stringify({ ok: true, checks: ['busy and stale writes rejected', 'invalid type rejected', 'appearance persisted', 'voice and unrelated assets retained', 'dependent production invalidated', 'deliveries retained', 'idempotent same-value save'] }));

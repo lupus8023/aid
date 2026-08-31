@@ -17,10 +17,10 @@ export const CAPTURE_PRESETS: CapturePresetDefinition[] = [
     value: 'cinematic-narrative',
     label: '电影叙事',
     description: '动机明确的电影机位与克制表演',
-    director: '按剧情因果选择景别与机位。人物先处于一个具体状态，触发发生后才产生选择与可见反应，镜头只跟随已经发生的变化；动作峰值之后保留不完全恢复和余韵，不摆成宣传照。',
+    director: '按剧情因果选择机位与人物调度。摄影机可以预先占位、与人物同步运动或延后揭示，不必像纪实抓拍一样慢半拍。一次运动或移焦改变观众看见的信息、人物距离或空间关系；固定镜头用画内调度完成变化。人物反应遵循剧情触发，不为镜头摆姿势。',
     image: 'Feature-film narrative capture of one physically possible instant inside a causal action. The subject is occupied by the scene rather than presenting to camera; posture, gaze, hand contact and weight reveal the current action phase. Use a motivated camera position, coherent optical depth and no publicity-photo pose.',
     grid: 'Motivated feature-film coverage; each panel selects one physical instant from a causal action, never a whole sequence; occupied subject, restrained unposed performance.',
-    video: 'The subject is already occupied by the scene. Preserve causal order: existing task, authored trigger, delayed visible response, one action peak, then residual motion or partial recovery. The camera follows change after it occurs.',
+    video: 'Planned narrative coverage: execute the authored camera path or focus transfer in coordination with the blocking. A locked-off shot stays locked. Keep screen direction and spatial continuity; reactions follow their scripted cause.',
   },
   {
     value: 'broadcast-candid',

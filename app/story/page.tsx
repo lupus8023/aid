@@ -24,13 +24,17 @@ import { getImageModelCapabilities, imageModelRequiresApiKey, isMidjourneyImageM
 import { Grid3x3 } from 'lucide-react';
 import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
+import { canResumeStoryPlan } from '@/lib/pipeline/resumePlan';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
 import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedPlannedVideoSegment, normalizeVideoSegmentPlan, refreshPlannedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
+import { isFilmEndingSegment } from '@/lib/filmEnding';
 import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS, previousSegmentTailSource } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
+import { videoDirectionSourceKey } from '@/lib/videoDirection';
+import { persistGeneratedStoryboardImage } from '@/lib/generatedImagePersistence';
 
 async function persistLocalGeneratedImage(imageUrl: string): Promise<string> {
   if (!imageUrl.startsWith('data:')) return imageUrl;
@@ -44,13 +48,14 @@ async function persistLocalGeneratedImage(imageUrl: string): Promise<string> {
   return data.url;
 }
 import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
-import { normalizeSavedImageFailureReason, planInterruptedGridRecovery } from '@/lib/gridRecovery';
+import { normalizeSavedImageFailureReason, planInterruptedGridRecovery, preserveCompletedGridArtifacts } from '@/lib/gridRecovery';
 import { storyboardSpeech } from '@/lib/speechAudioContract';
 import { castCharacterVoice, castStoryVoices, lockStoryboardVoiceIds } from '@/lib/voiceCasting';
 import { applyStoryAspectRatio, hasStoryMedia, projectStoryAspectRatio, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { storyStorageKeys } from '@/lib/series/storageScope';
-import { validateSeriesProduction } from '@/lib/series/productionContract';
-import { autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, normalizeStoryboardImageArtifact, planAutoImageBatch } from '@/lib/autoProduction';
+import { bindSeriesPlan, buildApprovedSeriesPlan, validateSeriesProduction } from '@/lib/series/productionContract';
+import { prepareImageCastRepair, visibleImageCast, type ImageCastCheck, type ImageCastCharacter } from '@/lib/series/imageCastContract';
+import { AwaitingMediaTaskError, autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, imagePollingTimeoutError, isTransientAutoProductionError, normalizeStoryboardImageArtifact, planAutoImageBatch } from '@/lib/autoProduction';
 import { effectiveStoryCast } from '@/lib/storyCast';
 import { resolveMidjourneyProfileSetting } from '@/lib/midjourney';
 import { applyCapturePreset, DEFAULT_CAPTURE_PRESET, normalizeCapturePreset } from '@/lib/capturePresets';
@@ -656,17 +661,10 @@ export default function StoryPage() {
       for (let index = 0; index < savedStoryboards.length; index += 9) {
         const group = savedStoryboards.slice(index, index + 9);
         const gridRecoveryGroup = group.filter(item => item.imageTaskMode !== 'single');
-        const taskIds = [...new Set(gridRecoveryGroup.map(item => item.taskId).filter(Boolean))];
         const recoveryPlan = planInterruptedGridRecovery(gridRecoveryGroup);
-        const usesDurableGridCrops = group.length > 0 && group.every(item =>
-          item.imageUrl?.includes('/aid-grid-sources/') && item.imageUrl.includes('/c_crop,'),
-        );
-        // Migrate completed legacy browser-canvas crops too. Their saved task
-        // ids still point to the correct APIMart mother grids, so re-splitting
-        // fixes wrongly repeated batches without purchasing another generation.
-        const needsDurableResplit = group.length > 0
-          && group.every(item => Boolean(item.imageUrl))
-          && !usesDurableGridCrops;
+        // Completed mixed grid/single-image batches are authoritative. Never
+        // re-split their old mother grid on refresh: that replaces repairs and
+        // invalidates already paid videos merely because crop URLs change.
         if (recoveryPlan.kind === 'release') {
           const groupIds = new Set(group.filter(item => item.status === 'generating').map(item => item.id));
           setStoryboards(current => {
@@ -679,9 +677,7 @@ export default function StoryPage() {
             return next;
           });
         }
-        const recoverableTaskId = recoveryPlan.kind === 'resume'
-          ? recoveryPlan.taskId
-          : needsDurableResplit && taskIds.length === 1 ? taskIds[0] : undefined;
+        const recoverableTaskId = recoveryPlan.kind === 'resume' ? recoveryPlan.taskId : undefined;
         if (recoverableTaskId) {
           const taskId = recoverableTaskId;
           const recoveryKey = `${savedProject.id}:${taskId}`;
@@ -696,6 +692,10 @@ export default function StoryPage() {
                   await new Promise(resolve => window.setTimeout(resolve, 250));
                 }
                 const recoveryApiKey = settingsRef.current.apiKey;
+                if (isMidjourneyImageModel(settingsRef.current.imageModel)) {
+                  await handleGenerateGrid(group);
+                  return;
+                }
                 if (imageModelRequiresApiKey(settingsRef.current.imageModel) && !recoveryApiKey) throw new Error('APIMart API Key 尚未加载');
                 const response = await fetch(imageApiUrl('/api/check-image-status', settingsRef.current.comfyui, taskId), {
                   method: 'POST',
@@ -1120,7 +1120,7 @@ export default function StoryPage() {
 
   // Step2 → Step3: generate shot script from story + characters
   // ① 编剧 + ② 导演：梗概 → StoryPlan → 分镜。返回生成的分镜数组供编排器使用。
-  const runScript = async (): Promise<Storyboard[]> => {
+  const runScript = async (resume = false): Promise<Storyboard[]> => {
     // Never send uploaded image/base64/File fields to the text-only screenplay
     // endpoints. Besides wasting bandwidth, large character images can make a
     // hosting gateway reject the request with an HTML 413/5xx page.
@@ -1134,26 +1134,49 @@ export default function StoryPage() {
     // Older Companion builds ignore the structured field below, so append the
     // same production spec to the brief as a backwards-compatible contract.
     const planningSynopsis = `${storyContent.trim()}\n\n${buildShotCountContract(targetShotCount, language)}`;
-    const planRes = await fetchStoryApi('/api/generate-story-plan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ synopsis: planningSynopsis, targetShotCount, characters: writerCharacters, objects: writerObjects, apiKey: activeSettings.apiKey, language, scriptProvider: activeSettings.scriptProvider || 'auto', scriptModel: activeSettings.scriptModel || 'gpt-4o', dmxApiKey: activeSettings.dmxApiKey })
-    }, activeSettings.comfyui);
-    const { storyPlan: generatedPlan } = await readApiJson<{ storyPlan: StoryPlan }>(planRes, '剧本规划失败');
-    const actualShotCount = storyPlanBeatCount(generatedPlan);
-    if (actualShotCount !== targetShotCount) {
-      throw new Error(`剧本规划返回了 ${actualShotCount} 个镜头，但你选择的是 ${targetShotCount} 个，请重试`);
+    const savedSeriesContract = storyStorageKeys().isolated ? localStorage.getItem(storyStorageKeys().contract) : null;
+    if (storyStorageKeys().isolated && !savedSeriesContract) throw new Error('连续剧定稿合同缺失，停止导演');
+    const approvedSeriesContract = savedSeriesContract ? JSON.parse(savedSeriesContract) : undefined;
+    let storyPlan = storyPlanRef.current;
+    if (!resume || !canResumeStoryPlan(storyPlan, planningSynopsis, targetShotCount, writerCharacters) || (approvedSeriesContract?.shots && !storyPlan?.seriesEpisode)) {
+      let generatedPlan: StoryPlan;
+      if (approvedSeriesContract?.shots) {
+        generatedPlan = buildApprovedSeriesPlan(approvedSeriesContract, planningSynopsis, writerCharacters);
+      } else {
+      const planRes = await fetchStoryApi('/api/generate-story-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ synopsis: planningSynopsis, targetShotCount, characters: writerCharacters, objects: writerObjects, apiKey: activeSettings.apiKey, language, scriptProvider: activeSettings.scriptProvider || 'auto', scriptModel: activeSettings.scriptModel || 'gpt-4o', dmxApiKey: activeSettings.dmxApiKey })
+      }, activeSettings.comfyui);
+      generatedPlan = (await readApiJson<{ storyPlan: StoryPlan }>(planRes, '剧本规划失败')).storyPlan;
+      }
+      const actualShotCount = storyPlanBeatCount(generatedPlan);
+      if (actualShotCount !== targetShotCount) {
+        throw new Error(`剧本规划返回了 ${actualShotCount} 个镜头，但你选择的是 ${targetShotCount} 个，请重试`);
+      }
+      storyPlan = {
+        ...generatedPlan,
+        targetShotCount,
+        targetDurationSeconds: targetDurationSeconds(targetShotCount),
+        estimatedDurationSeconds: generatedPlan.sequences.reduce((total, sequence) => (
+          total + sequence.beats.reduce((sum, beat) => sum + beat.durationHint, 0)
+        ), 0),
+      };
+      storyPlanRef.current = storyPlan;
+      setStoryPlan(storyPlan);
+      // Persist the completed writing stage before starting paid direction.
+      persistCurrentProject();
     }
-    const storyPlan: StoryPlan = {
-      ...generatedPlan,
-      targetShotCount,
-      targetDurationSeconds: targetDurationSeconds(targetShotCount),
-      estimatedDurationSeconds: generatedPlan.sequences.reduce((total, sequence) => (
-        total + sequence.beats.reduce((sum, beat) => sum + beat.durationHint, 0)
-      ), 0),
-    };
-    storyPlanRef.current = storyPlan;
-    setStoryPlan(storyPlan);
+    if (storyStorageKeys().isolated) {
+      const savedContract = localStorage.getItem(storyStorageKeys().contract);
+      if (!savedContract) throw new Error('连续剧定稿合同缺失，停止导演');
+      const contract = JSON.parse(savedContract);
+      storyPlan = bindSeriesPlan(contract, storyPlan);
+      validateSeriesProduction(contract, storyPlan.sequences.flatMap(sequence => sequence.beats));
+      storyPlanRef.current = storyPlan;
+      setStoryPlan(storyPlan);
+      persistCurrentProject();
+    }
     setScriptGenerationPhase('directing');
 
     const dirRes = await fetchStoryApi('/api/direct-storyboard', {
@@ -1171,8 +1194,15 @@ export default function StoryPage() {
         !voiceLockedCharacters.some(character => character.name === planned.name)
       )),
     ];
+    const approvedShots = storyStorageKeys().isolated
+      ? JSON.parse(localStorage.getItem(storyStorageKeys().contract) || '{}').shots as import('@/lib/series/productionContract').SeriesProductionContract['shots']
+      : undefined;
     const styledStoryboards = lockStoryboardVoiceIds(
-      storyboards.map(storyboard => ({ ...storyboard, visualStyle, capturePreset: capturePresetRef.current })),
+      storyboards.map((storyboard, index) => ({ ...storyboard, visualStyle, capturePreset: capturePresetRef.current,
+        ...(approvedShots?.[index] ? { locationId: approvedShots[index].locationId || storyboard.locationId,
+          sceneStyle: approvedShots[index].sceneStyle || storyboard.sceneStyle,
+          sceneImageOverride: approvedShots[index].sceneImageUrl || storyboard.sceneImageOverride } : {}),
+      })),
       effectiveVoiceCast,
     );
     setScriptGenerationPhase('validating');
@@ -1211,6 +1241,16 @@ export default function StoryPage() {
   // Step4: batch generate via 3x3 grid
   const handleGenerateGrid = async (batch: Storyboard[], options: { throwOnError?: boolean; resumeTaskId?: string } = {}) => {
     const activeSettings = settingsRef.current;
+    if (isMidjourneyImageModel(activeSettings.imageModel)) {
+      setIsGeneratingGrid(true);
+      try {
+        for (const member of batch) {
+          const latest = storyboardsRef.current.find(s => s.id === member.id);
+          if (latest && !hasUsableStoryboardImage(latest)) await handleGenerateImage(latest, options);
+        }
+      } finally { setIsGeneratingGrid(false); }
+      return;
+    }
     if (imageModelRequiresApiKey(activeSettings.imageModel) && !activeSettings.apiKey) {
       const error = new Error('Please configure API Key in settings');
       if (options.throwOnError) throw error;
@@ -1219,12 +1259,14 @@ export default function StoryPage() {
       return;
     }
     if (batch.length === 0) return;
-    const { buildGridPrompt, chunkGridBatch } = await import('@/lib/gridSplitter');
+    const { buildGridPrompt, chunkGridBatch, GridPromptCapacityError } = await import('@/lib/gridSplitter');
     const aspectRatio = projectAspectRatioRef.current;
     const generationProjectId = projectIdRef.current;
     const updateGridStoryboards = (updater: (items: Storyboard[]) => Storyboard[]) => {
       if (generationProjectId !== projectIdRef.current) return;
-      const next = updater(storyboardsRef.current);
+      const current = storyboardsRef.current;
+      const proposed = updater(current);
+      const next = options.resumeTaskId ? preserveCompletedGridArtifacts(current, proposed) : proposed;
       storyboardsRef.current = next;
       setStoryboards(next);
       persistCurrentProject(next);
@@ -1251,7 +1293,7 @@ export default function StoryPage() {
           sb.prompt.includes(`[${name}]`) ||
           sb.prompt.includes(name) ||
           sb.description.includes(name);
-        const groupCharacters = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters).filter(character =>
+        const groupCharacters = visibleImageCast({ characters: [...new Set(group.flatMap(sb => sb.characters))] }, effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters)).filter(character =>
           group.some(sb => mentionsEntity(sb, character.name, sb.characters))
         );
         const groupObjects = objectsRef.current.filter(object =>
@@ -1265,7 +1307,9 @@ export default function StoryPage() {
         };
 
         // Build grid prompt from group's prompts
-        const sceneStyle = group[0]?.sceneStyle || '';
+        const sceneStyle = new Set(group.map(s => s.locationId).filter(Boolean)).size > 1
+          ? 'Locations vary by panel. Each mapped environment applies only to its listed shots; keep character identities consistent across locations.'
+          : group[0]?.sceneStyle || '';
         const textDefinedCharacters = [...new Set(group.flatMap(sb => sb.characters || []))]
           .filter(name => !groupCharacters.some(character => character.name === name))
           .map(name => {
@@ -1305,7 +1349,7 @@ export default function StoryPage() {
             ...groupCharacters
               .filter(character => mentionsEntity(sb, character.name, sb.characters))
               .map(character => character.name),
-          ])];
+          ])].filter(name => !charactersRef.current.some(c => c.name === name && (c as ImageCastCharacter).appearance === 'voice_only'));
           const requiredObjects = groupObjects
             .filter(object => mentionsEntity(sb, object.name, sb.objects))
             .map(object => object.name);
@@ -1315,7 +1359,7 @@ export default function StoryPage() {
           const panelObjs = requiredObjects.length
             ? `The physical props are ${requiredObjects.join(', ')}.`
             : '';
-          return `${summarize(cleanPrompt, 210)} ${panelChars} ${panelObjs}`.trim();
+          return `${cleanPrompt} ${panelChars} ${panelObjs}`.trim();
         });
 
         // Keep labels and images in exactly the same order. Text-only entities
@@ -1323,7 +1367,7 @@ export default function StoryPage() {
         const characterReferences = groupCharacters
           .map(character => ({
             image: costumeImagesRef.current[character.name] || character.imageUrl || character.imageBase64,
-            label: `CHARACTER IDENTITY: ${character.name} — ${summarize(character.description)}`
+            label: `CHARACTER IDENTITY: ${character.name}`
           }))
           .filter((reference): reference is { image: string; label: string } => Boolean(reference.image));
         const objectReferences = groupObjects
@@ -1332,9 +1376,10 @@ export default function StoryPage() {
             label: `OBJECT IDENTITY: ${object.name} — ${summarize(object.description)}`
           }))
           .filter((reference): reference is { image: string; label: string } => Boolean(reference.image));
-        const sceneReference = sceneImagesRef.current[0]
-          ? [{ image: sceneImagesRef.current[0], label: 'ENVIRONMENT: scene/world reference' }]
-          : [];
+        const specificScenes = [...new Set(group.map(s => s.sceneImageOverride).filter((url): url is string => Boolean(url)))];
+        const sceneReference = specificScenes.length
+          ? specificScenes.map(image => ({ image, label: `ENVIRONMENT: shots ${group.filter(s => s.sceneImageOverride === image).map(s => s.sceneNumber).join(',')}` }))
+          : sceneImagesRef.current[0] ? [{ image: sceneImagesRef.current[0], label: 'ENVIRONMENT: scene/world reference' }] : [];
         const referenceLimit = getImageModelCapabilities(gridImageModel).maxReferenceImages;
         const references = isMidjourneyImageModel(activeSettings.imageModel)
           ? [...sceneReference, ...objectReferences, ...characterReferences].slice(0, referenceLimit)
@@ -1355,6 +1400,7 @@ export default function StoryPage() {
             group.map(storyboard => storyboard.sceneNumber),
             visualStyle,
             capturePresetRef.current,
+            gridImageModel,
           );
           const usesSafetyRewrite = safetyFindings.length > 0 || safetyAttempt > 0;
           const gridPrompt = usesSafetyRewrite
@@ -1472,6 +1518,18 @@ export default function StoryPage() {
           });
         }, items));
         } catch (error) {
+          if (error instanceof GridPromptCapacityError) {
+            // The grid has not been submitted. Preserve each full shot and its
+            // references through the ordinary single-image recovery path.
+            for (const member of group) {
+              const latest = storyboardsRef.current.find(item => item.id === member.id) || member;
+              if (!hasUsableStoryboardImage(latest)) {
+                if (autoRunLockRef.current) setAutoStage(`逐镜生图：镜头 ${latest.sceneNumber}`);
+                await handleGenerateImage(latest, { throwOnError: true });
+              }
+            }
+            continue;
+          }
           console.error('Grid generation failed:', error);
           const terminalTaskFailure = error instanceof TerminalImageTaskError;
           updateGridStoryboards(items => items.map(sb => group.some(g => g.id === sb.id) ? {
@@ -1518,7 +1576,8 @@ export default function StoryPage() {
       for (let safetyAttempt = 0; safetyAttempt < maxSafetyAttempts; safetyAttempt += 1) {
         const shouldRewrite = initialRisks.length > 0 || safetyAttempt > 0 || Boolean(storyboard.imagePromptOverride);
         const safetyLevel: 1 | 2 = initialRisks.length > 0 && safetyAttempt === 0 || safetyAttempt === 1 ? 1 : 2;
-        const prompt = shouldRewrite ? rewriteImagePromptForSafety(storyboard.prompt, safetyLevel) : storyboard.prompt;
+        const imagePrompt = storyboard.imageCastRepairPrompt || storyboard.prompt;
+        const prompt = shouldRewrite ? rewriteImagePromptForSafety(imagePrompt, safetyLevel) : imagePrompt;
         setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? {
           ...sb,
           status: 'generating',
@@ -1540,19 +1599,61 @@ export default function StoryPage() {
             const data = await readApiJson<{ taskId: string }>(response, '启动单张分镜生成失败');
             taskId = data.taskId;
             if (!taskId) throw new Error('生图接口没有返回任务 ID');
-            commitStoryboards(items => items.map(item => item.id === storyboard.id ? {
+            const acceptedBoards = storyboardsRef.current.map(item => item.id === storyboard.id ? {
               ...item,
               taskId,
               imageTaskMode: 'single' as const,
               status: 'generating' as const,
-            } : item));
+            } : item);
+            storyboardsRef.current = acceptedBoards;
+            setStoryboards(acceptedBoards);
             // Persist immediately after the billable task is accepted. A
             // refresh can now reconnect to this exact task instead of paying
             // for a duplicate single-image repair.
-            persistCurrentProject();
+            persistCurrentProject(acceptedBoards);
           }
           await pollImageStatus(storyboard.id, taskId, generationProjectId, activeSettings.apiKey);
           persistCurrentProject();
+          if (isMidjourneyImageModel(activeSettings.imageModel)) {
+            for (;;) {
+            // Check before moving to the next shot; always compare with the
+            // fixed original cast, never propagate an unaudited generated face.
+            const current = storyboardsRef.current.find(s => s.id === storyboard.id);
+            if (!current?.imageUrl || generationProjectId !== projectIdRef.current) return;
+            const cast: ImageCastCharacter[] = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters).map(c => ({ name: c.name, description: c.description, appearance: (c as ImageCastCharacter).appearance, imageUrl: costumeImagesRef.current[c.name] || c.imageUrl }));
+            const response = await fetchStoryApi('/api/series/audit-images', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ boards: [{ sceneNumber: current.sceneNumber, imageUrl: current.imageUrl, characters: current.characters, requireSingleFrame: true }], characters: cast, apiKey: activeSettings.apiKey, dmxApiKey: activeSettings.dmxApiKey, scriptProvider: activeSettings.scriptProvider || 'auto', scriptModel: activeSettings.scriptModel || 'gpt-4o' }),
+            }, activeSettings.comfyui);
+            const { checks } = await readApiJson<{ checks: ImageCastCheck[] }>(response, 'MJ 单镜角色核验失败');
+            const check = checks?.[0];
+            if (checks?.length !== 1 || check.sceneNumber !== current.sceneNumber || check.imageUrl !== current.imageUrl || ![true, false, null].includes(check.passed)) throw new Error('MJ 核验未返回当前镜头结果');
+            if (generationProjectId !== projectIdRef.current || storyboardsRef.current.find(s => s.id === current.id)?.imageUrl !== check.imageUrl) return;
+            if (check.passed === false) {
+              const candidates = current.imageCandidateUrls || [];
+              if (candidates.length) {
+                const upload = await fetch('/api/upload-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageData: candidates[0] }) });
+                const { url } = await readApiJson<{ url: string }>(upload, '保存 MJ 备用候选失败');
+                if (!url || generationProjectId !== projectIdRef.current) return;
+                const nextBoards = replaceStoryboardAndInvalidateChangedVideo(storyboardsRef.current, { ...current, imageUrl: url, imageCandidateUrls: candidates.slice(1) });
+                storyboardsRef.current = nextBoards;
+                setStoryboards(nextBoards);
+                persistCurrentProject(nextBoards);
+                continue;
+              }
+              const repaired = prepareImageCastRepair(current, check, cast);
+              const repairedBoards = replaceStoryboardAndInvalidateChangedVideo(storyboardsRef.current, repaired);
+              storyboardsRef.current = repairedBoards;
+              setStoryboards(repairedBoards);
+              persistCurrentProject(repairedBoards);
+              await handleGenerateImage(repaired, options);
+            } else {
+              commitStoryboards(items => items.map(s => s.id === current.id ? { ...s, imageCastReviewWarning: check.passed === null ? check.issues.join('；') : undefined } : s));
+              persistCurrentProject();
+            }
+            break;
+            }
+          }
           return;
         } catch (error) {
           if (!isImageSafetyRejection(error) || safetyAttempt >= maxSafetyAttempts - 1) throw error;
@@ -1574,6 +1675,7 @@ export default function StoryPage() {
   };
 
   const pollImageStatus = async (storyboardId: string, taskId: string, generationProjectId = projectIdRef.current, apiKey = settingsRef.current.apiKey) => {
+    let lastActiveAt: number | undefined;
     for (let i = 0; i < 90; i++) {
       await new Promise(resolve => setTimeout(resolve, 3000));
       if (generationProjectId !== projectIdRef.current) return;
@@ -1590,37 +1692,26 @@ export default function StoryPage() {
       if (!response.ok) continue;
       const data = await response.json().catch(() => undefined);
       if (!data) continue;
+      if (['submitted', 'pending', 'queued', 'processing', 'running', 'in_progress', 'generating'].includes(data.status)) lastActiveAt = Date.now();
       if (generationProjectId !== projectIdRef.current) return;
       if (data.status === 'completed' && data.imageUrl) {
-          let imageUrl = data.imageUrl;
-          // 确保 imageUrl 是公网 URL：base64 数据 URL 会上传到 Cloudinary，否则 ComfyUI LoadImage 拿不到文件
-          if (typeof imageUrl === 'string' && imageUrl.startsWith('data:')) {
-            try {
-              const uploadRes = await fetch('/api/upload-image', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ imageData: imageUrl })
-              });
-              if (uploadRes.ok) {
-                const { url } = await uploadRes.json();
-                imageUrl = url;
-              }
-            } catch (e) { console.error('Upload image to Cloudinary failed:', e); }
-          }
-          setStoryboards(prev => {
-            const previous = prev.find(sb => sb.id === storyboardId);
-            if (!previous) return prev;
-            const updated = { ...previous, status: 'completed' as const, imageUrl, taskId, imageFailureReason: undefined };
-            const next = replaceStoryboardAndInvalidateChangedVideo(prev, updated);
-            storyboardsRef.current = next;
-            return next;
-          });
+          // Keep the paid task id if storage fails, so recovery downloads the
+          // existing result instead of buying another image generation.
+          const imageUrl = await persistGeneratedStoryboardImage(data.imageUrl);
+          if (generationProjectId !== projectIdRef.current) return;
+          const previous = storyboardsRef.current.find(sb => sb.id === storyboardId);
+          if (!previous) return;
+          const updated = { ...previous, status: 'completed' as const, imageUrl, taskId, imageFailureReason: undefined,
+            imageCandidateUrls: data.provider === 'midjourney' && Array.isArray(data.candidateUrls) ? data.candidateUrls.slice(1, 4).filter((url: unknown): url is string => typeof url === 'string' && url.startsWith('https://')) : undefined };
+          const next = replaceStoryboardAndInvalidateChangedVideo(storyboardsRef.current, updated);
+          storyboardsRef.current = next;
+          setStoryboards(next);
           return;
       }
       if (data.status === 'failed') throw new TerminalImageTaskError(extractImageTaskError(data) || 'Image generation failed');
     }
     if (generationProjectId !== projectIdRef.current) return;
-    throw new Error('Image generation timeout');
+    throw imagePollingTimeoutError(taskId, lastActiveAt);
   };
 
   const handleGenerateCostume = async (
@@ -1768,7 +1859,7 @@ export default function StoryPage() {
     }
   };
 
-  const handleGenerateVideoPrompt = async (storyboard: Storyboard, requestedSegment?: Storyboard[]) => {
+  const handleGenerateVideoPrompt = async (storyboard: Storyboard, requestedSegment?: Storyboard[], rewriteDirection = false) => {
     const generationProjectId = projectIdRef.current;
     const segmentIds = (requestedSegment?.length ? requestedSegment : [storyboard]).map(item => item.id);
     const requestedById = new Map((requestedSegment || []).map(item => [item.id, item]));
@@ -1793,17 +1884,25 @@ export default function StoryPage() {
         : '/api/generate-video-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle, capturePreset: capturePresetRef.current }, segmentStoryboards, referenceAudioNames, voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, language: projectLanguageRef.current, hasFirstFrame })
+        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle, capturePreset: capturePresetRef.current }, segmentStoryboards, isFilmEnding: isFilmEndingSegment(storyboardsRef.current, segmentStoryboards), referenceAudioNames, voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, language: projectLanguageRef.current, hasFirstFrame, rewriteDirection, apiKey: settingsRef.current.apiKey, dmxApiKey: settingsRef.current.dmxApiKey, scriptProvider: settingsRef.current.scriptProvider || 'auto', scriptModel: settingsRef.current.scriptModel || 'gpt-4o' })
       });
-      const data = await readApiJson<{ videoPrompt: string }>(response, '视频提示词生成失败');
+      const data = await readApiJson<{ videoPrompt: string; directions?: Array<Pick<Storyboard, 'id' | 'videoDirection' | 'videoDirectionSource'>> }>(response, '视频提示词生成失败');
       if (generationProjectId !== projectIdRef.current) return;
+      if (segmentStoryboards.some(source => {
+        const current = storyboardsRef.current.find(item => item.id === source.id);
+        return !current || videoDirectionSourceKey({ ...current, visualStyle, capturePreset: capturePresetRef.current }) !== videoDirectionSourceKey(source);
+      })) throw new Error('镜头内容在细化期间已改变，请重新生成提示词');
       // This is the complete H3 prompt. If the user edits and saves it, the
       // generation route submits the edited text verbatim.
-      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: data.videoPrompt, videoPromptOverride: false } : sb));
+      setStoryboards(prev => prev.map(sb => {
+        const direction = data.directions?.find(item => item.id === sb.id);
+        const next = direction ? { ...sb, videoDirection: direction.videoDirection, videoDirectionSource: direction.videoDirectionSource } : sb;
+        return sb.id === storyboard.id ? { ...next, videoPrompt: data.videoPrompt, videoPromptOverride: false } : next;
+      }));
       return data.videoPrompt;
     } catch (error) {
       if (generationProjectId !== projectIdRef.current) return;
-      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: '' } : sb));
+      setStoryboards(prev => prev.map(sb => sb.id === storyboard.id && sb.videoPrompt === 'generating...' ? { ...sb, videoPrompt: storyboard.videoPrompt || '' } : sb));
       alert(`视频提示词生成失败：${error instanceof Error ? error.message : '未知错误'}`);
       return undefined;
     }
@@ -1992,7 +2091,7 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, videoProvider, fal: activeSettings.fal, comfyui: localComfyUISettings(activeSettings.comfyui) })
+        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, isFilmEnding: isFilmEndingSegment(storyboardsRef.current, segment), language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, videoProvider, fal: activeSettings.fal, comfyui: localComfyUISettings(activeSettings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string; videoPrompt?: string }>(response, '视频任务创建失败');
       submittedTaskId = data.taskId;
@@ -2021,7 +2120,7 @@ export default function StoryPage() {
         voiceReferences: voiceReferencesRef.current,
         costumeImages: costumeImagesRef.current,
         sceneImages: sceneImagesRef.current,
-        storyPlan,
+        storyPlan: storyPlanRef.current,
         videoSegmentPlan: videoSegmentPlanRef.current,
         createdAt: new Date().toISOString(),
       });
@@ -2225,6 +2324,7 @@ export default function StoryPage() {
     };
     const retryUntilCompleted = async <T,>(label: string, operation: () => Promise<T>): Promise<T | undefined> => {
       let failureCount = 0;
+      let transientFailureCount = 0;
       while (!autoAbortRef.current) {
         try {
           setAutoStage(failureCount ? `${label}（第 ${failureCount + 1} 次尝试）` : label);
@@ -2233,10 +2333,18 @@ export default function StoryPage() {
           return result;
         } catch (error) {
           if (autoAbortRef.current) return undefined;
-          failureCount += 1;
           persistCurrentProject();
-          if (batchRunId && failureCount >= batchStageRetries) throw error;
-          const delayMilliseconds = autoRetryDelayMs(failureCount);
+          if (error instanceof AwaitingMediaTaskError) {
+            setAutoStage(`${label}：原任务仍在处理中，15 秒后继续查询`);
+            await waitBeforeRetry(15_000);
+            continue;
+          }
+          const transient = isTransientAutoProductionError(error);
+          if (transient) transientFailureCount += 1;
+          else failureCount += 1;
+          const count = transient ? transientFailureCount : failureCount;
+          if (batchRunId && count >= (transient ? 6 : batchStageRetries)) throw error;
+          const delayMilliseconds = autoRetryDelayMs(count);
           const delaySeconds = Math.round(delayMilliseconds / 1000);
           const message = error instanceof Error ? error.message : '未知错误';
           setAutoStage(`${label}失败：${message}；${delaySeconds} 秒后自动重试`);
@@ -2249,7 +2357,7 @@ export default function StoryPage() {
     try {
       if (storyboardsRef.current.length === 0) {
         await retryUntilCompleted('编剧 + 分镜', async () => {
-          const generated = await runScript();
+          const generated = await runScript(true);
           if (!generated.length) throw new Error('导演阶段没有返回任何分镜');
           return generated;
         });
@@ -2307,7 +2415,7 @@ export default function StoryPage() {
       if (autoAbortRef.current) return;
 
       setCurrentStep(4);
-      await retryUntilCompleted('九宫格生成分镜图', async () => {
+      await retryUntilCompleted(isMidjourneyImageModel(settingsRef.current.imageModel) ? 'MJ 逐镜生成与角色核验' : '九宫格生成分镜图', async () => {
         const { chunkGridBatch } = await import('@/lib/gridSplitter');
         const normalized = storyboardsRef.current.map(normalizeStoryboardImageArtifact);
         if (normalized.some((item, index) => item !== storyboardsRef.current[index])) {
@@ -2318,7 +2426,7 @@ export default function StoryPage() {
         // failed cards first would shift panel indexes and can assign a crop to
         // the wrong scene on retry.
         for (const group of chunkGridBatch(storyboardsRef.current)) {
-          const plan = planAutoImageBatch(group);
+          const plan = planAutoImageBatch(group, settingsRef.current.imageModel);
           if (plan.kind === 'skip') continue;
           if (plan.kind === 'resume-grid') {
             await handleGenerateGrid(group, { throwOnError: true, resumeTaskId: plan.taskId });
@@ -2331,6 +2439,7 @@ export default function StoryPage() {
           for (const storyboardId of plan.storyboardIds) {
             const missing = storyboardsRef.current.find(item => item.id === storyboardId);
             if (!missing || hasUsableStoryboardImage(missing)) continue;
+            setAutoStage(`逐镜生图：镜头 ${missing.sceneNumber}`);
             await handleGenerateImage(missing, { throwOnError: true });
           }
         }
@@ -2339,6 +2448,58 @@ export default function StoryPage() {
       });
       if (autoAbortRef.current) return;
 
+      if (storyStorageKeys().isolated || isMidjourneyImageModel(settingsRef.current.imageModel)) {
+        await retryUntilCompleted('核验分镜角色一致性', async () => {
+          const cast: ImageCastCharacter[] = charactersRef.current.map(c => ({ name: c.name, description: c.description, appearance: (c as ImageCastCharacter).appearance, imageUrl: costumeImagesRef.current[c.name] || c.imageUrl }));
+          for (let round = 0; round <= 2; round++) {
+            // A previous repair may have saved a cleared image before a worker
+            // interruption. Complete those pending repairs before auditing.
+            for (const missing of storyboardsRef.current.filter(b => !hasUsableStoryboardImage(b))) {
+              if (autoAbortRef.current) return;
+              await handleGenerateImage(missing, { throwOnError: true });
+            }
+            const checks: ImageCastCheck[] = [];
+            const boards = storyboardsRef.current;
+            for (let start = 0; start < boards.length; start += 3) {
+              if (autoAbortRef.current) return;
+              const batch = boards.slice(start, start + 3);
+              setAutoStage(`角色核验：镜头 ${start + 1}–${Math.min(start + 3, boards.length)}`);
+              const active = settingsRef.current;
+              const response = await fetchStoryApi('/api/series/audit-images', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ boards: batch.map(b => ({ sceneNumber: b.sceneNumber, imageUrl: b.imageUrl, characters: b.characters, requireSingleFrame: isMidjourneyImageModel(active.imageModel) })), characters: cast, apiKey: active.apiKey, dmxApiKey: active.dmxApiKey, scriptProvider: active.scriptProvider || 'auto', scriptModel: active.scriptModel || 'gpt-4o' }),
+              }, active.comfyui);
+              const result = await readApiJson<{ checks: ImageCastCheck[] }>(response, '分镜角色核验失败');
+              if (result.checks?.length !== batch.length || batch.some(b => !result.checks.some(c => c.sceneNumber === b.sceneNumber && c.imageUrl === b.imageUrl && (typeof c.passed === 'boolean' || c.passed === null)))) throw new Error('角色核验未完整返回当前图片结果');
+              checks.push(...result.checks);
+              commitStoryboards(items => items.map(item => {
+                const check = result.checks.find(c => c.sceneNumber === item.sceneNumber && c.imageUrl === item.imageUrl);
+                if (!check) return item;
+                const warning = check.passed === null ? check.issues.join('；') : undefined;
+                return item.imageCastReviewWarning === warning ? item : { ...item, imageCastReviewWarning: warning };
+              }));
+              persistCurrentProject();
+            }
+            const failed = checks.filter(check => check.passed === false);
+            if (!failed.length) return;
+            for (const check of failed) {
+              if (autoAbortRef.current) return;
+              const current = storyboardsRef.current.find(b => b.sceneNumber === check.sceneNumber)!;
+              const repaired = prepareImageCastRepair(current, check, cast);
+              // React may defer state updater callbacks. The generator below
+              // must see the cleared image synchronously, before its skip guard.
+              const nextBoards = replaceStoryboardAndInvalidateChangedVideo(storyboardsRef.current, repaired);
+              storyboardsRef.current = nextBoards;
+              setStoryboards(nextBoards);
+              persistCurrentProject();
+              setAutoStage(`自动补图：镜头 ${check.sceneNumber} 角色不一致`);
+              await handleGenerateImage(repaired, { throwOnError: true });
+            }
+          }
+          throw new Error('分镜角色核验未通过，已保留断点');
+        });
+      }
+      if (autoAbortRef.current) return;
       setCurrentStep(5);
       const videoProvider = settingsRef.current.videoProvider || 'apimart';
       const isH3SegmentProvider = videoProvider === 'comfyui' || videoProvider === 'fal';
@@ -2527,6 +2688,7 @@ export default function StoryPage() {
             onGenerateVideoPrompt={handleGenerateVideoPrompt}
             onGenerateVideo={handleGenerateVideo}
             onGenerateGrid={handleGenerateGrid}
+            singleShotMode={isMidjourneyImageModel(settings.imageModel)}
           />
         </div>
       ) : (
@@ -2655,6 +2817,7 @@ export default function StoryPage() {
                 onUpdate={handleUpdateStoryboard}
                 onGenerateGrid={handleGenerateGrid}
                 isGeneratingGrid={isGeneratingGrid}
+                singleShotMode={isMidjourneyImageModel(settings.imageModel)}
               />
             )}
             {currentStep === 5 && (
