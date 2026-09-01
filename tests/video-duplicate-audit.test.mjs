@@ -70,3 +70,41 @@ test('repair preserves existing media receipts, exact speech and every other sho
   assert.throws(() => prepareVideoDuplicateRepair([exhausted], [exhausted], audit), /上限/);
   assert.throws(() => prepareVideoDuplicateRepair([bad], [bad], { ...audit, passed: null }), /明确证据/);
 });
+
+test('extra-body repair names the full closed cast and exact body count', () => {
+  const board = {
+    id: 'scene-3', sceneNumber: 3, characters: ['Inkfin', 'Clawrence', 'Bram Brinejaw'],
+    description: 'Three characters stand together.', videoStatus: 'completed',
+    videoTaskId: 'comfyui:extra', videoUrl: 'blob:extra',
+  };
+  const repaired = prepareVideoDuplicateRepair([board], [board], {
+    version: 1, taskId: 'comfyui:extra', mediaSha256: 'b'.repeat(64), passed: false,
+    reason: 'extra body', checkedAt: new Date().toISOString(),
+    duplicates: [{ name: '__extra__', frames: [1, 2, 3], evidence: 'four bodies' }],
+  });
+  assert.match(repaired[0].videoDuplicateRepairPrompt, /exactly 3 visible story-character bodies total/i);
+  assert.match(repaired[0].videoDuplicateRepairPrompt, /Inkfin, Clawrence, Bram Brinejaw/);
+  assert.match(repaired[0].videoDuplicateRepairPrompt, /No fourth body/);
+});
+
+test('legacy vague extra-body checkpoint gets one bounded exact-cast migration repair', () => {
+  const board = {
+    id: 'scene-3', sceneNumber: 3, characters: ['Inkfin', 'Clawrence', 'Bram Brinejaw'],
+    description: 'Three characters stand together.', videoStatus: 'completed',
+    videoTaskId: 'comfyui:legacy-extra', videoDuplicateRepairAttempts: 2,
+    videoDuplicateRepairPrompt: 'Keep exactly one visible instance of each named character. Each person must remain the same single body throughout this shot.',
+  };
+  const audit = {
+    version: 1, taskId: 'comfyui:legacy-extra', mediaSha256: 'c'.repeat(64), passed: false,
+    reason: 'extra body', checkedAt: new Date().toISOString(),
+    duplicates: [{ name: '__extra__', frames: [1, 2, 3], evidence: 'four bodies' }],
+  };
+  const migrated = prepareVideoDuplicateRepair([board], [board], audit);
+  assert.equal(migrated[0].videoDuplicateRepairAttempts, 3);
+  assert.match(migrated[0].videoDuplicateRepairPrompt, /exactly 3 visible story-character bodies total/i);
+  assert.throws(() => prepareVideoDuplicateRepair(
+    [{ ...board, videoDuplicateRepairAttempts: 3, videoDuplicateRepairPrompt: migrated[0].videoDuplicateRepairPrompt }],
+    [{ ...board, videoDuplicateRepairAttempts: 3, videoDuplicateRepairPrompt: migrated[0].videoDuplicateRepairPrompt }],
+    audit,
+  ), /上限/);
+});

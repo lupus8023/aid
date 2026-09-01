@@ -74,9 +74,21 @@ export function prepareVideoDuplicateRepair(all: Storyboard[], group: Storyboard
   const leader = group[0];
   if (!leader?.videoTaskId || leader.videoTaskId !== audit.taskId || leader.videoStatus !== 'completed' || audit.passed !== false || !audit.duplicates.some(d => d.frames.length >= 2)) throw new Error('视频角色纠错缺少当前任务的明确证据');
   const attempts = leader.videoDuplicateRepairAttempts || 0;
-  if (attempts >= MAX_VIDEO_DUPLICATE_REPAIRS) throw new Error('视频角色重复纠错已达上限，保留所有原视频供复核');
   const names = [...new Set(audit.duplicates.filter(d => d.frames.length >= 2 && d.name !== '__extra__').map(d => d.name))];
-  const correction = `Keep exactly one visible instance of each named character. ${names.length ? names.join(', ') : 'Each person'} must remain the same single body throughout this shot. A camera track or change of framing reveals the existing person, never a second copy or an added person. Do not crossfade between two versions of the same body. Preserve the approved image, all dialogue and the authored action.`;
+  const castNames = [...new Set(group.flatMap(board => board.characters).filter(Boolean))];
+  const hasExtraBody = audit.duplicates.some(d => d.frames.length >= 2 && d.name === '__extra__');
+  // Projects produced before the exact-cast repair prompt used the vague
+  // "Each person" wording for __extra__ findings. Permit one bounded migration
+  // repair so an old checkpoint can benefit from the corrected constraint.
+  const needsExactCastMigration = attempts >= MAX_VIDEO_DUPLICATE_REPAIRS
+    && hasExtraBody
+    && castNames.length > 0
+    && !leader.videoDuplicateRepairPrompt?.includes('visible story-character bodies total');
+  if (attempts >= MAX_VIDEO_DUPLICATE_REPAIRS && !needsExactCastMigration) throw new Error('视频角色重复纠错已达上限，保留所有原视频供复核');
+  const castConstraint = hasExtraBody && castNames.length
+    ? `Show exactly ${castNames.length} visible story-character bodies total: ${castNames.join(', ')}. No fourth body, background character, partial face, reflection, portrait, statue, or added person may appear.`
+    : `${names.length ? names.join(', ') : 'Each named character'} must remain the same single body throughout this shot.`;
+  const correction = `Keep exactly one visible instance of each named character. ${castConstraint} A camera track or change of framing reveals the existing person, never a second copy or an added person. Do not crossfade between two versions of the same body. Preserve the approved image, all dialogue and the authored action.`;
   const ids = new Set(group.map(b => b.id));
   return all.map(b => !ids.has(b.id) ? b : {
     ...b, videoStatus: 'pending', videoTaskId: undefined, videoUrl: undefined, videoSourceUrl: undefined,
