@@ -1,12 +1,21 @@
 import type { SeriesEpisode } from './types';
 import type { AppSettings, Storyboard } from '@/types';
 
+export const SERIES_VIDEO_PROVIDER = 'comfyui' as const;
+
+export function enforceSeriesVideoProvider(settings: AppSettings): AppSettings {
+  return {
+    ...settings,
+    videoProvider: SERIES_VIDEO_PROVIDER,
+  };
+}
+
 export function mergeResumedSeriesSettings(
   previous: AppSettings,
   incoming: Partial<AppSettings>,
   serverApiKey = '',
 ): AppSettings {
-  return {
+  return enforceSeriesVideoProvider({
     ...previous,
     ...incoming,
     apiKey: incoming.apiKey || previous.apiKey || serverApiKey,
@@ -20,7 +29,7 @@ export function mergeResumedSeriesSettings(
           ...(incoming.comfyui || {}),
         } as AppSettings['comfyui']
       : undefined,
-  };
+  });
 }
 
 function clearVideoArtifact(storyboard: Storyboard): Storyboard {

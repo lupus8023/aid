@@ -11,6 +11,7 @@ import { seriesStageBlocker } from "./readiness";
 import { isGptImage2Model } from '@/lib/imageModels';
 import { usesPhotographicReferences } from '@/lib/gptImageReferences';
 import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '@/lib/midjourney';
+import { SERIES_VIDEO_PROVIDER } from './videoProviderChange';
 import type {
   SeriesClaim,
   SeriesEpisode,
@@ -67,6 +68,9 @@ export async function executeSeriesClaim(
   // do not copy its credentials into the user's ordinary Story settings slot.
   const productionSettings = {
     ...settings,
+    // Series production is contractually H3-only. Never inherit or fall back
+    // to a general-purpose video provider from ordinary Story settings.
+    videoProvider: SERIES_VIDEO_PROVIDER,
     comfyui: settings.comfyui
       ? {
           ...settings.comfyui,

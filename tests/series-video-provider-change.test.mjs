@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  enforceSeriesVideoProvider,
   mergeResumedSeriesSettings,
   resetEpisodeVideosForProviderChange,
 } from '../lib/series/videoProviderChange.ts';
+
+test('series production always locks video generation to local H3', () => {
+  for (const videoProvider of ['apimart', 'fal', 'comfyui']) {
+    const settings = enforceSeriesVideoProvider({
+      apiProvider: 'apimart', apiKey: '', scriptModel: 'gpt-4o', imageModel: 'gpt-image-2',
+      videoModel: 'doubao-seedance-1-5-pro', videoProvider,
+    });
+    assert.equal(settings.videoProvider, 'comfyui');
+  }
+});
 
 test('resuming with a new video provider keeps sealed credentials and nested Companion settings', () => {
   const previous = {

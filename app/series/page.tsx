@@ -947,6 +947,9 @@ export default function SeriesPage() {
                     <span className="mx-2 opacity-40">/</span> {completed}{" "}
                     集成片就绪
                   </p>
+                  <p className="mt-2 text-[11px] text-[#9f8bd7]">
+                    连续剧视频固定使用 ComfyUI / MiniMax H3；不可用时保存断点并停止，不会切换其他视频接口。
+                  </p>
                   {project.episodes.some(ep => ep.production?.storyboards?.some(b => b.imageCastReviewWarning)) && (
                     <details className="mt-3 max-w-2xl text-xs text-amber-300">
                       <summary className="cursor-pointer">部分画面未取得自动角色核验结论，建议复核后发布</summary>

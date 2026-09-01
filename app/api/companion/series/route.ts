@@ -3,7 +3,7 @@ import { recordSeriesInterruption, seriesCheckpointAdvanced } from '@/lib/series
 import { seriesRetryBlocker } from '@/lib/series/jobHistory';
 import { setSeriesStyleReference } from '@/lib/series/styleReference';
 import { imageModelRequiresApiKey } from '@/lib/imageModels';
-import { mergeResumedSeriesSettings, resetEpisodeVideosForProviderChange } from '@/lib/series/videoProviderChange';
+import { enforceSeriesVideoProvider, mergeResumedSeriesSettings, resetEpisodeVideosForProviderChange } from '@/lib/series/videoProviderChange';
 import { castSeriesRole } from "@/lib/series/casting";
 import { seriesAssetsReady, seriesStageBlocker } from "@/lib/series/readiness";
 import { moveSeriesToTrash, restoreSeriesFromTrash } from "@/lib/series/trash";
@@ -259,10 +259,10 @@ export async function POST(request: NextRequest) {
           const kind = body.kind as SeriesJobKind;
           if (!["develop", "prepare", "script", "produce"].includes(kind))
             throw new Error("无效任务类型");
-          const effectiveSettings = {
+          const effectiveSettings = enforceSeriesVideoProvider({
             ...(body.settings || {}),
             apiKey: body.settings?.apiKey || process.env.APIMART_API_KEY || '',
-          };
+          });
           if (kind !== "prepare" && !effectiveSettings.apiKey && !effectiveSettings.dmxApiKey)
             throw new Error("请先在设置中配置剧本API");
           if (["prepare", "produce"].includes(kind)
@@ -398,7 +398,11 @@ export async function POST(request: NextRequest) {
           const retryBlocker = seriesRetryBlocker(job, db.jobs);
           if (retryBlocker) throw new Error(retryBlocker);
           if (body.settings)
-            job.sealedSettings = await sealSettings(body.settings);
+            job.sealedSettings = await sealSettings(enforceSeriesVideoProvider({
+              ...(await openSettings(job.sealedSettings!)),
+              ...body.settings,
+              apiKey: body.settings.apiKey || process.env.APIMART_API_KEY || '',
+            }));
           job.status = "queued";
           job.attempts = 0;
           job.consecutiveInterruptions = 0;
@@ -441,8 +445,15 @@ export async function POST(request: NextRequest) {
           });
           if (!job) return { claim: null };
           const owner = db.projects.find((p) => p.id === job.seriesId)!;
-          const settings = await openSettings(job.sealedSettings!);
+          const openedSettings = await openSettings(job.sealedSettings!);
+          const settings = enforceSeriesVideoProvider(openedSettings);
           settings.apiKey ||= process.env.APIMART_API_KEY || '';
+          if (job.kind === 'produce' && openedSettings.videoProvider !== settings.videoProvider) {
+            resetEpisodeVideosForProviderChange(
+              owner.episodes.find((episode) => episode.id === job.episodeId),
+            );
+            job.sealedSettings = await sealSettings(settings);
+          }
           if (imageModelRequiresApiKey(settings.imageModel || 'seedream-5-0-pro') && !settings.apiKey) {
             job.status = 'failed';
             job.stage = '制作配置缺失';
