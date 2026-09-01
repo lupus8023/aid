@@ -3,6 +3,7 @@ import { recordSeriesInterruption, seriesCheckpointAdvanced } from '@/lib/series
 import { seriesRetryBlocker } from '@/lib/series/jobHistory';
 import { setSeriesStyleReference } from '@/lib/series/styleReference';
 import { imageModelRequiresApiKey } from '@/lib/imageModels';
+import { mergeResumedSeriesSettings, resetEpisodeVideosForProviderChange } from '@/lib/series/videoProviderChange';
 import { castSeriesRole } from "@/lib/series/casting";
 import { seriesAssetsReady, seriesStageBlocker } from "@/lib/series/readiness";
 import { moveSeriesToTrash, restoreSeriesFromTrash } from "@/lib/series/trash";
@@ -335,6 +336,29 @@ export async function POST(request: NextRequest) {
         case "resume": {
           if (!project) throw new Error("连续剧不存在");
           project.paused = body.action === "pause";
+          if (!project.paused && body.settings) {
+            for (const job of db.jobs.filter((item) =>
+              item.seriesId === project.id &&
+              item.sealedSettings &&
+              ['paused', 'queued'].includes(item.status),
+            )) {
+              const previousSettings = await openSettings(job.sealedSettings!);
+              const resumedSettings = mergeResumedSeriesSettings(
+                previousSettings,
+                body.settings,
+                process.env.APIMART_API_KEY || '',
+              );
+              if (
+                job.kind === 'produce' &&
+                previousSettings.videoProvider !== resumedSettings.videoProvider
+              ) {
+                resetEpisodeVideosForProviderChange(
+                  project.episodes.find((episode) => episode.id === job.episodeId),
+                );
+              }
+              job.sealedSettings = await sealSettings(resumedSettings);
+            }
+          }
           for (const job of db.jobs.filter((j) => j.seriesId === project.id)) {
             if (project.paused && job.status === "running")
               job.cancelRequested = true;

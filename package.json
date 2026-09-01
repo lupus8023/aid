@@ -37,7 +37,7 @@
     "test:audio-tail": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --test tests/audio-tail-cleanup.test.mjs",
     "test:auto-production": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/auto-production.test.mjs",
     "test:companion-cors": "node --test tests/companion-cors.test.mjs",
-    "test:series": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/series.test.mjs tests/series-runner.test.mjs tests/series-casting.test.mjs tests/series-recovery.test.mjs tests/series-fish-catalog.test.mjs tests/series-cross-language.test.mjs tests/series-image-cast.test.mjs tests/series-dialogue-ownership.test.mjs",
+    "test:series": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/series.test.mjs tests/series-runner.test.mjs tests/series-casting.test.mjs tests/series-recovery.test.mjs tests/series-fish-catalog.test.mjs tests/series-cross-language.test.mjs tests/series-image-cast.test.mjs tests/series-dialogue-ownership.test.mjs tests/series-video-provider-change.test.mjs",
     "test:series-api": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs scripts/series-api-smoke.mjs",
     "build": "next build",
     "start": "next start",

@@ -982,7 +982,10 @@ export default function SeriesPage() {
                     disabled={busy}
                     onClick={() =>
                       void action(
-                        { action: project.paused ? "resume" : "pause" },
+                        {
+                          action: project.paused ? "resume" : "pause",
+                          ...(project.paused ? { settings } : {}),
+                        },
                         project.paused
                           ? "队列已恢复"
                           : "正在暂停，已提交的生成任务仍会在供应商侧完成。",
