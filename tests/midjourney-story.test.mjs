@@ -47,5 +47,15 @@ test('reference-guided story shots use MJ edits while unreferenced generation re
   const edit = midjourneyEditPayload(imagine);
   assert.deepEqual(edit.image_urls, ['ref.png']); assert.equal(edit.prompt, imagine.prompt);
   assert.equal(edit.version, '8.2'); assert.equal(edit.extra, '--profile abc123');
-  for (const key of ['iw', 'quality', 'raw', 'hd', 'stylize', 'chaos', 'negative_prompt']) assert.equal(edit[key], undefined);
+  assert.equal(edit.raw, true);
+  for (const key of ['iw', 'quality', 'hd', 'stylize', 'chaos', 'negative_prompt']) assert.equal(edit[key], undefined);
+});
+
+test('photographic finishing does not force a nonhuman character into a human actor', () => {
+  const creature = { name: 'Rill', description: 'A nonhuman eel with an eel head and continuous elongated body, no human torso.', imageUrl: 'eel.png' };
+  const input = midjourneyShotInput({ ...board, characters: ['Rill'], prompt: 'Rill curves toward the scroll in his sash.' }, [creature], [], {});
+  const payload = buildMidjourneyImaginePayload({ ...input, aspectRatio: '9:16', taskMode: 'story-shot', visualStyle: 'cinematic-natural' });
+  assert.match(payload.prompt, /eel head and continuous elongated body/);
+  assert.match(payload.prompt, /preserve each described species and anatomy/);
+  assert.doesNotMatch(payload.prompt, /real human actor/);
 });

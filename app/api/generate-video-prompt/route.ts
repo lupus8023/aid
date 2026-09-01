@@ -3,12 +3,14 @@ import { buildVideoSegmentPrompt } from '@/lib/videoGenerator';
 import { refineVideoDirections } from '@/lib/pipeline/videoDirection';
 import { chatOnce } from '@/lib/pipeline/llm';
 import { streamingJsonResponse } from '@/lib/streamingJsonResponse';
+import { filmEndingDuration } from '@/lib/filmEnding';
+import { estimateVideoSegmentSeconds } from '@/lib/videoSegments';
 
 export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
-    const { storyboard, segmentStoryboards = [], referenceAudioNames = [], voiceProfiles = {}, language, hasFirstFrame = false, rewriteDirection = false, isFilmEnding = false, apiKey, dmxApiKey, scriptProvider, scriptModel } = await request.json();
+    const { storyboard, segmentStoryboards = [], referenceAudioNames = [], voiceProfiles = {}, language, hasFirstFrame = false, rewriteDirection = false, isFilmEnding = false, apiKey, dmxApiKey, scriptProvider, scriptModel, styleReference } = await request.json();
     if (!storyboard) {
       return NextResponse.json({ error: 'storyboard is required' }, { status: 400 });
     }
@@ -22,8 +24,9 @@ export async function POST(request: NextRequest) {
         return chatOnce(prompt, { apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel || 'gpt-4o', imageUrls, maxOutputTokens: 2500, timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000 });
       }, { rewrite: rewriteDirection === true, hasFirstFrame: hasFirstFrame === true, useReferenceImages: true, isFilmEnding: isFilmEnding === true });
       const videoPrompt = buildVideoSegmentPrompt(refined, [], {
+        styleReference,
         isFilmEnding: isFilmEnding === true,
-        duration: Number(storyboard.videoDuration) || undefined,
+        duration: filmEndingDuration(estimateVideoSegmentSeconds(refined), isFilmEnding === true, Number(storyboard.videoDuration) || undefined, Number(storyboard.videoEndingMinimumDuration) || 0),
         referenceAudioNames: Array.isArray(referenceAudioNames) ? referenceAudioNames.filter(Boolean).slice(0, 3) : [],
         hasVoiceReferences: Array.isArray(referenceAudioNames) && referenceAudioNames.length > 0,
         voiceProfiles: voiceProfiles && typeof voiceProfiles === 'object' ? voiceProfiles : {},

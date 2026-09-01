@@ -1,3 +1,5 @@
+import type { SeriesImageAsset } from './imagePreparation';
+import type { ImageStyleReference } from '../imageStyleReference';
 import type {
   AppSettings,
   Character,
@@ -7,7 +9,7 @@ import type {
 } from "@/types";
 import type { ProjectData } from "@/hooks/useProject";
 
-export interface SeriesCharacter extends Character {
+export interface SeriesCharacter extends Character, SeriesImageAsset {
   aliases: string[];
   role: string;
   want: string;
@@ -20,9 +22,11 @@ export interface SeriesCharacter extends Character {
   locked: boolean;
   version: number;
   bibleUrl?: string;
-  photographicAnchor?: {
+  photographicAnchor?: SeriesImageAsset & {
+    designBrief?: string;
+    reusedCandidateTaskId?: string;
     imageUrl?: string; imageTaskId?: string;
-    review?: { photographic: boolean | null; issues: string[] };
+    review?: { photographic: boolean | null; issues: string[]; revision?: number };
     rejected?: Array<{ imageUrl: string; imageTaskId?: string; issues: string[] }>;
   };
   photographicCardReview?: { photographic: boolean | null; issues: string[] };
@@ -58,7 +62,7 @@ export interface SeriesLibraryActor {
   ageGroup?: Character["ageGroup"];
 }
 
-export interface SeriesLocation {
+export interface SeriesLocation extends SeriesImageAsset {
   id: string;
   name: string;
   description: string;
@@ -131,6 +135,8 @@ export interface SeriesEpisode {
 }
 
 export interface SeriesProject {
+  styleReference?: ImageStyleReference;
+  visualHistory?: Array<{ changedAt: string; styleReference?: ImageStyleReference; characters: SeriesCharacter[]; locations: SeriesLocation[]; productions: Array<{ episodeId: string; version: number; production: ProjectData }> }>;
   id: string;
   revision: number;
   name: string;
@@ -165,6 +171,7 @@ export interface SeriesJob {
   status: SeriesJobStatus;
   stage: string;
   attempts: number;
+  consecutiveInterruptions?: number;
   error?: string;
   createdAt: string;
   updatedAt: string;

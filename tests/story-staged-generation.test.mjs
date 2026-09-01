@@ -473,6 +473,11 @@ test('outline and screenplay prompts keep story architecture separate from visua
   assert.match(batchPrompt, /不使用 dissolve、fade 或 wipe 特效/);
   assert.doesNotMatch(directorPrompt, /DIRECTOR_FULL_SOURCE_MARKER/);
   assert.match(directorPrompt, /只执行下方结构化合同/);
+  assert.match(directorPrompt, /像向摄影师描述眼前这一刻/);
+  assert.match(directorPrompt, /不要在成稿中罗列 PBR/);
+  assert.match(directorPrompt, /剧本明确写出的无名背景侍从、群众可保留/);
+  assert.match(directorPrompt, /约 55–95 个英文词/);
+  assert.doesNotMatch(directorPrompt, /PHOTOGRAPHIC SURFACE AND OPTICS|radial iris fibers|IMAGE RESPONSE 必须/);
 });
 
 test('global dialogue manuscript locks complete spoken meaning before screenplay batches', () => {

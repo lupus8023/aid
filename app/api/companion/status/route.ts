@@ -11,6 +11,7 @@ export async function GET() {
     seriesProduction: true,
     seriesLibraryCasting: true,
     seriesIndependentPreparation: true,
+    seriesStyleReference: true,
     seriesTrash: true,
     seriesJobDeletion: true,
     seriesFishVoiceCatalog: true,

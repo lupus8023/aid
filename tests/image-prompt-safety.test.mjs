@@ -36,3 +36,9 @@ test('a blood-red lighting color is not a graphic injury instruction', () => {
   assert.match(rewriteImagePromptForSafety('A blood-red curtain.'), /deep crimson curtain/);
   assert.ok(analyzeImagePromptSafety('Blood-red light on an open wound.').includes('graphic-injury'));
 });
+
+test('recognizes APIMart MJ review failures independently of HTTP success envelopes', () => {
+  for (const message of ['upstream code=9: Prompt图片未通过审核', '图片或提示词未通过内容审核，已自动退款']) {
+    assert.equal(isImageSafetyRejection(message), true);
+  }
+});

@@ -205,6 +205,12 @@ export default function StoryboardCard({
       )}
 
       {/* Video Status */}
+      {storyboard.videoDuplicateAudit && storyboard.videoDuplicateAudit.passed !== true && (
+        <p className="px-4 py-2 text-xs text-amber-300" role="status">{storyboard.videoDuplicateAudit.reason}</p>
+      )}
+      {storyboard.videoEndingWarning && (
+        <p className="px-4 py-2 text-xs text-amber-300" role="status">{storyboard.videoEndingWarning}</p>
+      )}
       {storyboard.videoStatus === 'generating' && (
         <div className="px-4 py-2 bg-[var(--bg-tertiary)] border-t border-[var(--border-color)] flex items-center gap-2">
           <Loader2 size={14} className="text-[var(--accent-blue)] animate-spin" />

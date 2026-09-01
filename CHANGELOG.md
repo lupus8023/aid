@@ -1,3 +1,12 @@
+## 0.1.143
+
+- Add one series-wide visual reference that carries only culture, palette, color temperature, lens language and lighting through character cards, locations, storyboards and video prompts; changing it archives prior visual generations while retaining scripts, voices and delivered films.
+- Make GPT Image 2 live-action prompts read like concise on-set photography direction, including the explicit “ultra-real” intent, authored action and camera evidence without CG/VFX rendering jargon.
+- Strengthen autonomous production with durable image submission recovery, preserved provider refusals, reviewed adult-clarity retries, bounded interruption recovery and complete 18-shot export hydration.
+- Audit generated video for confirmed duplicate character bodies and final-shot speech, preserving paid task history and repairing only the affected segment when evidence supports it.
+- Support Midjourney V8.2 content references plus independent `sref`/`sw` style control with minimal provider payloads and one image per storyboard shot.
+- Allow individual failed production jobs to be deleted without removing scripts, media, checkpoints or completed deliveries.
+
 ## 0.1.142
 
 - Reserve a natural one-second ending without dialogue or narration only for the film's final shot, identified from the complete screenplay. Intermediate shots and generation segments do not receive this rule.

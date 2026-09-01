@@ -161,6 +161,8 @@ export function applyLibraryActor(
       ? `复用角色库「${actor.name}」的指定音色`
       : undefined,
     imageTaskId: undefined,
+    imageIssue: undefined,
+    imageFailures: undefined,
     photographicAnchor: undefined,
     photographicSheetUrl: undefined,
     photographicCardReview: undefined,

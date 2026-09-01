@@ -6,7 +6,7 @@ import { buildMidjourneyPrompt } from '@/lib/midjourney';
 
 export async function POST(request: NextRequest) {
   try {
-    const { referenceImages, referenceImage, userIntent, scaleNotes, aspectRatio, imageModel, apiKey, visualStyle, comfyui = {}, midjourneyProfile = '' } = await request.json();
+    const { referenceImages, referenceImage, userIntent, scaleNotes, aspectRatio, imageModel, apiKey, visualStyle, comfyui = {}, midjourneyProfile = '', midjourneyStyle = {} } = await request.json();
     const selectedModel = imageModel || 'seedream-5-0-pro';
     const images = Array.isArray(referenceImages) ? referenceImages : referenceImage ? [referenceImage] : [];
     const usesReferenceImages = !isComfyUIZImageTurbo(selectedModel) && images.length > 0;
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     const submittedImages = usesReferenceImages ? images : [];
-    const prompt = buildStudioImagePrompt({ userIntent, scaleNotes, usesReferenceImages });
+    const prompt = buildStudioImagePrompt({ userIntent, scaleNotes, usesReferenceImages, model: selectedModel, visualStyle });
     const taskId = await createProviderImageTask(
       prompt,
       submittedImages,
@@ -43,12 +43,13 @@ export async function POST(request: NextRequest) {
         midjourneyTaskMode: 'single',
         midjourneyVisualStyle: visualStyle,
         midjourneyProfile,
+        midjourneyReferences: { styleReferenceUrl: midjourneyStyle.styleReferenceUrl, styleWeight: midjourneyStyle.styleWeight },
       },
     );
 
     return NextResponse.json({
       taskId,
-      prompt: isMidjourneyImageModel(selectedModel) ? buildMidjourneyPrompt(prompt, { visualStyle, taskMode: 'single' }) : prompt,
+      prompt: isMidjourneyImageModel(selectedModel) ? buildMidjourneyPrompt(prompt, { visualStyle, taskMode: 'single', hasStyleReference: Boolean(midjourneyStyle.styleReferenceUrl) }) : prompt,
     });
   } catch (error) {
     console.error('Image-to-image API error:', error);

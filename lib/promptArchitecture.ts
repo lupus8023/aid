@@ -317,13 +317,13 @@ export function buildStoryWorldAnchorPrompt(input: {
 }) {
   const cast = (input.characterNames || []).filter(Boolean).join(', ');
   return `IMAGE GOAL:
-Create one finished cinematic story frame, not a portrait, character sheet, contact sheet, or design board. ${clean(input.representativeShot)}. Stage the action inside this story world: ${clean(input.sceneStyle)}. ${cast ? `The visible story identity is ${cast}; preserve the supplied role-card identity while changing its pose and camera angle to serve this scene.` : 'Keep the location and its story action visually dominant.'}
+Create one finished cinematic story frame, not a portrait, character sheet, contact sheet, or design board. ${input.representativeShot?.trim() ? `${clean(input.representativeShot)}. ` : ''}Stage this story world: ${clean(input.sceneStyle)}. ${cast ? `The visible story identity is ${cast}; preserve the supplied role-card identity while changing its pose and camera angle to serve this scene.` : 'Keep the location visually dominant.'}
 
 CAPTURE METHOD:
 ${buildImageCapturePresetContract(input.capturePreset)}
 
 COMPOSITION:
-Use a wide environmental master shot with readable foreground, middle ground, and background geography. Keep the principal character at roughly 20–35% of frame height so the production world remains dominant; no close-up, studio portrait, or full-frame fashion pose. The character participates in the location instead of posing against a blank backdrop. Use one motivated feature-film camera position, physical lighting, real material response, and enough environmental context for later storyboard frames to inherit the same production world.
+Use a wide environmental master shot with readable foreground, middle ground, and background geography. ${cast ? 'Keep the principal character at roughly 20–35% of frame height so the production world remains dominant; no close-up, studio portrait, or full-frame fashion pose. The character participates in the location instead of posing against a blank backdrop.' : 'Keep the location empty, with no characters. Preserve the described architecture, landmarks and entrances.'} Use one motivated feature-film camera position, physical lighting, real material response, and enough environmental context for later storyboard frames to inherit the same production world.
 
 OUTPUT:
 One clean ${input.aspectRatio || '16:9'} film frame with no grid, alternate poses, captions, subtitles, labels, logos, watermark, UI, or readable text.

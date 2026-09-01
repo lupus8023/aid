@@ -3,7 +3,7 @@ export function chatInputContent(prompt: string, imageUrls: string[] = []) {
 }
 
 export function isProviderContentRejection(error: unknown): boolean {
-  return /content policy violation|content safety system|image processing blocked|content_filter|content moderation|safety policy/i.test(error instanceof Error ? error.message : String(error));
+  return /content policy violation|content safety system|image processing blocked|content_filter|content moderation|safety policy|未通过(?:内容)?审核|审核不通过|审核拒绝|内容违规/i.test(error instanceof Error ? error.message : String(error));
 }
 
 export function responsesInput(prompt: string, imageUrls: string[] = []) {

@@ -1,4 +1,7 @@
-import { isComfyUIZImageTurbo, isMidjourneyImageModel } from './imageModels';
+import type { VisualStyle } from '@/types';
+import { isComfyUIZImageTurbo, isGptImage2Model, isMidjourneyImageModel } from './imageModels';
+import { buildGptPhotographicDetail } from './gptPhotographicDetail';
+import { getProductionStylePreset } from './promptArchitecture';
 
 export function imageCreationInputError(input: {
   model: string;
@@ -15,9 +18,19 @@ export function buildStudioImagePrompt(input: {
   userIntent?: string;
   scaleNotes?: string;
   usesReferenceImages: boolean;
+  model?: string;
+  visualStyle?: VisualStyle;
 }): string {
   const intent = input.userIntent?.trim();
   const scale = input.scaleNotes?.trim();
+  const gpt = isGptImage2Model(input.model || '');
+  const explicitMedium = ['anime', '3d-cg', 'stop-motion'].includes(input.visualStyle || '');
+  const gptTreatment = explicitMedium
+    ? `OUTPUT MEDIUM: ${getProductionStylePreset(input.visualStyle).imageContract}. Preserve the requested medium; do not add photographic skin or a live-action treatment.`
+    : `MEDIUM AND LIGHTING PRIORITY:
+The user's requested medium, setting, composition, lens, lighting, palette and mood take priority. A reference supplies only its declared identity/design/style role, not an automatic studio setup. If the user requests illustration, animation or another non-photographic medium, keep that medium and omit the photographic treatment below. If following a reference's style, preserve that medium as well.
+For photographic output only, with no changes to subject, age, ethnicity, body proportions, wardrobe, setting, gaze or framing:
+${buildGptPhotographicDetail({ view: 'creative' })}`;
 
   if (!input.usesReferenceImages) {
     return `Create one polished image that follows the user's creative direction exactly.
@@ -35,13 +48,13 @@ CREATIVE RULES:
 OUTPUT RULES:
 - One clean finished image only.
 - No random text, watermark, subtitles, captions, signature, border, UI, split screen, contact sheet, or comparison layout.
-- No deformation, warped anatomy, extra limbs, duplicate subjects, broken object geometry, or incoherent reflections.`;
+- No deformation, warped anatomy, extra limbs, duplicate subjects, broken object geometry, or incoherent reflections.${gpt ? `\n\n${gptTreatment}` : ''}`;
   }
 
   return `Use the provided reference images as the primary visual sources.
 
 GOAL:
-Create an ultra-realistic professional studio photograph with high-end commercial photography quality.${intent ? `\n\nSCENE / CREATIVE DIRECTION FROM USER:\n${intent}` : ''}${scale ? `\n\nREFERENCE SCALE / DIMENSION NOTES FROM USER:\n${scale}` : ''}
+${gpt ? "Create one image following the user's creative direction and the declared reference roles exactly." : 'Create an ultra-realistic professional studio photograph with high-end commercial photography quality.'}${intent ? `\n\nSCENE / CREATIVE DIRECTION FROM USER:\n${intent}` : ''}${scale ? `\n\nREFERENCE SCALE / DIMENSION NOTES FROM USER:\n${scale}` : ''}
 
 REFERENCE IMAGE RECOGNITION AND CONSISTENCY RULES:
 - Treat the reference images as a strict identity, geometry, proportion, material, color, and scale guide.
@@ -56,12 +69,12 @@ REFERENCE IMAGE RECOGNITION AND CONSISTENCY RULES:
 - Do not enlarge, shrink, stretch, flatten, or redesign referenced objects unless the user explicitly asks.
 - If user scale or dimension notes are provided, follow them as hard constraints for object proportions and person-object scale relationships.
 
-STUDIO PHOTOGRAPHY QUALITY:
+${gpt ? gptTreatment : `STUDIO PHOTOGRAPHY QUALITY:
 - Professional studio photo shoot, ultra realistic, premium commercial photography.
 - Clean high-end set design, controlled softbox lighting, natural contact shadows, realistic reflections.
 - Sharp details, realistic texture, balanced highlights, no overexposure.
 - 50mm or 85mm lens look, shallow depth of field when appropriate, crisp subject separation.
-- Premium editorial composition, polished but natural.
+- Premium editorial composition, polished but natural.`}
 
 NEGATIVE RULES:
 - No deformation, no warped anatomy, no extra limbs, no duplicate subjects.

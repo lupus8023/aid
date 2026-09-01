@@ -68,7 +68,7 @@ test('injects the selected Midjourney V8.2 personalization profile outside edita
     personalizationProfile: 'votj2t8',
   });
   assert.equal(payload.extra, '--profile votj2t8');
-  assert.equal(payload.metadata.personalization_profile, 'votj2t8');
+  assert.equal(payload.metadata, undefined);
   assert.doesNotMatch(payload.prompt, /--profile/i);
   assert.equal(resolveMidjourneyProfileSetting({ midjourneyProfileEnabled: true, midjourneyProfile: 'abc_123' }), 'abc_123');
   assert.equal(resolveMidjourneyProfileSetting({ midjourneyProfileEnabled: false, midjourneyProfile: 'abc_123' }), '');
@@ -95,7 +95,7 @@ test('Midjourney keeps referenced products locked after concise prompt compilati
   assert.ok(prompt.length <= 1100);
 });
 
-test('Midjourney raises image-reference strength when a story shot contains a locked product', () => {
+test('Midjourney keeps locked products without inventing an image weight', () => {
   const payload = buildMidjourneyImaginePayload({
     prompt: 'IMAGE GOAL:\nDr. Pan holds the bottle.\nReference image 1: OBJECT IDENTITY ONLY — "serum bottle".',
     aspectRatio: '16:9',
@@ -105,7 +105,7 @@ test('Midjourney raises image-reference strength when a story shot contains a lo
     visualStyle: 'commercial',
     hasPeople: true,
   });
-  assert.equal(payload.iw, 0.7);
+  assert.equal(payload.iw, undefined);
   assert.deepEqual(payload.image_urls, ['product.png']);
 });
 
@@ -134,7 +134,7 @@ test('compiles the project capture preset into the actual Midjourney prompt', ()
   assert.match(String(payload.prompt), /foreground pedestrian or street-object occlusion/i);
   assert.match(String(payload.prompt), /broadcast compression/i);
   assert.match(String(payload.prompt), /no influencer pose or beauty retouching/i);
-  assert.equal(payload.metadata.capture_preset, 'broadcast-candid');
+  assert.equal(payload.metadata, undefined);
 });
 
 test('rejects legacy nine-panel Midjourney requests before submitting a paid task', () => {
@@ -145,7 +145,7 @@ test('rejects legacy nine-panel Midjourney requests before submitting a paid tas
   }), /逐镜/);
 });
 
-test('keeps character-card shots on V8.2 with a stronger soft image reference', () => {
+test('keeps V8.2 character references separate from legacy cref controls', () => {
   const payload = buildMidjourneyImaginePayload({
     prompt: 'IMAGE GOAL:\nA doctor in practical laboratory light',
     aspectRatio: '16:9',
@@ -155,14 +155,14 @@ test('keeps character-card shots on V8.2 with a stronger soft image reference', 
   assert.equal(payload.version, '8.2');
   assert.equal(payload.size, '16:9');
   assert.equal(payload.raw, true);
-  assert.equal(payload.hd, true);
-  assert.equal(payload.stylize, 40);
+  assert.equal(payload.hd, undefined);
+  assert.equal(payload.stylize, undefined);
   assert.equal(payload.extra, undefined);
   assert.equal(payload.cref, undefined);
   assert.equal(payload.cw, undefined);
   assert.deepEqual(payload.image_urls, ['https://example.com/character.png']);
-  assert.equal(payload.iw, 0.65);
-  assert.match(String(payload.negative_prompt), /subtitles/);
+  assert.equal(payload.iw, undefined);
+  assert.equal(payload.negative_prompt, undefined);
 });
 
 test('keeps the environment reference and rejects portrait fallback for Story shots', () => {
@@ -184,11 +184,11 @@ test('keeps the environment reference and rejects portrait fallback for Story sh
     'https://example.com/mermaid.png',
     'https://example.com/guard.png',
   ]);
-  assert.equal(payload.iw, 0.55);
+  assert.equal(payload.iw, undefined);
   assert.match(String(payload.prompt), /staged inside the described location/i);
   assert.match(String(payload.prompt), /ignore their layout, name and typography/i);
-  assert.match(String(payload.negative_prompt), /studio portrait|character sheet|isolated turnaround/i);
-  assert.match(String(payload.negative_prompt), /reference-card typography|character name|letterbox title/i);
+  assert.match(String(payload.prompt), /never an isolated studio portrait or character turnaround/i);
+  assert.equal(payload.negative_prompt, undefined);
 });
 
 test('keeps Midjourney task identities distinguishable from unified APIMart tasks', () => {

@@ -7,9 +7,10 @@ import { buildImageCapturePresetContract } from './capturePresets';
 import { buildGptImage2PhotographicContract, buildGptImage2StoryPrompt } from './gptImagePrompt';
 import { getImageModelCapabilities, isComfyUIZImageTurbo, isGptImage2Model, isMidjourneyImageModel } from './imageModels';
 import { visibleImageCast } from './series/imageCastContract';
-import { isMidjourneyTask } from './midjourney';
+import { isMidjourneyTask, type MidjourneyStyleReference } from './midjourney';
 import { midjourneyShotInput } from './midjourneyStory';
 import { usesPhotographicReferences } from './gptImageReferences';
+import type { ImageStyleReference } from './imageStyleReference';
 
 // 为单个分镜生成图片
 export async function generateStoryboardImage(
@@ -27,6 +28,8 @@ export async function generateStoryboardImage(
   capturePreset?: CapturePreset,
   comfyui: ComfyUIClientSettings = {},
   midjourneyProfile = '',
+  midjourneyStyle: MidjourneyStyleReference = {},
+  styleReference?: ImageStyleReference,
 ): Promise<string> {
   const selectedImageModel = imageModel || 'seedream-5-0-pro';
   const photographicGpt = isGptImage2Model(selectedImageModel) && usesPhotographicReferences(visualStyle);
@@ -36,12 +39,14 @@ export async function generateStoryboardImage(
     }
     const shot = midjourneyShotInput(storyboard, characters, objects, globalCostumeImages, storyboard.sceneImageOverride || globalSceneImage);
     return createProviderImageTask(shot.prompt, shot.imageUrls, apiKey, selectedImageModel, aspectRatio, undefined, comfyui, {
+      styleReference,
       midjourneyReferenceMode: 'character', midjourneyTaskMode: 'story-shot',
       midjourneyVisualStyle: visualStyle, midjourneyCapturePreset: capturePreset || storyboard.capturePreset,
       midjourneyHasPeople: shot.hasPeople, midjourneyProfile,
+      midjourneyReferences: { styleReferenceUrl: midjourneyStyle.styleReferenceUrl, styleWeight: midjourneyStyle.styleWeight },
     });
   }
-  const maxReferenceImages = getImageModelCapabilities(selectedImageModel).maxReferenceImages;
+  const maxReferenceImages = Math.max(0, getImageModelCapabilities(selectedImageModel).maxReferenceImages - (styleReference ? 1 : 0));
   // 找到该分镜中出现的角色
   const sceneCharacters = visibleImageCast(storyboard, characters);
 
@@ -49,7 +54,9 @@ export async function generateStoryboardImage(
   const sceneObjects = objects.filter(o =>
     storyboard.objects?.includes(o.name)
   );
-  const exactCastContract = sceneCharacters.length
+  const exactCastContract = isGptImage2Model(selectedImageModel)
+    ? `NAMED CAST (${sceneCharacters.length}): ${sceneCharacters.length ? sceneCharacters.map(character => `${character.name} — exactly one visible instance`).join('; ') : 'none'}. Anonymous background people are permitted only when explicitly described in the shot brief; otherwise no extras. Keep them secondary and distinct from named characters. No duplicate identities or reflection doubles.`
+    : sceneCharacters.length
     ? `EXACT CAST (${sceneCharacters.length} total): ${sceneCharacters.map(character => `${character.name} — exactly one visible instance`).join('; ')}. Show no other person, creature, background extra, reflection-double, duplicate, twin, clone, or alternate pose. A character sheet may show several views of one identity; use it only to identify that one character and instantiate the character once.`
     : 'EXACT CAST (0 total): no person or character visible. Do not add background extras, silhouettes, reflections, portraits, or crowds.';
 
@@ -116,7 +123,7 @@ export async function generateStoryboardImage(
       .map(obj => obj.name);
     const gridObjectLock = `REFERENCE OBJECT LOCK: ${referencedObjectNames.length ? `the mapped references for ${referencedObjectNames.join(', ')} are immutable product/prop designs` : 'any input mapped as an object or product is an immutable design source'}. Preserve exact silhouette, proportions, component layout, construction, material, surface finish, color, texture, seams, interfaces, intentional markings and physical scale in every panel. Change only viewpoint, placement, lighting and physically possible articulation. Never redesign, simplify, stretch, melt, substitute, or add/remove parts. Existing object labels or logos may remain only as unchanged physical design details; add no other text.`;
     const providerCaptureContract = isGptImage2Model(selectedImageModel)
-      ? buildGptImage2PhotographicContract(visualStyle, capturePreset || storyboard.capturePreset)
+      ? buildGptImage2PhotographicContract(visualStyle, capturePreset || storyboard.capturePreset, { view: 'grid' })
       : `${buildMediumLock(visualStyle)}\n\n${buildImageCaptureContract(visualStyle)}\n\n${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}`;
     const enhancedPrompt = isStructuredGridPrompt ? `${cleanPrompt}
 
@@ -145,7 +152,11 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       .replace(/[\u200B-\u200D\uFEFF]/g, '');
 
     const promptLimit = isComfyUIZImageTurbo(selectedImageModel) ? 16000 : 4000;
-    const finalPrompt = isStructuredGridPrompt ? cleanPrompt : isGptImage2Model(selectedImageModel) ? cleanEnhancedPrompt : cleanEnhancedPrompt.length > promptLimit
+    // Structured grids already contain their ordered cast/reference mapping.
+    // Keep it intact, but do not drop the GPT-specific photographic treatment.
+    const finalPrompt = isStructuredGridPrompt ? isGptImage2Model(selectedImageModel)
+      ? `${cleanPrompt}\n\n${providerCaptureContract}` : cleanPrompt
+      : isGptImage2Model(selectedImageModel) ? cleanEnhancedPrompt : cleanEnhancedPrompt.length > promptLimit
       ? (() => {
           const truncIndex = cleanEnhancedPrompt.lastIndexOf('. ', promptLimit - 100);
           const truncated = truncIndex > 0 ? cleanEnhancedPrompt.substring(0, truncIndex + 1) : cleanEnhancedPrompt.substring(0, promptLimit);
@@ -172,6 +183,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
         // Storyboard contact sheets use V8.2 HD with a loose image reference.
         midjourneyReferenceMode: 'image',
         midjourneyTaskMode: 'grid',
+        styleReference,
         midjourneyVisualStyle: visualStyle,
         midjourneyCapturePreset: capturePreset || storyboard.capturePreset,
         midjourneyHasPeople: sceneCharacters.length > 0,
@@ -192,13 +204,17 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     const usingCostume = Boolean(globalCostumeImages[char.name]);
     characterReferenceEntries.push({
       image,
-      description: `CHARACTER IDENTITY ONLY — "${char.name}". ${photographicGpt ? `${char.description}. Preserve identity, anatomy and costume design; the photographic output contract controls the medium.` : usingCostume ? 'Preserve the exact face, body proportions, hairstyle, wardrobe, accessories, and visual medium.' : `${char.description}. Preserve this character's exact face, body, hair, wardrobe, and visual medium.`} Ignore the reference pose, camera, background, layout, duplicate views, labels, and text. Instantiate this identity exactly once when required by the cast contract.`,
+      description: photographicGpt
+        ? `CHARACTER IDENTITY ONLY — "${char.name}". ${char.description} Keep this face/head, age, species, anatomy, hair and wardrobe. Ignore the reference pose, background, layout and rendering style.`
+        : `CHARACTER IDENTITY ONLY — "${char.name}". ${usingCostume ? 'Preserve the exact face, body proportions, hairstyle, wardrobe, accessories, and visual medium.' : `${char.description}. Preserve this character's exact face, body, hair, wardrobe, and visual medium.`} Ignore the reference pose, camera, background, layout, duplicate views, labels, and text. Instantiate this identity exactly once when required by the cast contract.`,
       fallback: `Character requirement: "${char.name}" - ${char.description}. Preserve this identity exactly once.`,
     });
   });
   const sceneReferenceEntry = globalSceneImage ? {
       image: globalSceneImage,
-      description: 'ENVIRONMENT ONLY. Preserve architecture, geography, entrances, landmarks, time of day, motivated light direction, palette, atmosphere, and material language. Ignore any people, poses, framing, labels, or text in the reference.',
+      description: photographicGpt
+        ? 'ENVIRONMENT ONLY. Keep architecture, geography, entrances and landmarks. The current shot controls light, exposure and framing; do not copy people or rendering artifacts.'
+        : 'ENVIRONMENT ONLY. Preserve architecture, geography, entrances, landmarks, time of day, motivated light direction, palette, atmosphere, and material language. Ignore any people, poses, framing, labels, or text in the reference.',
       fallback: 'Scene requirement: follow the environment, lighting and atmosphere described in the storyboard prompt.',
     } : undefined;
   const objectReferenceEntries: Array<{ image: string; description: string; fallback: string }> = [];
@@ -247,6 +263,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       angle: storyboard.angle,
       cameraMove: storyboard.cameraMove,
       exactCast: exactCastContract,
+      characterCount: sceneCharacters.length,
       referenceDescriptions: globalSceneImage
         ? ['Reference image 1: ENVIRONMENT ONLY. Preserve its architecture, geography, practical light and material reality; ignore any people, pose, layout, labels and text.']
         : [],
@@ -275,6 +292,7 @@ ${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}`;
       {
         midjourneyReferenceMode: 'image',
         midjourneyTaskMode: 'story-shot',
+        styleReference,
         midjourneyVisualStyle: visualStyle,
         midjourneyCapturePreset: capturePreset || storyboard.capturePreset,
         midjourneyHasPeople: false,
@@ -312,6 +330,7 @@ ${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}`;
     angle: storyboard.angle,
     cameraMove: storyboard.cameraMove,
     exactCast: exactCastContract,
+    characterCount: sceneCharacters.length,
     referenceDescriptions,
     visualStyle,
     capturePreset: capturePreset || storyboard.capturePreset,
@@ -380,6 +399,7 @@ Obey EXACT CAST literally. Maintain exact face, body proportions, hairstyle, clo
     comfyui,
     {
       midjourneyReferenceMode: globalSceneImage ? 'image' : sceneCharacters.length === 1 && referenceImages.length > 0 ? 'character' : 'image',
+      styleReference,
       midjourneyTaskMode: 'story-shot',
       midjourneyVisualStyle: visualStyle,
       midjourneyCapturePreset: capturePreset || storyboard.capturePreset,

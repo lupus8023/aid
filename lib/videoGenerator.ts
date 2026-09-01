@@ -5,6 +5,7 @@ import { compileTimedSpeech, storyboardAudioPlan, storyboardSpeech, validateSpee
 import { buildVideoCapturePresetContract, isObservationalCapturePreset } from './capturePresets';
 import { currentVideoDirection, videoDirectionEntityNames } from './videoDirection';
 import { FILM_ENDING_SECONDS } from './filmEnding';
+import { normalizeImageStyleReference, type ImageStyleReference } from './imageStyleReference';
 
 function h3Timestamp(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -182,6 +183,7 @@ function officialShotFraming(storyboard: Storyboard): string {
 }
 
 type VideoSegmentPromptOptions = {
+  styleReference?: ImageStyleReference;
   isFilmEnding?: boolean;
   firstFrameUrl?: string;
   duration?: number;
@@ -618,7 +620,23 @@ export function buildVideoSegmentPrompt(
   options: VideoSegmentPromptOptions = {},
 ): string {
   const duration = Math.min(15, Math.max(4, options.duration || estimateVideoSegmentSeconds(storyboards)));
-  return applyFilmEndingPrompt(buildOfficialGuidePrompt(storyboards, characterAudios, options), duration, options.isFilmEnding === true);
+  return applyFilmEndingPrompt(applySeriesVideoStyle(applyVideoDuplicateRepairPrompt(buildOfficialGuidePrompt(storyboards, characterAudios, options), storyboards.map(b => b.videoDuplicateRepairPrompt || '').filter(Boolean).join(' ')), options.styleReference), duration, options.isFilmEnding === true);
+}
+
+/** Preserve repair direction even when the editor has a saved complete prompt override. */
+export function applyVideoDuplicateRepairPrompt(prompt: string, correction?: string): string {
+  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^CHARACTER CONTINUITY REPAIR:[^\n]*\n?/gm, '')).join('').trimEnd();
+  return correction ? fitH3PromptBudget(`${clean}\nCHARACTER CONTINUITY REPAIR: ${correction.replace(/\s+/g, ' ').slice(0, 1200)}`) : clean;
+}
+
+/** The picture inputs already carry the style; never add its person as a video reference. */
+export function applySeriesVideoStyle(prompt: string, value?: ImageStyleReference): string {
+  const style = normalizeImageStyleReference(value);
+  if (!style) return prompt;
+  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^SERIES LOOK:[^\n]*\n?/gm, '')).join('');
+  const direction = `SERIES LOOK: Retain the approved input frames' shared cultural art direction, palette, warm/cool balance, lens rendering, lighting character, highlight roll-off and material texture. ${String(style.description || '').replace(/\s+/g,' ').slice(0,800)} Adapt to the authored shot, time and practical light; keep each character's identity, costume, action and camera movement unchanged. No style-image person, pose or scenery is added.\n`;
+  const index = clean.search(/^overall_soundscape:/m);
+  return fitH3PromptBudget(index >= 0 ? `${clean.slice(0,index)}${direction}\n${clean.slice(index)}` : `${clean}\n${direction}`);
 }
 
 /** Also applied to saved prompt overrides; dialogue remains byte-for-byte intact. */

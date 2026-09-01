@@ -3,8 +3,23 @@ import type { Character, Storyboard } from '@/types';
 export type ImageCastCharacter = Pick<Character, 'name' | 'description' | 'imageUrl'> & { appearance?: 'on_screen' | 'voice_only' };
 export interface ImageCastCheck { sceneNumber: number; imageUrl: string; passed: boolean | null; issues: string[] }
 
-export function visibleImageCast<T extends ImageCastCharacter>(board: Pick<Storyboard, 'characters'>, characters: T[]): T[] {
-  return characters.filter(c => board.characters.includes(c.name) && c.appearance !== 'voice_only');
+type CastBoard = Pick<Storyboard, 'characters'> & Partial<Pick<Storyboard, 'prompt'>>;
+
+// Director identity tags describe depicted roles, including silent companions
+// omitted from a dialogue-driven beat cast. Do not scan dialogue or infer names
+// from arbitrary prose: a mentioned or off-screen character need not be visible.
+export function storyboardVisualCastNames(board: CastBoard, knownNames: string[]): string[] {
+  const names = new Set(board.characters);
+  for (const match of (board.prompt || '').matchAll(/\[([^\]\n]+)\]\(([^)\n]*)\)/g)) {
+    const name = match[1].trim();
+    if (knownNames.includes(name) && !/off[ -]?screen|voice[ -]?only|not visible|画外|仅声音/i.test(match[2])) names.add(name);
+  }
+  return [...names];
+}
+
+export function visibleImageCast<T extends ImageCastCharacter>(board: CastBoard, characters: T[]): T[] {
+  const names = storyboardVisualCastNames(board, characters.map(c => c.name));
+  return characters.filter(c => names.includes(c.name) && c.appearance !== 'voice_only');
 }
 
 export function prepareImageCastRepair(board: Storyboard, check: ImageCastCheck, characters: ImageCastCharacter[]): Storyboard {
@@ -13,7 +28,8 @@ export function prepareImageCastRepair(board: Storyboard, check: ImageCastCheck,
   if (attempts >= 2) throw new Error(`镜头${board.sceneNumber}角色核验在两次自动补图后仍未通过：${check.issues.join('；')}。已保留其余成果，停止继续付费。`);
   const cast = visibleImageCast(board, characters);
   return {
-    ...board, imageUrl: undefined, gridSourceUrl: undefined, taskId: undefined, imageTaskMode: undefined, imageCandidateUrls: undefined,
+    ...board, characters: storyboardVisualCastNames(board, characters.filter(c => c.appearance !== 'voice_only').map(c => c.name)),
+    imageUrl: undefined, gridSourceUrl: undefined, taskId: undefined, imageTaskMode: undefined, imageCandidateUrls: undefined,
     imagePromptOverride: undefined, imageRetryCount: 0, status: 'pending',
     imageFailureReason: `角色一致性自动修复：${check.issues.join('；')}`,
     imageCastRepairAttempts: attempts + 1,

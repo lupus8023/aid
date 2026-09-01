@@ -18,7 +18,7 @@ function statusHint(status: number): string {
  * Read an API response exactly once and keep HTML gateway/error pages away from
  * JSON.parse. This is shared by Story's browser-side generation requests.
  */
-export async function readApiJson<T>(response: Response, context: string): Promise<T> {
+export async function readApiJson<T>(response: Response, context: string, options: { taskStatus?: boolean } = {}): Promise<T> {
   const body = await response.text();
   const contentType = String(response.headers.get('content-type') || '').toLowerCase();
   let data: any;
@@ -55,7 +55,8 @@ export async function readApiJson<T>(response: Response, context: string): Promi
 
   // Streaming responses have already committed HTTP 200 before the long task
   // finishes, so task failures arrive as a structured final event.
-  if (typeof data?.error === 'string' && data.error.trim()) {
+  if (typeof data?.error === 'string' && data.error.trim() &&
+      !(options.taskStatus && !contentType.includes('text/event-stream') && data.status === 'failed')) {
     throw new ApiResponseError(`${context}：${data.error}`, data?.code);
   }
 

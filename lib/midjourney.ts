@@ -8,11 +8,46 @@ export const DEFAULT_MIDJOURNEY_PERSONALIZATION_PROFILE = 'votj2t8';
 export type MidjourneyReferenceMode = 'image' | 'character' | 'style';
 export type MidjourneyTaskMode = 'single' | 'story-shot' | 'grid' | 'character-sheet';
 
+export interface MidjourneyReferenceOptions {
+  version?: '6.1' | '7' | '8.2';
+  /** One identity, not an array of independently bound actors. */
+  characterReferenceUrl?: string;
+  characterWeight?: number;
+  omniWeight?: number;
+  styleReferenceUrl?: string;
+  styleWeight?: number;
+}
+
+export type MidjourneyStyleReference = Pick<MidjourneyReferenceOptions, 'styleReferenceUrl' | 'styleWeight'>;
+
+export function resolveMidjourneyStyleSetting(settings: {
+  midjourneyStyleReferenceUrl?: string;
+  midjourneyStyleWeight?: number;
+}): MidjourneyStyleReference {
+  return settings.midjourneyStyleReferenceUrl?.trim()
+    ? { styleReferenceUrl: settings.midjourneyStyleReferenceUrl.trim(), styleWeight: settings.midjourneyStyleWeight ?? 100 }
+    : {};
+}
+
+function referenceUrl(value: string | undefined, label: string): string {
+  if (!value) return '';
+  const url = value.trim();
+  if (!/^https?:\/\/\S+$/i.test(url)) throw new Error(`${label}需要可公开访问的 HTTP(S) 图片地址`);
+  return url;
+}
+
+function referenceWeight(value: number | undefined, fallback: number, min: number, max: number, label: string): number {
+  const weight = value ?? fallback;
+  if (!Number.isInteger(weight) || weight < min || weight > max) throw new Error(`${label}须为 ${min}–${max} 的整数`);
+  return weight;
+}
+
 export interface MidjourneyPromptOptions {
   visualStyle?: VisualStyle;
   capturePreset?: CapturePreset;
   taskMode?: MidjourneyTaskMode;
   hasPeople?: boolean;
+  hasStyleReference?: boolean;
 }
 
 const CAPTURE_DIRECTIONS: Record<CapturePreset, string> = {
@@ -25,6 +60,18 @@ const CAPTURE_DIRECTIONS: Record<CapturePreset, string> = {
   surveillance: 'fixed high-angle surveillance viewpoint, wide spatial coverage, limited image quality and no camera-aware performance',
   'commercial-studio': 'controlled premium commercial camera, exact placement, shaped light and clean focal hierarchy',
   'follow-reference': 'inherit the reference camera distance, viewpoint, framing behavior and justified image texture',
+};
+
+const ENVIRONMENT_CAPTURE_DIRECTIONS: Record<CapturePreset, string> = {
+  'cinematic-narrative': 'readable foreground, middle ground and background, motivated light sources',
+  'broadcast-candid': 'live-television long-lens observation, off-center framing, restrained broadcast compression',
+  'documentary-follow': 'observational documentary camera, available light, naturally imperfect handheld framing',
+  'phone-bystander': 'casual phone capture, imperfect handheld framing, automatic exposure and focus',
+  'news-telephoto': 'distant news telephoto observation, compressed perspective, restricted sightline',
+  'home-video': 'casual home-video framing, consumer optics, automatic focus and exposure',
+  surveillance: 'fixed high-angle surveillance viewpoint, wide spatial coverage, limited image quality',
+  'commercial-studio': CAPTURE_DIRECTIONS['commercial-studio'],
+  'follow-reference': CAPTURE_DIRECTIONS['follow-reference'],
 };
 
 export function normalizeMidjourneyProfileCode(value: unknown): string {
@@ -44,7 +91,7 @@ export function resolveMidjourneyProfileSetting(settings: {
 
 const STYLE_DIRECTIONS: Partial<Record<VisualStyle, string>> = {
   'follow-reference': 'match the reference medium, palette, contrast, lighting and texture without mixing in a second visual style',
-  'cinematic-natural': 'a frame photographed for a high-budget live-action feature on a physical location or built set, real human actor in practical makeup and a physically made costume, individual facial asymmetry, unretouched pores, baby hairs and tiny skin variation, truthful wet hair skin fabric and scales, physically believable water weight contact shadows and atmospheric depth, natural cinema exposure and white balance, restrained color, gentle highlight roll-off and real optical focus falloff',
+  'cinematic-natural': 'a frame photographed for a high-budget live-action feature on a physical location or built set, physically present subjects with practical makeup and physically made costumes where specified, preserve each described species and anatomy, individual facial asymmetry and natural skin or species-appropriate surface variation, truthful wet hair skin fabric and scales, physically believable water weight contact shadows and atmospheric depth, natural cinema exposure and white balance, restrained color, gentle highlight roll-off and real optical focus falloff',
   'warm-film': 'warm photochemical 35mm cinema, creamy but textured skin, amber practical light, fine irregular grain, organic spherical-prime focus falloff, restrained halation only around bright sources, honey highlights and textured lifted shadows',
   'neo-noir': 'grounded neo-noir live action, cool cyan-black separation, sparse warm practicals, one hard motivated edge light, strong negative fill, dense textured shadows, wet controlled reflections, deliberate foreground obstruction and restrained grain',
   documentary: 'unstaged observational documentary photography, available location light, authentic skin and clothing wear, ordinary contrast, finite exposure, mild sensor texture, real contact shadows and imperfect but purposeful framing',
@@ -53,13 +100,6 @@ const STYLE_DIRECTIONS: Partial<Record<VisualStyle, string>> = {
   '3d-cg': 'feature-quality cinematic 3D, stable topology and grooming, physically based skin cloth metal and environment materials, unified global illumination, motivated key light, contact shadows, restrained volumetric depth and a physical virtual-camera perspective',
   'stop-motion': 'photographed handmade stop-motion miniature, tactile clay fabric paper and paint, visible seams and tiny construction variation, practical tabletop lighting, hard miniature contact shadows, macro-lens depth and subtle frame texture',
 };
-
-function clipWords(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  const candidate = value.slice(0, Math.max(1, maxLength - 3));
-  const boundary = candidate.lastIndexOf(' ');
-  return `${(boundary > maxLength * 0.65 ? candidate.slice(0, boundary) : candidate).trimEnd()}...`;
-}
 
 function cleanText(value: string): string {
   return value
@@ -77,40 +117,27 @@ function section(source: string, heading: string): string {
   return match?.[1]?.trim() || '';
 }
 
-function compactGridPrompt(source: string): string {
-  const panels = source
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => /^Panel\s+\d+\b/i.test(line))
-    .map(line => clipWords(line.replace(/\s*CAST\[[^\]]*\][^.]*\.?/gi, '').trim(), 155))
-    .slice(0, 9);
-  const scene = section(source, 'Scene continuity').slice(0, 240);
-  const identities = section(source, 'Character identities (match mapped references exactly wherever they appear)').slice(0, 260);
-  return [
-    'STRICT 3x3 STORYBOARD LAYOUT: exactly three equal horizontal rows, each row contains exactly three equal rectangular cinematic panels; 3 columns x 3 rows equals nine panels, read left-to-right then top-to-bottom; clean edge-to-edge frames without captions, labels or borders.',
-    ...panels,
-    scene ? `Continuous setting: ${scene}` : '',
-    identities ? `Recurring character appearance: ${identities}` : '',
-  ].filter(Boolean).join(' ');
-}
-
 function compactCharacterPrompt(source: string): string {
   const firstLine = source.split('\n').find(line => line.trim())?.trim() || 'Cinematic character portrait';
   const fields = source
     .split('\n')
     .map(line => line.trim())
     .filter(line => /^(?:Character description|Locked wardrobe and grooming|Role \/ identity|Approximate age|Personality keywords|Core theme|Name|Role \/ identity|Appearance|Wardrobe and grooming direction):/i.test(line))
-    .slice(0, 8);
-  const isSheet = /character sheet|contact sheet|production identity bible/i.test(firstLine);
+    .filter(line => !/:\s*(?:not specified\b|\.?$)/i.test(line));
+  const isConcept = /character concept contact sheet/i.test(firstLine);
   return [
-    isSheet
-      ? firstLine.replace(/high-precision\s*/i, '').replace(/\/ production identity bible/i, '')
-      : 'Cinematic character portrait',
+    firstLine.replace(/high-precision\s*/i, '').replace(/\/ production identity bible/i, ''),
     ...fields,
-    isSheet
-      ? 'clean neutral studio background, readable silhouette, consistent identity and wardrobe across every view'
-      : 'natural expression, readable silhouette, clean neutral background',
+    isConcept
+      ? 'each candidate fully visible in its own cell, explore distinct designs within the supplied brief'
+      : 'same identity in full-body front, three-quarter, side and back views, plus a face detail; preserve described anatomy, hairstyle and wardrobe in every view',
   ].join(', ');
+}
+
+function isCharacterBrief(source: string): boolean {
+  const firstLine = source.split('\n').find(line => line.trim())?.trim() || '';
+  // Match a requested output, never "not a character sheet" in scene prose.
+  return /^(?:(?:create|generate|render)\s+)?(?:(?:a|an|one|square|horizontal|vertical|high-precision|\d+:\d+)\s+)*(?:character sheet|character concept contact sheet|production identity bible)\b/i.test(firstLine);
 }
 
 /**
@@ -119,8 +146,8 @@ function compactCharacterPrompt(source: string): string {
  * reference bookkeeping and repeated negative instructions.
  */
 function inferTaskMode(source: string): MidjourneyTaskMode {
-  if (/UNIQUE STORYBOARD BATCH:|3x3 storyboard contact sheet/i.test(source)) return 'grid';
-  if (/Character Sheet|character concept contact sheet|production identity bible/i.test(source)) return 'character-sheet';
+  if (/^UNIQUE STORYBOARD BATCH:|^(?:create\s+)?(?:a\s+|one\s+)?3x3 storyboard contact sheet/im.test(source)) return 'grid';
+  if (isCharacterBrief(source)) return 'character-sheet';
   return 'single';
 }
 
@@ -140,15 +167,15 @@ function referencedObjectDirection(source: string): string {
 }
 
 export function buildMidjourneyPrompt(input: string, options: MidjourneyPromptOptions = {}): string {
-  const source = cleanText(input).replace(/--[a-z]+(?:\s+[^\s]+)?/gi, '');
+  const source = cleanText(input)
+    .replace(/--(?:raw|hd|draft|tile)(?=\s|$)/gi, '')
+    .replace(/--(?:profile|p|ar|aspect|v|version|q|quality|stylize|s|chaos|c|weird|w|seed|iw|cref|cw|sref|sw|oref|ow|dref|dw|stop|repeat|r|niji|style)\s+[^\s]+/gi, '');
   const objectLock = referencedObjectDirection(source);
   const taskMode = options.taskMode || inferTaskMode(source);
-  if (taskMode === 'grid' || /UNIQUE STORYBOARD BATCH:/i.test(source)) throw new Error('MJ 不再生成分镜九宫格，请逐镜生成');
+  if (taskMode === 'grid' || /^UNIQUE STORYBOARD BATCH:/im.test(source)) throw new Error('MJ 不再生成分镜九宫格，请逐镜生成');
   let visual = '';
 
-  if (/UNIQUE STORYBOARD BATCH:/i.test(source)) {
-    visual = compactGridPrompt(source);
-  } else if (/Character Sheet|character concept contact sheet|production identity bible/i.test(source)) {
+  if (taskMode === 'character-sheet' && isCharacterBrief(source)) {
     visual = compactCharacterPrompt(source);
   } else {
     visual = section(source, 'IMAGE GOAL')
@@ -167,26 +194,38 @@ export function buildMidjourneyPrompt(input: string, options: MidjourneyPromptOp
     .trim();
 
   const normalizedStyle = options.visualStyle || 'cinematic-natural';
-  const styleDirection = STYLE_DIRECTIONS[normalizedStyle] || STYLE_DIRECTIONS['cinematic-natural']!;
-  const captureDirection = CAPTURE_DIRECTIONS[options.capturePreset || 'cinematic-narrative'];
+  // sref supplies the finish. Do not stack a competing generic style manifesto
+  // over the user's approved look, or describe its actor as part of this cast.
+  const styleDirection = options.hasStyleReference
+    ? 'lighting, color and surface texture consistent with the style reference'
+    : STYLE_DIRECTIONS[normalizedStyle] || STYLE_DIRECTIONS['cinematic-natural']!;
   const hasPeople = options.hasPeople ?? inferPeople(visual);
+  const captureDirection = taskMode === 'character-sheet'
+    ? 'neutral studio lighting, unobstructed silhouette and clear material detail'
+    : !hasPeople
+      ? `${ENVIRONMENT_CAPTURE_DIRECTIONS[options.capturePreset || 'cinematic-narrative']}, no people`
+      : CAPTURE_DIRECTIONS[options.capturePreset || 'cinematic-narrative'];
   const subjectFinish = hasPeople && !/anime|3D|stop-motion/i.test(styleDirection)
     ? 'natural anatomy, restrained expression and believable body weight'
     : 'coherent geometry, physical material response and intentional depth';
   const taskFinish = taskMode === 'character-sheet'
-      ? 'one identity repeated consistently across the requested production views on a plain neutral studio background'
+      ? /character concept contact sheet/i.test(source.split('\n')[0])
+        ? 'distinct candidate designs on a plain neutral background, no text or labels'
+        : 'one identity on a plain neutral background, no text or labels'
       : taskMode === 'story-shot'
-        ? 'one complete narrative film frame staged inside the described location, the environment and action geometry remain clearly readable, use reference cards for identity only and ignore their layout, name and typography, never an isolated studio portrait or character turnaround'
+        ? `one complete narrative film frame staged inside the described location, the environment and action geometry remain clearly readable${hasPeople ? ', use reference cards for identity only and ignore their layout, name and typography, never an isolated studio portrait or character turnaround' : ''}`
       : 'one clean standalone frame with a clear subject hierarchy';
   const prompt = `${visual.replace(/[.;]+$/, '')}, ${objectLock ? `${objectLock}, ` : ''}${captureDirection}, ${styleDirection}, ${subjectFinish}, ${taskFinish}`;
   if (taskMode === 'story-shot') {
+    // These template paragraphs precede generic style contracts with headings
+    // that are not always plain "HEADING:". Do not re-import that boilerplate.
+    const framing = ['COMPOSITION', 'OUTPUT'].map(heading => section(source, heading).split(/\n\s*\n/)[0]).filter(Boolean);
     const locks = ['LOCKED IDENTITIES', 'REFERENCE ROLES', 'CAST LOCK'].map(heading => section(source, heading)).filter(Boolean);
-    // Identity instructions cannot be clipped away by the general 1100-char
-    // style compiler. Only the current shot and its fixed references are sent.
-    return [visual, ...locks, objectLock, captureDirection, styleDirection, subjectFinish, taskFinish].filter(Boolean).join('\n');
+    // Preserve this shot's framing and identity instructions in full.
+    return [visual, ...framing, ...locks, objectLock, captureDirection, styleDirection, subjectFinish, taskFinish].filter(Boolean).join('\n');
   }
-  const maxLength = taskMode === 'character-sheet' ? 1400 : 1100;
-  return clipWords(prompt, maxLength);
+  // Compact boilerplate above, not user descriptions or continuity constraints.
+  return prompt;
 }
 
 export function buildMidjourneyImaginePayload(input: {
@@ -199,25 +238,28 @@ export function buildMidjourneyImaginePayload(input: {
   taskMode?: MidjourneyTaskMode;
   hasPeople?: boolean;
   personalizationProfile?: string;
+  references?: MidjourneyReferenceOptions;
 }): Record<string, unknown> {
   const taskMode = input.taskMode || inferTaskMode(input.prompt);
   const hasPeople = input.hasPeople ?? inferPeople(input.prompt);
-  const hasObjectReference = /OBJECT IDENTITY(?: ONLY)?\s*[:—-]|Object requirement\s*:/i.test(input.prompt);
-  const imageUrls = [...new Set((input.imageUrls || []).filter(url => typeof url === 'string' && url.trim()))].slice(0, 4);
-  const liveActionStyle = !['anime', '3d-cg', 'stop-motion', 'follow-reference'].includes(input.visualStyle || 'cinematic-natural');
-  const negatives = taskMode === 'grid'
-    ? [
-        'captions, panel labels, watermark, user interface, overlapping panels, irregular grid, missing panels, repeated panel, two rows, six panels, 2x3 layout, triptych, freeform collage',
-        liveActionStyle && hasPeople ? 'CGI, 3D render, doll, figurine, illustration, anime, digital character art, beauty render, airbrushed face, plastic skin, wax skin' : '',
-      ].filter(Boolean).join(', ')
-    : taskMode === 'character-sheet'
-      ? 'scenic background, watermark, logo, unrelated props, inconsistent face, inconsistent wardrobe, extra limbs, deformed anatomy'
-      : [
-          'subtitles, captions, speech bubbles, watermark, user interface, split screen, reference-card typography, character name, readable signage, letterbox title',
-          hasPeople ? 'duplicate people, extra limbs, deformed anatomy, plastic skin' : 'unrequested people, broken geometry',
-          taskMode === 'story-shot' ? 'studio portrait, neutral studio backdrop, character sheet, fashion catalog, isolated turnaround, passport photo' : '',
-          'oversaturated colors',
-        ].filter(Boolean).join(', ');
+  const imageUrls = [...new Set((input.imageUrls || []).filter(url => typeof url === 'string' && url.trim()).map(url => url.trim()))];
+  const references = input.references || {};
+  const version = references.version || '8.2';
+  if (!['6.1', '7', '8.2'].includes(version)) throw new Error('不支持的 MJ 参考模型版本');
+  const characterUrl = referenceUrl(references.characterReferenceUrl, '角色参考');
+  if (references.characterWeight !== undefined && (version !== '6.1' || !characterUrl)) {
+    throw new Error('cw 仅适用于已指定 cref 的 V6.1 请求');
+  }
+  if (references.omniWeight !== undefined && (version !== '7' || !characterUrl)) {
+    throw new Error('ow 仅适用于已指定 oref 的 V7 请求');
+  }
+  const styleUrl = referenceUrl(references.styleReferenceUrl, '风格参考')
+    || (input.referenceMode === 'style' ? imageUrls[0] || '' : '');
+  if (input.referenceMode === 'style') imageUrls.length = 0;
+  if (version !== '8.2' && input.referenceMode === 'character' && imageUrls.length && !characterUrl) {
+    throw new Error('V6.1/V7 必须单独指定角色参考，不会把多个人物合并为同一身份');
+  }
+  if (imageUrls.length > 4) throw new Error('MJ 最多4张内容参考，不能静默丢弃参考图');
   const requestedProfile = String(input.personalizationProfile || '').trim();
   const personalizationProfile = normalizeMidjourneyProfileCode(requestedProfile);
   if (requestedProfile && !personalizationProfile) {
@@ -229,25 +271,15 @@ export function buildMidjourneyImaginePayload(input: {
       capturePreset: input.capturePreset,
       taskMode,
       hasPeople,
+      hasStyleReference: Boolean(styleUrl),
     }),
     size: input.aspectRatio,
     // Character story shots with references use the V8.2 edit endpoint below.
     // Ordinary image guidance remains available for unrelated single images.
-    version: '8.2',
-    speed: 'relax',
-    quality: '1',
+    version,
+    // Keep the chosen photographic treatment; leave unrelated optional controls
+    // at APIMart defaults instead of appending a synthetic parameter recipe.
     raw: true,
-    stylize: liveActionStyle ? 40 : 75,
-    chaos: liveActionStyle ? 1 : 2,
-    negative_prompt: negatives,
-    metadata: {
-      source: 'aid',
-      prompt_profile: 'cinematic-v2',
-      task_mode: taskMode,
-      visual_style: input.visualStyle || 'cinematic-natural',
-      capture_preset: input.capturePreset || 'cinematic-narrative',
-    },
-    hd: true,
   };
 
   if (personalizationProfile) {
@@ -255,35 +287,44 @@ export function buildMidjourneyImaginePayload(input: {
     // after the structured body has been normalized. Keep personalization out
     // of editable prose so prompt cleanup cannot remove it.
     body.extra = `--profile ${personalizationProfile}`;
-    (body.metadata as Record<string, unknown>).personalization_profile = personalizationProfile;
   }
 
-  if (!imageUrls.length) return body;
-  if (input.referenceMode === 'character') {
-    body.image_urls = imageUrls;
-    body.iw = liveActionStyle ? 0.65 : 0.85;
-  } else if (input.referenceMode === 'style') {
-    body.sref = imageUrls[0];
-    body.sw = 100;
-  } else {
-    body.image_urls = imageUrls;
-    body.iw = hasObjectReference
-      ? taskMode === 'grid' ? 0.75 : taskMode === 'story-shot' ? 0.7 : 0.9
-      : taskMode === 'story-shot' ? 0.55 : taskMode === 'grid' ? 0.65 : 0.9;
+  if (styleUrl) {
+    body.sref = styleUrl;
+    body.sw = referenceWeight(references.styleWeight, 100, 0, 1000, '风格权重');
   }
+  if (characterUrl && version === '6.1') {
+    body.cref = characterUrl;
+    body.cw = referenceWeight(references.characterWeight, 100, 0, 100, '角色权重');
+  } else if (characterUrl && version === '7') {
+    const ow = referenceWeight(references.omniWeight, 100, 1, 1000, 'Omni 权重');
+    body.extra = [body.extra, `--oref ${characterUrl} --ow ${ow}`].filter(Boolean).join(' ');
+  } else if (characterUrl) {
+    if (!imageUrls.includes(characterUrl)) imageUrls.unshift(characterUrl);
+    if (imageUrls.length > 4) throw new Error('V8.2 编辑模型最多4张内容参考');
+  }
+  // Legacy style-only callers must not accidentally submit an empty edit job.
+  if (input.referenceMode === 'style' && !characterUrl) return body;
+  if (!imageUrls.length) return body;
+  body.image_urls = imageUrls;
   return body;
 }
 
-export function midjourneyGenerationPath(taskMode: MidjourneyTaskMode | undefined, hasReferences: boolean): string {
-  return taskMode === 'story-shot' && hasReferences ? '/midjourney/generations/edits' : '/midjourney/generations';
+export function midjourneyGenerationPath(taskMode: MidjourneyTaskMode | undefined, hasReferences: boolean, version = '8.2', referenceMode?: MidjourneyReferenceMode): string {
+  return version === '8.2' && hasReferences && (taskMode === 'story-shot' || referenceMode === 'character')
+    ? '/midjourney/generations/edits' : '/midjourney/generations';
 }
 
-/** Keep the tested edit contract separate from Imagine's generation controls. */
+/** APIMart Edits supports the same optional controls; keep our minimal contract. */
 export function midjourneyEditPayload(imagine: Record<string, unknown>): Record<string, unknown> {
   return {
     prompt: imagine.prompt, image_urls: imagine.image_urls, version: imagine.version,
-    size: imagine.size, speed: imagine.speed, metadata: imagine.metadata,
+    size: imagine.size,
     ...(imagine.extra ? { extra: imagine.extra } : {}),
+    // Verified against APIMart EDITS: these survive into prompt_en as native
+    // --sref/--sw/--raw. Keep style separate from the four content references.
+    ...(imagine.sref ? { sref: imagine.sref, sw: imagine.sw } : {}),
+    ...(imagine.raw !== undefined ? { raw: imagine.raw } : {}),
   };
 }
 

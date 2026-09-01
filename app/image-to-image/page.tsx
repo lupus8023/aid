@@ -10,7 +10,7 @@ import { readApiJson } from '@/lib/apiResponse';
 import { imageCreationInputError } from '@/lib/imageCreation';
 import { getImageModelCapabilities, imageModelRequiresApiKey, isComfyUIZImageTurbo, isMidjourneyImageModel } from '@/lib/imageModels';
 import { imageApiUrl, localComfyUISettings } from '@/lib/comfyuiClient';
-import { resolveMidjourneyProfileSetting } from '@/lib/midjourney';
+import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '@/lib/midjourney';
 
 const MAX_REFERENCE_FILE_BYTES = 8 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES = 1200 * 1024;
@@ -186,6 +186,7 @@ export default function ImageToImagePage() {
           visualStyle: settings.visualStyle,
           comfyui: localComfyUISettings(settings.comfyui),
           midjourneyProfile: resolveMidjourneyProfileSetting(settings),
+    midjourneyStyle: resolveMidjourneyStyleSetting(settings),
         })
       });
 

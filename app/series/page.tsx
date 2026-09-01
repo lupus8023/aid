@@ -29,6 +29,7 @@ import {
 import SettingsModal from "@/components/SettingsModal";
 import SeriesCastPicker from "@/components/SeriesCastPicker";
 import SeriesVoicePicker from '@/components/SeriesVoicePicker';
+import SeriesStyleReferenceEditor from '@/components/SeriesStyleReferenceEditor';
 import { useSettings } from "@/hooks/useSettings";
 import { readApiJson } from "@/lib/apiResponse";
 import { PRODUCTION_STYLE_PRESETS } from "@/lib/promptArchitecture";
@@ -338,12 +339,13 @@ function CharacterCard({
   onLibrary: () => void;
   onVoice: () => void;
 }) {
+  const imageIssue = character.imageIssue || character.photographicAnchor?.imageIssue;
   return (
     <article className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]">
       {character.bibleUrl || character.imageUrl ? (
         <img
           src={character.bibleUrl || character.imageUrl}
-          alt={`${character.name}角色定稿`}
+          alt={`${character.name}${character.bibleUrl ? '角色定稿' : '原始参考图，尚未生成本轮角色卡'}`}
           className="aspect-[4/3] w-full bg-[#141517] object-contain"
         />
       ) : (
@@ -365,6 +367,10 @@ function CharacterCard({
           {character.role}{" "}
           {character.appearance === "voice_only" ? "· 仅声音" : ""}
         </p>
+        {!character.bibleUrl && character.imageUrl && character.appearance !== 'voice_only' && <p className="mt-2 text-xs text-amber-200">当前显示原始参考图；本轮角色卡尚未完成。</p>}
+        {imageIssue && !character.bibleUrl && <p role="status" className="mt-3 text-xs leading-5 text-amber-200">
+          {imageIssue.kind === 'review' ? '图像未通过上游审核，不会自动重复提交。' : '图像尚未完成。'}{imageIssue.message}
+        </p>}
         {character.casting && (
           <p className="mt-3 text-xs text-[#c1afff]">
             由角色库「{character.casting.name}」出演 · 形象已复用
@@ -657,6 +663,28 @@ export default function SeriesPage() {
     { action: "delete-job", seriesId: job.seriesId, jobId: job.id },
     "失败任务已删除，剧本、制作断点、素材和成片均保留。",
   );
+  const saveStyleReference = async (file: File | undefined, description: string, remove = false) => {
+    if (!project || busy || editingLocked || base === undefined) return false;
+    const target = project;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const status = await readApiJson<{seriesStyleReference?:boolean}>(await fetch(`${base}/api/companion/status`), '无法检查风格参考支持');
+      if (!status.seriesStyleReference) throw new Error('当前 Companion 尚不支持全系列风格参考，请更新后再保存');
+      let imageUrl = target.styleReference?.imageUrl;
+      if (file) {
+        if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 15 * 1024 * 1024) throw new Error('请选择15MB以内的PNG、JPEG或WebP图片');
+        const imageData = await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file);});
+        const uploaded = await readApiJson<{url:string}>(await fetch(`${base}/api/upload-image`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageData})}), '风格图上传失败');
+        imageUrl=uploaded.url;
+      }
+      if (!remove && !imageUrl) throw new Error('请先上传风格参考图');
+      await seriesRequest({action:'edit',seriesId:target.id,revision:target.revision,patch:{styleReference:remove?null:{imageUrl,description}}},base);
+      await refresh(base);
+      setNotice('全系列风格已保存。旧视觉素材已归档，继续队列将按新风格重制；剧本和声音保留。');
+      return true;
+    } catch (err) { setError(err instanceof Error?err.message:'风格保存失败'); return false; }
+    finally { setBusy(false); }
+  };
   const enqueue = async (kind: SeriesJobKind, episodeIds?: string[]) => {
     if (kind === "prepare") {
       if (base === undefined || prepareBlocker) return;
@@ -1332,9 +1360,15 @@ export default function SeriesPage() {
                 )}
                 {tab === "cast" && (
                   <>
+                    <SeriesStyleReferenceEditor key={`${project.id}-${project.styleReference?.version || 0}`} style={project.styleReference} disabled={editingLocked || busy || !connected} onSave={saveStyleReference}/>
                     <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-sm">全剧公共资产</p>
+                        <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
+                          全剧 {project.characters.length} 个角色：{project.characters.filter(c => c.appearance !== 'voice_only').length} 个需要角色卡，{project.characters.filter(c => c.appearance === 'voice_only').length} 个仅声音。
+                          已保存角色卡 {project.characters.filter(c => c.appearance !== 'voice_only' && c.bibleUrl).length} / {project.characters.filter(c => c.appearance !== 'voice_only').length}；
+                          {project.characters.filter(c => c.appearance !== 'voice_only' && !c.bibleUrl && (c.imageIssue || c.photographicAnchor?.imageIssue)?.kind === 'review').length} 张待上游复核。
+                        </p>
                         <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
               角色按固定编号复用。未指定声音时自动搜索 Fish 工作区、平台授权库和公共库，试读校验后固定；也可手动试听并指定。公共音色来源会明确标记，不等于平台授权认证，请确保项目使用范围符合音色许可。音色不足时其余素材继续准备。
                         </p>
@@ -1393,6 +1427,7 @@ export default function SeriesPage() {
                           key={l.id}
                           className="overflow-hidden rounded-xl border border-[var(--border-color)]"
                         >
+                          {l.imageIssue && !l.imageUrl && <p role="status" className="mt-2 text-xs text-amber-200">{l.imageIssue.message}</p>}
                           {l.imageUrl && (
                             <img
                               className="aspect-video w-full object-cover"
@@ -1571,6 +1606,12 @@ export default function SeriesPage() {
                                     </a>
                                   </div>
                                 </div>
+                                {d.episodeVersion === e.version && e.production?.storyboards?.filter((b) => b.videoEndingWarning).map((b) => (
+                                  <p key={b.id} className="mt-2 text-xs text-amber-300" role="status">{b.videoEndingWarning}</p>
+                                ))}
+                                {d.episodeVersion === e.version && e.production?.storyboards?.filter((b) => b.videoDuplicateAudit?.passed === null).map((b) => (
+                                  <p key={`cast-${b.id}`} className="mt-2 text-xs text-amber-300" role="status">第{b.sceneNumber}镜：{b.videoDuplicateAudit?.reason}</p>
+                                ))}
                                 {preview === d.id && (
                                   <video
                                     controls

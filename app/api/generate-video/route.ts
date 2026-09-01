@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { applyFilmEndingPrompt, buildStoryboardVideoPrompt, buildVideoSegmentPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
+import { applyFilmEndingPrompt, applySeriesVideoStyle, applyVideoDuplicateRepairPrompt, buildStoryboardVideoPrompt, buildVideoSegmentPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
 import { snapDurationToModel } from '@/lib/apimart';
 import { createComfyUIVideoTask } from '@/lib/comfyui';
 import { compileTimedSpeech, storyboardSpeech } from '@/lib/speechAudioContract';
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds, MAX_H3_SEGMENT_SECONDS } from '@/lib/videoSegments';
 import { createFalH3MaxVideoTask } from '@/lib/falVideo';
+import { filmEndingDuration } from '@/lib/filmEnding';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -28,7 +29,7 @@ function speakingCharacterNames(storyboard: any): string[] {
 }
 
 function isLegacyH3Prompt(prompt: string): boolean {
-  const outsideDialogue = String(prompt || '').replace(/<d>[\s\S]*?<\/d>/gi, ' ');
+  const outsideDialogue = String(prompt || '').replace(/<d>[\s\S]*?<\/d>/gi, ' ').replace(/^SERIES LOOK:[^\n]*/gm, ' ');
   const hanCount = (outsideDialogue.match(/[\u3400-\u9fff]/g) || []).length;
   return /timeline_json|aid_h3_timeline|audio_event_lock|dialogue_events|shot_contracts|first_word_at|final_word_complete_by/i.test(outsideDialogue)
     || /说完最后一个字|闭嘴|嘴巴闭合|口型闭合/i.test(outsideDialogue)
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
       language = 'zh',
       voiceProfiles = {},
       isFilmEnding = false,
+      styleReference,
     } = await request.json();
 
     if (!storyboard) return NextResponse.json({ error: 'Storyboard is required' }, { status: 400 });
@@ -73,7 +75,7 @@ export async function POST(request: NextRequest) {
       if (minimumPlayableDuration > MAX_H3_SEGMENT_SECONDS) {
         return NextResponse.json({ error: `该片段超过 H3 Max 的 ${MAX_H3_SEGMENT_SECONDS} 秒上限，请缩短台词或拆分片段` }, { status: 400 });
       }
-      const requestedDuration = Math.min(15, Math.max(5, Math.ceil(Number(storyboard.videoDuration) || minimumPlayableDuration)));
+      const requestedDuration = filmEndingDuration(minimumPlayableDuration, isFilmEnding === true, Math.max(5, Math.ceil(Number(storyboard.videoDuration) || minimumPlayableDuration)), Number(storyboard.videoEndingMinimumDuration) || 0);
       const generatedPrompt = buildVideoSegmentPrompt(videoStoryboards, [], {
         isFilmEnding: isFilmEnding === true,
         firstFrameUrl,
@@ -84,7 +86,7 @@ export async function POST(request: NextRequest) {
         language: language === 'en' ? 'en' : 'zh',
       });
       const editedPrompt = storyboard.videoPromptOverride ? String(storyboard.videoPrompt || '').trim() : '';
-      const submittedPrompt = applyFilmEndingPrompt(editedPrompt && !isLegacyH3Prompt(editedPrompt) ? editedPrompt : generatedPrompt, requestedDuration, isFilmEnding === true);
+      const submittedPrompt = applyVideoDuplicateRepairPrompt(applySeriesVideoStyle(applyFilmEndingPrompt(editedPrompt && !isLegacyH3Prompt(editedPrompt) ? editedPrompt : generatedPrompt, requestedDuration, isFilmEnding === true), styleReference), storyboard.videoDuplicateRepairPrompt);
       const firstFrame = firstFrameUrl || videoStoryboards[0].imageUrl;
       const lastStoryboardImage = videoStoryboards.at(-1)?.imageUrl;
       const endFrame = (firstFrameUrl || videoStoryboards.length > 1) ? lastStoryboardImage : undefined;
@@ -120,10 +122,8 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
-      const requestedDuration = Math.min(
-        MAX_H3_SEGMENT_SECONDS,
-        Math.max(Math.ceil(Number(storyboard.videoDuration) || (videoStoryboards.length > 1 ? 15 : 5)), minimumPlayableDuration),
-      );
+      const requestedDuration = filmEndingDuration(minimumPlayableDuration, isFilmEnding === true,
+        Math.ceil(Number(storyboard.videoDuration) || (videoStoryboards.length > 1 ? 15 : 5)), Number(storyboard.videoEndingMinimumDuration) || 0);
       const timedSpeech = compileTimedSpeech(
         videoStoryboards,
         allocateSegmentTimeline(videoStoryboards, requestedDuration),
@@ -171,9 +171,9 @@ export async function POST(request: NextRequest) {
       // but retire saved JSON/Chinese control contracts automatically so an
       // older project cannot bypass the new official prompt builder.
       const editedPrompt = storyboard.videoPromptOverride ? String(storyboard.videoPrompt || '').trim() : '';
-      const submittedPrompt = applyFilmEndingPrompt(editedPrompt && !isLegacyH3Prompt(editedPrompt)
+      const submittedPrompt = applyVideoDuplicateRepairPrompt(applySeriesVideoStyle(applyFilmEndingPrompt(editedPrompt && !isLegacyH3Prompt(editedPrompt)
         ? editedPrompt
-        : generatedPrompt, requestedDuration, isFilmEnding === true);
+        : generatedPrompt, requestedDuration, isFilmEnding === true), styleReference), storyboard.videoDuplicateRepairPrompt);
       const result = await createComfyUIVideoTask({
         firstFrame,
         auxiliaryImages,

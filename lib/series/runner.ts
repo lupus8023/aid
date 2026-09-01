@@ -1,13 +1,16 @@
 "use client";
 
+import { prepareSeriesImage, SeriesImagePreparationError, type SeriesImageAsset } from "./imagePreparation";
 import { ApiResponseError, readApiJson } from "@/lib/apiResponse";
 import { buildEpisodeProject } from "./domain";
 import { copiedDialogueShotNumbers } from "./scriptRepair";
 import { repairEpisodeDialogue, synchronizeEpisodeDialogue } from "./productionDialogueRepair";
 import { storyStorageKeys } from "./storageScope";
+import { ensurePhotographicAnchor } from './photographicAnchor';
 import { seriesStageBlocker } from "./readiness";
 import { isGptImage2Model } from '@/lib/imageModels';
 import { usesPhotographicReferences } from '@/lib/gptImageReferences';
+import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '@/lib/midjourney';
 import type {
   SeriesClaim,
   SeriesEpisode,
@@ -106,6 +109,7 @@ export async function executeSeriesClaim(
         signal: submittingMedia ? AbortSignal.timeout(url === '/api/generate-voice-reference' ? 320000 : 180000) : signal,
       }),
       "生产请求失败",
+      { taskStatus: url === "/api/check-image-status" },
     );
   };
   const generate = <T>(stage: string, context = project, episodeId?: string) =>
@@ -115,50 +119,31 @@ export async function executeSeriesClaim(
       episodeId,
       settings: productionSettings,
     });
-  const image = async (
-    asset: { imageTaskId?: string },
-    payload: Record<string, unknown>,
-    label: string,
-  ) => {
-    if (!asset.imageTaskId) {
-      await save(`提交${label}`);
+  const image = (asset: SeriesImageAsset, payload: Record<string, unknown>, label: string) => {
+    const submit = async () => {
+      // This key is checkpointed before sending a paid request. A replacement
+      // worker can recover the server receipt even if the browser lost the reply.
+      asset.imageSubmissionKey ||= `image-${crypto.randomUUID()}`;
+      await save(`${label}提交编号已保存`);
       const result = await call<{ taskId: string }>("/api/generate-costume", {
-        ...payload,
-        imageModel: settings.imageModel,
-        apiKey: settings.apiKey,
-        comfyui: productionSettings.comfyui,
-        visualStyle: project.visualStyle,
+        ...payload, imageModel: settings.imageModel, apiKey: settings.apiKey,
+        imageSubmissionKey: asset.imageSubmissionKey,
+        comfyui: productionSettings.comfyui, visualStyle: project.visualStyle,
         aspectRatio: project.aspectRatio,
+        styleReference: project.styleReference,
+        midjourneyProfile: resolveMidjourneyProfileSetting(settings),
+        midjourneyStyle: resolveMidjourneyStyleSetting(settings),
       });
-      if (!result.taskId) throw new Error(`${label}未返回任务编号`);
-      asset.imageTaskId = result.taskId;
-      await save(`${label}已提交，保存任务编号`);
-    }
-    for (let i = 0; i < 240; i++) {
-      await wait(3000, signal);
-      const result = await call<{
-        status: string;
-        imageUrl?: string;
-        error?: string;
-      }>("/api/check-image-status", {
-        taskId: asset.imageTaskId,
-        apiKey: settings.apiKey,
-        comfyui: productionSettings.comfyui,
-      });
-      if (result.status === "failed") {
-        asset.imageTaskId = undefined;
-        await save(`${label}失败`);
-        throw new Error(result.error || `${label}生成失败`);
-      }
-      if (result.status === "completed" && result.imageUrl) {
-        const uploaded = await call<{ url: string }>("/api/upload-image", {
-          imageData: result.imageUrl,
-        });
-        if (!uploaded.url) throw new Error("资产持久化没有返回地址");
-        return uploaded.url;
-      }
-    }
-    throw new Error(`${label}等待超时；保留任务编号，重试会继续查询`);
+      return result.taskId;
+    };
+    return prepareSeriesImage(asset, {
+      label, save, wait: () => wait(3000, signal), aborted: () => signal.aborted,
+      submit, recoverSubmission: submit,
+      poll: taskId => call("/api/check-image-status", {
+        taskId, apiKey: settings.apiKey, comfyui: productionSettings.comfyui,
+      }),
+      persist: async imageData => (await call<{ url: string }>("/api/upload-image", { imageData })).url,
+    });
   };
 
   if (job.kind === "develop") {
@@ -212,6 +197,7 @@ export async function executeSeriesClaim(
       (c) => !episode || episode.characterIds.includes(c.id),
     );
     const missingVoices: string[] = [];
+    const missingImages: string[] = [];
     for (const character of cast) {
       if (character.locked &&
         (character.appearance === "voice_only" || character.bibleUrl) &&
@@ -303,43 +289,57 @@ export async function executeSeriesClaim(
           await save(`${character.name} 待从 Fish 选声；继续准备其余素材`);
         }
       }
-      if (character.appearance !== "voice_only" && !character.bibleUrl) {
-        if (isGptImage2Model(settings.imageModel || '') && usesPhotographicReferences(project.visualStyle)) {
-          character.photographicAnchor ||= {};
-          if (!character.photographicAnchor.imageUrl) {
-            character.photographicAnchor.imageUrl = await image(character.photographicAnchor, {
-              type: 'costume-anchor', name: character.name, description: character.description,
-              referenceImageUrl: character.imageUrl || undefined,
-            }, `${character.name} 实拍定妆主图`);
-            await save(`${character.name} 实拍定妆主图已保存`);
-          }
-          if (!character.photographicAnchor.review) {
-            character.photographicAnchor.review = await call('/api/series/audit-appearance', {
-              imageUrl: character.photographicAnchor.imageUrl,
-              apiKey: settings.apiKey, dmxApiKey: settings.dmxApiKey,
-              scriptProvider: settings.scriptProvider, scriptModel: settings.scriptModel,
+      try {
+        if (character.appearance !== "voice_only" && !character.bibleUrl) {
+          if (isGptImage2Model(settings.imageModel || '') && usesPhotographicReferences(project.visualStyle)) {
+            character.photographicAnchor ||= {};
+            await ensurePhotographicAnchor(character.photographicAnchor, {
+              label: character.name,
+              save,
+              generate: async correction => {
+                const anchor = character.photographicAnchor!;
+                return image(anchor, {
+                  type: 'costume-anchor', name: character.name,
+                  description: [character.description, anchor.designBrief ? `IDENTITY AND WARDROBE CONSTRUCTION: ${anchor.designBrief}` : ''].filter(Boolean).join('\n'),
+                  referenceImageUrl: anchor.designBrief ? undefined : character.imageUrl || undefined,
+                  appearanceCorrection: correction,
+                }, `${character.name} 实拍定妆主图`);
+              },
+              review: imageUrl => call('/api/series/audit-appearance', {
+                imageUrl,
+                styleReference: project.styleReference, description: character.description,
+                apiKey: settings.apiKey, dmxApiKey: settings.dmxApiKey,
+                scriptProvider: settings.scriptProvider, scriptModel: settings.scriptModel,
+              }),
             });
-            await save(`${character.name} 定妆质感核验已记录`);
           }
+          if (character.photographicAnchor?.imageUrl) {
+            // The reviewed fitting photograph IS the production character card.
+            // Do not buy an unused multiview sheet that can re-stylize its face.
+            character.bibleUrl = character.photographicAnchor.imageUrl;
+          } else {
+            character.bibleUrl = await image(
+              character,
+              {
+                type: "costume",
+                name: character.name,
+                description: character.description,
+                referenceImageUrl: character.imageUrl || undefined,
+              },
+              `${character.name} 定妆角色卡`,
+            );
+          }
+          character.imageUrl = character.bibleUrl;
         }
-        character.bibleUrl = await image(
-          character,
-          {
-            type: "costume",
-            name: character.name,
-            description: character.description,
-            referenceImageUrl: character.photographicAnchor?.imageUrl || character.imageUrl || undefined,
-          },
-          `${character.name} 定妆角色卡`,
-        );
-        if (character.photographicAnchor?.imageUrl) {
-          // Keep the sheet for inspection, but feed the single photographic
-          // anchor to downstream models: multi-view synthesis can re-stylize it.
-          character.photographicSheetUrl = character.bibleUrl;
-          character.bibleUrl = character.photographicAnchor.imageUrl;
-        }
-        character.imageUrl = character.bibleUrl;
+      } catch (error) {
+        if (signal.aborted || !(error instanceof SeriesImagePreparationError)) throw error;
+        character.locked = false;
+        character.imageIssue = character.photographicAnchor?.imageIssue || character.imageIssue || {kind:'pending',message:error.message,taskId:character.photographicAnchor?.imageTaskId};
+        missingImages.push(character.name);
+        await save(`${character.name} 图像待处理；继续准备其余素材`);
+        continue;
       }
+      if (character.bibleUrl) character.imageIssue = undefined;
       character.locked = !character.speaking || Boolean(character.voiceId && character.voiceReferenceUrl);
       await save(character.locked ? `${character.name} 角色定稿 v${character.version}` : `${character.name} 形象已保存，声音待选择`);
     }
@@ -347,16 +347,23 @@ export async function executeSeriesClaim(
       (l) => !episode || episode.locationIds.includes(l.id),
     )) {
       if (location.imageUrl) continue;
-      location.imageUrl = await image(
-        location,
-        {
-          type: "scene",
-          sceneStyle: `${location.name}：${location.description}`,
-        },
-        `${location.name} 场景参考`,
-      );
-      await save(`${location.name} 场景参考已保存`);
+      try {
+        location.imageUrl = await image(
+          location,
+          {
+            type: "scene",
+            sceneStyle: `${location.name}：${location.description}`,
+          },
+          `${location.name} 场景参考`,
+        );
+        await save(`${location.name} 场景参考已保存`);
+      } catch (error) {
+        if (signal.aborted || !(error instanceof SeriesImagePreparationError)) throw error;
+        missingImages.push(location.name);
+        await save(`${location.name} 图像待处理；继续准备其余素材`);
+      }
     }
+    if (missingImages.length) throw new ApiResponseError(`其余可准备素材已保存；${missingImages.length} 项图像待处理：${missingImages.join('、')}。具体原因见“角色与场景”中的单项提示。审核拒绝不会自动重提，临时查询故障保留任务编号。${missingVoices.length ? `另有 ${missingVoices.length} 个角色待选声：${missingVoices.join('、')}。` : ''}`, 'IMAGE_PREPARATION_REQUIRED');
     if (missingVoices.length) throw new ApiResponseError(`可继续准备的角色和场景素材已保存；${missingVoices.length} 个角色仍待选择 Fish 音色：${missingVoices.join('、')}。请到“角色与场景 → 从 Fish 音色库选声”指定后从断点重试，已有素材不会重做。`, 'VOICE_SELECTION_REQUIRED');
     if (job.kind === "prepare") return;
   }

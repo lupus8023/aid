@@ -175,7 +175,7 @@ test('GPT Image 2 story compiler removes redundant narrative wrappers and keeps 
   });
 
   assert.match(prompt, /PHOTOGRAPHIC OUTPUT/);
-  assert.match(prompt, /visible pores|mild facial asymmetry/i);
+  assert.match(prompt, /Faces retain their natural variation/i);
   assert.match(prompt, /REFERENCE INPUT ROLES/);
   assert.doesNotMatch(prompt, /Shot narrative|Physical action|cinema camera|mirrorless/i);
   assert.equal((prompt.match(/Nana walks beside/g) || []).length, 1);

@@ -1,3 +1,4 @@
+import { isImageSafetyRejection } from './imagePromptSafety';
 import type { Storyboard } from '@/types';
 import { storyboardImageMode } from './imageModels';
 
@@ -19,6 +20,7 @@ export function imagePollingTimeoutError(taskId: string, lastActiveAt?: number, 
 }
 
 export function isTransientAutoProductionError(error: unknown): boolean {
+  if (isImageSafetyRejection(error)) return false;
   const message = error instanceof Error ? error.message : String(error);
   // These are explicit congestion responses or a connection that failed before
   // TLS was established. Do not broadly retry uncertain paid POST timeouts.

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type { ApiMartChatResponse, ApiMartImageTaskResponse, ApiMartImageStatusResponse, ApiMartVideoStatusResponse } from '@/types';
 import { providerHttpsAgent } from './publicDns';
+import { isRequestDefinitelyNotSent, ProviderRequestNotSentError } from './providerConnection';
 import {
   buildImageGenerationPayload,
   extractImageTaskId,
@@ -16,6 +17,7 @@ import {
   unwrapMidjourneyTaskId,
   type MidjourneyReferenceMode,
   type MidjourneyTaskMode,
+  type MidjourneyReferenceOptions,
 } from './midjourney';
 import type { CapturePreset, VisualStyle } from '@/types';
 import { chatInputContent } from './pipeline/providerPayload';
@@ -155,29 +157,38 @@ export async function createImageTask(
     }, null, 2));
     console.log('================================');
 
-    const response = await axios.post(
-      `${APIMART_BASE_URL}/images/generations`,
-      requestBody,
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          ...extraHeaders,
-        }
+    let response;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        response = await axios.post(
+          `${APIMART_BASE_URL}/images/generations`, requestBody,
+          {
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...extraHeaders },
+            timeout: 45000,
+            // Do not replay a POST after a redirect may already have accepted it.
+            maxRedirects: 0,
+            httpsAgent: attempt === 1 ? providerHttpsAgent() : undefined,
+          },
+        );
+        break;
+      } catch (error) {
+        if (!isRequestDefinitelyNotSent(error)) throw error;
+        if (attempt === 2) throw new ProviderRequestNotSentError(apimartErrorSummary(error).message);
+        console.warn('[apimart] image connection failed before submission; reconnecting', { attempt: attempt + 1 });
+        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
       }
-    );
+    }
+    if (!response) throw new Error('Image task submission returned no response');
 
     const taskId = extractImageTaskId(response.data);
     if (!taskId) throw new Error(`APIMart response did not include an image task ID: ${JSON.stringify(response.data)}`);
     return taskId;
   } catch (error: any) {
-    console.error('Image generation API error:', error);
-    console.error('Error response:', error.response?.data);
-    console.error('Error status:', error.response?.status);
-    console.error('Error headers:', error.response?.headers);
-
-    const errorMsg = error.response?.data?.error?.message || error.message;
-    throw new Error(`Failed to create image generation task: ${errorMsg}`);
+    const summary = apimartErrorSummary(error);
+    console.error('Image generation API error:', summary);
+    const message = `Failed to create image generation task: ${summary.message}`;
+    if (isRequestDefinitelyNotSent(error)) throw new ProviderRequestNotSentError(message);
+    throw new Error(message);
   }
 }
 
@@ -200,9 +211,11 @@ export async function createMidjourneyImageTask(
   taskMode?: MidjourneyTaskMode,
   hasPeople?: boolean,
   personalizationProfile?: string,
+  references: MidjourneyReferenceOptions = {},
 ): Promise<string> {
   try {
-    const sourceImages = [...new Set(referenceImageUrls.filter(url => typeof url === 'string' && url.trim()))].slice(0, 4);
+    const sourceImages = [...new Set(referenceImageUrls.filter(url => typeof url === 'string' && url.trim()))];
+    if (sourceImages.length > 4) throw new Error('MJ 最多4张内容参考，不能静默丢弃参考图');
     const imageUrls = await Promise.all(sourceImages.map(async sourceImage => (
       sourceImage.startsWith('data:') ? await uploadImageToPublic(sourceImage, apiKey) : sourceImage
     )));
@@ -216,11 +229,14 @@ export async function createMidjourneyImageTask(
       taskMode,
       hasPeople,
       personalizationProfile,
+      references,
     });
-    const endpoint = midjourneyGenerationPath(taskMode, imageUrls.length > 0);
+    const hasContentReferences = Array.isArray(body.image_urls) && body.image_urls.length > 0;
+    const endpoint = midjourneyGenerationPath(taskMode, hasContentReferences, String(body.version), references.characterReferenceUrl ? 'character' : referenceMode);
+    const submittedBody = endpoint.endsWith('/edits') ? midjourneyEditPayload(body) : body;
     const response = await axios.post(
       `${APIMART_BASE_URL}${endpoint}`,
-      endpoint.endsWith('/edits') ? midjourneyEditPayload(body) : body,
+      submittedBody,
       {
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         timeout: 30_000,
@@ -231,9 +247,12 @@ export async function createMidjourneyImageTask(
     console.log('[midjourney] image task created', {
       operation: endpoint.endsWith('/edits') ? 'edits' : 'imagine',
       taskId,
-      promptLength: String(body.prompt || '').length,
-      referenceMode: imageUrls.length ? referenceMode : 'none',
-      referenceCount: imageUrls.length,
+      promptLength: String(submittedBody.prompt || '').length,
+      parameterKeys: Object.keys(submittedBody).sort(),
+      referenceMode: body.cref ? 'cref' : String(body.extra || '').includes('--oref ') ? 'oref'
+        : endpoint.endsWith('/edits') ? 'edit' : hasContentReferences ? 'image' : 'none',
+      referenceCount: Array.isArray(body.image_urls) ? body.image_urls.length : 0,
+      styleReference: Boolean(body.sref),
     });
     return `${MIDJOURNEY_TASK_PREFIX}${taskId}`;
   } catch (error: any) {

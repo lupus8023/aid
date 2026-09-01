@@ -1,7 +1,7 @@
 import type { CapturePreset, VisualStyle } from '@/types';
 import { getCapturePreset } from './capturePresets';
 import { getProductionStylePreset, normalizeVisualStyle } from './promptArchitecture';
-import { PHOTOGRAPHIC_IDENTITY_RULE, usesPhotographicReferences } from './gptImageReferences';
+import { buildGptPhotographicDetail, type PhotographicDetailContext } from './gptPhotographicDetail';
 
 const collapse = (value?: string) => String(value || '').replace(/\s+/g, ' ').trim();
 
@@ -25,7 +25,7 @@ function captureSystem(capturePreset?: CapturePreset): string {
       return 'A photorealistic image captured with the single real photographic system already established by the supplied scene reference. Preserve its camera distance, perspective, exposure, white balance, focus behavior and justified imperfections. Do not add a second capture style.';
     case 'cinematic-narrative':
     default:
-      return 'A photorealistic frame from a live-action feature film, photographed on location or on a physically built set with one real cinema camera. Use a motivated camera position, practical wardrobe and props, restrained performance and physically present light. Human roles use real adult actors; animal and fantasy roles retain their approved nonhuman species, anatomy and reference design with physically believable creature effects. Never humanize or replace a nonhuman cast member. It must read as a photographed moment, not key art, a movie poster or concept art.';
+      return '超强真实感，像真实电影现场拍到的一瞬间。 An unretouched frame from a live-action feature film, caught during the action rather than posed for a poster. Every named human or humanlike cast member is an adult over 21; retain the specified age and identity. Photograph fantasy designs as practical makeup, sewn costumes, built scenery and creature effects that preserve the approved species and anatomy. Merfolk keep their fish tails, never human legs or shoes. No crew or filming equipment appears in the frame.';
   }
 }
 
@@ -33,26 +33,27 @@ function photographicLook(visualStyle?: VisualStyle, capturePreset?: CapturePres
   const style = normalizeVisualStyle(visualStyle);
   const device = getCapturePreset(capturePreset).value;
   if (style === 'warm-film' && device === 'cinematic-narrative') {
-    return 'Use a coherent photochemical 35mm response: warm practical sources, fine irregular grain, restrained halation only around bright sources, organic focus falloff and textured shadows.';
+    return 'Warm film color and gentle grain, using the authored light.';
   }
   if (style === 'neo-noir') {
-    return 'Use motivated low-key practical light, strong negative fill, dense shadows that retain local texture, controlled reflections and restrained color. Keep skin and materials physically real.';
+    return 'Low-key practical light; let unlit parts of the location remain dark.';
   }
   if (style === 'documentary') {
-    return 'Use ordinary location color, available light, finite exposure, real contact shadows, mild device-appropriate sensor texture and no cosmetic polish.';
+    return 'Ordinary location color and available light, without cosmetic polish.';
   }
   if (style === 'commercial') {
-    return 'Use precise but physical light and truthful skin, cloth, glass, metal and liquid response. Keep highlight roll-off finite and avoid synthetic HDR or plastic gloss.';
+    return 'Clean commercial photography, with real clothes and props under the requested light.';
   }
   if (style === 'follow-reference') {
-    return 'Keep the reference image’s photographic color response, contrast, surface texture and degree of imperfection without importing its pose or layout.';
+    return 'Keep the reference color and photographic mood without copying its pose or layout.';
   }
-  return 'Use natural white balance, finite exposure latitude, believable highlight clipping and shadow density, real contact shadows and restrained color. Do not use synthetic HDR, beauty retouching or glossy AI rendering.';
+  return 'Favor a believable observed moment over visual polish.';
 }
 
 export function buildGptImage2PhotographicContract(
   visualStyle?: VisualStyle,
   capturePreset?: CapturePreset,
+  context: PhotographicDetailContext = {},
 ): string {
   const style = normalizeVisualStyle(visualStyle);
   if (style === 'anime' || style === '3d-cg' || style === 'stop-motion') {
@@ -63,9 +64,8 @@ Render the entire frame as ${preset.imageContract}. Keep this one medium coheren
 
   return `PHOTOGRAPHIC OUTPUT (authoritative):
 ${captureSystem(capturePreset)}
-${usesPhotographicReferences(visualStyle) ? PHOTOGRAPHIC_IDENTITY_RULE : ''}
 ${photographicLook(visualStyle, capturePreset)}
-Preserve visible pores, mild facial asymmetry, fine hair, fabric weave, ordinary wear, physically plausible object contact, scale, occlusion and shadows. Use only imperfections caused by the declared camera. Do not render illustration, animation, CGI, concept art, a doll, waxy skin or an airbrushed face.`;
+${buildGptPhotographicDetail({ ...context, capturePreset })}`;
 }
 
 export interface GptImage2StoryPromptInput {
@@ -76,6 +76,7 @@ export interface GptImage2StoryPromptInput {
   angle?: string;
   cameraMove?: string;
   exactCast: string;
+  characterCount?: number;
   referenceDescriptions?: string[];
   visualStyle?: VisualStyle;
   capturePreset?: CapturePreset;
@@ -88,23 +89,22 @@ export function buildGptImage2StoryPrompt(input: GptImage2StoryPromptInput): str
   const shot = [input.shotSize, input.angle, input.cameraMove].map(collapse).filter(Boolean).join(', ');
   const actionLine = action && !goal.toLowerCase().includes(action.toLowerCase()) ? action : '';
   const references = (input.referenceDescriptions || []).filter(Boolean);
-  const outputContract = buildGptImage2PhotographicContract(input.visualStyle, input.capturePreset);
+  const hasObjects = references.some(reference => /OBJECT IDENTITY|Object requirement|product reference/i.test(reference));
+  const outputContract = buildGptImage2PhotographicContract(input.visualStyle, input.capturePreset, {
+    shotSize: input.shotSize, characterCount: input.characterCount,
+  });
 
-  return `${outputContract}
-
-SCENE:
-${scene || goal}
-
-SUBJECT AND VISIBLE ACTION:
+  return `SHOT:
 ${goal}${actionLine ? `\n${actionLine}` : ''}
 
 CAMERA AND COMPOSITION:
 ${shot || 'One story-motivated eye-level composition with readable foreground, middle ground and background.'}
 
+${scene && scene !== goal ? `LOCATION CONTEXT (the shot above controls the current action and lighting):\n${scene}\n\n` : ''}${outputContract}
+
 CAST:
 ${collapse(input.exactCast)}
 
 ${references.length ? `REFERENCE INPUT ROLES:\n${references.join('\n')}\n\n` : ''}CONSTRAINTS:
-One complete standalone frame. Preserve each referenced identity, object and environment only for its declared role. A reference declared as an object or product is an immutable design source: preserve its silhouette, dimensions and proportions, component layout, construction, material, surface finish, color, texture, seams, closures, interfaces, intentional markings, wear and small identifying details. Keep the same object at the same apparent physical scale wherever it recurs. Change only viewpoint, placement, lighting and physically possible articulation required by the scene; never redesign, simplify, stretch, melt, substitute or add/remove parts.
-Do not copy a reference sheet layout, duplicate view, pose, border or unrelated text. No captions, subtitles, dialogue text, title, speech bubble, watermark, UI or added readable text. A label, logo or marking that physically belongs to a locked reference object may remain only as part of that unchanged design; do not invent, rewrite, relocate or restyle it. No unrelated person, object, scenery or decoration.`;
+One complete standalone frame, capturing one instant of the action. References supply only their named roles, not their pose, sheet layout or rendering method. No captions, subtitles, dialogue text, watermark, UI, panels or extra views.${hasObjects ? '\nEach object reference is an immutable design source: keep its silhouette, proportions, component layout, material, surface finish and scale; never redesign, simplify, stretch, melt, substitute or add/remove parts. A label, logo or marking on a locked reference object stays unchanged.' : ''}\nNo unrelated person, object, scenery or decoration.`;
 }

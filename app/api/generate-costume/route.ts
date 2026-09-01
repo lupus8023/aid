@@ -3,10 +3,14 @@ import { createProviderImageTask } from '@/lib/imageTaskProvider';
 import { imageModelRequiresApiKey, isMidjourneyImageModel, isGptImage2Model } from '@/lib/imageModels';
 import { buildGptCharacterBiblePrompt, buildGptSceneReferencePrompt, buildGptCharacterAnchorPrompt, usesPhotographicReferences } from '@/lib/gptImageReferences';
 import { buildCharacterBiblePrompt, buildSceneReferencePrompt, buildStoryWorldAnchorPrompt } from '@/lib/promptArchitecture';
+import { submitImageOnce } from '@/lib/series/imageSubmission';
+import { assertSeriesRequest, assertSeriesService, seriesRoot } from '@/lib/series/store';
+import path from 'node:path';
 
 export async function POST(request: NextRequest) {
   try {
-    const { type, name, description, costumeDesc, sceneStyle, representativeShot, storyCharacterNames, referenceImageUrl, appearanceCorrection, aspectRatio, imageModel, apiKey, visualStyle, capturePreset, comfyui = {}, midjourneyProfile = '' } = await request.json();
+    const body = await request.json();
+    const { type, name, description, costumeDesc, sceneStyle, representativeShot, storyCharacterNames, referenceImageUrl, appearanceCorrection, aspectRatio, imageModel, apiKey, visualStyle, styleReference, capturePreset, comfyui = {}, midjourneyProfile = '', midjourneyStyle = {}, imageSubmissionKey } = body;
     const selectedModel = imageModel || 'seedream-5-0-pro';
     if (imageModelRequiresApiKey(selectedModel) && !apiKey) return NextResponse.json({ error: 'API Key is required' }, { status: 400 });
 
@@ -39,7 +43,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
     }
 
-    const taskId = await createProviderImageTask(
+    const submit = () => createProviderImageTask(
       prompt,
       referenceImageUrl ? [referenceImageUrl] : [],
       apiKey,
@@ -48,14 +52,23 @@ export async function POST(request: NextRequest) {
       undefined,
       comfyui,
       {
+        styleReference,
         midjourneyReferenceMode: type === 'costume' ? 'character' : isMidjourneyImageModel(selectedModel) ? 'image' : 'style',
         midjourneyTaskMode: type === 'costume' ? 'character-sheet' : isMidjourneyImageModel(selectedModel) ? 'story-shot' : 'single',
         midjourneyVisualStyle: visualStyle,
         midjourneyCapturePreset: type === 'scene' ? capturePreset : undefined,
         midjourneyHasPeople: type === 'costume' || (isMidjourneyImageModel(selectedModel) && Array.isArray(storyCharacterNames) && storyCharacterNames.length > 0),
         midjourneyProfile,
+        midjourneyReferences: { styleReferenceUrl: midjourneyStyle.styleReferenceUrl, styleWeight: midjourneyStyle.styleWeight },
       },
     );
+    if (imageSubmissionKey) {
+      assertSeriesService();
+      assertSeriesRequest(request);
+    }
+    const taskId = imageSubmissionKey
+      ? await submitImageOnce({ directory: path.join(seriesRoot(), 'image-submissions'), key: imageSubmissionKey, input: body, submit })
+      : await submit();
 
     return NextResponse.json({ taskId });
   } catch (error: any) {

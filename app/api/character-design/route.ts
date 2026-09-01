@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       apiKey,
       comfyui,
       midjourneyProfile,
+      midjourneyStyle = {},
     } = body as {
       stage?: 'concepts' | 'bible';
       name?: string;
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
       apiKey?: string;
       comfyui?: Record<string, unknown>;
       midjourneyProfile?: string;
+      midjourneyStyle?: { styleReferenceUrl?: string; styleWeight?: number };
     };
 
     const selectedModel = imageModel || 'seedream-5-0-pro';
@@ -76,10 +78,11 @@ export async function POST(request: NextRequest) {
         midjourneyVisualStyle: visualStyle,
         midjourneyHasPeople: true,
         midjourneyProfile,
+        midjourneyReferences: { styleReferenceUrl: midjourneyStyle.styleReferenceUrl, styleWeight: midjourneyStyle.styleWeight },
       });
       return NextResponse.json({
         taskId,
-        prompt: isMidjourneyImageModel(selectedModel) ? buildMidjourneyPrompt(prompt, { visualStyle, taskMode: 'character-sheet', hasPeople: true }) : prompt,
+        prompt: isMidjourneyImageModel(selectedModel) ? buildMidjourneyPrompt(prompt, { visualStyle, taskMode: 'character-sheet', hasPeople: true, hasStyleReference: Boolean(midjourneyStyle.styleReferenceUrl) }) : prompt,
         candidateCount: count,
       });
     }
@@ -105,10 +108,11 @@ export async function POST(request: NextRequest) {
         midjourneyVisualStyle: visualStyle,
         midjourneyHasPeople: true,
         midjourneyProfile,
+        midjourneyReferences: { styleReferenceUrl: midjourneyStyle.styleReferenceUrl, styleWeight: midjourneyStyle.styleWeight },
       });
       return NextResponse.json({
         taskId,
-        prompt: isMidjourneyImageModel(selectedModel) ? buildMidjourneyPrompt(prompt, { visualStyle, taskMode: 'character-sheet', hasPeople: true }) : prompt,
+        prompt: isMidjourneyImageModel(selectedModel) ? buildMidjourneyPrompt(prompt, { visualStyle, taskMode: 'character-sheet', hasPeople: true, hasStyleReference: Boolean(midjourneyStyle.styleReferenceUrl) }) : prompt,
       });
     }
 

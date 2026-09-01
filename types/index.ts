@@ -126,6 +126,7 @@ export interface Storyboard {
   imageCandidateUrls?: string[]; // Unused MJ candidates; inspect before paying for another task
   imagePromptOverride?: string; // 内容安全自动修订后的生图专用提示词，不改写原始分镜
   imageFailureReason?: string; // 最近一次生图失败或自动修订原因
+  imageFailureHistory?: Array<{ taskId: string; reason: string; at: string; review: string }>; // 已审核的上游拒绝记录；永不覆盖原任务
   imageRetryCount?: number; // 内容安全自动重试次数
   imageCastRepairAttempts?: number; // Persisted bound on automatic identity repairs
   imageCastRepairPrompt?: string; // Image-only correction; never rewrites screenplay/video direction
@@ -142,6 +143,46 @@ export interface Storyboard {
   videoTaskId?: string; // 视频任务 ID
   videoProviderUsed?: 'apimart' | 'comfyui' | 'fal';
   videoSeed?: number; // fal 项目固定 seed；只用于复现，不代表声纹锁
+  videoEndingAudit?: {
+    version: 1;
+    taskId: string;
+    mediaSha256: string;
+    duration: number;
+    passed: boolean;
+    transcript: string;
+    dialogueMatch: number;
+    lastSpeechEnd: number;
+    reason: string;
+    checkedAt: string;
+  };
+  videoEndingRepairAttempts?: number;
+  videoEndingWarning?: string;
+  videoDuplicateAudit?: {
+    version: 1;
+    taskId: string;
+    mediaSha256: string;
+    passed: boolean | null;
+    duplicates: Array<{ name: string; frames: number[]; evidence: string }>;
+    reason: string;
+    checkedAt: string;
+  };
+  videoDuplicateRepairAttempts?: number;
+  videoDuplicateRepairPrompt?: string;
+  videoDuplicateHistory?: Array<{
+    taskId: string;
+    videoSourceUrl?: string;
+    videoCacheKey?: string;
+    generationSignature?: string;
+    audit: NonNullable<Storyboard['videoDuplicateAudit']>;
+  }>;
+  videoEndingMinimumDuration?: number;
+  videoEndingHistory?: Array<{
+    taskId: string;
+    videoSourceUrl?: string;
+    videoCacheKey?: string;
+    duration: number;
+    reason: string;
+  }>;
   aspectRatio?: '16:9' | '9:16' | '1:1'; // 宽高比
   audioUrl?: string; // 生成的音频 URL (legacy single)
   audioDuration?: number; // exact full-segment dialogue track duration
@@ -286,6 +327,8 @@ export interface AppSettings {
   imageModel: string; // 图片生成模型
   midjourneyProfileEnabled?: boolean; // 是否启用 Midjourney 个性化 Profile
   midjourneyProfile?: string; // Midjourney 个性化 Profile 代码
+  midjourneyStyleReferenceUrl?: string; // 专用 sref，仅用于色调、光线与材质，不作为演员参考
+  midjourneyStyleWeight?: number; // sw 0–1000，默认 100
   videoModel: string; // 视频生成模型
   videoProvider?: 'apimart' | 'comfyui' | 'fal'; // 视频生成通道
   fal?: {

@@ -9,7 +9,7 @@ import { parseImageAppearanceCheck } from '../lib/series/imageAppearanceAudit.ts
 test('photographic anchor keeps merfolk anatomy without requesting a multi-view layout', () => {
   const prompt = buildGptCharacterAnchorPrompt({name:'Luna',description:'A mermaid with a silver hair streak',hasIdentityReference:true});
   assert.match(prompt, /One photograph only, no character sheet/);
-  assert.match(prompt, /fish tail below the waist, never human legs/);
+  assert.match(prompt, /Merfolk retain their fish tail, never human legs or shoes/);
 });
 
 test('appearance review distinguishes failures and uncertainty from passed photography', () => {
@@ -22,11 +22,11 @@ test('appearance review distinguishes failures and uncertainty from passed photo
 test('photographic GPT role cards lock species and identity without inheriting CG medium', () => {
   const prompt = buildGptCharacterBiblePrompt({ name: 'Bram', description: 'An elderly shark person with a scarred muzzle and dark armor', hasIdentityReference: true, visualStyle: 'cinematic-natural' });
   assert.match(prompt, /photorealistic costume-continuity/);
-  assert.match(prompt, /not rendering style/);
-  assert.match(prompt, /Never humanize/);
+  assert.match(prompt, /not their rendering style/);
+  assert.match(prompt, /never redesigned into human actors/);
   assert.match(prompt, /Four supporting full-body photographs/);
   assert.doesNotMatch(prompt, /source medium intact|8 consistent head|identity and medium authority/);
-  assert.match(prompt, /Do not invent freckles, scars/);
+  assert.match(prompt, /do not invent freckles, scars/i);
 });
 
 test('explicit nonphotographic styles retain the original reference-card contract', () => {

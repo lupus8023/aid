@@ -407,6 +407,7 @@ export function buildEpisodeProject(
     targetShotCount: 18,
     aspectRatio: project.aspectRatio,
     visualStyle: project.visualStyle,
+    styleReference: project.styleReference,
     storyOutline: "",
     storyboards: [],
     voiceReferences: Object.fromEntries(

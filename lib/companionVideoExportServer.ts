@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createReadStream, createWriteStream } from 'node:fs';
 import {
@@ -15,6 +15,7 @@ import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { STORY_AUDIO_TAIL_FADE_SECONDS } from './audioTailCleanup';
+import { acquireExportLease } from './companionExportLease';
 import { clippedPacingSections, withFilmEndingPacing, type PacingSection } from './videoPacing';
 
 export type CompanionExportClip = {
@@ -98,7 +99,7 @@ function cleanError(error: unknown): string {
 
 async function atomicWriteJson(filePath: string, data: unknown): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
-  const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const temporary = `${filePath}.${randomUUID()}.tmp`;
   await writeFile(temporary, JSON.stringify(data, null, 2), 'utf8');
   await rename(temporary, filePath);
 }
@@ -312,14 +313,26 @@ export async function probeMedia(filePath: string): Promise<MediaProbe> {
   return { width, height, hasAudio: streams.some(stream => stream.codec_type === 'audio'), duration: Number(JSON.parse(output).format?.duration || video.duration || 0) };
 }
 
-async function isValidVideo(filePath: string): Promise<boolean> {
+async function isValidVideo(filePath: string, expectedDuration?: number, tolerance = 0.25): Promise<boolean> {
   try {
     if (!(await fileExists(filePath))) return false;
-    await probeMedia(filePath);
+    const probe = await probeMedia(filePath);
+    if (!Number.isFinite(probe.duration) || probe.duration <= 0) return false;
+    if (expectedDuration !== undefined && Math.abs(probe.duration - expectedDuration) > tolerance) return false;
+    // Container metadata alone can look valid while encoded packets are corrupt.
+    await runCommand(ffmpegPath(), ['-v', 'error', '-xerror', '-i', filePath, '-f', 'null', '-']);
     return true;
   } catch {
     return false;
   }
+}
+
+function pacedDuration(clip: CompanionExportClip): number {
+  return clippedPacingSections(clip).reduce((total, section) => total + (section.sourceEnd - section.sourceStart) / section.rate, 0);
+}
+
+function expectedExportDuration(job: CompanionExportJob): number {
+  return job.clips.reduce((total, clip) => total + pacedDuration(clip), 0);
 }
 
 function even(value: number): number {
@@ -402,12 +415,14 @@ async function runExportOnce(job: CompanionExportJob): Promise<void> {
     job.progress = 12 + Math.round((index / job.clips.length) * 68);
     job.stage = `本机处理片段 ${index + 1}/${job.clips.length}`;
     await saveJob(job);
-    if (await isValidVideo(output)) continue;
-    await rm(output, { force: true }).catch(() => undefined);
+    if (await isValidVideo(output, pacedDuration(job.clips[index]))) continue;
     await retryCommand(`片段 ${index + 1} 转码`, async () => {
-      await rm(output, { force: true }).catch(() => undefined);
-      await transcodeClip(inputs[index], output, job.clips[index], target);
-      if (!(await isValidVideo(output))) throw new Error('转码结果校验失败');
+      const temporary = `${output}.${randomUUID()}.part.mp4`;
+      try {
+        await transcodeClip(inputs[index], temporary, job.clips[index], target);
+        if (!(await isValidVideo(temporary, pacedDuration(job.clips[index])))) throw new Error('转码结果解码或时长校验失败');
+        await rename(temporary, output);
+      } finally { await rm(temporary, { force: true }).catch(() => undefined); }
     });
   }
 
@@ -421,7 +436,7 @@ async function runExportOnce(job: CompanionExportJob): Promise<void> {
     'utf8',
   );
   const output = jobOutputPath(job);
-  const temporaryOutput = `${output}.part.mp4`;
+  const temporaryOutput = `${output}.${randomUUID()}.part.mp4`;
   job.progress = 86;
   job.stage = '本机 FFmpeg 合并片段';
   await saveJob(job);
@@ -431,7 +446,10 @@ async function runExportOnce(job: CompanionExportJob): Promise<void> {
       '-y', '-f', 'concat', '-safe', '0', '-i', concatList,
       '-c', 'copy', '-movflags', '+faststart', temporaryOutput,
     ]);
-    if (!(await isValidVideo(temporaryOutput))) throw new Error('合并结果校验失败');
+    // AAC/container rounding accumulates slightly at each cut.
+    const actual = await probeMedia(temporaryOutput);
+    if (Math.abs(actual.duration - expectedExportDuration(job)) > Math.max(0.25, job.clips.length * 0.05)
+      || !(await isValidVideo(temporaryOutput))) throw new Error('合并结果解码或总时长校验失败');
   });
   await rm(output, { force: true }).catch(() => undefined);
   await rename(temporaryOutput, output);
@@ -471,9 +489,8 @@ async function runExportJob(job: CompanionExportJob): Promise<void> {
   await saveJob(job);
 }
 
-export function ensureExportJobRunning(job: CompanionExportJob): void {
-  const key = `${job.projectId}:${job.jobId}`;
-  if (activeJobs.has(key) || job.status === 'completed' || job.status === 'failed') return;
+function startExportWithLease(job: CompanionExportJob, release: () => Promise<void>): void {
+  const key = jobDirectory(job.projectId, job.jobId);
   const task = runExportJob(job)
     .catch(async error => {
       job.status = 'failed';
@@ -481,8 +498,20 @@ export function ensureExportJobRunning(job: CompanionExportJob): void {
       job.stage = '导出任务异常停止';
       await saveJob(job).catch(() => undefined);
     })
-    .finally(() => activeJobs.delete(key));
+    .finally(async () => { await release(); activeJobs.delete(key); });
   activeJobs.set(key, task);
+}
+
+export function ensureExportJobRunning(job: CompanionExportJob): void {
+  const key = jobDirectory(job.projectId, job.jobId);
+  if (activeJobs.has(key) || job.status === 'completed' || job.status === 'failed') return;
+  void (async () => {
+    const release = await acquireExportLease(key);
+    if (!release) return;
+    const latest = await readExportJob(job.projectId, job.jobId);
+    if (!latest || ['completed', 'failed'].includes(latest.status)) { await release(); return; }
+    startExportWithLease(latest, release);
+  })().catch(error => console.error('Export recovery could not acquire its lease:', cleanError(error)));
 }
 
 export async function createOrResumeExportJob(
@@ -500,36 +529,58 @@ export async function createOrResumeExportJob(
     await access(segmentPath(projectId, clip.clipId, clip.segmentSha256));
   }
   const jobId = exportJobId(clips, aspectRatio);
-  const existing = await readExportJob(projectId, jobId);
-  if (existing?.status === 'completed' && await isValidVideo(jobOutputPath(existing))) return existing;
+  const release = await acquireExportLease(jobDirectory(projectId, jobId));
+  if (!release) {
+    // The other route/process may still be committing the first job record.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const current = await readExportJob(projectId, jobId);
+      if (current) return current.status === 'completed'
+        ? { ...current, status: 'running', stage: '正在校验已有成片' }
+        : current;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error('导出任务正在初始化，请重试');
+  }
+  let transferred = false;
+  try {
+    const existing = await readExportJob(projectId, jobId);
+    if (existing?.status === 'completed') {
+      await saveJob({ ...existing, status: 'running', stage: '正在校验已有成片' });
+      if (await isValidVideo(jobOutputPath(existing), expectedExportDuration(existing), Math.max(0.25, existing.clips.length * 0.05))) {
+        await saveJob(existing);
+        return existing;
+      }
+    }
 
-  const now = new Date().toISOString();
-  const job: CompanionExportJob = existing ? {
-    ...existing,
-    clips,
-    outputName: String(outputName || existing.outputName || 'AID-Story.mp4').slice(0, 180),
-    aspectRatio,
-    status: 'queued',
-    attempts: existing.status === 'failed' ? 0 : existing.attempts,
-    error: undefined,
-    stage: existing.status === 'failed' ? '重新尝试未完成的导出' : '恢复未完成的导出',
-  } : {
-    version: 1,
-    jobId,
-    projectId,
-    outputName: String(outputName || 'AID-Story.mp4').slice(0, 180),
-    aspectRatio,
-    status: 'queued',
-    progress: 8,
-    stage: '片段已保存，准备本机合并',
-    attempts: 0,
-    clips,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await saveJob(job);
-  ensureExportJobRunning(job);
-  return job;
+    const now = new Date().toISOString();
+    const job: CompanionExportJob = existing ? {
+      ...existing,
+      clips,
+      outputName: String(outputName || existing.outputName || 'AID-Story.mp4').slice(0, 180),
+      aspectRatio,
+      status: 'queued',
+      attempts: ['failed', 'completed'].includes(existing.status) ? 0 : Math.min(existing.attempts, MAX_JOB_ATTEMPTS - 1),
+      error: undefined,
+      stage: existing.status === 'failed' ? '重新尝试未完成的导出' : '恢复未完成的导出',
+    } : {
+      version: 1,
+      jobId,
+      projectId,
+      outputName: String(outputName || 'AID-Story.mp4').slice(0, 180),
+      aspectRatio,
+      status: 'queued',
+      progress: 8,
+      stage: '片段已保存，准备本机合并',
+      attempts: 0,
+      clips,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await saveJob(job);
+    startExportWithLease(job, release);
+    transferred = true;
+    return job;
+  } finally { if (!transferred) await release(); }
 }
 
 export async function recoverExportJob(projectId: string, jobId: string): Promise<CompanionExportJob | null> {
@@ -548,6 +599,9 @@ export async function exportDownloadInfo(projectId: string, jobId: string): Prom
   const filePath = jobOutputPath(job);
   const file = await stat(filePath);
   if (!file.size) throw new Error('成片文件为空');
+  if (!(await isValidVideo(filePath, expectedExportDuration(job), Math.max(0.25, job.clips.length * 0.05)))) {
+    throw new Error('成片解码或时长校验失败，请从已保存片段恢复导出');
+  }
   return { job, filePath, size: file.size };
 }
 

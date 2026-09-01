@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { auditImageCast, parseImageCastCheck, imageForCastAudit } from '../lib/series/imageCastAudit.ts';
-import { prepareImageCastRepair, visibleImageCast } from '../lib/series/imageCastContract.ts';
+import { prepareImageCastRepair, visibleImageCast, storyboardVisualCastNames } from '../lib/series/imageCastContract.ts';
 import { chatInputContent, responsesInput } from '../lib/pipeline/providerPayload.ts';
 
 const cast = [
@@ -12,6 +12,33 @@ const cast = [
 const board = { id: 's18', sceneNumber: 18, characters: ['Luna', 'Rill', 'Navi'], imageUrl: 'https://getapib.org/frame.jpg', prompt: 'Rill raises a shell beside Luna.', action: 'Raise the shell.', description: 'Raise the shell.', status: 'completed', speech: [{ character: 'Rill', exactLine: 'Hear me.' }], videoUrl: 'https://example.test/old.mp4', videoTaskId: 'paid-old-task' };
 const bad = { characters: [{ name: 'Luna', status: 'duplicated', evidence: 'Two matching mermaids' }, { name: 'Rill', status: 'missing', evidence: 'No eel in frame' }], unexpected: [] };
 const good = { characters: [{ name: 'Luna', status: 'present', evidence: 'Blue-coated mermaid at left' }, { name: 'Rill', status: 'present', evidence: 'Gold-sashed eel at right' }], unexpected: [] };
+
+test('director depiction tags restore silent companions without inferring dialogue mentions or unknown roles', () => {
+  const shot = { ...board, characters: ['Luna'], prompt: '[Luna](blue coat) stands beside [Rill](eel courier). [Navi](voice-only narrator). [Stranger](unknown).', speech: [{ character: 'Luna', exactLine: 'Navi called Rill.' }] };
+  assert.deepEqual(storyboardVisualCastNames(shot, cast.map(c => c.name)), ['Luna', 'Rill']);
+  assert.deepEqual(visibleImageCast(shot, cast).map(c => c.name), ['Luna', 'Rill']);
+  const repaired = prepareImageCastRepair(shot, { sceneNumber: 18, imageUrl: shot.imageUrl, passed: false, issues: ['Rill replaced by a human'] }, cast);
+  assert.deepEqual(repaired.characters, ['Luna', 'Rill']);
+  assert.deepEqual(repaired.speech, shot.speech);
+  for (const prompt of ['Luna talks about Rill.', '[Rill](off-screen voice)', '[Rill](not visible)', '[Rill Jr](eel)', '[Navi](narrator)']) {
+    assert.deepEqual(visibleImageCast({ ...shot, prompt }, cast).map(c => c.name), ['Luna']);
+  }
+});
+
+test('cast audit receives authored background context without weakening missing-role checks', async () => {
+  const context = 'Luna and Rill confer while anonymous attendants carry cloth behind them.';
+  const result = await auditImageCast({ ...board, backgroundContext: context }, cast, {}, {
+    draft: { read: async () => undefined, save: async () => {} }, image: async url => url,
+    chat: async prompt => {
+      assert.ok(prompt.includes(context));
+      assert.match(prompt, /are permitted and are not unexpected identities/);
+      assert.match(prompt, /cannot excuse a missing required identity/);
+      assert.match(prompt, /not a judgement of CG texture/);
+      return JSON.stringify(bad);
+    },
+  });
+  assert.equal(result.passed, false);
+});
 
 test('visual checks reject missing and duplicated fictional roles regardless of an invented passed flag', () => {
   const check = parseImageCastCheck({ ...bad, passed: true }, board, cast);

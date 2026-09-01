@@ -1,6 +1,7 @@
 import VideoEditor, { type VideoEditorExportResult } from './video-editor/VideoEditor';
 import { ProjectProductionTiming, Storyboard } from '@/types';
 import { ArrowLeft } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import type { AppSettings } from '@/types';
 import type { StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { formatProductionElapsed, productionElapsedMs } from '@/lib/productionTiming';
@@ -45,6 +46,16 @@ export default function Step6({
       return true;
     });
   const videoUrls = completedShots.map(({ storyboard }) => storyboard.videoUrl as string);
+  const expectedCompletedSegments = new Set(
+    storyboards.filter(item => item.videoStatus === 'completed').map(item => item.videoSegmentId || item.id),
+  ).size;
+  const missingCompletedSegments = Math.max(0, expectedCompletedSegments - completedShots.length);
+  const rejectedAutoExportRef = useRef<number>();
+  useEffect(() => {
+    if (!autoExportRequestId || !missingCompletedSegments || rejectedAutoExportRef.current === autoExportRequestId) return;
+    rejectedAutoExportRef.current = autoExportRequestId;
+    onAutoExportError?.(new Error(`导出前缺少 ${missingCompletedSegments} 个已完成片段的视频文件，拒绝生成不完整成片`));
+  }, [autoExportRequestId, missingCompletedSegments, onAutoExportError]);
   const storyboardById = new Map(storyboards.map(item => [item.id, item]));
   const storyboardGroups = completedShots.map(({ storyboard }) => {
     const memberIds = storyboard.videoSegmentStoryboardIds?.length
@@ -80,6 +91,8 @@ export default function Step6({
 
       {outdated.length > 0 ? (
         <p className="rounded-lg border border-amber-400/40 p-4 text-amber-300">镜 {outdated.map(item => item.sceneNumber).join('、')} 仍使用旧版自动接续首帧，请返回视频步骤重新生成后再合并，避免把错误场景混入成片。</p>
+      ) : autoExportRequestId && missingCompletedSegments > 0 ? (
+        <p className="rounded-lg border border-red-400/40 p-4 text-red-300">导出前缺少 {missingCompletedSegments} 个已完成片段的视频文件，已拒绝生成不完整成片；请等待系统从本地缓存恢复。</p>
       ) : videoUrls.length > 0 ? (
         <div className="flex-1 border border-[var(--border-color)] rounded overflow-hidden">
           <VideoEditor

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordSeriesInterruption, seriesCheckpointAdvanced } from '@/lib/series/interruption';
 import { seriesRetryBlocker } from '@/lib/series/jobHistory';
+import { setSeriesStyleReference } from '@/lib/series/styleReference';
 import { castSeriesRole } from "@/lib/series/casting";
 import { seriesAssetsReady, seriesStageBlocker } from "@/lib/series/readiness";
 import { moveSeriesToTrash, restoreSeriesFromTrash } from "@/lib/series/trash";
@@ -176,6 +178,9 @@ export async function POST(request: NextRequest) {
                     character.casting = undefined;
                     character.bibleUrl = undefined;
                     character.imageTaskId = undefined;
+                    character.imageSubmissionKey = undefined;
+                    character.imageIssue = undefined;
+                    character.imageFailures = undefined;
                     character.photographicAnchor = undefined;
                     character.photographicSheetUrl = undefined;
                     character.photographicCardReview = undefined;
@@ -207,6 +212,7 @@ export async function POST(request: NextRequest) {
                 : e,
             );
           } else {
+            if (Object.prototype.hasOwnProperty.call(body.patch || {}, 'styleReference')) setSeriesStyleReference(project, body.patch.styleReference);
             if (typeof body.patch?.name === "string" && text(body.patch.name))
               project.name = text(body.patch.name);
             if (
@@ -362,8 +368,10 @@ export async function POST(request: NextRequest) {
             job.sealedSettings = await sealSettings(body.settings);
           job.status = "queued";
           job.attempts = 0;
+          job.consecutiveInterruptions = 0;
           job.error = undefined;
           job.cancelRequested = false;
+          job.finishedAt = undefined;
           job.stage = "等待从断点重试";
           job.updatedAt = now;
           owner.paused = false;
@@ -383,18 +391,7 @@ export async function POST(request: NextRequest) {
               j.status === "running" &&
               Date.now() - (j.heartbeatAt || 0) > 45000,
           )) {
-            job.status =
-              job.attempts >= 3
-                ? "failed"
-                : job.cancelRequested
-                  ? "paused"
-                  : "queued";
-            job.lease = undefined;
-            job.stage = "执行器中断，已保留断点";
-            job.error =
-              job.status === "failed"
-                ? "执行器连续中断，等待手动重试"
-                : undefined;
+            recordSeriesInterruption(job, Boolean(job.cancelRequested || db.projects.find(p => p.id === job.seriesId)?.paused));
           }
           if (db.jobs.some((j) => j.status === "running"))
             return { claim: null };
@@ -456,6 +453,7 @@ export async function POST(request: NextRequest) {
             )
               throw new Error("生产快照版本冲突，拒绝覆盖");
             const replacement = { ...incoming, paused: owner.paused, deletedAt: owner.deletedAt };
+            if (seriesCheckpointAdvanced(owner, replacement)) job.consecutiveInterruptions = 0;
             touchProject(replacement);
             db.projects[db.projects.indexOf(owner)] = replacement;
           }
@@ -470,17 +468,7 @@ export async function POST(request: NextRequest) {
           const job = requireLease(db, body.jobId, body.lease);
           if (body.interrupted) {
             const owner = db.projects.find((p) => p.id === job.seriesId)!;
-            job.status = owner.paused
-              ? "paused"
-              : job.attempts >= 3
-                ? "failed"
-                : "queued";
-            job.stage = "执行器连接中断，已保存断点";
-            job.error =
-              job.status === "failed"
-                ? "执行器连续中断，请检查环境后从断点重试"
-                : undefined;
-            job.lease = undefined;
+            recordSeriesInterruption(job, owner.paused);
             job.updatedAt = now;
             return { ok: true };
           }

@@ -1,3 +1,5 @@
+import { isProviderContentRejection } from './pipeline/providerPayload';
+
 export type ImageSafetyRisk = 'graphic-injury' | 'lethal-action' | 'distress-detail';
 
 const RISK_PATTERNS: Array<{ risk: ImageSafetyRisk; pattern: RegExp }> = [
@@ -58,7 +60,7 @@ export function rewriteImagePromptForSafety(prompt: string, level: 1 | 2 = 1): s
 
 export function isImageSafetyRejection(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || '');
-  return /(?:content safety|safety system|safety policy|moderation|policy violation|prompt .* rejected|input .* rejected|unsafe content|内容安全|安全策略|审核拒绝|违规)/i.test(message);
+  return isProviderContentRejection(error) || /(?:content safety|safety system|safety policy|moderation|policy violation|prompt .* rejected|input .* rejected|unsafe content|内容安全|安全策略|审核拒绝|违规)/i.test(message);
 }
 
 export function imageSafetyReasonLabel(risks: ImageSafetyRisk[]): string {

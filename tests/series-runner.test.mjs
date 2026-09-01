@@ -62,3 +62,71 @@ test('production runner reuses locked shared assets, saves checkpoints and uploa
     for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete globalThis[key]; else globalThis[key] = value; }
   }
 });
+
+test('one rejected MJ card does not stop other cards and scenes, and a restart buys no duplicates', async () => {
+  const project = createSeries({ name: 'MJ preparation', brief: 'test', episodeCount: 3 });
+  Object.assign(project, parseOutline(outlineFixture(), project));
+  project.characters.forEach(c => { c.locked = false; c.voiceId = `voice-${c.id}`; c.voiceReferenceUrl = 'https://assets.test/voice.mp3'; });
+  project.characters[0].imageTaskId = 'rejected-task';
+  const saved = {fetch:globalThis.fetch, setTimeout:globalThis.setTimeout};
+  const submissions=[],polls=[],stages=[];
+  globalThis.setTimeout = (fn, delay, ...args) => saved.setTimeout(fn, delay === 3000 ? 0 : delay, ...args);
+  globalThis.fetch = async (url, init) => {
+    if(url==='/api/companion/status') return Response.json({ok:false});
+    const body = JSON.parse(init.body);
+    if(url==='/api/companion/series') { stages.push(body.stage);return Response.json({revision:body.project.revision+1}); }
+    if(url==='/api/generate-costume') { submissions.push(body);return Response.json({taskId:`paid-${submissions.length}`}); }
+    if(url==='/api/check-image-status') { polls.push(body.taskId);return Response.json(body.taskId==='rejected-task' ? {status:'failed',error:'Prompt图片未通过审核'} : {status:'completed',imageUrl:`https://assets.test/${body.taskId}.png`}); }
+    if(url==='/api/upload-image') return Response.json({url:body.imageData});
+    throw Error(`Unexpected ${url}`);
+  };
+  try {
+    const claim={project,job:{id:'prepare',kind:'prepare',lease:'test'},settings:{imageModel:'midjourney'}};
+    await assert.rejects(executeSeriesClaim(claim,new AbortController().signal,()=>{}),/1 项图像待处理/);
+    assert.equal(project.characters[0].locked,false);
+    assert.equal(project.characters[0].imageIssue.kind,'review');
+    assert.ok(project.characters.slice(1).every(c=>c.locked && c.bibleUrl));
+    assert.ok(project.locations.every(l=>l.imageUrl));
+    const count=submissions.length;
+    assert.equal(count,project.characters.length-1+project.locations.length);
+    await assert.rejects(executeSeriesClaim(claim,new AbortController().signal,()=>{}),/1 项图像待处理/);
+    assert.equal(submissions.length,count);
+    assert.equal(polls.filter(id=>id==='rejected-task').length,2);
+    assert.ok(stages.some(s=>s.includes('继续准备其余素材')));
+  } finally { Object.assign(globalThis,saved); }
+});
+
+test('photographic preparation uses the reviewed single card, checkpoints submission identity, and skips unused sheets', async () => {
+ const project=createSeries({name:'Photo preparation',brief:'test',episodeCount:3});
+ Object.assign(project,parseOutline(outlineFixture(),project));
+ project.characters.forEach(c=>{c.locked=false;c.voiceId=`voice-${c.id}`;c.voiceReferenceUrl='https://assets.test/voice.mp3';});
+ project.styleReference={imageUrl:'https://assets.test/style.png',description:'Warm light, cool ambient.'};
+ const saved={fetch:globalThis.fetch,setTimeout:globalThis.setTimeout};
+ const submissions=[],checkpoints=[];
+ globalThis.setTimeout=(fn,delay,...args)=>saved.setTimeout(fn,delay===3000?0:delay,...args);
+ globalThis.fetch=async(url,init)=>{
+  if(url==='/api/companion/status')return Response.json({ok:false});
+  const body=JSON.parse(init.body);
+  if(url==='/api/companion/series'){checkpoints.push(structuredClone(body.project));return Response.json({revision:body.project.revision+1});}
+  if(url==='/api/generate-costume'){
+   assert.ok(body.imageSubmissionKey);
+   assert.ok(JSON.stringify(checkpoints.at(-1)).includes(body.imageSubmissionKey),'key persisted before purchase');
+   assert.equal(body.styleReference.imageUrl,project.styleReference.imageUrl);
+   submissions.push(body);return Response.json({taskId:`paid-${submissions.length}`});
+  }
+  if(url==='/api/check-image-status')return Response.json({status:'completed',imageUrl:`https://assets.test/${body.taskId}.png`});
+  if(url==='/api/upload-image')return Response.json({url:body.imageData});
+  if(url==='/api/series/audit-appearance')return Response.json({photographic:true,issues:[]});
+  throw Error(`Unexpected ${url}`);
+ };
+ try{
+  const claim={project,job:{id:'prepare',kind:'prepare',lease:'test'},settings:{imageModel:'gpt-image-2'}};
+  await executeSeriesClaim(claim,new AbortController().signal,()=>{});
+  assert.equal(submissions.filter(s=>s.type==='costume').length,0);
+  assert.equal(submissions.filter(s=>s.type==='costume-anchor').length,project.characters.length);
+  assert.ok(project.characters.every(c=>c.bibleUrl===c.photographicAnchor.imageUrl&&c.locked));
+  const count=submissions.length;
+  await executeSeriesClaim(claim,new AbortController().signal,()=>{});
+  assert.equal(submissions.length,count);
+ }finally{Object.assign(globalThis,saved);}
+});

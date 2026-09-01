@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -63,11 +63,13 @@ test('Companion persists, reuses, retries and natively merges local clips', { ti
     }
 
     const created = await server.createOrResumeExportJob(projectId, clips, 'recovered-film.mp4', '9:16');
+    const statusRoute = await import(new URL('../lib/companionVideoExportServer.ts?route=status', import.meta.url).href);
+    assert.notEqual(statusRoute.ensureExportJobRunning, server.ensureExportJobRunning);
     let job = created;
     const deadline = Date.now() + 90_000;
     while (job.status !== 'completed' && job.status !== 'failed' && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 250));
-      job = await server.readExportJob(projectId, created.jobId);
+      job = await statusRoute.recoverExportJob(projectId, created.jobId);
     }
     assert.equal(job.status, 'completed', job.error);
     assert.equal(job.progress, 100);
@@ -101,10 +103,39 @@ test('Companion persists, reuses, retries and natively merges local clips', { ti
     ]);
     const outputDuration = Number(outputDurationText.trim());
     assert.ok(outputDuration > 2.1 && outputDuration < 2.3, `expected paced output with a protected ending near 2.17s, received ${outputDuration}s`);
+    await execFileAsync(ffmpeg, ['-v', 'error', '-xerror', '-i', download.filePath, '-f', 'null', '-']);
 
     const resumed = await server.createOrResumeExportJob(projectId, clips, 'recovered-film.mp4', '9:16');
     assert.equal(resumed.status, 'completed');
     assert.equal(resumed.jobId, created.jobId);
+
+    // Reproduce a cached MP4 with valid metadata but damaged compressed data,
+    // plus a short yet playable final output. Neither may be accepted as done.
+    const damagedPath = path.join(normalizedDirectory, '000.mp4');
+    const damaged = Buffer.from(await readFile(damagedPath));
+    for (let offset = 0; offset + 8 < damaged.length;) {
+      const size = damaged.readUInt32BE(offset);
+      if (size < 8) break;
+      if (damaged.toString('ascii', offset + 4, offset + 8) === 'mdat') {
+        damaged.fill(0, offset + 8, Math.min(offset + size, offset + 2048));
+        break;
+      }
+      offset += size;
+    }
+    const untouchedPath = path.join(normalizedDirectory, '001.mp4');
+    const untouchedMtime = (await stat(untouchedPath)).mtimeMs;
+    await writeFile(damagedPath, damaged);
+    await writeFile(download.filePath, await readFile(untouchedPath));
+    await server.createOrResumeExportJob(projectId, clips, 'recovered-film.mp4', '9:16');
+    do {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      job = await statusRoute.recoverExportJob(projectId, created.jobId);
+    } while (!['completed', 'failed'].includes(job.status) && Date.now() < deadline);
+    assert.equal(job.status, 'completed', job.error);
+    assert.equal((await stat(untouchedPath)).mtimeMs, untouchedMtime, 'valid normalized clip must be reused');
+    await execFileAsync(ffmpeg, ['-v', 'error', '-xerror', '-i', download.filePath, '-f', 'null', '-']);
+    const repaired = await server.probeMedia(download.filePath);
+    assert.ok(repaired.duration > 2.1 && repaired.duration < 2.3);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

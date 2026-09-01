@@ -1,4 +1,5 @@
 'use client';
+import type { ImageStyleReference } from '@/lib/imageStyleReference';
 
 import { useState, useEffect, useRef } from 'react';
 import DevToolsLayout from '@/components/DevToolsLayout';
@@ -20,7 +21,7 @@ import { StoryPlan } from '@/lib/pipeline/types';
 import { useProject } from '@/hooks/useProject';
 import { useSettings } from '@/hooks/useSettings';
 import { comfyUIApiUrl, companionVersionAtLeast, downloadComfyUIVideo, fetchStoryApi, imageApiUrl, isComfyUIClientTask, localComfyUISettings, SEGMENT_VIDEO_COMPANION_MIN_VERSION, videoStatusResponseError } from '@/lib/comfyuiClient';
-import { getImageModelCapabilities, imageModelRequiresApiKey, isMidjourneyImageModel, resolveStoryboardGridImageModel } from '@/lib/imageModels';
+import { getImageModelCapabilities, imageModelRequiresApiKey, isGptImage2Model, isMidjourneyImageModel, resolveStoryboardGridImageModel } from '@/lib/imageModels';
 import { Grid3x3 } from 'lucide-react';
 import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
@@ -28,7 +29,9 @@ import { canResumeStoryPlan } from '@/lib/pipeline/resumePlan';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
 import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedPlannedVideoSegment, normalizeVideoSegmentPlan, refreshPlannedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
-import { isFilmEndingSegment } from '@/lib/filmEnding';
+import { filmEndingDuration, isFilmEndingSegment } from '@/lib/filmEnding';
+import { FILM_ENDING_WARNING, MAX_ENDING_REPAIRS, filmEndingDisposition, prepareFilmEndingRepair, type FilmEndingAudit } from '@/lib/filmEndingAudit';
+import { MAX_VIDEO_DUPLICATE_REPAIRS, prepareVideoDuplicateRepair, videoDuplicateAuditScope, type VideoDuplicateAudit } from '@/lib/videoDuplicateAudit';
 import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS, previousSegmentTailSource } from '@/lib/videoContinuity';
@@ -57,7 +60,7 @@ import { bindSeriesPlan, buildApprovedSeriesPlan, validateSeriesProduction } fro
 import { prepareImageCastRepair, visibleImageCast, type ImageCastCheck, type ImageCastCharacter } from '@/lib/series/imageCastContract';
 import { AwaitingMediaTaskError, autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, imagePollingTimeoutError, isTransientAutoProductionError, normalizeStoryboardImageArtifact, planAutoImageBatch } from '@/lib/autoProduction';
 import { effectiveStoryCast } from '@/lib/storyCast';
-import { resolveMidjourneyProfileSetting } from '@/lib/midjourney';
+import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '@/lib/midjourney';
 import { applyCapturePreset, DEFAULT_CAPTURE_PRESET, normalizeCapturePreset } from '@/lib/capturePresets';
 import { completeProductionTiming, formatProductionElapsed, normalizeProductionTiming, pauseProductionTiming, productionElapsedMs, startProductionTiming } from '@/lib/productionTiming';
 import { isFalVideoTask } from '@/lib/falVideo';
@@ -277,6 +280,7 @@ export default function StoryPage() {
   const [voiceReferences, setVoiceReferences] = useState<Record<string, string>>(); // { 角色名: Cloudinary URL }
   const [voiceGenerating, setVoiceGenerating] = useState<Record<string, boolean>>({}); // { 角色名: bool }
   const [sceneImages, setSceneImages] = useState<string[]>([]);
+  const styleReferenceRef = useRef<ImageStyleReference>();
   const [sceneGenerating, setSceneGenerating] = useState(false);
   const [isGeneratingGrid, setIsGeneratingGrid] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
@@ -550,6 +554,7 @@ export default function StoryPage() {
       voiceReferences: voiceReferencesRef.current,
       costumeImages: costumeImagesRef.current,
       sceneImages: sceneImagesRef.current,
+      styleReference: styleReferenceRef.current,
       storyPlan: storyPlanRef.current,
       videoSegmentPlan: videoSegmentPlanRef.current,
       createdAt: new Date().toISOString(),
@@ -599,6 +604,7 @@ export default function StoryPage() {
       const savedObjects = savedProject.objects || [];
       const savedCostumeImages = savedProject.costumeImages || {};
       const savedSceneImages = savedProject.sceneImages || [];
+      styleReferenceRef.current = savedProject.styleReference;
       charactersRef.current = savedCharacters;
       objectsRef.current = savedObjects;
       costumeImagesRef.current = savedCostumeImages;
@@ -768,14 +774,14 @@ export default function StoryPage() {
         && savedAuto.status === 'running'
         && !autoOwnsCrossTabLeaseRef.current) return;
       if (characters.length > 0 || storyContent || storyboards.length > 0) {
-        saveProject({ characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, capturePreset, productionTiming: productionTimingRef.current, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, videoSegmentPlan, createdAt: new Date().toISOString() });
+        saveProject({ characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, capturePreset, productionTiming: productionTimingRef.current, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, styleReference: styleReferenceRef.current, storyPlan, videoSegmentPlan, createdAt: new Date().toISOString() });
       }
     }, 30000);
     return () => clearInterval(timer);
   }, [characters, objects, storyContent, projectLanguage, targetShotCount, projectAspectRatio, visualStyle, capturePreset, productionTiming, storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, videoSegmentPlan, saveProject]);
 
   const handleSave = () => {
-    saveProject({ characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, capturePreset, productionTiming: productionTimingRef.current, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, videoSegmentPlan, createdAt: new Date().toISOString() });
+    saveProject({ characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, capturePreset, productionTiming: productionTimingRef.current, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, styleReference: styleReferenceRef.current, storyPlan, videoSegmentPlan, createdAt: new Date().toISOString() });
     alert('Project saved!');
   };
 
@@ -804,6 +810,7 @@ export default function StoryPage() {
       voiceReferences: voiceReferencesRef.current,
       costumeImages: costumeImagesRef.current,
       sceneImages: sceneImagesRef.current,
+      styleReference: styleReferenceRef.current,
       storyPlan,
       videoSegmentPlan: plan,
       createdAt: new Date().toISOString(),
@@ -898,6 +905,7 @@ export default function StoryPage() {
       voiceReferences: nextVoiceReferences,
       costumeImages: costumeImagesRef.current,
       sceneImages: sceneImagesRef.current,
+      styleReference: styleReferenceRef.current,
       storyPlan: nextPlan,
       videoSegmentPlan: nextVideoPlan,
       createdAt: new Date().toISOString(),
@@ -926,6 +934,7 @@ export default function StoryPage() {
         const importedObjects = data.objects || [];
         const importedCostumeImages = data.costumeImages || {};
         const importedSceneImages = data.sceneImages || [];
+        styleReferenceRef.current = data.styleReference;
         const importedVoiceReferences = currentVoiceReferences(data.voiceReferences);
         charactersRef.current = importedCharacters;
         objectsRef.current = importedObjects;
@@ -995,6 +1004,7 @@ export default function StoryPage() {
           voiceReferences: importedVoiceReferences,
           costumeImages: importedCostumeImages,
           sceneImages: importedSceneImages,
+          styleReference: data.styleReference,
           storyPlan: importedStoryPlan,
           videoSegmentPlan: importedVideoSegmentPlan,
           createdAt: data.createdAt || new Date().toISOString(),
@@ -1011,7 +1021,7 @@ export default function StoryPage() {
   };
 
   const handleExport = () => {
-    exportProject({ name: projectName, characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, capturePreset, productionTiming, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, storyPlan, videoSegmentPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    exportProject({ name: projectName, characters, objects, storyContent, language: projectLanguage, targetShotCount, aspectRatio: projectAspectRatio, visualStyle, capturePreset, productionTiming, storyOutline: '', storyboards, voiceReferences, costumeImages, sceneImages, styleReference: styleReferenceRef.current, storyPlan, videoSegmentPlan, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   };
 
   const handleUpdateStoryboard = (updated: Storyboard) => {
@@ -1071,6 +1081,7 @@ export default function StoryPage() {
       aspectRatio: projectAspectRatioRef.current,
       visualStyle,
       capturePreset: normalized,
+      styleReference: styleReferenceRef.current,
       productionTiming: undefined,
       storyOutline: '',
       storyboards: nextStoryboards,
@@ -1320,6 +1331,8 @@ export default function StoryPage() {
           ...groupCharacters.map(c => `${c.name}: ${summarize(c.description)}`),
           ...textDefinedCharacters,
         ].join('\n');
+        const rejected = group.find(sb => sb.status === 'failed' && isImageSafetyRejection(sb.imageFailureReason));
+        if (rejected) throw new TerminalImageTaskError(rejected.imageFailureReason || '上游审核拒绝');
         const safetyFindings = group.map(sb => ({
           storyboard: sb,
           risks: analyzeImagePromptSafety(`${sb.prompt}\n${sb.description}`),
@@ -1340,9 +1353,10 @@ export default function StoryPage() {
           const finding = safetyFindings.find(entry => entry.storyboard.id === sb.id);
           const shouldRewrite = Boolean(finding) || safetyAttempt > 0 || Boolean(sb.imagePromptOverride);
           const safetyLevel: 1 | 2 = (finding && safetyAttempt === 0) || safetyAttempt === 1 ? 1 : 2;
+          const basePrompt = sb.imagePromptOverride || sb.prompt;
           const sourcePrompt = shouldRewrite
-            ? rewriteImagePromptForSafety(sb.prompt, safetyLevel).replace(/^[\s\S]*?\n\n/, '')
-            : sb.prompt;
+            ? rewriteImagePromptForSafety(basePrompt, safetyLevel).replace(/^[\s\S]*?\n\n/, '')
+            : basePrompt;
           const cleanPrompt = sourcePrompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1');
           const requiredCharacters = [...new Set([
             ...(sb.characters || []),
@@ -1388,7 +1402,7 @@ export default function StoryPage() {
         const refImages = references.map(reference => reference.image);
         let gridUrl = '';
         let lastGridError: unknown;
-        const maxSafetyAttempts = safetyFindings.length > 0 ? 2 : 3;
+        const maxSafetyAttempts = 1; // Preflight only; never rewrite around a provider refusal.
         for (let safetyAttempt = 0; safetyAttempt < maxSafetyAttempts && !gridUrl; safetyAttempt += 1) {
           const shotDescs = buildShotDescriptions(safetyAttempt);
           const rawGridPrompt = buildGridPrompt(
@@ -1414,8 +1428,7 @@ export default function StoryPage() {
           };
 
           try {
-            // Resume an already-paid task only on the first attempt. A safety
-            // rejection creates a fresh task with the corrected panel prompts.
+            // Reattach to the paid task. A provider refusal is preserved for review.
             let taskId = safetyAttempt === 0 && options.resumeTaskId && batch.length <= 9 ? options.resumeTaskId : '';
             if (!taskId) {
               const res = await fetch(imageApiUrl('/api/generate', activeSettings.comfyui, gridImageModel), {
@@ -1435,7 +1448,7 @@ export default function StoryPage() {
                   visualStyle,
                   capturePreset: capturePresetRef.current,
                   comfyui: localComfyUISettings(activeSettings.comfyui),
-                  midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings),
+                  styleReference: styleReferenceRef.current, midjourneyStyle: resolveMidjourneyStyleSetting(activeSettings), midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings),
                 })
               });
               ({ taskId } = await readApiJson<{ taskId: string }>(res, '九宫格任务创建失败'));
@@ -1471,20 +1484,7 @@ export default function StoryPage() {
             if (!gridUrl) throw new Error('Grid image timeout');
           } catch (error) {
             lastGridError = error;
-            if (!isImageSafetyRejection(error) || safetyAttempt >= maxSafetyAttempts - 1) throw error;
-            const candidateScenes = safetyFindings.length
-              ? safetyFindings.map(finding => finding.storyboard.sceneNumber)
-              : group.map(storyboard => storyboard.sceneNumber);
-            const diagnosis = safetyFindings.length
-              ? imageSafetyReasonLabel([...new Set(safetyFindings.flatMap(finding => finding.risks))])
-              : '供应商内容安全策略（未命中本地词表）';
-            updateGridStoryboards(items => items.map(sb => group.some(g => g.id === sb.id) ? {
-              ...sb,
-              status: 'generating' as const,
-              imageFailureReason: `内容安全拒绝；候选镜头 ${candidateScenes.join('、')}：${diagnosis}；正在自动修正并重试`,
-              imageRetryCount: (sb.imageRetryCount || 0) + 1,
-              imagePromptOverride: rewriteImagePromptForSafety(sb.prompt, safetyAttempt === 0 ? 1 : 2),
-            } : sb));
+            throw error;
           }
         }
         if (!gridUrl) throw (lastGridError instanceof Error ? lastGridError : new Error('Grid image failed'));
@@ -1531,13 +1531,14 @@ export default function StoryPage() {
             continue;
           }
           console.error('Grid generation failed:', error);
-          const terminalTaskFailure = error instanceof TerminalImageTaskError;
+          const contentRejected = isImageSafetyRejection(error);
+          const terminalTaskFailure = error instanceof TerminalImageTaskError && !contentRejected;
           updateGridStoryboards(items => items.map(sb => group.some(g => g.id === sb.id) ? {
             ...sb,
             // A polling timeout or split/upload failure does not prove that the
             // paid image task failed. Keep it recoverable and reattach to the
             // same id; only an explicit provider failure permits resubmission.
-            status: !terminalTaskFailure && sb.taskId ? 'generating' : 'failed',
+            status: !contentRejected && !terminalTaskFailure && sb.taskId ? 'generating' : 'failed',
             taskId: terminalTaskFailure ? undefined : sb.taskId,
             imageTaskMode: terminalTaskFailure ? undefined : sb.imageTaskMode,
             imageFailureReason: extractImageTaskError(error),
@@ -1571,12 +1572,14 @@ export default function StoryPage() {
     try {
       const latestBeforeStart = storyboardsRef.current.find(item => item.id === storyboard.id) || storyboard;
       if (hasUsableStoryboardImage(latestBeforeStart)) return;
+      if (latestBeforeStart.status === 'failed' && isImageSafetyRejection(latestBeforeStart.imageFailureReason))
+        throw new TerminalImageTaskError(latestBeforeStart.imageFailureReason || '上游审核拒绝');
       const initialRisks = analyzeImagePromptSafety(`${storyboard.prompt}\n${storyboard.description}`);
-      const maxSafetyAttempts = initialRisks.length > 0 ? 2 : 3;
+      const maxSafetyAttempts = 1; // Preflight only; provider refusals require review.
       for (let safetyAttempt = 0; safetyAttempt < maxSafetyAttempts; safetyAttempt += 1) {
         const shouldRewrite = initialRisks.length > 0 || safetyAttempt > 0 || Boolean(storyboard.imagePromptOverride);
         const safetyLevel: 1 | 2 = initialRisks.length > 0 && safetyAttempt === 0 || safetyAttempt === 1 ? 1 : 2;
-        const imagePrompt = storyboard.imageCastRepairPrompt || storyboard.prompt;
+        const imagePrompt = storyboard.imagePromptOverride || storyboard.imageCastRepairPrompt || storyboard.prompt;
         const prompt = shouldRewrite ? rewriteImagePromptForSafety(imagePrompt, safetyLevel) : imagePrompt;
         setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? {
           ...sb,
@@ -1594,7 +1597,7 @@ export default function StoryPage() {
             const response = await fetch(imageApiUrl('/api/generate', activeSettings.comfyui, activeSettings.imageModel), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ storyboard: { ...storyboard, prompt, capturePreset: capturePresetRef.current }, characters: effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters), objects: objectsRef.current, aspectRatio: projectAspectRatioRef.current, imageModel: activeSettings.imageModel, apiKey: activeSettings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle, capturePreset: capturePresetRef.current, comfyui: localComfyUISettings(activeSettings.comfyui), midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings) })
+              body: JSON.stringify({ storyboard: { ...storyboard, prompt, capturePreset: capturePresetRef.current }, characters: effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters), objects: objectsRef.current, aspectRatio: projectAspectRatioRef.current, imageModel: activeSettings.imageModel, apiKey: activeSettings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle, capturePreset: capturePresetRef.current, comfyui: localComfyUISettings(activeSettings.comfyui), styleReference: styleReferenceRef.current, midjourneyStyle: resolveMidjourneyStyleSetting(activeSettings), midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings) })
             });
             const data = await readApiJson<{ taskId: string }>(response, '启动单张分镜生成失败');
             taskId = data.taskId;
@@ -1656,15 +1659,16 @@ export default function StoryPage() {
           }
           return;
         } catch (error) {
-          if (!isImageSafetyRejection(error) || safetyAttempt >= maxSafetyAttempts - 1) throw error;
+          throw error;
         }
       }
     } catch (error) {
       if (generationProjectId !== projectIdRef.current) return;
-      const terminalTaskFailure = error instanceof TerminalImageTaskError;
+      const contentRejected = isImageSafetyRejection(error);
+      const terminalTaskFailure = error instanceof TerminalImageTaskError && !contentRejected;
       commitStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? {
         ...sb,
-        status: !terminalTaskFailure && sb.taskId ? 'generating' : 'failed',
+        status: !contentRejected && !terminalTaskFailure && sb.taskId ? 'generating' : 'failed',
         taskId: terminalTaskFailure ? undefined : sb.taskId,
         imageTaskMode: terminalTaskFailure ? undefined : sb.imageTaskMode,
         imageFailureReason: error instanceof Error ? error.message : 'Unknown image generation error',
@@ -1768,7 +1772,7 @@ export default function StoryPage() {
           visualStyle,
           capturePreset: capturePresetRef.current,
           comfyui: localComfyUISettings(activeSettings.comfyui),
-          midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings),
+          styleReference: styleReferenceRef.current, midjourneyStyle: resolveMidjourneyStyleSetting(activeSettings), midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings),
         })
       });
       const { taskId } = await readApiJson<{ taskId: string }>(response, type === 'costume' ? '生成角色定妆失败' : '生成场景参考失败');
@@ -1884,7 +1888,7 @@ export default function StoryPage() {
         : '/api/generate-video-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: { ...storyboard, visualStyle, capturePreset: capturePresetRef.current }, segmentStoryboards, isFilmEnding: isFilmEndingSegment(storyboardsRef.current, segmentStoryboards), referenceAudioNames, voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, language: projectLanguageRef.current, hasFirstFrame, rewriteDirection, apiKey: settingsRef.current.apiKey, dmxApiKey: settingsRef.current.dmxApiKey, scriptProvider: settingsRef.current.scriptProvider || 'auto', scriptModel: settingsRef.current.scriptModel || 'gpt-4o' })
+        body: JSON.stringify({ styleReference: styleReferenceRef.current, storyboard: { ...storyboard, visualStyle, capturePreset: capturePresetRef.current }, segmentStoryboards, isFilmEnding: isFilmEndingSegment(storyboardsRef.current, segmentStoryboards), referenceAudioNames, voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, language: projectLanguageRef.current, hasFirstFrame, rewriteDirection, apiKey: settingsRef.current.apiKey, dmxApiKey: settingsRef.current.dmxApiKey, scriptProvider: settingsRef.current.scriptProvider || 'auto', scriptModel: settingsRef.current.scriptModel || 'gpt-4o' })
       });
       const data = await readApiJson<{ videoPrompt: string; directions?: Array<Pick<Storyboard, 'id' | 'videoDirection' | 'videoDirectionSource'>> }>(response, '视频提示词生成失败');
       if (generationProjectId !== projectIdRef.current) return;
@@ -1962,7 +1966,7 @@ export default function StoryPage() {
     const segmentIds = segment.map(item => item.id);
     const leader = segment[0];
     const segmentId = `segment-${Date.now()}-${leader.sceneNumber}`;
-    const duration = estimateVideoSegmentSeconds(segment);
+    const duration = filmEndingDuration(estimateVideoSegmentSeconds(segment), isFilmEndingSegment(currentShots, segment), undefined, leader.videoEndingMinimumDuration);
     const prevShot = previousSegmentTailSource(currentShots, leader);
     if (leader.videoStartMode === 'previous-segment-tail' && !prevShot) {
       failBeforeSubmission('无法接续上一段：必须同场同地点、相邻片段已完成且不是换场转场；请选择“当前分镜首帧”。');
@@ -2091,7 +2095,7 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard: storyboardForRequest, segmentStoryboards: portableSegment, isFilmEnding: isFilmEndingSegment(storyboardsRef.current, segment), language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, videoProvider, fal: activeSettings.fal, comfyui: localComfyUISettings(activeSettings.comfyui) })
+        body: JSON.stringify({ styleReference: styleReferenceRef.current, storyboard: storyboardForRequest, segmentStoryboards: portableSegment, isFilmEnding: isFilmEndingSegment(storyboardsRef.current, segment), language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, videoProvider, fal: activeSettings.fal, comfyui: localComfyUISettings(activeSettings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string; videoPrompt?: string }>(response, '视频任务创建失败');
       submittedTaskId = data.taskId;
@@ -2120,6 +2124,7 @@ export default function StoryPage() {
         voiceReferences: voiceReferencesRef.current,
         costumeImages: costumeImagesRef.current,
         sceneImages: sceneImagesRef.current,
+      styleReference: styleReferenceRef.current,
         storyPlan: storyPlanRef.current,
         videoSegmentPlan: videoSegmentPlanRef.current,
         createdAt: new Date().toISOString(),
@@ -2339,6 +2344,7 @@ export default function StoryPage() {
             await waitBeforeRetry(15_000);
             continue;
           }
+          if (isImageSafetyRejection(error)) throw error;
           const transient = isTransientAutoProductionError(error);
           if (transient) transientFailureCount += 1;
           else failureCount += 1;
@@ -2467,7 +2473,7 @@ export default function StoryPage() {
               const active = settingsRef.current;
               const response = await fetchStoryApi('/api/series/audit-images', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ boards: batch.map(b => ({ sceneNumber: b.sceneNumber, imageUrl: b.imageUrl, characters: b.characters, requireSingleFrame: isMidjourneyImageModel(active.imageModel) })), characters: cast, apiKey: active.apiKey, dmxApiKey: active.dmxApiKey, scriptProvider: active.scriptProvider || 'auto', scriptModel: active.scriptModel || 'gpt-4o' }),
+                body: JSON.stringify({ boards: batch.map(b => ({ sceneNumber: b.sceneNumber, imageUrl: b.imageUrl, characters: b.characters, backgroundContext: isGptImage2Model(active.imageModel) ? b.prompt : undefined, requireSingleFrame: isMidjourneyImageModel(active.imageModel) })), characters: cast, apiKey: active.apiKey, dmxApiKey: active.dmxApiKey, scriptProvider: active.scriptProvider || 'auto', scriptModel: active.scriptModel || 'gpt-4o' }),
               }, active.comfyui);
               const result = await readApiJson<{ checks: ImageCastCheck[] }>(response, '分镜角色核验失败');
               if (result.checks?.length !== batch.length || batch.some(b => !result.checks.some(c => c.sceneNumber === b.sceneNumber && c.imageUrl === b.imageUrl && (typeof c.passed === 'boolean' || c.passed === null)))) throw new Error('角色核验未完整返回当前图片结果');
@@ -2517,7 +2523,7 @@ export default function StoryPage() {
       for (const group of videoGroups) {
         if (autoAbortRef.current) return;
         const groupLabel = `视频片段 ${group.map(item => item.sceneNumber).join('·')}`;
-        await retryUntilCompleted(groupLabel, async () => {
+        const completeGroup = async () => {
           const latestGroup = refreshPlannedVideoSegment(storyboardsRef.current, group);
           const latestLeader = latestGroup[0];
           const alreadyDone = isH3SegmentProvider
@@ -2555,9 +2561,133 @@ export default function StoryPage() {
             ? isCompletedPlannedVideoSegment(storyboardsRef.current, group)
             : completed.every(item => item.videoStatus === 'completed' && item.videoUrl);
           if (!isDone) throw new Error('任务结束但没有返回完整视频');
-        });
+        };
+        await retryUntilCompleted(groupLabel, completeGroup);
+        if (videoProvider === 'comfyui' && group.some(item => item.characters.length)) {
+          for (let round = 0; round <= MAX_VIDEO_DUPLICATE_REPAIRS; round++) {
+            if (autoAbortRef.current) return;
+            let duplicateAudit: VideoDuplicateAudit | undefined;
+            await retryUntilCompleted(`${groupLabel}：检查重复角色`, async () => {
+              const current = refreshPlannedVideoSegment(storyboardsRef.current, group), leader = current[0];
+              const { names, context } = videoDuplicateAuditScope(current);
+              if (!names.length) throw new Error('视频片段没有可核验的角色');
+              if (!leader.videoTaskId) throw new Error('视频尚未返回任务编号');
+              if (leader.videoDuplicateAudit?.taskId === leader.videoTaskId) { duplicateAudit = leader.videoDuplicateAudit; return; }
+              const cached = leader.videoCacheKey ? await cachedVideoObjectUrl(leader.videoCacheKey) : undefined;
+              const source = cached || leader.videoSourceUrl || leader.videoUrl || await downloadComfyUIVideo(leader.videoTaskId, settingsRef.current.comfyui, { smoothAudioTail: true });
+              const ownsUrl = Boolean(cached || (!leader.videoSourceUrl && !leader.videoUrl));
+              try {
+                const media = await fetch(source);
+                if (!media.ok) throw new Error('视频读取失败，保留当前任务后重试检查');
+                const active = settingsRef.current, form = new FormData();
+                form.append('video', await media.blob(), 'video.mp4');
+                form.append('taskId', leader.videoTaskId);
+                form.append('metadata', JSON.stringify({ names, context, apiKey: active.apiKey, dmxApiKey: active.dmxApiKey, provider: active.scriptProvider || 'auto', model: active.scriptModel || 'gpt-4o' }));
+                const response = await fetchStoryApi('/api/series/audit-video-duplicates', { method: 'POST', body: form }, active.comfyui);
+                const result = await readApiJson<{ audit: VideoDuplicateAudit }>(response, '视频角色检查失败');
+                if (!result.audit || result.audit.taskId !== leader.videoTaskId || ![true, false, null].includes(result.audit.passed)) throw new Error('视频角色核验未返回当前任务结果');
+                duplicateAudit = result.audit;
+                commitStoryboards(items => items.map(b => b.id === leader.id ? { ...b, videoDuplicateAudit: result.audit } : b));
+                persistCurrentProject();
+              } finally { if (ownsUrl && source.startsWith('blob:')) URL.revokeObjectURL(source); }
+            });
+            if (!duplicateAudit) throw new Error('视频角色检查未完成');
+            if (duplicateAudit.passed !== false) break;
+            const repaired = prepareVideoDuplicateRepair(storyboardsRef.current, refreshPlannedVideoSegment(storyboardsRef.current, group), duplicateAudit);
+            storyboardsRef.current = repaired; setStoryboards(repaired); persistCurrentProject();
+            await retryUntilCompleted(`${groupLabel}：纠正重复角色`, completeGroup);
+          }
+        }
+        if (videoProvider === 'comfyui' && isFilmEndingSegment(storyboardsRef.current, group)) {
+          for (let round = 0; round <= MAX_ENDING_REPAIRS; round++) {
+            if (autoAbortRef.current) return;
+            let audit: FilmEndingAudit | undefined;
+            await retryUntilCompleted('核验整片末镜最后一秒', async () => {
+              const current = refreshPlannedVideoSegment(storyboardsRef.current, group);
+              const leader = current[0];
+              if (!leader.videoTaskId) throw new Error('末镜尚未返回可核验的视频任务');
+              if (leader.videoEndingAudit?.taskId === leader.videoTaskId) { audit = leader.videoEndingAudit; return; }
+              const cached = leader.videoCacheKey ? await cachedVideoObjectUrl(leader.videoCacheKey) : undefined;
+              const source = cached || leader.videoSourceUrl || leader.videoUrl
+                || await downloadComfyUIVideo(leader.videoTaskId, settingsRef.current.comfyui, { smoothAudioTail: true });
+              const ownsUrl = Boolean(cached || (!leader.videoSourceUrl && !leader.videoUrl));
+              try {
+                const media = await fetch(source);
+                if (!media.ok) throw new Error('末镜视频读取失败；保留任务后重试');
+                const form = new FormData();
+                form.append('video', await media.blob(), 'ending.mp4');
+                form.append('taskId', leader.videoTaskId);
+                form.append('expected', current.flatMap(b => storyboardSpeech(b)).map(line => line.exactLine).join(' '));
+                form.append('fishAudioKey', settingsRef.current.fishAudioKey || '');
+                const response = await fetchStoryApi('/api/series/audit-video-ending', { method: 'POST', body: form }, settingsRef.current.comfyui);
+                const result = await readApiJson<{ audit: FilmEndingAudit }>(response, '末镜核验失败');
+                if (!result.audit || result.audit.taskId !== leader.videoTaskId || typeof result.audit.passed !== 'boolean') throw new Error('末镜核验未返回当前任务结果');
+                audit = result.audit;
+                commitStoryboards(items => items.map(b => b.id === leader.id ? { ...b, videoEndingAudit: result.audit } : b));
+                persistCurrentProject();
+              } finally { if (ownsUrl && source.startsWith('blob:')) URL.revokeObjectURL(source); }
+            });
+            if (!audit) throw new Error('末镜核验未完成');
+            const current = refreshPlannedVideoSegment(storyboardsRef.current, group);
+            const disposition = filmEndingDisposition(audit);
+            if (disposition !== 'repair-dialogue') {
+              commitStoryboards(items => items.map(b => b.id === current[0].id ? {
+                ...b, videoEndingWarning: disposition === 'warning' ? FILM_ENDING_WARNING : undefined,
+              } : b));
+              persistCurrentProject();
+              break;
+            }
+            const repaired = prepareFilmEndingRepair(storyboardsRef.current, current, audit);
+            storyboardsRef.current = repaired;
+            setStoryboards(repaired);
+            persistCurrentProject();
+            await retryUntilCompleted('自动修复末镜无配音结尾', completeGroup);
+          }
+        }
       }
       if (autoAbortRef.current) return;
+
+      // A resumed batch can have every paid segment marked completed while its
+      // ephemeral blob URL is absent from the new page. Step 6 only exports
+      // leaders with a readable videoUrl, so entering it immediately used to
+      // produce a plausible but truncated film (for example 9 of 18 clips).
+      // Rehydrate every authoritative segment from IndexedDB or its existing
+      // task before rendering the editor. This never submits a new video task.
+      setAutoStage('恢复全部18段视频用于合成');
+      let exportStoryboards = storyboardsRef.current;
+      for (const planned of videoGroups) {
+        const current = refreshPlannedVideoSegment(exportStoryboards, planned);
+        const leader = current[0];
+        if (!leader || leader.videoStatus !== 'completed' || !leader.videoTaskId) {
+          throw new Error(`导出前镜头 ${planned.map(item => item.sceneNumber).join('·')} 尚未完成`);
+        }
+        if (leader.videoUrl) continue;
+        let recovered = leader.videoCacheKey
+          ? await cachedVideoObjectUrl(leader.videoCacheKey)
+          : undefined;
+        if (!recovered) recovered = leader.videoSourceUrl;
+        if (!recovered && isComfyUIClientTask(leader.videoTaskId)) {
+          const downloaded = await downloadComfyUIVideo(leader.videoTaskId, settingsRef.current.comfyui, { smoothAudioTail: true });
+          if (leader.videoCacheKey) {
+            const cached = await cacheVideoSource(leader.videoCacheKey, downloaded);
+            recovered = cached.objectUrl;
+          } else recovered = downloaded;
+        }
+        if (!recovered) throw new Error(`导出前无法恢复镜头 ${leader.sceneNumber} 的已有视频`);
+        exportStoryboards = exportStoryboards.map(item => item.id === leader.id ? {
+          ...item, videoUrl: recovered, videoCacheStatus: leader.videoCacheKey ? 'completed' as const : item.videoCacheStatus,
+        } : item);
+      }
+      const missingExportSegments = videoGroups.filter(group => {
+        const leader = refreshPlannedVideoSegment(exportStoryboards, group)[0];
+        return !leader?.videoUrl;
+      });
+      if (missingExportSegments.length) {
+        throw new Error(`导出前仍缺少 ${missingExportSegments.length} 个已生成视频片段，已保留断点`);
+      }
+      storyboardsRef.current = exportStoryboards;
+      setStoryboards(exportStoryboards);
+      persistCurrentProject();
 
       setCurrentStep(6);
       await retryUntilCompleted('合并并导出成片', () => new Promise<void>((resolve, reject) => {

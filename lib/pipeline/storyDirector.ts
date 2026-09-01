@@ -9,6 +9,9 @@ import { structuredRetryCorrection } from './storyWriter';
 import { buildDirectorCaptureContract } from '@/lib/capturePresets';
 import { VIDEO_DIRECTION_WRITING_CONTRACT, validateVideoDirection, videoDirectionSourceKey } from '@/lib/videoDirection';
 import { applyDirectorFieldRepairs, buildDirectorFieldRepairPrompt, directorFieldRepairs } from './directorRepair';
+import { usesPhotographicReferences } from '@/lib/gptImageReferences';
+import { buildGptImage2PhotographicContract } from '@/lib/gptImagePrompt';
+import { storyboardVisualCastNames } from '@/lib/series/imageCastContract';
 
 // 导演阶段：把编剧产出的 StoryPlan 可视化成分镜（Storyboard[]）。
 // 关键点：镜头数量/顺序/台词/时长/转场/连续关系【忠实于 StoryPlan】，只补画面/视频提示词与定妆。
@@ -82,6 +85,7 @@ export function buildDirectorPrompt(input: {
 🌐 ${langInstruction}
 
 🚨 名称精确匹配（强制）：characters 只允许使用下方可用角色名称（含参考角色与用户原文明确命名的文字角色）；objects 只允许使用已上传名称。不得创造新的命名角色。
+图片 prompt 的 [角色全名](外观) 标记只用于本镜实际可见的角色，包含剧本已写明但不说话的同行者；不得用于对白提及者、画外音或未出镜角色。
 
 📋 可用角色：
 ${characterDetails}
@@ -109,15 +113,16 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
    - 先写触发，再写角色的选择/反应，最后写可见物理后果；只描述镜头能拍到的身体、表情、道具、位置与物理状态，禁止把 informationGain、audienceQuestion、功效、价值或观众理解直接改写成画面句子。
 2. prompt（英文图像提示词）：
    - 可用角色与已上传物体用 [名称](2-3 个外观关键词) 格式；无名临时角色/物体直接描述。
-   - 不要写成关键词堆砌。使用紧凑的摄影因果链，顺序固定为：SUBJECT/ACTION → CAMERA POSITION & DISTANCE → LENS PERSPECTIVE → COMPOSITION & OCCLUSION → FOCUS PLANE & DEPTH LAYERS → MOTIVATED LIGHT → EXPOSURE/COLOR/MATERIAL RESPONSE。
+   - 像向摄影师描述眼前这一刻：谁在做什么、相机在哪里、人物与环境如何重叠、光从哪里来。用连贯、具体的短句；不写关键词串或渲染规范，也不要求每镜填满同一套技术字段。
    - CAMERA 必须写清相机相对主体的高度、距离和朝向；不能只写 eye-level、close-up。
    - COMPOSITION 必须写清主体在画面中的位置、留白方向，以及前景/中景/背景关系；需要时使用真实遮挡、非对称裁切或贴近地面的机位，不要每镜都中央构图。
-   - FOCUS 必须指定唯一焦点平面，并说明近景与远景如何衰减；景深由焦距感、相机距离、主体与背景距离共同决定，禁止无理由地每镜都浅景深或整幅虚化。
-   - LIGHT 必须来自场景中可解释的方向与光源，写清软硬、大小、反射/负补光、阴影密度与距离衰减；同一 sequence 延续光源方向，但每个机位呈现不同的入射角和材质反应。
-   - IMAGE RESPONSE 必须描述有限动态范围、高光滚降、暗部层次、白平衡与皮肤/布料/金属/水面等材质的漫反射和高光。仅在成像系统支持时加入轻微颗粒、暗角、边缘柔化、色散、光晕或手机锐化，禁止随机堆叠镜头缺陷。
-   - 每条 prompt 控制在 65–95 个英文词；最重要、最独特的摄影信息放在前 45 个词，保证九宫格压缩后仍保留镜头差异。
-   - 禁止艺术风格词（anime/cartoon/Ghibli/realistic 等），视觉风格由参考图决定。
-   - 精确执行 beat.characters：每个列出的角色在画面中只出现一次，未列出的角色不出现；角色设定图中的多角度/多姿势只用于识别同一身份，不得复制为多人。
+   - 只说明故事需要看清什么、哪些背景可以暗下去或看不清；不要为了真实感强加微距细节、极浅景深或镜头瑕疵。
+   - 光线写成现场可见的事实，例如“左侧窗光照到半张脸，另一边偏暗，后面的灯很亮”。同一场景保持光源方向，不另外补美颜灯或轮廓光。
+   - 不使用材质/渲染工程术语：不要在成稿中罗列 PBR、subsurface scattering、material response、microcontrast、highlight roll-off、global illumination、shader、ray tracing。用具体可见的现象代替；不要求每种表面都清楚、漂亮、发亮。
+   - 幻想设定保留原种族、造型和地理；写实项目可用实体化妆、服装、布景与道具灯来表现，不能借此把生物改成人类或把真实水下剧情改成空摄影棚。不要让摄影器材或剧组入镜。
+   - 每条 prompt 约 55–95 个英文词，长度服从这一镜所需的信息，不补通用风格口号。最独特的行动与机位放在前面。
+   - 输出媒介由项目选定风格控制；参考图按身份、环境、色彩摄影气质分工，不能把参考图的CG画法带入真人项目。
+   - 精确执行 beat.characters 中的命名角色：每个只出现一次，不新增命名角色。剧本明确写出的无名背景侍从、群众可保留为次要人物；没有写到就不添加，不能让群众复制主角面孔。角色参考图的多视图不是多个人。
    - 禁止字幕、标题、对白文字、气泡、Logo、水印或任何可读文字。
 3. characterCostume：为每个在本镜头出现的角色给一套服装/发型/配饰/颜色描述，跨镜头保持一致。
 4. shotSize / cameraMove / angle：为剧本动作选择一个明确且可执行的景别、单一物理运镜和机位；相邻镜头避免机械重复。
@@ -132,11 +137,11 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
    - 无对白镜头禁止出现“自言自语、像要说话、嘴唇说了半句、听见某种声音”等可能触发模型生成人声的暗示；只能描述无歧义的可见触发和身体反应。对白内容只存在于 speech 字段。
    - 每个接缝只选择一种剪辑语法：动作匹配、视线匹配、道具/形状匹配、前景遮挡藏切、焦点接力、因果切、对照切或平行切。保持运动矢量、速度和银幕方向连续；禁止用淡入淡出、叠化或任意擦除掩盖不连续。
    - 蒙太奇必须有句法：因果切让前镜结果触发后镜动作；平行切比较同时发生的压力；对照切让前后价值发生碰撞；省略切跳过重复过程但保留动作起点、关键变化与结果。每一切既回答上一个观众问题，又打开更具体的下一个问题。
-5. sceneStyle：用紧凑英文记录本 sequence 的相机/镜头家族、主光方向与软硬/色温、环境反射或负补光、有限曝光、高光滚降、阴影密度、色彩响应和主要材质。连续 sequence 内保持相同基线。
+5. sceneStyle：用20–40个英文词记录当前地点、时段与主要现场光源，供同场景镜头复用。不要复制整季场景说明、将来变灯方案、材质清单或渲染术语。
 
 🎥 项目成像基线（只用于落实摄影物理，不要原样复制成长段落）：
 Selected production style: ${stylePreset.label} — ${stylePreset.description}
-${buildImageCaptureContract(visualStyle)}
+${usesPhotographicReferences(visualStyle) ? buildGptImage2PhotographicContract(visualStyle, capturePreset) : buildImageCaptureContract(visualStyle)}
 ${buildDirectorCaptureContract(capturePreset)}
 
 连续镜头应共享同一相机/镜头家族、色彩响应、主光方向和场景材质；每镜只改变有叙事理由的机位、距离、焦点、遮挡和曝光反应。真实感来自一致的物理因果，而不是反复添加 cinematic、8K、masterpiece、photorealistic 等泛化词。
@@ -167,6 +172,7 @@ function mergeBeats(
   aspectRatio: Storyboard['aspectRatio'],
   capturePreset?: CapturePreset,
   visualStyle?: VisualStyle,
+  knownCharacterNames: string[] = [],
 ): Storyboard[] {
   const beats = storyPlan.sequences.flatMap(seq => seq.beats.map(beat => ({ ...beat, sceneStyle: beat.sceneStyle || seq.sceneStyle })));
 
@@ -226,6 +232,7 @@ function mergeBeats(
       capturePreset,
       visualStyle,
     };
+    storyboard.characters = storyboardVisualCastNames(storyboard, knownCharacterNames);
     storyboard.videoDirectionSource = videoDirectionSourceKey(storyboard);
     return storyboard;
   });
@@ -474,5 +481,5 @@ export async function directStoryboard(input: {
     rawShots.push(...batchShots);
   }
 
-  return mergeBeats(storyPlan, rawShots, aspectRatio, capturePreset, visualStyle);
+  return mergeBeats(storyPlan, rawShots, aspectRatio, capturePreset, visualStyle, characters.map(c => c.name));
 }

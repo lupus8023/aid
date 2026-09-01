@@ -7,11 +7,13 @@ import { StoryPlan, PipelineState } from '@/lib/pipeline/types';
 import { createProjectId } from '@/lib/projectIdentity';
 import type { VideoSegmentPlan } from '@/lib/videoSegments';
 import { storyStorageKeys } from '@/lib/series/storageScope';
+import type { ImageStyleReference } from '@/lib/imageStyleReference';
 
 const CURRENT_PROJECT_V2_KEY = 'aid:current-project:v2';
 const LEGACY_CURRENT_PROJECT_KEY = 'currentProject';
 
 export interface ProjectData {
+  styleReference?: ImageStyleReference;
   id?: string;
   name: string;
   characters: Character[];
@@ -117,6 +119,7 @@ export function useProject() {
       targetShotCount: data.targetShotCount,
       aspectRatio: data.aspectRatio,
       visualStyle: data.visualStyle,
+      styleReference: data.styleReference,
       capturePreset: data.capturePreset,
       productionTiming: data.productionTiming,
       storyOutline: data.storyOutline || '',

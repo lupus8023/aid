@@ -145,6 +145,8 @@ export function videoSegmentGenerationSignature(storyboards: Storyboard[]): stri
     editBridge: storyboard.editBridge || '',
     audienceQuestion: storyboard.audienceQuestion || '',
     durationHint: storyboard.durationHint || 0,
+    ...(storyboard.videoEndingMinimumDuration ? { videoEndingMinimumDuration: storyboard.videoEndingMinimumDuration } : {}),
+    ...(storyboard.videoDuplicateRepairPrompt ? { videoDuplicateRepairPrompt: storyboard.videoDuplicateRepairPrompt } : {}),
     transition: storyboard.transition || '',
     continuousFromPrev: Boolean(storyboard.continuousFromPrev),
     ...(storyboard.videoStartMode === 'previous-segment-tail' ? { videoStartMode: storyboard.videoStartMode } : {}),

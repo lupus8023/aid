@@ -89,3 +89,7 @@ test('uses bounded exponential-style retry delays', () => {
   assert.equal(autoRetryDelayMs(5), 60_000);
   assert.equal(autoRetryDelayMs(99), 60_000);
 });
+
+test('moderation is not retried even when the provider error also mentions a gateway code', () => {
+  assert.equal(isTransientAutoProductionError('HTTP 503: Prompt图片未通过审核'), false);
+});

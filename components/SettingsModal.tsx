@@ -39,6 +39,17 @@ export default function SettingsModal({
 
   const handleSave = () => {
     let nextSettings = localSettings;
+    if (localSettings.midjourneyStyleReferenceUrl?.trim()) {
+      if (!/^https?:\/\/\S+$/i.test(localSettings.midjourneyStyleReferenceUrl.trim())) {
+        window.alert('风格参考需要可公开访问的 HTTP(S) 图片地址。');
+        return;
+      }
+      const weight = localSettings.midjourneyStyleWeight ?? 100;
+      if (!Number.isInteger(weight) || weight < 0 || weight > 1000) {
+        window.alert('风格权重须为 0–1000 的整数。');
+        return;
+      }
+    }
     if (localSettings.midjourneyProfileEnabled) {
       const profile = normalizeMidjourneyProfileCode(localSettings.midjourneyProfile);
       if (!profile) {
@@ -260,6 +271,23 @@ export default function SettingsModal({
               <div className="mt-3 space-y-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)]/55 p-3">
                 <p className="text-xs leading-5 text-[var(--accent-yellow)]">
                   MJ 分镜逐张生成，不使用九宫格或切换其他模型。有参考图时使用 V8.2 编辑接口，固定本镜人物与服装，并逐镜核验、局部重试；仍不能保证像素级一致。
+                </p>
+                <label className="block text-xs text-[var(--text-secondary)]">
+                  风格参考图（sref）
+                  <input type="url" value={localSettings.midjourneyStyleReferenceUrl || ''}
+                    onChange={event => setLocalSettings(current => ({ ...current, midjourneyStyleReferenceUrl: event.target.value }))}
+                    placeholder="https://…/approved-look.png"
+                    className="mt-1 w-full rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]" />
+                </label>
+                <label className="block text-xs text-[var(--text-secondary)]">
+                  风格权重（sw，默认 100）
+                  <input type="number" min={0} max={1000} step={1} value={localSettings.midjourneyStyleWeight ?? 100}
+                    disabled={!localSettings.midjourneyStyleReferenceUrl?.trim()}
+                    onChange={event => setLocalSettings(current => ({ ...current, midjourneyStyleWeight: event.target.value === '' ? undefined : Number(event.target.value) }))}
+                    className="mt-1 w-full rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] disabled:opacity-45" />
+                </label>
+                <p className="text-[11px] leading-5 text-[var(--text-muted)]">
+                  用于接下来生成的角色卡、场景和分镜；只统一光线、色调与材质，不把图中人物加入演员表，也不占用4张内容参考的名额。留空关闭，不重做已有素材。
                 </p>
                 <label className="flex items-center gap-2 text-xs font-mono text-[var(--text-secondary)]">
                   <input

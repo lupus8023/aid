@@ -31,7 +31,7 @@ import {
 import { getImageModelCapabilities, imageModelRequiresApiKey } from '@/lib/imageModels';
 import { imageApiUrl, localComfyUISettings } from '@/lib/comfyuiClient';
 import type { VisualStyle } from '@/types';
-import { resolveMidjourneyProfileSetting } from '@/lib/midjourney';
+import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '@/lib/midjourney';
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const TARGET_BYTES = 1200 * 1024;
@@ -187,6 +187,7 @@ export default function CharacterDesignPage() {
     apiKey: settings.apiKey,
     comfyui: localComfyUISettings(settings.comfyui),
     midjourneyProfile: resolveMidjourneyProfileSetting(settings),
+    midjourneyStyle: resolveMidjourneyStyleSetting(settings),
   });
 
   const generateConcepts = async () => {

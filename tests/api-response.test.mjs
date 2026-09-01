@@ -17,3 +17,13 @@ test('surfaces a streamed screenplay task failure with its original context', as
   });
   await assert.rejects(() => readApiJson(response, '剧本规划失败'), /剧本规划失败：DMXAPI timeout/);
 });
+
+test('task polling can read terminal failures without swallowing ordinary or streamed API errors', async () => {
+  const body = JSON.stringify({ status: 'failed', error: 'Prompt图片未通过审核' });
+  const data = await readApiJson(new Response(body), '查询', { taskStatus: true });
+  assert.equal(data.status, 'failed');
+  assert.match(data.error, /未通过审核/);
+  await assert.rejects(readApiJson(new Response(body), '普通请求'), /未通过审核/);
+  await assert.rejects(readApiJson(new Response(`data: ${body}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } }), '流', { taskStatus: true }), /未通过审核/);
+  await assert.rejects(readApiJson(new Response(body, { status: 500 }), '查询', { taskStatus: true }), /未通过审核/);
+});
