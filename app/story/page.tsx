@@ -30,7 +30,7 @@ import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, 
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
 import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedPlannedVideoSegment, normalizeVideoSegmentPlan, refreshPlannedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { filmEndingDuration, isFilmEndingSegment } from '@/lib/filmEnding';
-import { FILM_ENDING_WARNING, MAX_ENDING_REPAIRS, filmEndingDisposition, prepareFilmEndingRepair, type FilmEndingAudit } from '@/lib/filmEndingAudit';
+import { FILM_ENDING_ASR_SKIPPED_WARNING, FILM_ENDING_WARNING, MAX_ENDING_REPAIRS, filmEndingDisposition, prepareFilmEndingRepair, type FilmEndingAudit } from '@/lib/filmEndingAudit';
 import { MAX_VIDEO_DUPLICATE_REPAIRS, prepareVideoDuplicateRepair, videoDuplicateAuditScope, type VideoDuplicateAudit } from '@/lib/videoDuplicateAudit';
 import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
@@ -2599,6 +2599,17 @@ export default function StoryPage() {
           }
         }
         if (videoProvider === 'comfyui' && isFilmEndingSegment(storyboardsRef.current, group)) {
+          // H3 already verifies the supplied dialogue while generating the clip. Fish ASR is
+          // an additional timing audit for the requested quiet tail, so its absence must not
+          // turn a completed H3 episode into a failed production or buy another video take.
+          if (!settingsRef.current.fishAudioKey?.trim()) {
+            const current = refreshPlannedVideoSegment(storyboardsRef.current, group);
+            commitStoryboards(items => items.map(b => b.id === current[0].id ? {
+              ...b, videoEndingWarning: FILM_ENDING_ASR_SKIPPED_WARNING,
+            } : b));
+            persistCurrentProject();
+            continue;
+          }
           for (let round = 0; round <= MAX_ENDING_REPAIRS; round++) {
             if (autoAbortRef.current) return;
             let audit: FilmEndingAudit | undefined;

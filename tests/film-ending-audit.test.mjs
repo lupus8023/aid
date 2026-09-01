@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evaluateFilmEnding, filmEndingDisposition, prepareFilmEndingRepair } from '../lib/filmEndingAudit.ts';
+import { FILM_ENDING_ASR_SKIPPED_WARNING, evaluateFilmEnding, filmEndingDisposition, prepareFilmEndingRepair } from '../lib/filmEndingAudit.ts';
 import { filmEndingDuration } from '../lib/filmEnding.ts';
 import { videoSegmentGenerationSignature } from '../lib/videoSegments.ts';
 
@@ -44,6 +44,13 @@ test('a short quiet tail stays a visible warning and never spends a paid repair'
   assert.throws(() => prepareFilmEndingRepair([ending], [ending], audit), /记录提示而不重生成/);
   assert.equal(filmEndingDisposition({ ...audit, dialogueMatch: 0.125 }), 'repair-dialogue');
   assert.equal(filmEndingDisposition({ ...audit, passed: true }), 'passed');
+});
+
+test('missing optional Fish ASR has an explicit non-passing warning', () => {
+  assert.match(FILM_ENDING_ASR_SKIPPED_WARNING, /H3/);
+  assert.match(FILM_ENDING_ASR_SKIPPED_WARNING, /Fish Audio/);
+  assert.match(FILM_ENDING_ASR_SKIPPED_WARNING, /跳过/);
+  assert.doesNotMatch(FILM_ENDING_ASR_SKIPPED_WARNING, /通过/);
 });
 
 test('only film ending receives extra headroom, and preview/request durations are idempotent', () => {

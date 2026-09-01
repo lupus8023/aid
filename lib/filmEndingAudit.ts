@@ -12,6 +12,7 @@ export function filmEndingDisposition(audit: FilmEndingAudit): 'passed' | 'warni
 }
 
 export const FILM_ENDING_WARNING = '末镜台词转写匹配，但结尾未留足一秒无配音画面；保留完整台词与自然动作，不再为此重复生成。';
+export const FILM_ENDING_ASR_SKIPPED_WARNING = 'H3 已按末镜规则生成并完成内置台词校验；当前未配置 Fish Audio 转写，已跳过额外的末尾 ASR 复核。原视频已保留，不重复生成。';
 
 function matchDialogue(expected: string, actual: string): number {
   const x = words(expected), y = words(actual);
