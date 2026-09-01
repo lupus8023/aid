@@ -1,3 +1,7 @@
+## 0.1.144
+
+- Fix the cross-platform Companion release check so the image-safety test resolves its shared TypeScript module under clean GitHub runners.
+
 ## 0.1.143
 
 - Add one series-wide visual reference that carries only culture, palette, color temperature, lens language and lighting through character cards, locations, storyboards and video prompts; changing it archives prior visual generations while retaining scripts, voices and delivered films.
