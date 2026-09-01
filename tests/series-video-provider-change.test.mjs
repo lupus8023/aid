@@ -13,6 +13,7 @@ test('series production always locks video generation to local H3', () => {
       videoModel: 'doubao-seedance-1-5-pro', videoProvider,
     });
     assert.equal(settings.videoProvider, 'comfyui');
+    assert.equal(settings.videoModel, 'minimax-h3');
   }
 });
 
@@ -27,6 +28,7 @@ test('resuming with a new video provider keeps sealed credentials and nested Com
     comfyui: { timeoutSeconds: 7200 },
   }, 'server-key');
   assert.equal(resumed.videoProvider, 'comfyui');
+  assert.equal(resumed.videoModel, 'minimax-h3');
   assert.equal(resumed.apiKey, 'server-key');
   assert.equal(resumed.dmxApiKey, 'dmx-secret');
   assert.equal(resumed.comfyui.sshHost, 'gpu');

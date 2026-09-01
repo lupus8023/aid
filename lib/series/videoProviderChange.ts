@@ -2,11 +2,16 @@ import type { SeriesEpisode } from './types';
 import type { AppSettings, Storyboard } from '@/types';
 
 export const SERIES_VIDEO_PROVIDER = 'comfyui' as const;
+export const SERIES_VIDEO_MODEL = 'minimax-h3' as const;
 
 export function enforceSeriesVideoProvider(settings: AppSettings): AppSettings {
   return {
     ...settings,
     videoProvider: SERIES_VIDEO_PROVIDER,
+    // Keep the sealed settings and request payload truthful as well. Routing
+    // already uses videoProvider, but a stale Seedance model string made logs
+    // and recovered browser state look like an API fallback.
+    videoModel: SERIES_VIDEO_MODEL,
   };
 }
 

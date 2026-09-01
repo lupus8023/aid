@@ -18,6 +18,57 @@ let serverRestartTimer;
 let serverLaunchConfig;
 let seriesWorker;
 let seriesWorkerTimer;
+let seriesWorkerHealthTimer;
+
+const SERIES_WORKER_URL = `http://127.0.0.1:${PORT}/series/worker?mode=companion`;
+
+function stopSeriesWorkerHealthCheck() {
+  if (seriesWorkerHealthTimer) {
+    clearInterval(seriesWorkerHealthTimer);
+    seriesWorkerHealthTimer = undefined;
+  }
+}
+
+function scheduleSeriesWorkerReload() {
+  if (isQuitting) return;
+  clearTimeout(seriesWorkerTimer);
+  seriesWorkerTimer = setTimeout(() => {
+    if (seriesWorker && !seriesWorker.isDestroyed()) {
+      seriesWorker.loadURL(SERIES_WORKER_URL).catch(() => scheduleSeriesWorkerReload());
+    }
+  }, 5000);
+}
+
+function startSeriesWorkerHealthCheck() {
+  stopSeriesWorkerHealthCheck();
+  let connectingSince = 0;
+  seriesWorkerHealthTimer = setInterval(async () => {
+    if (isQuitting || !seriesWorker || seriesWorker.isDestroyed()) return;
+    try {
+      const state = await seriesWorker.webContents.executeJavaScript(`(() => {
+        const heading = document.querySelector('main p')?.textContent || '';
+        const status = document.querySelector('[role="status"]')?.textContent || '';
+        return { heading, status, ready: document.readyState };
+      })()`);
+      const healthyShell = state?.ready === 'complete' && state?.heading.includes('AID 连续剧执行器');
+      const stillConnecting = state?.status.includes('正在连接连续剧队列');
+      if (!healthyShell) {
+        connectingSince = 0;
+        scheduleSeriesWorkerReload();
+        return;
+      }
+      if (stillConnecting) {
+        connectingSince ||= Date.now();
+        if (Date.now() - connectingSince > 30000) scheduleSeriesWorkerReload();
+      } else {
+        connectingSince = 0;
+      }
+    } catch {
+      connectingSince = 0;
+      scheduleSeriesWorkerReload();
+    }
+  }, 10000);
+}
 
 // A separate sandboxed renderer runs the existing browser-based Story engine.
 // It survives closing the website or hiding the Companion window. The queue,
@@ -31,17 +82,18 @@ function startSeriesWorker() {
   seriesWorker.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith(`http://127.0.0.1:${PORT}/`)) event.preventDefault();
   });
-  const reload = () => {
-    if (isQuitting) return;
-    clearTimeout(seriesWorkerTimer);
-    seriesWorkerTimer = setTimeout(() => {
-      if (seriesWorker && !seriesWorker.isDestroyed()) seriesWorker.loadURL(`http://127.0.0.1:${PORT}/series/worker?mode=companion`).catch(() => {});
-    }, 5000);
-  };
-  seriesWorker.webContents.on('did-fail-load', reload);
-  seriesWorker.webContents.on('render-process-gone', reload);
-  seriesWorker.on('closed', () => { seriesWorker = undefined; if (!isQuitting) { clearTimeout(seriesWorkerTimer); seriesWorkerTimer = setTimeout(startSeriesWorker, 5000); } });
-  seriesWorker.loadURL(`http://127.0.0.1:${PORT}/series/worker?mode=companion`).catch(reload);
+  seriesWorker.webContents.on('did-fail-load', scheduleSeriesWorkerReload);
+  seriesWorker.webContents.on('render-process-gone', scheduleSeriesWorkerReload);
+  seriesWorker.webContents.on('did-finish-load', startSeriesWorkerHealthCheck);
+  seriesWorker.on('closed', () => {
+    stopSeriesWorkerHealthCheck();
+    seriesWorker = undefined;
+    if (!isQuitting) {
+      clearTimeout(seriesWorkerTimer);
+      seriesWorkerTimer = setTimeout(startSeriesWorker, 5000);
+    }
+  });
+  seriesWorker.loadURL(SERIES_WORKER_URL).catch(scheduleSeriesWorkerReload);
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -384,6 +436,7 @@ app.on('before-quit', () => {
   isQuitting = true;
   serverLaunchConfig = undefined;
   clearTimeout(seriesWorkerTimer);
+  stopSeriesWorkerHealthCheck();
   if (seriesWorker && !seriesWorker.isDestroyed()) seriesWorker.destroy();
   if (serverRestartTimer) {
     clearTimeout(serverRestartTimer);
