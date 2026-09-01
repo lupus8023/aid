@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { recordSeriesInterruption, seriesCheckpointAdvanced } from '@/lib/series/interruption';
 import { seriesRetryBlocker } from '@/lib/series/jobHistory';
 import { setSeriesStyleReference } from '@/lib/series/styleReference';
+import { imageModelRequiresApiKey } from '@/lib/imageModels';
 import { castSeriesRole } from "@/lib/series/casting";
 import { seriesAssetsReady, seriesStageBlocker } from "@/lib/series/readiness";
 import { moveSeriesToTrash, restoreSeriesFromTrash } from "@/lib/series/trash";
@@ -257,8 +258,16 @@ export async function POST(request: NextRequest) {
           const kind = body.kind as SeriesJobKind;
           if (!["develop", "prepare", "script", "produce"].includes(kind))
             throw new Error("无效任务类型");
-          if (kind !== "prepare" && !body.settings?.apiKey && !body.settings?.dmxApiKey)
+          const effectiveSettings = {
+            ...(body.settings || {}),
+            apiKey: body.settings?.apiKey || process.env.APIMART_API_KEY || '',
+          };
+          if (kind !== "prepare" && !effectiveSettings.apiKey && !effectiveSettings.dmxApiKey)
             throw new Error("请先在设置中配置剧本API");
+          if (["prepare", "produce"].includes(kind)
+            && imageModelRequiresApiKey(effectiveSettings.imageModel || 'seedream-5-0-pro')
+            && !effectiveSettings.apiKey)
+            throw new Error("当前图片模型需要 APIMart API Key；请先在设置中配置后再开始制作");
           const blocker = seriesStageBlocker(project, kind);
           if (blocker) throw new Error(blocker);
           if (
@@ -266,7 +275,7 @@ export async function POST(request: NextRequest) {
             project.characters.some(
               (c) => c.speaking && (!c.voiceId || !c.voiceReferenceUrl),
             ) &&
-            !body.settings?.fishAudioKey
+            !effectiveSettings.fishAudioKey
           )
             throw new Error("请先配置 Fish Audio API Key");
           const selectedIds = Array.isArray(body.episodeIds)
@@ -292,7 +301,7 @@ export async function POST(request: NextRequest) {
                 )
                 .map((e) => e.id)
             : [undefined];
-          const sealedSettings = await sealSettings(body.settings || {});
+          const sealedSettings = await sealSettings(effectiveSettings);
           let added = 0;
           for (const episodeId of episodeIds) {
             if (
@@ -409,6 +418,15 @@ export async function POST(request: NextRequest) {
           if (!job) return { claim: null };
           const owner = db.projects.find((p) => p.id === job.seriesId)!;
           const settings = await openSettings(job.sealedSettings!);
+          settings.apiKey ||= process.env.APIMART_API_KEY || '';
+          if (imageModelRequiresApiKey(settings.imageModel || 'seedream-5-0-pro') && !settings.apiKey) {
+            job.status = 'failed';
+            job.stage = '制作配置缺失';
+            job.error = '当前图片模型需要 APIMart API Key；请补充设置后从断点重试';
+            job.finishedAt = now;
+            job.updatedAt = now;
+            return { claim: null };
+          }
           job.status = "running";
           job.error = undefined;
           job.attempts++;
