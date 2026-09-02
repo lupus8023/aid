@@ -42,6 +42,18 @@ test('registered Chinese names are bound without discarding the English action o
   assert.match(legacy, /breaks the seal and drops the photograph onto the table/);
 });
 
+test('an unambiguous shortened Chinese title is restored to its registered name while Chinese prose still fails', () => {
+  const repaired = validateVideoDirection({
+    action: '贵妃 points toward the tray while 青鸾 steps back.',
+    camera: 'Track right until 贵妃 and 青鸾 share the frame.',
+    detail: '贵妃 keeps one sleeve raised.',
+    ending: '青鸾 stops beside 贵妃 and the tray remains visible.',
+  }, ['沈贵妃', '青鸾']);
+  assert.equal(repaired.action, '沈贵妃 points toward the tray while 青鸾 steps back.');
+  assert.match(repaired.camera, /沈贵妃 and 青鸾/);
+  assert.throws(() => validateVideoDirection({ ...direction(), action: '沈贵妃转身离开。' }, ['沈贵妃']), /英文/);
+});
+
 test('fields share the combined budget without splicing away words or negations', () => {
   assert.deepEqual(validateVideoDirection(direction()), direction());
   for (const [field, limit] of Object.entries(VIDEO_DIRECTION_LIMITS)) {

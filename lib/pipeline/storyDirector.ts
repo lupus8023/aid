@@ -8,7 +8,7 @@ import { buildImageCaptureContract, getProductionStylePreset } from '@/lib/promp
 import { structuredRetryCorrection } from './storyWriter';
 import { buildDirectorCaptureContract } from '@/lib/capturePresets';
 import { VIDEO_DIRECTION_WRITING_CONTRACT, validateVideoDirection, videoDirectionSourceKey } from '@/lib/videoDirection';
-import { applyDirectorFieldRepairs, buildDirectorFieldRepairPrompt, directorFieldRepairs, selectDirectorFieldRepairChunk } from './directorRepair';
+import { applyDirectorFieldRepairProgress, buildDirectorFieldRepairPrompt, directorFieldRepairs, selectDirectorFieldRepairChunk } from './directorRepair';
 import { usesPhotographicReferences } from '@/lib/gptImageReferences';
 import { buildGptImage2PhotographicContract } from '@/lib/gptImagePrompt';
 import { storyboardVisualCastNames } from '@/lib/series/imageCastContract';
@@ -438,7 +438,10 @@ export async function directStoryboard(input: {
             maxOutputTokens: 2_000,
             timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000,
           });
-          return JSON.stringify(applyDirectorFieldRepairs(retained, extractJson(reply), repairs, true));
+          const progress = applyDirectorFieldRepairProgress(retained, extractJson(reply), repairs);
+          if (!progress.applied.length) throw new Error(`导演局部修稿没有返回可用字段：${progress.rejected.join('、')}`);
+          console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, checkpointed ${progress.applied.length} repaired motion fields`);
+          return JSON.stringify(progress.shots);
         }
         const correction = !lastError
           ? ''

@@ -89,3 +89,29 @@ export function applyDirectorFieldRepairs(shots: any[], reply: any, issues: Dire
   }
   return result;
 }
+
+/** Apply every valid requested repair even when the provider omits or damages
+ * a sibling entry. The caller checkpoints this progress, so the next pass asks
+ * only for the remaining invalid fields instead of starting the chunk again. */
+export function applyDirectorFieldRepairProgress(
+  shots: any[],
+  reply: any,
+  issues: DirectorFieldRepair[],
+): { shots: any[]; applied: string[]; rejected: string[] } {
+  const result = structuredClone(shots);
+  const remaining = new Map(issues.map(issue => [issue.path, issue]));
+  const applied: string[] = [], rejected: string[] = [];
+  if (!Array.isArray(reply?.repairs)) return { shots: result, applied, rejected: issues.map(issue => issue.path) };
+  for (const repair of reply.repairs) {
+    const issue = remaining.get(repair?.path);
+    if (!issue) { rejected.push(String(repair?.path || 'unknown')); continue; }
+    try {
+      const patched = applyDirectorFieldRepairs(result, { repairs: [repair] }, [issue], true);
+      result[issue.index].videoDirection[issue.field] = patched[issue.index].videoDirection[issue.field];
+      remaining.delete(issue.path);
+      applied.push(issue.path);
+    } catch { rejected.push(issue.path); }
+  }
+  rejected.push(...remaining.keys());
+  return { shots: result, applied, rejected: [...new Set(rejected)] };
+}

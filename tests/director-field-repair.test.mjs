@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { directorFieldRepairs, buildDirectorFieldRepairPrompt, applyDirectorFieldRepairs, selectDirectorFieldRepairChunk } from '../lib/pipeline/directorRepair.ts';
+import { directorFieldRepairs, buildDirectorFieldRepairPrompt, applyDirectorFieldRepairProgress, applyDirectorFieldRepairs, selectDirectorFieldRepairChunk } from '../lib/pipeline/directorRepair.ts';
 import { validateDirectorShots } from '../lib/pipeline/storyDirector.ts';
 import { recoverGeneration } from '../lib/pipeline/generationDraft.ts';
 
@@ -86,6 +86,19 @@ test('six contaminated action fields recover incrementally without regenerating 
  assert.equal(calls,2);assert.equal(saves,2);
  assert.deepEqual(repaired.map(shot=>shot.marker),invalid.map(shot=>shot.marker));
  assert.ok(repaired.every(shot=>!/\p{Script=Han}/u.test(shot.videoDirection.action)));
+});
+
+test('checkpoints valid repairs when a provider omits or corrupts sibling entries',()=>{
+ const invalid=structuredClone(shots);invalid[0].videoDirection.action='角色转身离开。';invalid[1].videoDirection.action='另一角色抬起手。';
+ const issues=directorFieldRepairs(invalid,beats);
+ const progress=applyDirectorFieldRepairProgress(invalid,{repairs:[
+  {path:issues[0].path,value:'Luna turns away from the table and walks toward the doorway.'},
+  {path:issues[1].path,value:'still invalid without punctuation'},
+ ]},issues);
+ assert.deepEqual(progress.applied,[issues[0].path]);
+ assert.equal(progress.shots[0].videoDirection.action,'Luna turns away from the table and walks toward the doorway.');
+ assert.equal(progress.shots[1].videoDirection.action,invalid[1].videoDirection.action);
+ assert.ok(progress.rejected.includes(issues[1].path));
 });
 
 test('one overflowing field does not force rewriting valid camera geometry when its repair frees enough budget',()=>{

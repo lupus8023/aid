@@ -62,3 +62,32 @@ test('storage size rejection retries the same generated image as a buffer, witho
     for (const key of keys) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }
   }
 });
+
+test('completed getapib images are relayed as bytes instead of asking storage to fetch the provider URL', async () => {
+  const keys = ['CLOUDINARY_URL', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET', 'CLOUDINARY_BACKUP_URL', 'CLOUDINARY_URL_BACKUP', 'AID_LOCAL_COMPANION'];
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  const source = 'https://getapib.org/image/already-paid.png';
+  const upload = 'https://api.cloudinary.com/v1_1/fixture/image/upload';
+  let downloads = 0;
+  try {
+    keys.forEach(key => { delete process.env[key]; });
+    process.env.AID_LOCAL_COMPANION = '1';
+    globalThis.fetch = async (url, init) => {
+      if (String(url) === source) {
+        downloads++;
+        return new Response(Buffer.from('stored-image-bytes'), { headers: { 'content-type': 'image/png' } });
+      }
+      if (String(url) === 'https://pandais.beauty/api/media-upload/sign')
+        return Response.json({ targets: [{ url: upload, fields: { signature: 'test', overwrite: 'false' } }] });
+      assert.equal(String(url), upload);
+      assert.notEqual(typeof init.body.get('file'), 'string', 'provider URL must not be sent to Cloudinary');
+      return Response.json({ secure_url: 'https://assets.example.test/relayed.png' });
+    };
+    assert.equal((await uploadImage(source)).secure_url, 'https://assets.example.test/relayed.png');
+    assert.equal(downloads, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of keys) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }
+  }
+});

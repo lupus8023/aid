@@ -35,9 +35,25 @@ export function withoutVideoEntityNames(value: string, names: string[]): string 
     .reduce((text, name) => text.replaceAll(name, 'Subject'), value);
 }
 
+/**
+ * Providers occasionally shorten a CJK character name while translating the
+ * surrounding direction (for example 沈贵妃 -> 贵妃). Accept only an
+ * unambiguous suffix of a registered name and restore the canonical spelling;
+ * arbitrary Chinese prose is deliberately left in place so validation still
+ * rejects it.
+ */
+export function canonicalizeVideoDirectionEntityAliases(value: string, names: string[]): string {
+  const canonical = [...new Set(names.map(name => String(name || '').trim()).filter(Boolean))];
+  return value.replace(/\p{Script=Han}{2,}/gu, token => {
+    if (canonical.includes(token)) return token;
+    const matches = canonical.filter(name => name.endsWith(token));
+    return matches.length === 1 ? matches[0] : token;
+  });
+}
+
 export function validateVideoDirectionField(field: keyof StoryVideoDirection, value: unknown, entityNames: string[] = [], exactLines: string[] = [], checkCameraSpecificity = false, enforceFieldLimit = true): string {
   if (typeof value !== 'string') throw new Error(`videoDirection.${field} 必须为字符串`);
-  const text = value.replace(/\s+/g, ' ').trim();
+  const text = canonicalizeVideoDirectionEntityAliases(value.replace(/\s+/g, ' ').trim(), entityNames);
   if (!text && field !== 'detail') throw new Error(`videoDirection.${field} 不能为空`);
   if (enforceFieldLimit && text.length > VIDEO_DIRECTION_LIMITS[field]) throw new Error(`videoDirection.${field} 为 ${text.length} 字符，修稿预算 ${VIDEO_DIRECTION_LIMITS[field]}；请重写完整短句，不要截断`);
   const prose = withoutVideoEntityNames(text, entityNames);

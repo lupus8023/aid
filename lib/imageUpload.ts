@@ -54,8 +54,23 @@ async function downloadImage(source: string): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+function needsLocalProviderRelay(source: string): boolean {
+  try {
+    const url = new URL(source);
+    return url.protocol === 'https:' && url.hostname === 'getapib.org'
+      && !url.username && !url.password && !url.port;
+  } catch { return false; }
+}
+
 export async function uploadImage(source: string) {
   const options = { folder: 'aid-images', resource_type: 'image' as const };
+  // Cloudinary fetching getapib.org by URL can remain pending until the local
+  // worker's request timeout even though the paid image is already complete.
+  // Relay that exact trusted host through Companion and upload the bytes; this
+  // is storage-only recovery and never submits another generation request.
+  if (needsLocalProviderRelay(source)) {
+    return uploadBufferToCloudinary(await fitImageUpload(await downloadImage(source)), options);
+  }
   try {
     return await uploadToCloudinary(source, options);
   } catch (error) {
