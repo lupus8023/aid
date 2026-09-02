@@ -1,6 +1,11 @@
 import type { StoryAudioPlan, Storyboard, StorySpeechLine } from '@/types';
 
-export const MAX_H3_SPEECH_TURNS = 3;
+// T8 accepts up to three connected reference voices, while the prompt may
+// contain more than three ordered <d> blocks that reuse those voices. Keep a
+// separate turn bound so short A-B-A-B exchanges are not rejected as if every
+// onset required a new reference input.
+export const MAX_H3_REFERENCE_SPEAKERS = 3;
+export const MAX_H3_SPEECH_TURNS = 6;
 export const H3_SPEAKER_HANDOFF_SECONDS = 0.12;
 const H3_MIN_LEAD_SECONDS = 0.8;
 const H3_MIN_TAIL_SECONDS = 1;
@@ -293,7 +298,9 @@ export function validateSpeechContract(storyboards: Storyboard[]): string | unde
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
-  if (lines.length > MAX_H3_SPEECH_TURNS) return `一个 H3 片段最多绑定 ${MAX_H3_SPEECH_TURNS} 个说话角色，请拆成独立片段`;
+  if (lines.length > MAX_H3_SPEECH_TURNS) return `一个 H3 片段最多安排 ${MAX_H3_SPEECH_TURNS} 轮台词，请拆成独立片段`;
+  const speakers = new Set(lines.map(line => line.character));
+  if (speakers.size > MAX_H3_REFERENCE_SPEAKERS) return `一个 H3 片段最多绑定 ${MAX_H3_REFERENCE_SPEAKERS} 个说话角色，请拆成独立片段`;
   const overlong = lines.find(line => speechSeconds(line.exactLine) > H3_MAX_SPEECH_SECONDS);
   if (overlong) return `角色“${overlong.character}”的连续台词过长，无法在 15 秒内完整说完并保留首尾画面，请缩短或拆分片段`;
   const required = lines.reduce((sum, line) => sum + speechSeconds(line.exactLine), 0)

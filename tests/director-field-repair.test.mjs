@@ -63,6 +63,7 @@ test('repairs provider language violations in small checkpointed chunks',()=>{
  assert.equal(issues.length,6);
  assert.deepEqual(selectDirectorFieldRepairChunk(issues).map(issue=>issue.path),issues.slice(0,4).map(issue=>issue.path));
  assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1)),/translate its complete visible meaning/i);
+ assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),new Error('不得截取原句前半段')),/rewrite the sentence with different wording/i);
 });
 
 test('six contaminated action fields recover incrementally without regenerating valid storyboard data',async()=>{

@@ -204,6 +204,18 @@ test('uses Hybrid native conditioning for first/last-frame continuity with a voi
   assert.equal(prompt[2].inputs.audio_mode, 'native');
 });
 
+test('keeps four ordered dialogue turns when they reuse two connected voices', () => {
+  const lines = [
+    ['青鸾', '陛下驾到——！'], ['沈贵妃', '还有多久？'], ['青鸾', '半炷香。'], ['沈贵妃', '来不及了。'],
+  ];
+  const prompt = nativePrompt(`subject_definitions:\n<Audio 1> is 青鸾. <Audio 2> is 沈贵妃.\n\ndetailed_description:\n${lines.map(([, text], index) => `At 00:0${index + 1}.000: <d>[Chinese] ${text}</d>`).join('\n')}\n\noverall_soundscape:\nPalace ambience.\n\nnon_diegetic_music:\nNo music is present.`);
+  assert.equal(injectH3NativeDialogue(prompt, ['qingluan.wav', 'guifei.wav'], ['青鸾', '沈贵妃'], lines.map(([character, exactLine], index) => ({
+    character, exactLine, start: 0.8 + index * 1.3, end: 1.8 + index * 1.3,
+  })), 7, 'zh'), true);
+  assert.equal(prompt[2].inputs.task_type, 'Ref2VA');
+  assert.equal(Object.keys(prompt[2].inputs).filter(key => key.startsWith('ref_audios.ref_audio_')).length, 2);
+});
+
 test('fails closed when the one-pass prompt and screenplay dialogue differ', () => {
   assert.equal(injectH3NativeDialogue({}, [], [], [], 8, 'zh'), false);
   assert.throws(() => injectH3NativeDialogue(
@@ -212,6 +224,9 @@ test('fails closed when the one-pass prompt and screenplay dialogue differ', () 
   assert.throws(() => injectH3NativeDialogue(
     {}, ['chen.wav'], ['陈默'], [{ speakerId: 'S1', character: '陈默', exactLine: '关掉总闸。' }], 8, 'zh',
   ), /缺少有效的开始\/结束时间/);
+  assert.throws(() => injectH3NativeDialogue(
+    {}, ['a.wav', 'b.wav', 'c.wav'], ['A', 'B', 'C'], ['A', 'B', 'C', 'D'].map((character, index) => ({ character, exactLine: `${character}。`, start: index + 0.8, end: index + 1.4 })), 8, 'zh',
+  ), /超过 H3 的 3 个音色参考上限/);
   assert.throws(() => injectH3NativeDialogue(
     {}, ['chen.wav'], ['陈默'], [
       { speakerId: 'S1', character: '陈默', exactLine: '关掉总闸。', start: 0.8, end: 2.8 },

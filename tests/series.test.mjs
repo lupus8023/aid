@@ -92,6 +92,29 @@ test('saved series contracts automatically follow the current registered voice a
   assert.equal(contract.voices[' 知夏 '], 'old-voice');
 });
 
+test('approved series accepts four short alternating turns that reuse two H3 voices', () => {
+  const p = fixture();
+  p.characters.forEach((character, index) => { character.voiceId = `voice-${index}`; character.voiceLocked = true; });
+  const cast = p.characters;
+  const names = new Map(cast.map(character => [character.id, character.name]));
+  const contract = {
+    shotCount: 18,
+    story: { title: '短对答', theme: p.bible.theme, logline: '测试', opening: '开场', goal: '目标', conflict: '冲突', choice: '选择', resolution: '结果', hook: '钩子' },
+    voices: Object.fromEntries(cast.map(character => [character.name, character.voiceId])),
+    shots: p.episodes[0].script.map(shot => ({ number: shot.number, seconds: shot.seconds, action: shot.action, visual: shot.visual, purpose: shot.purpose, locationId: shot.locationId, characters: shot.characterIds.map(id => names.get(id)), dialogue: [] })),
+    dialogue: [],
+  };
+  contract.shots[11].characters = [names.get('c1'), names.get('c2')];
+  contract.shots[11].dialogue = [
+    { character: names.get('c1'), text: '陛下驾到——！', emotion: '高声' },
+    { character: names.get('c2'), text: '还有多久？', emotion: '警觉' },
+    { character: names.get('c1'), text: '半炷香。', emotion: '紧张' },
+    { character: names.get('c2'), text: '来不及了。', emotion: '决断' },
+  ];
+  contract.dialogue = contract.shots.flatMap(shot => shot.dialogue.map(({ character, text }) => ({ character, text })));
+  assert.doesNotThrow(() => buildApprovedSeriesPlan(contract, 'approved', cast));
+});
+
 test('series screenplay enforces count, timing, canonical speakers and payoff promises', () => {
   const p = fixture();
   assert.equal(p.episodes[0].script.reduce((n, s) => n + s.seconds, 0), 120);

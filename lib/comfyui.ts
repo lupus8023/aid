@@ -8,7 +8,7 @@ import { homedir, tmpdir } from 'os';
 import path from 'path';
 import net from 'net';
 import { Client, type SFTPWrapper } from 'ssh2';
-import { MAX_H3_SPEECH_TURNS } from '@/lib/speechAudioContract';
+import { MAX_H3_REFERENCE_SPEAKERS, MAX_H3_SPEECH_TURNS } from '@/lib/speechAudioContract';
 import {
   applyT8H3MotionContext,
   h3MotionContextHeadSeconds,
@@ -1168,6 +1168,9 @@ export function injectH3NativeDialogue(
     }
   });
   const speakingCharacters = [...new Set(turns.map(turn => turn.character))];
+  if (speakingCharacters.length > MAX_H3_REFERENCE_SPEAKERS) {
+    throw new ComfyUIError(`精确台词共有 ${speakingCharacters.length} 个说话角色，超过 H3 的 ${MAX_H3_REFERENCE_SPEAKERS} 个音色参考上限`);
+  }
   const missingReferences = speakingCharacters.filter(character => (
     !referenceAudioNames.some((name, index) => String(name || '').trim() === character && remoteAudios[index])
   ));

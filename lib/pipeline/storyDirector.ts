@@ -433,7 +433,7 @@ export async function directStoryboard(input: {
         const repairs = selectDirectorFieldRepairChunk(allRepairs);
         if (retained && repairs.length) {
           console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, repairing ${repairs.length}/${allRepairs.length} invalid motion fields`);
-          const reply = await chatOnce(buildDirectorFieldRepairPrompt(retained, beats, repairs), {
+          const reply = await chatOnce(buildDirectorFieldRepairPrompt(retained, beats, repairs, lastError), {
             apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel,
             maxOutputTokens: 2_000,
             timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000,

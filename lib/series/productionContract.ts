@@ -1,6 +1,6 @@
 import type { Storyboard } from "@/types";
 import type { StoryPlan, Beat, Sequence, WriterCharacter } from '@/lib/pipeline/types';
-import { MAX_H3_SPEECH_TURNS, validateSpeechContract } from '@/lib/speechAudioContract';
+import { MAX_H3_REFERENCE_SPEAKERS, MAX_H3_SPEECH_TURNS, validateSpeechContract } from '@/lib/speechAudioContract';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 
 export interface SeriesProductionContract {
@@ -64,6 +64,7 @@ export function buildApprovedSeriesPlan(contract: SeriesProductionContract, sour
       throw new Error(`连续剧定稿镜头${index + 1}缺少制作信息或顺序无效`);
     if (shot.characters.some(name => !cast.has(name) || !(name in contract.voices))) throw new Error('定稿包含未登记角色');
     if (shot.dialogue.length > MAX_H3_SPEECH_TURNS) throw new Error(`连续剧定稿镜头${shot.number}有${shot.dialogue.length}轮台词，最多支持${MAX_H3_SPEECH_TURNS}轮`);
+    if (new Set(shot.dialogue.map(line => line.character)).size > MAX_H3_REFERENCE_SPEAKERS) throw new Error(`连续剧定稿镜头${shot.number}超过${MAX_H3_REFERENCE_SPEAKERS}个说话角色，需拆到相邻镜头`);
     for (const line of shot.dialogue) {
       if (!line.text?.trim()) throw new Error(`连续剧定稿镜头${shot.number}存在空台词`);
       if (!shot.characters.includes(line.character)) throw new Error(`连续剧定稿镜头${shot.number}说话者“${line.character}”未列入本镜角色`);
