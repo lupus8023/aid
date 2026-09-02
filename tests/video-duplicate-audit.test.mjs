@@ -152,3 +152,31 @@ test('legacy vague extra-body checkpoint gets one bounded exact-cast migration r
     audit,
   ), /上限/);
 });
+
+test('legacy H3 subtitle redraws get one migration to temporal inpainting', () => {
+  const board = {
+    id: 'scene-text', sceneNumber: 1, characters: ['裴行简'], description: '裴行简举起面膜袋。',
+    videoStatus: 'completed', videoTaskId: 'comfyui:legacy-redraw', videoDuplicateRepairAttempts: 2,
+    videoDuplicateRepairPrompt: '画面必须完全无字幕。',
+    videoDuplicateHistory: [{
+      taskId: 'comfyui:older-redraw',
+      audit: { subtitles: [{ text: '乱码', frames: [1, 2], evidence: 'bottom text' }] },
+    }],
+  };
+  const audit = {
+    taskId: 'comfyui:legacy-redraw', passed: false, duplicates: [],
+    subtitles: [{ text: '乱码', frames: [1, 2, 3], evidence: 'bottom-center white text' }],
+  };
+  const migrated = prepareVideoDuplicateRepair([board], [board], audit);
+  assert.equal(migrated[0].videoDuplicateRepairAttempts, 3);
+  assert.equal(videoSubtitleRemovalSourceTaskId(migrated[0]), 'comfyui:legacy-redraw');
+  const exhausted = {
+    ...board,
+    videoTaskId: 'comfyui-subtitle:already-tried',
+    videoDuplicateRepairAttempts: 3,
+    videoDuplicateHistory: [{ ...board.videoDuplicateHistory[0], taskId: 'comfyui-subtitle:already-tried' }],
+  };
+  assert.throws(() => prepareVideoDuplicateRepair(
+    [exhausted], [exhausted], { ...audit, taskId: exhausted.videoTaskId },
+  ), /上限/);
+});

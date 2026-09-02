@@ -20,5 +20,12 @@ await cp(
   path.join(standaloneDir, 'scripts', 'aid_scail2_long_runner.py'),
   { force: true },
 );
+for (const script of ['aid_subtitle_repair_runner.py', 'remove-burned-subtitles.py']) {
+  await cp(
+    path.join(root, 'scripts', script),
+    path.join(standaloneDir, 'scripts', script),
+    { force: true },
+  );
+}
 
 console.log(`Companion standalone server prepared at ${standaloneDir}`);

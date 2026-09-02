@@ -3,6 +3,7 @@ import { extractJson } from './pipeline/json';
 
 export type VideoDuplicateAudit = NonNullable<Storyboard['videoDuplicateAudit']>;
 export const MAX_VIDEO_DUPLICATE_REPAIRS = 2;
+const COMFYUI_SUBTITLE_TASK_PREFIX = 'comfyui-subtitle:';
 
 export function videoSubtitleRemovalSourceTaskId(
   board: Pick<Storyboard, 'videoDuplicateHistory' | 'videoDuplicateRepairPrompt'>,
@@ -131,7 +132,15 @@ export function prepareVideoDuplicateRepair(all: Storyboard[], group: Storyboard
     && hasExtraBody
     && castNames.length > 0
     && !leader.videoDuplicateRepairPrompt?.includes('visible story-character bodies total');
-  if (attempts >= MAX_VIDEO_DUPLICATE_REPAIRS && !needsExactCastMigration) throw new Error('视频画面自动纠错已达上限，保留所有原视频供复核');
+  // Older releases spent their bounded subtitle repairs on creative H3 V2V
+  // redraws. Permit exactly one migration to deterministic temporal inpainting;
+  // once such a task exists in history the normal cap applies again.
+  const needsTemporalSubtitleMigration = attempts >= MAX_VIDEO_DUPLICATE_REPAIRS
+    && confirmedSubtitles
+    && !leader.videoDuplicateHistory?.some(entry => entry.taskId.startsWith(COMFYUI_SUBTITLE_TASK_PREFIX));
+  if (attempts >= MAX_VIDEO_DUPLICATE_REPAIRS && !needsExactCastMigration && !needsTemporalSubtitleMigration) {
+    throw new Error('视频画面自动纠错已达上限，保留所有原视频供复核');
+  }
   const castConstraint = hasExtraBody && castNames.length
     ? `Show exactly ${castNames.length} visible story-character bodies total: ${castNames.join(', ')}. No fourth body, background character, partial face, reflection, portrait, statue, or added person may appear.`
     : `${names.length ? names.join(', ') : 'Each named character'} must remain the same single body throughout this shot.`;

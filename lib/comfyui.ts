@@ -36,6 +36,7 @@ const ASPECT_ALIASES: Record<string, string> = {
 
 export const COMFYUI_TASK_PREFIX = 'comfyui:';
 export const COMFYUI_LONG_TASK_PREFIX = 'comfyui-long:';
+export const COMFYUI_SUBTITLE_TASK_PREFIX = 'comfyui-subtitle:';
 export const COMFYUI_IMAGE_TASK_PREFIX = 'comfyui-image:';
 export const MAX_COMFYUI_REFERENCE_IMAGES = 5;
 export const SCAIL2_FRAME_COUNTS = [17, 33, 49, 65, 81] as const;
@@ -247,7 +248,9 @@ export function getComfyUIConfig(settings: ComfyUIClientSettings = {}): ComfyUIC
 
 export function isComfyUITask(taskId: string): boolean {
   const value = String(taskId || '');
-  return value.startsWith(COMFYUI_TASK_PREFIX) || value.startsWith(COMFYUI_LONG_TASK_PREFIX);
+  return value.startsWith(COMFYUI_TASK_PREFIX)
+    || value.startsWith(COMFYUI_LONG_TASK_PREFIX)
+    || value.startsWith(COMFYUI_SUBTITLE_TASK_PREFIX);
 }
 
 export function isComfyUIImageTask(taskId: string): boolean {
@@ -264,6 +267,8 @@ export function unwrapComfyUITaskId(taskId: string): string {
   const value = String(taskId || '');
   const promptId = value.startsWith(COMFYUI_LONG_TASK_PREFIX)
     ? value.slice(COMFYUI_LONG_TASK_PREFIX.length).trim()
+    : value.startsWith(COMFYUI_SUBTITLE_TASK_PREFIX)
+      ? value.slice(COMFYUI_SUBTITLE_TASK_PREFIX.length).trim()
     : value.slice(COMFYUI_TASK_PREFIX.length).trim();
   if (!promptId || !/^[a-zA-Z0-9-]+$/.test(promptId)) {
     throw new ComfyUIError('ComfyUI task ID 无效');
@@ -2112,17 +2117,19 @@ async function materializeComfyUISubtitleRemovalSource(
   if (String(sourceTaskId).startsWith(COMFYUI_LONG_TASK_PREFIX)) {
     throw new ComfyUIError('长视频换人物任务不能作为 H3 去字幕源片');
   }
-  const output = await withTunnel(config, async baseUrl => {
-    const history = await fetchJson(baseUrl, `/history/${encodeURIComponent(promptId)}`, {}, 30_000);
-    const item = history[promptId];
-    if (!item) throw new ComfyUIError('ComfyUI 中未找到需要去字幕的原视频任务');
-    if (item.status?.status_str === 'error') {
-      throw new ComfyUIError(`去字幕原视频任务失败：${comfyUIExecutionError(item.status?.messages, historyApiPrompt(item))}`);
-    }
-    const selected = selectComfyUIVideoOutput(item.outputs || {});
-    if (!selected) throw new ComfyUIError('需要去字幕的原任务没有视频输出');
-    return selected;
-  });
+  const output = String(sourceTaskId).startsWith(COMFYUI_SUBTITLE_TASK_PREFIX)
+    ? { filename: 'final.mp4', subfolder: `aid/subtitle_repair/${promptId}`, type: 'output' }
+    : await withTunnel(config, async baseUrl => {
+        const history = await fetchJson(baseUrl, `/history/${encodeURIComponent(promptId)}`, {}, 30_000);
+        const item = history[promptId];
+        if (!item) throw new ComfyUIError('ComfyUI 中未找到需要去字幕的原视频任务');
+        if (item.status?.status_str === 'error') {
+          throw new ComfyUIError(`去字幕原视频任务失败：${comfyUIExecutionError(item.status?.messages, historyApiPrompt(item))}`);
+        }
+        const selected = selectComfyUIVideoOutput(item.outputs || {});
+        if (!selected) throw new ComfyUIError('需要去字幕的原任务没有视频输出');
+        return selected;
+      });
   const sourcePath = safeComfyOutputPath(config, output);
   const extension = path.extname(output.filename).toLowerCase();
   if (!VIDEO_SUFFIXES.has(extension)) throw new ComfyUIError('去字幕源视频格式不受支持');
@@ -2176,37 +2183,54 @@ async function materializeComfyUISubtitleRemovalSource(
 export async function createComfyUISubtitleRemovalTask(input: {
   sourceTaskId: string;
   settings?: ComfyUIClientSettings;
-}): Promise<{ taskId: string; promptId: string; prompt: string; workflow: 'director_v2v_subtitle_removal' }> {
+}): Promise<{ taskId: string; promptId: string; prompt: string; workflow: 'temporal_subtitle_inpainting' }> {
   const config = getComfyUIConfig(input.settings);
   try {
     if (!config.sshHost) throw new ComfyUIError('ComfyUI SSH Host 未配置');
     const source = await materializeComfyUISubtitleRemovalSource(config, input.sourceTaskId);
-    const definitions = await readRemoteDefinitions(config);
     const runId = randomBytes(6).toString('hex');
-    const seed = Number(BigInt(`0x${randomBytes(7).toString('hex')}`));
-    const prompt = buildComfyUISubtitleRemovalPrompt({
-      source,
-      outputPrefix: `aid/director_v2v_subtitle_removal/${runId}`,
-      seed,
-      definitions,
-    });
-    validatePrompt(prompt, definitions);
-    const promptId = await withTunnel(config, async baseUrl => {
-      const response = await fetchJson(baseUrl, '/prompt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, client_id: `aid-subtitle-removal-${runId}` }),
-      });
-      const submittedId = String(response.prompt_id || '').trim();
-      if (!submittedId) throw new ComfyUIError('ComfyUI 去字幕任务响应没有 prompt_id');
-      return submittedId;
-    });
-    const directorPrompt = String(prompt['30']?.inputs?.global_prompt || 'Remove subtitles from the video.');
+    const subfolder = `aid/subtitle_repair/${runId}`;
+    const outputDirectory = `${config.workflowRoot.replace(/\/$/, '')}/output/${subfolder}`;
+    const inputDirectory = `${config.workflowRoot.replace(/\/$/, '')}/input`;
+    const sourcePath = `${inputDirectory}/${source.relativePath}`;
+    const directory = await mkdtemp(path.join(tmpdir(), 'aid-subtitle-repair-'));
+    try {
+      const runnerPath = path.join(process.cwd(), 'scripts', 'aid_subtitle_repair_runner.py');
+      const maskPath = path.join(process.cwd(), 'scripts', 'remove-burned-subtitles.py');
+      for (const required of [runnerPath, maskPath]) {
+        try { await access(required, fsConstants.R_OK); }
+        catch { throw new ComfyUIError('AID 时序去字幕执行器不存在，请重新安装或构建 Companion'); }
+      }
+      const runnerRemote = await uploadAsset(config, runnerPath, subfolder);
+      const maskRemote = await uploadAsset(config, maskPath, subfolder);
+      const configPath = path.join(directory, 'subtitle-repair-config.json');
+      await writeFile(configPath, JSON.stringify({
+        run_id: runId,
+        comfy_url: `http://127.0.0.1:${config.comfyPort}`,
+        source_path: sourcePath,
+        mask_script: `${inputDirectory}/${maskRemote}`,
+        status_path: `${outputDirectory}/status.json`,
+        final_path: `${outputDirectory}/final.mp4`,
+        output_subfolder: subfolder,
+        fps: source.fps,
+      }), 'utf8');
+      const configRemote = await uploadAsset(config, configPath, subfolder);
+      const runnerAbsolute = `${inputDirectory}/${runnerRemote}`;
+      const configAbsolute = `${inputDirectory}/${configRemote}`;
+      await runSsh(config, [
+        `mkdir -p -- ${shellQuote(outputDirectory)}`,
+        `setsid -f /root/aid-video-repair/venv/bin/python ${shellQuote(runnerAbsolute)} ${shellQuote(configAbsolute)} > ${shellQuote(`${outputDirectory}/runner.log`)} 2>&1 < /dev/null`,
+        `printf '%s' started`,
+      ].join('; '));
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+    const repairPrompt = '自动检测白色烧录字幕并使用跨帧光流补全，保留源音轨与实体道具印刷';
     return {
-      taskId: `${COMFYUI_TASK_PREFIX}${promptId}`,
-      promptId,
-      prompt: directorPrompt,
-      workflow: 'director_v2v_subtitle_removal',
+      taskId: `${COMFYUI_SUBTITLE_TASK_PREFIX}${runId}`,
+      promptId: runId,
+      prompt: repairPrompt,
+      workflow: 'temporal_subtitle_inpainting',
     };
   } finally {
     await cleanupPrivateKey(config);
@@ -2427,6 +2451,26 @@ export async function getComfyUIVideoStatus(taskId: string, settings: ComfyUICli
   const config = getComfyUIConfig(settings);
   try {
     if (!config.sshHost) throw new ComfyUIError('ComfyUI SSH Host 未配置');
+    if (String(taskId).startsWith(COMFYUI_SUBTITLE_TASK_PREFIX)) {
+      const statusPath = `${config.workflowRoot.replace(/\/$/, '')}/output/aid/subtitle_repair/${promptId}/status.json`;
+      const raw = await runSsh(
+        config,
+        `if [ -f ${shellQuote(statusPath)} ]; then cat -- ${shellQuote(statusPath)}; else printf '%s' '{"status":"processing","stage":"starting","progress":0}'; fi`,
+      );
+      let status: JsonRecord;
+      try { status = JSON.parse(raw); }
+      catch { throw new ComfyUIError('时序去字幕任务状态文件损坏'); }
+      return {
+        status: status.status === 'completed' ? 'completed' : status.status === 'failed' ? 'failed' : 'processing',
+        error: status.error ? String(status.error) : undefined,
+        output: status.output,
+        stage: String(status.stage || 'processing'),
+        progress: Number(status.progress || 0),
+        currentSegment: Number(status.completedSegments || 0),
+        completedSegments: Number(status.completedSegments || 0),
+        totalSegments: Number(status.totalSegments || 1),
+      };
+    }
     if (String(taskId).startsWith(COMFYUI_LONG_TASK_PREFIX)) {
       const statusPath = `${config.workflowRoot.replace(/\/$/, '')}/output/aid/character_replace/${promptId}/status.json`;
       const raw = await runSsh(
@@ -2482,6 +2526,14 @@ export async function downloadComfyUIOutput(taskId: string, output: ComfyOutputR
   const promptId = unwrapComfyUITaskId(taskId);
   const config = getComfyUIConfig(settings);
   try {
+    if (String(taskId).startsWith(COMFYUI_SUBTITLE_TASK_PREFIX)) {
+      const safeFilename = path.basename(String(output.filename || 'final.mp4'));
+      const expectedSubfolder = `aid/subtitle_repair/${promptId}`;
+      if (safeFilename !== 'final.mp4' || String(output.subfolder || '') !== expectedSubfolder) {
+        throw new ComfyUIError('时序去字幕输出路径无效');
+      }
+      return await downloadRemoteFileInChunks(config, `${config.workflowRoot.replace(/\/$/, '')}/output/${expectedSubfolder}/${safeFilename}`);
+    }
     if (String(taskId).startsWith(COMFYUI_LONG_TASK_PREFIX)) {
       const safeFilename = path.basename(String(output.filename || 'final.mp4'));
       const expectedSubfolder = `aid/character_replace/${promptId}`;

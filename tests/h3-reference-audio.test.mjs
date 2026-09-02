@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import {
   applyH3Fl2vaProfile,
+  COMFYUI_SUBTITLE_TASK_PREFIX,
   fitH3ReferenceAudioDurations,
   H3_DASIWA_4TURBO_PROFILE,
   H3_FL2VA_BALANCED_PROFILE,
@@ -14,12 +15,14 @@ import {
   h3VisualTaskType,
   injectReferenceImages,
   injectH3NativeDialogue,
+  isComfyUITask,
   sanitizeSubmittedH3Prompt,
   selectComfyUIVideoOutput,
   comfyUIQueueContainsPrompt,
   comfyUIAssetCacheFileName,
   buildComfyUISubtitleRemovalPrompt,
   taggedPrompt,
+  unwrapComfyUITaskId,
 } from '../lib/comfyui.ts';
 import {
   currentVoiceReferences,
@@ -68,6 +71,12 @@ test('builds a Director V2V subtitle-removal pass that preserves source audio', 
   assert.equal(timeline.video.videoFile, 'aid/assets/subtitle-source-paid.mp4');
   assert.equal(timeline.totalFrames, 175);
   assert.deepEqual(prompt['31'].inputs.audio, ['30', 1]);
+});
+
+test('uses a dedicated recoverable task namespace for temporal subtitle inpainting', () => {
+  const taskId = `${COMFYUI_SUBTITLE_TASK_PREFIX}abc-123`;
+  assert.equal(isComfyUITask(taskId), true);
+  assert.equal(unwrapComfyUITaskId(taskId), 'abc-123');
 });
 
 test('aligns requested duration to the H3 temporal block used by the remote workflow', () => {
