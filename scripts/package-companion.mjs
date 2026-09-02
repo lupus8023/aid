@@ -13,6 +13,7 @@ const platformArg = process.argv.find(value => value.startsWith('--platform='));
 const archArg = process.argv.find(value => value.startsWith('--arch='));
 const platform = platformArg?.split('=')[1] || process.platform;
 const arch = archArg?.split('=')[1] || process.arch;
+const electronZipDir = String(process.env.AID_ELECTRON_ZIP_DIR || '').trim();
 const appDir = path.join(root, '.companion-app');
 const mediaDir = path.join(root, '.companion-media');
 const serverDir = path.join(root, '.next-companion', 'standalone');
@@ -40,6 +41,7 @@ const output = await packager({
   overwrite: true,
   platform,
   arch,
+  ...(electronZipDir ? { electronZipDir } : {}),
   name: 'AID Companion',
   appBundleId: 'beauty.pandais.companion',
   appVersion,

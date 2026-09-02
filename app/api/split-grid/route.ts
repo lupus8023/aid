@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import sharp from 'sharp';
 import { uploadBufferToCloudinary, uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import { buildCloudinaryGridCellUrls, cloudinaryGridDimensions, cloudinaryGridInfoUrl } from '@/lib/gridCloudinary';
 
@@ -7,6 +6,10 @@ const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 const MAX_PERSISTED_GRID_BYTES = 9.5 * 1024 * 1024;
 
 async function compressMotherGrid(sourceBuffer: Buffer): Promise<Buffer> {
+  // Most recoveries already have a persisted Cloudinary mother grid and never
+  // need native image processing. Load sharp only for the oversized raw-image
+  // fallback so a missing optional Linux binary cannot crash the fast path.
+  const { default: sharp } = await import('sharp');
   const pipeline = sharp(sourceBuffer).rotate().resize({
     width: 4096,
     height: 4096,
