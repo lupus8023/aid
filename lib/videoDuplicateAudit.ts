@@ -35,6 +35,7 @@ export function videoHasClosedCast(context: string): boolean {
   // authored background heads as clones would buy a needless replacement clip.
   const authoredBackground = /\b(crowd|people|extras|attendants|clerks|guards|onlookers|audience|reporters|soldiers|waiting men|delegation|delegates|envoys?|emissar(?:y|ies)|sharks|citizens|nobles|servants|spectators|passengers|children|cleanup team|surrounding court)\b/i
     .test(visible)
+    || /(小太监|太监|宫人|宫女|侍从|侍女|侍卫|护卫|随从|来人|人群|众人|群臣|宾客|路人|围观者|仪仗)/.test(visible)
     || /\b(?:court|team)\s+(?:freezes|stays|holds|waits|watches|moves|drags)\b/i.test(visible)
     || /\b(?:corridor|hall|room)\b[^.]{0,80}\bcrowded\b/i.test(visible)
     || /\b(?:visible|background|surrounding)\s+reactions?\b/i.test(visible)

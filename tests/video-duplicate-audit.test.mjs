@@ -22,6 +22,8 @@ test('count distinct bodies within each frame, not repeated appearances across t
   assert.equal(videoHasClosedCast('Luna studies Bram while armed sharks stacked behind him hold their line.'), false);
   assert.equal(videoHasClosedCast(videoDuplicateAuditContext({ description: 'Luna reads a tablet.', videoDirection: { camera: 'Hold while Oscar and the crowd remain visible behind her.' } })), false);
   assert.equal(videoHasClosedCast('Luna watches the soaked cleanup team drag a covered body past the dais.'), false);
+  assert.equal(videoHasClosedCast('小太监端着茶盏跨进来，青鸾抬手压住笑意。'), false);
+  assert.equal(videoHasClosedCast('来人进殿看见贵妃脸上的面膜布而僵住。'), false);
   const edited = 'At 00:01.000, she says <d>[English] Absolutely not.</d>';
   const once = applyVideoDuplicateRepairPrompt(edited, 'Exactly one body.');
   assert.equal(applyVideoDuplicateRepairPrompt(once, 'Exactly one body.'), once);
