@@ -45,7 +45,6 @@ test('builds a Director V2V subtitle-removal pass that preserves source audio', 
     UNETLoader: { input: { required: { unet_name: [['minimax_h3_ref2va_pruned_int8_convrot.safetensors']], weight_dtype: [['default']] } } },
     CLIPLoader: { input: { required: { clip_name: [['qwen3vl_32b_minimax_h3_int8_convrot.safetensors']], type: [['minimax']], device: [['default']] } } },
     VAELoader: { input: { required: { vae_name: [['minimax_h3_video_vae_fp16.safetensors', 'minimax_h3_audio_vae_fp32.safetensors']] } } },
-    LoraLoaderModelOnly: { input: { required: { model: ['MODEL'], lora_name: [['minimax_h3_turbo_4step_dasiwa_ref2va_hybrid_v1_T8.safetensors']], strength_model: ['FLOAT'] } } },
     MiniMaxH3MemoryEfficientSageAttentionPatch: { input: { required: { model: ['MODEL'] } } },
     MiniMaxH3Director: { input: { required: {} } },
     CreateVideo: { input: { required: {} } },
@@ -60,7 +59,10 @@ test('builds a Director V2V subtitle-removal pass that preserves source audio', 
     outputPrefix: 'aid/subtitle/test', seed: 42, definitions,
   });
   assert.equal(prompt['1'].inputs.unet_name, 'minimax_h3_ref2va_pruned_int8_convrot.safetensors');
-  assert.match(prompt['30'].inputs.global_prompt, /Remove subtitles from the video/);
+  assert.equal(prompt['30'].inputs.global_prompt, '<Video 1> Remove subtitles from the video.');
+  assert.equal(prompt['30'].inputs.steps, 25);
+  assert.deepEqual(prompt['30'].inputs.model, ['2', 0]);
+  assert.equal(prompt['3'], undefined);
   const timeline = JSON.parse(prompt['30'].inputs.timeline_data);
   assert.equal(timeline.output.audioMode, 'source');
   assert.equal(timeline.video.videoFile, 'aid/assets/subtitle-source-paid.mp4');

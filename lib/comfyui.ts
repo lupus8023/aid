@@ -1164,17 +1164,11 @@ export function buildComfyUISubtitleRemovalPrompt(input: {
   const audioVae = requiredDefinitionOption(definitions, 'VAELoader', 'vae_name', [
     'minimax_h3_audio_vae_fp32.safetensors',
   ]);
-  const loraClass = definitions.LoraLoaderModelOnly
-    ? 'LoraLoaderModelOnly'
-    : definitions.LoraLoaderBypassModelOnly
-      ? 'LoraLoaderBypassModelOnly'
-      : '';
-  if (!loraClass) throw new ComfyUIError('云端缺少可用的 H3 LoRA 加载节点');
-  const lora = requiredDefinitionOption(definitions, loraClass, 'lora_name', [
-    H3_DASIWA_4TURBO_PROFILE.lora,
-  ]);
   const taskType = 'v2v — 视频转视频(Video to Video)';
-  const editPrompt = '<Video 1> Remove subtitles from the video. Preserve every other pixel, person, face, product, package, motion, camera movement, lighting, timing, and scene detail unchanged. Preserve the original audio exactly. Do not add text, captions, titles, overlays, logos, watermarks, boxes, blur bars, or replacement graphics.';
+  // MiniMax's official V2V prompt guide prescribes this exact terse command.
+  // Extra preservation prose and the four-step creative LoRA both proved too
+  // weak in production: the model reconstructed the source subtitle verbatim.
+  const editPrompt = '<Video 1> Remove subtitles from the video.';
   const timelineData = JSON.stringify({
     version: 5,
     editMode: 'global',
@@ -1249,14 +1243,10 @@ export function buildComfyUISubtitleRemovalPrompt(input: {
   if (baseModelId === '2') {
     prompt['2'] = { class_type: 'MiniMaxH3MemoryEfficientSageAttentionPatch', inputs: { model: ['1', 0] } };
   }
-  prompt['3'] = {
-    class_type: loraClass,
-    inputs: { model: [baseModelId, 0], lora_name: lora, strength_model: H3_DASIWA_4TURBO_PROFILE.loraStrength },
-  };
   prompt['30'] = {
     class_type: 'MiniMaxH3Director',
     inputs: {
-      model: ['3', 0],
+      model: [baseModelId, 0],
       video_vae: ['5', 0],
       audio_vae: ['6', 0],
       clip: ['4', 0],
@@ -1272,7 +1262,7 @@ export function buildComfyUISubtitleRemovalPrompt(input: {
       total_frames: source.frameCount,
       timeline_data: timelineData,
       bd_grp_advanced: '高级采样 Advanced',
-      steps: H3_DASIWA_4TURBO_PROFILE.steps,
+      steps: 25,
       sampler: 'res_multistep',
       scheduler: H3_DASIWA_4TURBO_PROFILE.scheduler,
       shift_video: H3_DASIWA_4TURBO_PROFILE.shiftVideo,
