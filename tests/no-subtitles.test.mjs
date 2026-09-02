@@ -61,4 +61,5 @@ test('automatic ComfyUI production audits subtitles even when a shot has no char
   assert.match(source, /检查重复角色与烧录字幕/);
   assert.match(auditSource, /readableText: parsed\.readableText/);
   assert.match(auditSource, /readableText: f\.readableText/);
+  assert.match(auditSource, /meta\.names\.length > 0 && typeof meta\.context/);
 });

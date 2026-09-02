@@ -60,7 +60,11 @@ Return JSON ONLY {"visible":[{"name":null,"position":"head's screen location","e
       }));
       const evidenceId = createHash('sha256').update(JSON.stringify([mediaSha256, times])).digest('hex');
       await writeFile(path.join(root, `${evidenceId}-v6.json`), JSON.stringify({ taskId, mediaSha256, times, raw: frames.map(f => f.raw) }), { mode: 0o600 });
-      return parseVideoDuplicates(JSON.stringify({ observations: frames.map((f, i) => ({ frame: i + 1, visible: f.visible, readableText: f.readableText })) }), meta.names, typeof meta.context === 'string' && videoHasClosedCast(meta.context));
+      return parseVideoDuplicates(
+        JSON.stringify({ observations: frames.map((f, i) => ({ frame: i + 1, visible: f.visible, readableText: f.readableText })) }),
+        meta.names,
+        meta.names.length > 0 && typeof meta.context === 'string' && videoHasClosedCast(meta.context),
+      );
     };
     let result: ReturnType<typeof parseVideoDuplicates>;
     try {
