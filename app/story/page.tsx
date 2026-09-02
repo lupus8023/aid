@@ -39,16 +39,12 @@ import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
 import { videoDirectionSourceKey } from '@/lib/videoDirection';
 import { persistGeneratedStoryboardImage } from '@/lib/generatedImagePersistence';
 
-async function persistLocalGeneratedImage(imageUrl: string): Promise<string> {
-  if (!imageUrl.startsWith('data:')) return imageUrl;
-  const response = await fetch('/api/upload-image', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imageData: imageUrl }),
-  });
-  const data = await readApiJson<{ url: string }>(response, '本地生成图片上传失败');
-  if (!data.url) throw new Error('本地生成图片上传后没有返回 URL');
-  return data.url;
+async function persistLocalGeneratedImage(
+  imageUrl: string,
+  settings?: Parameters<typeof comfyUIApiUrl>[1],
+): Promise<string> {
+  return persistGeneratedStoryboardImage(imageUrl, (url, init) =>
+    fetch(typeof url === 'string' ? comfyUIApiUrl(url, settings) : url, init));
 }
 import { analyzeImagePromptSafety, extractImageTaskError, imageSafetyReasonLabel, isImageSafetyRejection, rewriteImagePromptForSafety } from '@/lib/imagePromptSafety';
 import { normalizeSavedImageFailureReason, planInterruptedGridRecovery, preserveCompletedGridArtifacts } from '@/lib/gridRecovery';
@@ -1485,7 +1481,7 @@ export default function StoryPage() {
               const statusData = await statusRes.json();
               if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
               if (statusData.status === 'completed' && statusData.imageUrl) {
-                gridUrl = await persistLocalGeneratedImage(statusData.imageUrl);
+                gridUrl = await persistLocalGeneratedImage(statusData.imageUrl, activeSettings.comfyui);
                 break;
               }
               if (statusData.status === 'failed') throw new TerminalImageTaskError(extractImageTaskError(statusData));
@@ -1710,7 +1706,7 @@ export default function StoryPage() {
       if (data.status === 'completed' && data.imageUrl) {
           // Keep the paid task id if storage fails, so recovery downloads the
           // existing result instead of buying another image generation.
-          const imageUrl = await persistGeneratedStoryboardImage(data.imageUrl);
+          const imageUrl = await persistLocalGeneratedImage(data.imageUrl, settingsRef.current.comfyui);
           if (generationProjectId !== projectIdRef.current) return;
           const previous = storyboardsRef.current.find(sb => sb.id === storyboardId);
           if (!previous) return;
@@ -1801,12 +1797,12 @@ export default function StoryPage() {
         if (generationProjectId !== projectIdRef.current) return;
         if (statusData.status === 'completed' && statusData.imageUrl) {
           if (type === 'costume' && characterName) {
-            const persistedImageUrl = await persistLocalGeneratedImage(statusData.imageUrl);
+            const persistedImageUrl = await persistLocalGeneratedImage(statusData.imageUrl, activeSettings.comfyui);
             const nextCostumeImages = { ...costumeImagesRef.current, [characterName]: persistedImageUrl };
             costumeImagesRef.current = nextCostumeImages;
             setCostumeImages(nextCostumeImages);
           } else {
-            const persistedImageUrl = await persistLocalGeneratedImage(statusData.imageUrl);
+            const persistedImageUrl = await persistLocalGeneratedImage(statusData.imageUrl, activeSettings.comfyui);
             const nextSceneImages = [...sceneImagesRef.current, persistedImageUrl];
             sceneImagesRef.current = nextSceneImages;
             setSceneImages(nextSceneImages);

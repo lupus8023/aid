@@ -29,3 +29,28 @@ export function buildCloudinaryGridCellUrls(
   }
   return urls;
 }
+
+/** A mother grid that this app already persisted in Cloudinary does not need
+ * another remote upload. Ask Cloudinary for its metadata and crop the same
+ * immutable asset in place. Only accept plain, versioned delivery URLs. */
+export function cloudinaryGridInfoUrl(source: string): string | undefined {
+  try {
+    const url = new URL(source);
+    if (url.protocol !== 'https:' || url.hostname !== 'res.cloudinary.com' || url.username || url.password || url.port)
+      return undefined;
+    if (!/\/image\/upload\/v\d+\//.test(url.pathname)) return undefined;
+    url.pathname = url.pathname.replace('/image/upload/', '/image/upload/fl_getinfo/');
+    return url.toString();
+  } catch { return undefined; }
+}
+
+export function cloudinaryGridDimensions(info: unknown): { width: number; height: number } | undefined {
+  if (!info || typeof info !== 'object') return undefined;
+  const source = (info as { input?: unknown }).input;
+  if (!source || typeof source !== 'object') return undefined;
+  const width = Number((source as { width?: unknown }).width);
+  const height = Number((source as { height?: unknown }).height);
+  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+    ? { width, height }
+    : undefined;
+}
