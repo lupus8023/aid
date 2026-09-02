@@ -62,8 +62,10 @@ test('automatic ComfyUI production audits subtitles even when a shot has no char
   assert.doesNotMatch(source, /videoProvider === 'comfyui' && group\.some\(item => item\.characters\.length\)/);
   assert.match(source, /检查重复角色与烧录字幕/);
   assert.match(source, /duplicateAudit\.passed === null/);
+  assert.match(source, /leader\.videoDuplicateAudit\.passed !== null/);
   assert.match(source, /确认画面无字幕后再继续交付/);
   assert.match(auditSource, /readableText: parsed\.readableText/);
   assert.match(auditSource, /readableText: f\.readableText/);
   assert.match(auditSource, /meta\.names\.length > 0 && typeof meta\.context/);
+  assert.match(auditSource, /cached\?\.passed !== null/);
 });

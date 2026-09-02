@@ -2605,7 +2605,11 @@ export default function StoryPage() {
               const current = refreshPlannedVideoSegment(storyboardsRef.current, group), leader = current[0];
               const { names, context } = videoDuplicateAuditScope(current);
               if (!leader.videoTaskId) throw new Error('视频尚未返回任务编号');
-              if (leader.videoDuplicateAudit?.taskId === leader.videoTaskId) { duplicateAudit = leader.videoDuplicateAudit; return; }
+              // A null result means the vision check itself was unavailable or
+              // inconclusive. Preserve the paid clip, but retry the audit after
+              // recovery instead of turning a transient check outage into a
+              // permanent checkpoint.
+              if (leader.videoDuplicateAudit?.taskId === leader.videoTaskId && leader.videoDuplicateAudit.passed !== null) { duplicateAudit = leader.videoDuplicateAudit; return; }
               const cached = leader.videoCacheKey ? await cachedVideoObjectUrl(leader.videoCacheKey) : undefined;
               const source = cached || leader.videoSourceUrl || leader.videoUrl || await downloadComfyUIVideo(leader.videoTaskId, settingsRef.current.comfyui, { smoothAudioTail: true });
               const ownsUrl = Boolean(cached || (!leader.videoSourceUrl && !leader.videoUrl));

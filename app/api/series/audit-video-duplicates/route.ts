@@ -27,7 +27,14 @@ export async function POST(request: NextRequest) {
     const bytes = Buffer.from(await video.arrayBuffer()), mediaSha256 = createHash('sha256').update(bytes).digest('hex');
     const draft = generationDraft('video-visual-single-frame-v6', [mediaSha256, meta.names, meta.context, meta.provider, meta.model, meta.apiKey, meta.dmxApiKey]);
     const previous = await draft.read();
-    if (previous) return NextResponse.json({ audit: { ...JSON.parse(previous), taskId } });
+    if (previous) {
+      const cached = JSON.parse(previous);
+      // A null verdict records a temporary quality-service outage or
+      // inconclusive sample. It is evidence that the clip was preserved, not a
+      // final result; a later retry must be allowed to inspect the same bytes.
+      if (cached?.passed !== null)
+        return NextResponse.json({ audit: { ...cached, taskId } });
+    }
     const root = path.join(process.env.AID_COMPANION_DATA_DIR || os.tmpdir(), 'video-cast-audits');
     await mkdir(root, { recursive: true });
     temporary = await mkdtemp(path.join(root, 'work-'));
