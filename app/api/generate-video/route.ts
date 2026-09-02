@@ -6,6 +6,7 @@ import { compileTimedSpeech, storyboardSpeech } from '@/lib/speechAudioContract'
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds, MAX_H3_SEGMENT_SECONDS } from '@/lib/videoSegments';
 import { createFalH3MaxVideoTask } from '@/lib/falVideo';
 import { filmEndingDuration } from '@/lib/filmEnding';
+import { adaptH3PromptForMotionContinuation } from '@/lib/h3MotionContext';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
     const {
       storyboard, segmentStoryboards = [], apiKey, videoModel, aspectRatio,
       characterAudios = [], firstFrameUrl,
+      motionContext,
       voiceReferences = {},  // { 角色名: CloudinaryURL }
       videoProvider = 'apimart', comfyui = {},
       fal = {},
@@ -151,17 +153,22 @@ export async function POST(request: NextRequest) {
       // Cloudinary hop here: it is unnecessary and can drop a valid data URL
       // when Cloudinary is unavailable.
       const isMultiBeatSegment = videoStoryboards.length > 1;
-      const firstFrame = firstFrameUrl || videoStoryboards[0].imageUrl;
+      const isMotionContinuation = Number(motionContext?.segmentIndex) > 0;
+      const firstFrame = isMotionContinuation
+        ? videoStoryboards[0].imageUrl
+        : (firstFrameUrl || videoStoryboards[0].imageUrl);
       if (typeof firstFrame !== 'string' || firstFrame.startsWith('blob:')) {
         return NextResponse.json({ error: 'ComfyUI first frame is not accessible to Companion' }, { status: 400 });
       }
       const auxiliaryImages = isMultiBeatSegment
-        ? (firstFrameUrl ? videoStoryboards : videoStoryboards.slice(1)).map((shot: any) => shot.imageUrl)
+        ? (isMotionContinuation
+            ? videoStoryboards.slice(1)
+            : (firstFrameUrl ? videoStoryboards : videoStoryboards.slice(1))).map((shot: any) => shot.imageUrl)
         : [];
       console.log(`[comfyui] scene ${storyboard.sceneNumber || '?'} frame input: ${firstFrame.startsWith('data:') ? 'data-url' : 'url'}; continuity=${Boolean(firstFrameUrl)}; beats=${videoStoryboards.length}`);
       const generatedPrompt = buildVideoSegmentPrompt(isMultiBeatSegment ? videoStoryboards : [storyboard], [], {
         isFilmEnding: isFilmEnding === true,
-        firstFrameUrl,
+        firstFrameUrl: isMotionContinuation ? undefined : firstFrameUrl,
         duration: requestedDuration,
         hasVoiceReferences: referenceAudios.length > 0,
         referenceAudioNames,
@@ -171,19 +178,23 @@ export async function POST(request: NextRequest) {
       // but retire saved JSON/Chinese control contracts automatically so an
       // older project cannot bypass the new official prompt builder.
       const editedPrompt = storyboard.videoPromptOverride ? String(storyboard.videoPrompt || '').trim() : '';
-      const submittedPrompt = applyVideoDuplicateRepairPrompt(applySeriesVideoStyle(applyFilmEndingPrompt(editedPrompt && !isLegacyH3Prompt(editedPrompt)
+      const baseSubmittedPrompt = applyVideoDuplicateRepairPrompt(applySeriesVideoStyle(applyFilmEndingPrompt(editedPrompt && !isLegacyH3Prompt(editedPrompt)
         ? editedPrompt
         : generatedPrompt, requestedDuration, isFilmEnding === true), styleReference), storyboard.videoDuplicateRepairPrompt);
+      const submittedPrompt = isMotionContinuation
+        ? adaptH3PromptForMotionContinuation(baseSubmittedPrompt)
+        : baseSubmittedPrompt;
       const result = await createComfyUIVideoTask({
         firstFrame,
         auxiliaryImages,
         // Single-shot continuity can use FL2VA. Multi-beat segments instead use
         // the multi-reference workflow so every checked storyboard remains a
         // visible editorial reference inside the same 15-second clip.
-        endFrame: firstFrameUrl && !isMultiBeatSegment ? storyboard.imageUrl : undefined,
+        endFrame: firstFrameUrl && !isMotionContinuation && !isMultiBeatSegment ? storyboard.imageUrl : undefined,
         referenceAudios,
         referenceAudioNames,
         speechTurns,
+        motionContext,
         language: language === 'en' ? 'en' : 'zh',
         // H3 generates the synchronized soundtrack natively. Voice samples are
         // optional references, so APIMart's URL-tag syntax must not enter the prompt.
@@ -197,6 +208,7 @@ export async function POST(request: NextRequest) {
         status: 'processing',
         provider: 'comfyui',
         workflow: result.workflow,
+        continuityMode: motionContext ? 'motion-context' : 'tail-frame',
         videoPrompt: result.prompt,
       });
     }

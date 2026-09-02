@@ -9,6 +9,14 @@ import path from 'path';
 import net from 'net';
 import { Client, type SFTPWrapper } from 'ssh2';
 import { MAX_H3_SPEECH_TURNS } from '@/lib/speechAudioContract';
+import {
+  applyT8H3MotionContext,
+  h3MotionContextHeadSeconds,
+  normalizeH3MotionContextRequest,
+  shiftH3PromptTimecodes,
+  shiftH3SpeechTurns,
+  type H3MotionContextRequest,
+} from '@/lib/h3MotionContext';
 
 const execFileAsync = promisify(execFile);
 
@@ -1773,6 +1781,7 @@ export async function createComfyUIVideoTask(input: {
   referenceAudios?: string[];
   referenceAudioNames?: string[];
   speechTurns?: H3NativeDialogueTurn[];
+  motionContext?: H3MotionContextRequest;
   language?: 'zh' | 'en';
   settings?: ComfyUIClientSettings;
 }): Promise<{ taskId: string; promptId: string; workflow: ComfyUIWorkflow; workflowPath: string; prompt: string }> {
@@ -1783,7 +1792,15 @@ export async function createComfyUIVideoTask(input: {
     const auxiliaryImages = (input.auxiliaryImages || []).filter(Boolean);
     const referenceAudios = (input.referenceAudios || []).filter(Boolean);
     const renderDuration = Math.min(15, Math.max(2, Number(input.duration) || 5));
-    const alignedRenderDuration = h3AlignedDurationSeconds(renderDuration);
+    const motionContext = normalizeH3MotionContextRequest(input.motionContext);
+    const motionContextHeadSeconds = motionContext ? h3MotionContextHeadSeconds(motionContext) : 0;
+    const alignedRenderDuration = h3AlignedDurationSeconds(renderDuration + motionContextHeadSeconds);
+    if (motionContextHeadSeconds > 0 && alignedRenderDuration > 15.084) {
+      const maxDelivered = (362 - motionContext!.contextFrames) / H3_VIDEO_FPS;
+      throw new ComfyUIError(
+        `Motion Context 续段在 ${motionContext!.contextFrames} 帧上下文下最多交付 ${maxDelivered.toFixed(2)} 秒；请缩短或拆分当前片段`,
+      );
+    }
     if (1 + auxiliaryImages.length > MAX_COMFYUI_REFERENCE_IMAGES) {
       throw new ComfyUIError(`MiniMax H3 多图参考在 AID 中最多使用 ${MAX_COMFYUI_REFERENCE_IMAGES} 张图片`);
     }
@@ -1819,7 +1836,7 @@ export async function createComfyUIVideoTask(input: {
       for (const audio of localAudios) remoteAudios.push(await uploadAsset(config, audio, subfolder));
 
       const finalPrompt = taggedPrompt(
-        input.prompt,
+        shiftH3PromptTimecodes(input.prompt, motionContextHeadSeconds),
         variant,
         variant === 'aid_multi_reference' ? auxiliaryImages.length : 0,
         referenceAudios.length,
@@ -1841,11 +1858,12 @@ export async function createComfyUIVideoTask(input: {
         apiPrompt,
         remoteAudios,
         input.referenceAudioNames || [],
-        input.speechTurns || [],
+        shiftH3SpeechTurns(input.speechTurns || [], motionContextHeadSeconds),
         alignedRenderDuration,
         input.language === 'en' ? 'en' : 'zh',
       );
       if (!usesNativeDialogue) injectReferenceAudios(apiPrompt, remoteAudios);
+      if (motionContext) applyT8H3MotionContext(apiPrompt, motionContext, renderDuration);
 
       const promptId = await withTunnel(config, async baseUrl => {
         const definitions = await readRemoteDefinitions(config);
@@ -2222,6 +2240,14 @@ export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}
     const remoteRefImageMax = Number(
       h3Definition.input?.optional?.ref_images?.[1]?.template?.max || 0,
     );
+    const motionContextNodeTypes = [
+      'MiniMaxH3LongVideoPlannerT8',
+      'MiniMaxH3LongVideoContextLoadT8',
+      'MiniMaxH3LongVideoConditioningT8',
+      'MiniMaxH3LongVideoContextSaveT8',
+      'MiniMaxH3OutputTrimT8',
+    ];
+    const missingMotionContextNodes = motionContextNodeTypes.filter(type => !definitions[type]);
     return {
       ok: true,
       scope: 'story-video',
@@ -2231,6 +2257,11 @@ export async function testComfyUIConnection(settings: ComfyUIClientSettings = {}
       referenceImages: {
         remoteMax: remoteRefImageMax,
         aidMax: Math.min(MAX_COMFYUI_REFERENCE_IMAGES, remoteRefImageMax || MAX_COMFYUI_REFERENCE_IMAGES),
+      },
+      motionContext: {
+        available: missingMotionContextNodes.length === 0,
+        missingNodes: missingMotionContextNodes,
+        contextFrames: [5, 22, 39],
       },
     };
   } finally {

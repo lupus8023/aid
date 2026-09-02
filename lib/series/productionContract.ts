@@ -17,6 +17,40 @@ export interface SeriesProductionContract {
   }>;
 }
 
+export function reconcileSeriesProductionContract(
+  source: SeriesProductionContract,
+  characters: Array<Pick<WriterCharacter, 'name' | 'voiceId'>>,
+): SeriesProductionContract {
+  const contract = structuredClone(source);
+  const key = (value: unknown) => String(value || '').trim().toLocaleLowerCase();
+  const cast = new Map(characters.filter(character => key(character.name)).map(character => [key(character.name), character]));
+  const canonicalName = (value: unknown) => cast.get(key(value))?.name || String(value || '').trim();
+
+  const voices: Record<string, string | undefined> = {};
+  for (const [rawName, savedVoice] of Object.entries(contract.voices || {})) {
+    const name = canonicalName(rawName);
+    const currentVoice = cast.get(key(rawName))?.voiceId;
+    voices[name] = String(currentVoice || '').trim() || savedVoice;
+  }
+  // A character may have been assigned a voice after the episode contract was
+  // first saved. Add only registered cast entries; never invent a speaker.
+  for (const character of characters) {
+    const voiceId = String(character.voiceId || '').trim();
+    if (voiceId && (!(character.name in voices) || voices[character.name] !== voiceId)) voices[character.name] = voiceId;
+  }
+  contract.voices = voices;
+  contract.dialogue = (contract.dialogue || []).map(line => ({ ...line, character: canonicalName(line.character) }));
+  contract.shots = contract.shots?.map(shot => {
+    const dialogue = (shot.dialogue || []).map(line => ({ ...line, character: canonicalName(line.character) }));
+    const names = (shot.characters || []).map(canonicalName);
+    for (const line of dialogue) {
+      if (cast.has(key(line.character)) && !names.includes(line.character)) names.push(line.character);
+    }
+    return { ...shot, characters: [...new Set(names.filter(Boolean))], dialogue };
+  });
+  return contract;
+}
+
 // A series already has an approved, timed screenplay. Adapt its structure to
 // the director's input without asking a second writer to rewrite its dialogue.
 export function buildApprovedSeriesPlan(contract: SeriesProductionContract, sourceBrief: string, characters: WriterCharacter[]): StoryPlan {
@@ -29,8 +63,14 @@ export function buildApprovedSeriesPlan(contract: SeriesProductionContract, sour
     if (shot.number !== index + 1 || !Number.isFinite(shot.seconds) || shot.seconds < 2 || shot.seconds > 15 || !shot.action || !shot.visual || !shot.purpose || !shot.locationId)
       throw new Error(`连续剧定稿镜头${index + 1}缺少制作信息或顺序无效`);
     if (shot.characters.some(name => !cast.has(name) || !(name in contract.voices))) throw new Error('定稿包含未登记角色');
-    if (shot.dialogue.length > MAX_H3_SPEECH_TURNS || shot.dialogue.some(d => !d.text?.trim() || !shot.characters.includes(d.character) || !contract.voices[d.character] || cast.get(d.character)?.voiceId !== contract.voices[d.character]))
-      throw new Error(`连续剧定稿镜头${shot.number}台词或音色无效`);
+    if (shot.dialogue.length > MAX_H3_SPEECH_TURNS) throw new Error(`连续剧定稿镜头${shot.number}有${shot.dialogue.length}轮台词，最多支持${MAX_H3_SPEECH_TURNS}轮`);
+    for (const line of shot.dialogue) {
+      if (!line.text?.trim()) throw new Error(`连续剧定稿镜头${shot.number}存在空台词`);
+      if (!shot.characters.includes(line.character)) throw new Error(`连续剧定稿镜头${shot.number}说话者“${line.character}”未列入本镜角色`);
+      if (!cast.has(line.character)) throw new Error(`连续剧定稿镜头${shot.number}说话者“${line.character}”未登记角色`);
+      if (!contract.voices[line.character]) throw new Error(`连续剧定稿角色“${line.character}”尚未绑定音色`);
+      if (cast.get(line.character)?.voiceId !== contract.voices[line.character]) throw new Error(`连续剧定稿角色“${line.character}”的保存音色与当前角色卡不一致`);
+    }
   });
   if (JSON.stringify(shots.flatMap(s => s.dialogue.map(({ character, text }) => ({ character, text })))) !== JSON.stringify(contract.dialogue))
     throw new Error('连续剧逐镜台词与全片定稿不一致');

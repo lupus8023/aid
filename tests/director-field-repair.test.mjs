@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { directorFieldRepairs, buildDirectorFieldRepairPrompt, applyDirectorFieldRepairs } from '../lib/pipeline/directorRepair.ts';
+import { directorFieldRepairs, buildDirectorFieldRepairPrompt, applyDirectorFieldRepairs, selectDirectorFieldRepairChunk } from '../lib/pipeline/directorRepair.ts';
 import { validateDirectorShots } from '../lib/pipeline/storyDirector.ts';
 import { recoverGeneration } from '../lib/pipeline/generationDraft.ts';
 
@@ -54,6 +54,37 @@ test('collects voice instruction and language violations independently of neighb
  assert.deepEqual(issues.map(i=>i.path),['shots[0].videoDirection.action','shots[1].videoDirection.ending','shots[2].videoDirection.camera','shots[2].videoDirection.ending']);
  const total=structuredClone(shots.slice(0,1));total[0].videoDirection={action:'x'.repeat(300),camera:'x'.repeat(180),detail:'x'.repeat(140),ending:'x'.repeat(140)};
  const budget=directorFieldRepairs(total,beats.slice(0,1));assert.equal(budget.length,4);assert.ok(budget.reduce((sum,i)=>sum+i.limit,0)<=720);
+});
+
+test('repairs provider language violations in small checkpointed chunks',()=>{
+ const invalid=Array.from({length:6},(_,index)=>({videoDirection:{...valid,action:`角色${index + 1}转身离开。`}}));
+ const sixBeats=Array.from({length:6},(_,index)=>({...beats[0],index:index + 1}));
+ const issues=directorFieldRepairs(invalid,sixBeats);
+ assert.equal(issues.length,6);
+ assert.deepEqual(selectDirectorFieldRepairChunk(issues).map(issue=>issue.path),issues.slice(0,4).map(issue=>issue.path));
+ assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1)),/translate its complete visible meaning/i);
+});
+
+test('six contaminated action fields recover incrementally without regenerating valid storyboard data',async()=>{
+ const sixBeats=Array.from({length:6},(_,index)=>({...beats[0],index:index + 1}));
+ const invalid=Array.from({length:6},(_,index)=>({
+  index:index + 1,description:'Luna turns away from the table.',prompt:'Luna beside a table near the doorway.',marker:`keep-${index}`,
+  videoDirection:{...valid,action:`角色${index + 1}转身离开。`},
+ }));
+ let raw=JSON.stringify(invalid),calls=0,saves=0;
+ const draft={read:async()=>raw,save:async value=>{raw=value;saves++;}};
+ const parse=value=>{const parsed=JSON.parse(value);validateDirectorShots(parsed,sixBeats,'array','en',sixBeats[0].characters,true);return parsed;};
+ const repaired=await recoverGeneration({draft,parse,attempts:8,generate:async previous=>{
+  calls++;
+  const retained=JSON.parse(previous);
+  const issues=selectDirectorFieldRepairChunk(directorFieldRepairs(retained,sixBeats));
+  return JSON.stringify(applyDirectorFieldRepairs(retained,{repairs:issues.map(issue=>({
+   path:issue.path,value:'Luna turns away from the table and walks toward the doorway.',
+  }))},issues,true));
+ }});
+ assert.equal(calls,2);assert.equal(saves,2);
+ assert.deepEqual(repaired.map(shot=>shot.marker),invalid.map(shot=>shot.marker));
+ assert.ok(repaired.every(shot=>!/\p{Script=Han}/u.test(shot.videoDirection.action)));
 });
 
 test('one overflowing field does not force rewriting valid camera geometry when its repair frees enough budget',()=>{

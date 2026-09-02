@@ -143,6 +143,8 @@ export interface Storyboard {
   videoTaskId?: string; // 视频任务 ID
   videoProviderUsed?: 'apimart' | 'comfyui' | 'fal';
   videoSeed?: number; // fal 项目固定 seed；只用于复现，不代表声纹锁
+  videoContinuityChainId?: string; // T8 Motion Context 的 retry-safe 长视频链
+  videoContinuitySegmentIndex?: number; // 该生成片段在 Motion Context 链中的槽位
   videoEndingAudit?: {
     version: 1;
     taskId: string;
@@ -350,6 +352,8 @@ export interface AppSettings {
     multiImageWorkflowPath: string;
     firstLastWorkflowPath: string;
     h3Fl2vaProfile?: 'balanced8' | 'dasiwa4' | 'legacy';
+    h3ContinuityMode?: 'tail-frame' | 'motion-context';
+    h3MotionContextFrames?: 5 | 22 | 39;
     characterReplaceWorkflowPath?: string;
     timeoutSeconds: number;
   };

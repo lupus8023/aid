@@ -8,7 +8,7 @@ import { buildImageCaptureContract, getProductionStylePreset } from '@/lib/promp
 import { structuredRetryCorrection } from './storyWriter';
 import { buildDirectorCaptureContract } from '@/lib/capturePresets';
 import { VIDEO_DIRECTION_WRITING_CONTRACT, validateVideoDirection, videoDirectionSourceKey } from '@/lib/videoDirection';
-import { applyDirectorFieldRepairs, buildDirectorFieldRepairPrompt, directorFieldRepairs } from './directorRepair';
+import { applyDirectorFieldRepairs, buildDirectorFieldRepairPrompt, directorFieldRepairs, selectDirectorFieldRepairChunk } from './directorRepair';
 import { usesPhotographicReferences } from '@/lib/gptImageReferences';
 import { buildGptImage2PhotographicContract } from '@/lib/gptImagePrompt';
 import { storyboardVisualCastNames } from '@/lib/series/imageCastContract';
@@ -413,7 +413,7 @@ export async function directStoryboard(input: {
       capturePreset,
     });
     let batchShots: any[] | undefined;
-    const maxAttempts = 5;
+    const maxAttempts = 8;
     try {
       batchShots = await recoverGeneration({
         draft: generationDraft('story-director', [prompt, scriptProvider, scriptModel, apiKey, dmxApiKey]),
@@ -429,9 +429,10 @@ export async function directStoryboard(input: {
         if (previous) {
           try { retained = normalizeDirectorShots(extractJson(previous), beats.length); } catch {}
         }
-        const repairs = retained ? directorFieldRepairs(retained, beats) : [];
+        const allRepairs = retained ? directorFieldRepairs(retained, beats) : [];
+        const repairs = selectDirectorFieldRepairChunk(allRepairs);
         if (retained && repairs.length) {
-          console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, repairing ${repairs.length} invalid motion fields`);
+          console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, repairing ${repairs.length}/${allRepairs.length} invalid motion fields`);
           const reply = await chatOnce(buildDirectorFieldRepairPrompt(retained, beats, repairs), {
             apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel,
             maxOutputTokens: 2_000,

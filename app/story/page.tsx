@@ -56,7 +56,7 @@ import { storyboardSpeech } from '@/lib/speechAudioContract';
 import { castCharacterVoice, castStoryVoices, lockStoryboardVoiceIds } from '@/lib/voiceCasting';
 import { applyStoryAspectRatio, hasStoryMedia, projectStoryAspectRatio, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { storyStorageKeys } from '@/lib/series/storageScope';
-import { bindSeriesPlan, buildApprovedSeriesPlan, validateSeriesProduction } from '@/lib/series/productionContract';
+import { bindSeriesPlan, buildApprovedSeriesPlan, reconcileSeriesProductionContract, validateSeriesProduction } from '@/lib/series/productionContract';
 import { prepareImageCastRepair, visibleImageCast, type ImageCastCheck, type ImageCastCharacter } from '@/lib/series/imageCastContract';
 import { AwaitingMediaTaskError, autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, imagePollingTimeoutError, isTransientAutoProductionError, normalizeStoryboardImageArtifact, planAutoImageBatch } from '@/lib/autoProduction';
 import { effectiveStoryCast } from '@/lib/storyCast';
@@ -1147,7 +1147,12 @@ export default function StoryPage() {
     const planningSynopsis = `${storyContent.trim()}\n\n${buildShotCountContract(targetShotCount, language)}`;
     const savedSeriesContract = storyStorageKeys().isolated ? localStorage.getItem(storyStorageKeys().contract) : null;
     if (storyStorageKeys().isolated && !savedSeriesContract) throw new Error('连续剧定稿合同缺失，停止导演');
-    const approvedSeriesContract = savedSeriesContract ? JSON.parse(savedSeriesContract) : undefined;
+    const approvedSeriesContract = savedSeriesContract
+      ? reconcileSeriesProductionContract(JSON.parse(savedSeriesContract), writerCharacters)
+      : undefined;
+    if (savedSeriesContract && JSON.stringify(approvedSeriesContract) !== savedSeriesContract) {
+      localStorage.setItem(storyStorageKeys().contract, JSON.stringify(approvedSeriesContract));
+    }
     let storyPlan = storyPlanRef.current;
     if (!resume || !canResumeStoryPlan(storyPlan, planningSynopsis, targetShotCount, writerCharacters) || (approvedSeriesContract?.shots && !storyPlan?.seriesEpisode)) {
       let generatedPlan: StoryPlan;
@@ -1181,7 +1186,7 @@ export default function StoryPage() {
     if (storyStorageKeys().isolated) {
       const savedContract = localStorage.getItem(storyStorageKeys().contract);
       if (!savedContract) throw new Error('连续剧定稿合同缺失，停止导演');
-      const contract = JSON.parse(savedContract);
+      const contract = approvedSeriesContract || reconcileSeriesProductionContract(JSON.parse(savedContract), writerCharacters);
       storyPlan = bindSeriesPlan(contract, storyPlan);
       validateSeriesProduction(contract, storyPlan.sequences.flatMap(sequence => sequence.beats));
       storyPlanRef.current = storyPlan;
@@ -1206,7 +1211,7 @@ export default function StoryPage() {
       )),
     ];
     const approvedShots = storyStorageKeys().isolated
-      ? JSON.parse(localStorage.getItem(storyStorageKeys().contract) || '{}').shots as import('@/lib/series/productionContract').SeriesProductionContract['shots']
+      ? approvedSeriesContract?.shots
       : undefined;
     const styledStoryboards = lockStoryboardVoiceIds(
       storyboards.map((storyboard, index) => ({ ...storyboard, visualStyle, capturePreset: capturePresetRef.current,
@@ -1973,6 +1978,28 @@ export default function StoryPage() {
       return;
     }
     const shouldContinuePreviousSegment = Boolean(prevShot);
+    const finalSegment = isFilmEndingSegment(currentShots, segment);
+    const motionContextEnabled = videoProvider === 'comfyui'
+      && activeSettings.comfyui?.h3ContinuityMode === 'motion-context';
+    const configuredContextFrames = Number(activeSettings.comfyui?.h3MotionContextFrames || 22);
+    const contextFrames = ([5, 22, 39].includes(configuredContextFrames) ? configuredContextFrames : 22) as 5 | 22 | 39;
+    const previousContextIndex = Number(prevShot?.videoContinuitySegmentIndex);
+    const previousContextReady = Boolean(
+      prevShot?.videoContinuityChainId
+      && Number.isInteger(previousContextIndex)
+      && previousContextIndex >= 0,
+    );
+    const motionContext = motionContextEnabled ? {
+      chainId: previousContextReady
+        ? prevShot!.videoContinuityChainId!
+        : (leader.videoContinuitySegmentIndex === 0 && leader.videoContinuityChainId
+            ? leader.videoContinuityChainId
+            : `aid-${generationProjectId}-${leader.id}`),
+      segmentIndex: previousContextReady ? previousContextIndex + 1 : 0,
+      contextFrames,
+      continueAudio: true,
+      isFinalSegment: finalSegment,
+    } : undefined;
     const generationInputs = segment.map(item => ({
       ...item,
       videoProviderUsed: videoProvider,
@@ -2012,6 +2039,8 @@ export default function StoryPage() {
           videoTaskId: undefined,
           videoProviderUsed: videoProvider,
           videoSeed: videoProvider === 'fal' && Number.isInteger(activeSettings.fal?.seed) ? activeSettings.fal?.seed : undefined,
+          videoContinuityChainId: motionContext?.chainId,
+          videoContinuitySegmentIndex: motionContext?.segmentIndex,
           videoSegmentId: segmentId,
           videoSegmentStoryboardIds: item.id === leader.id ? segmentIds : undefined,
           videoGenerationSignature: item.id === leader.id ? generationSignature : undefined,
@@ -2095,7 +2124,7 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ styleReference: styleReferenceRef.current, storyboard: storyboardForRequest, segmentStoryboards: portableSegment, isFilmEnding: isFilmEndingSegment(storyboardsRef.current, segment), language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, videoProvider, fal: activeSettings.fal, comfyui: localComfyUISettings(activeSettings.comfyui) })
+        body: JSON.stringify({ styleReference: styleReferenceRef.current, storyboard: storyboardForRequest, segmentStoryboards: portableSegment, isFilmEnding: finalSegment, language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, motionContext, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, videoProvider, fal: activeSettings.fal, comfyui: localComfyUISettings(activeSettings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string; videoPrompt?: string }>(response, '视频任务创建失败');
       submittedTaskId = data.taskId;
@@ -2374,7 +2403,9 @@ export default function StoryPage() {
       if (storyStorageKeys().isolated) {
         const contract = localStorage.getItem(storyStorageKeys().contract);
         if (!contract) throw new Error('连续剧定稿合同缺失，停止制作以避免角色或台词漂移');
-        validateSeriesProduction(JSON.parse(contract), storyboardsRef.current);
+        const reconciled = reconcileSeriesProductionContract(JSON.parse(contract), effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters));
+        if (JSON.stringify(reconciled) !== contract) localStorage.setItem(storyStorageKeys().contract, JSON.stringify(reconciled));
+        validateSeriesProduction(reconciled, storyboardsRef.current);
       }
       const productionCast = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters);
       for (const character of productionCast) {

@@ -33,6 +33,8 @@ const DEFAULT_SETTINGS: AppSettings = {
     multiImageWorkflowPath: '',
     firstLastWorkflowPath: '',
     h3Fl2vaProfile: 'dasiwa4',
+    h3ContinuityMode: 'tail-frame',
+    h3MotionContextFrames: 22,
     timeoutSeconds: 7200,
   },
   aspectRatio: '16:9', // 默认横屏

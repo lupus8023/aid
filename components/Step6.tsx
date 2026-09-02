@@ -65,6 +65,10 @@ export default function Step6({
   });
   const continuousFromPrevious = completedShots.map(({ storyboard }, index) => {
     if (index === 0 || storyboard.continuousFromPrev !== true) return false;
+    // Motion Context already removes its reconstructed AV head in ComfyUI.
+    // Applying the legacy browser trims again would discard new content and
+    // cut the previous clip a second time.
+    if ((storyboard.videoContinuitySegmentIndex ?? 0) > 0) return false;
     const previous = completedShots[index - 1].storyboard;
     const previousMembers = previous.videoSegmentStoryboardIds?.length
       ? previous.videoSegmentStoryboardIds

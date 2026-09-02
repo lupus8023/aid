@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSeries, parseOutline, parseEpisodes, parseScript, invalidateFrom, episodeContext, buildEpisodeProject } from '../lib/series/domain.ts';
 import { storyStorageKeys } from '../lib/series/storageScope.ts';
-import { buildApprovedSeriesPlan, validateSeriesProduction } from '../lib/series/productionContract.ts';
+import { buildApprovedSeriesPlan, reconcileSeriesProductionContract, validateSeriesProduction } from '../lib/series/productionContract.ts';
 import { auditStoryDelivery } from '../lib/storyDeliveryAudit.ts';
 import { castStoryVoices } from '../lib/voiceCasting.ts';
 import { rankFishVoiceModels } from '../lib/fishVoiceDiscovery.ts';
@@ -77,6 +77,19 @@ test('approved series dialogue goes straight to direction, retaining A-B-A excha
   assert.throws(() => buildApprovedSeriesPlan(invalid, '', cast), /顺序/);
   const recast = structuredClone(cast); recast[0].voiceId = 'wrong';
   assert.throws(() => buildApprovedSeriesPlan(contract, '', recast), /音色/);
+});
+
+test('saved series contracts automatically follow the current registered voice and restore an omitted speaking cast member', () => {
+  const contract = {
+    shotCount: 18, voices: { ' 知夏 ': 'old-voice' }, dialogue: [{ character: '知夏', text: '原句。' }],
+    shots: [{ number: 1, seconds: 6, characters: [], action: '动作', visual: '画面', purpose: '目的', dialogue: [{ character: ' 知夏 ', text: '原句。', emotion: '平静' }] }],
+  };
+  const repaired = reconcileSeriesProductionContract(contract, [{ name: '知夏', voiceId: 'current-voice' }]);
+  assert.deepEqual(repaired.voices, { 知夏: 'current-voice' });
+  assert.deepEqual(repaired.shots[0].characters, ['知夏']);
+  assert.equal(repaired.shots[0].dialogue[0].character, '知夏');
+  assert.equal(repaired.shots[0].dialogue[0].text, '原句。');
+  assert.equal(contract.voices[' 知夏 '], 'old-voice');
 });
 
 test('series screenplay enforces count, timing, canonical speakers and payoff promises', () => {

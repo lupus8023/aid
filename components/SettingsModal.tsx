@@ -69,7 +69,8 @@ export default function SettingsModal({
           sshHost: '', sshPort: 22, sshUser: 'root', sshKeyPath: '~/.ssh/id_ed25519',
           useLocalCompanion: true, localCompanionUrl: 'http://127.0.0.1:3018', comfyPort: 8188,
           workflowRoot: '/root/ComfyUI', imageWorkflowPath: '', multiImageWorkflowPath: '',
-          firstLastWorkflowPath: '', timeoutSeconds: 7200,
+          firstLastWorkflowPath: '', h3ContinuityMode: 'tail-frame', h3MotionContextFrames: 22,
+          timeoutSeconds: 7200,
         }),
         [key]: value,
       },
@@ -116,8 +117,12 @@ export default function SettingsModal({
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || '连接失败');
+      if (localSettings.comfyui?.h3ContinuityMode === 'motion-context' && !result.motionContext?.available) {
+        throw new Error(`远端缺少 Motion Context 节点：${(result.motionContext?.missingNodes || []).join(', ') || '未知节点'}`);
+      }
       const workflowCount = Object.keys(result.workflows || {}).length;
-      setComfyTest({ loading: false, message: `连接成功 · ${result.version} · ${workflowCount} 个 H3 工作流校验通过`, ok: true });
+      const continuity = result.motionContext?.available ? ' · AV Motion Context 可用' : '';
+      setComfyTest({ loading: false, message: `连接成功 · ${result.version} · ${workflowCount} 个 H3 工作流校验通过${continuity}`, ok: true });
     } catch (error) {
       let message = error instanceof Error ? error.message : '连接失败';
       if (/Load failed|Failed to fetch|NetworkError/i.test(message)) {
@@ -516,6 +521,35 @@ export default function SettingsModal({
                   <option value="legacy">旧版远端工作流 · 仅用于回退</option>
                 </select>
               </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="block text-xs font-mono text-[var(--text-secondary)]">
+                  段间连续性
+                  <select
+                    value={localSettings.comfyui?.h3ContinuityMode || 'tail-frame'}
+                    onChange={(e) => updateComfyUI('h3ContinuityMode', e.target.value)}
+                    className="mt-1 w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+                  >
+                    <option value="tail-frame">单尾帧 · 稳定默认</option>
+                    <option value="motion-context">AV Motion Context · 实验</option>
+                  </select>
+                </label>
+                <label className="block text-xs font-mono text-[var(--text-secondary)]">
+                  Motion Context 长度
+                  <select
+                    value={localSettings.comfyui?.h3MotionContextFrames || 22}
+                    onChange={(e) => updateComfyUI('h3MotionContextFrames', Number(e.target.value))}
+                    disabled={(localSettings.comfyui?.h3ContinuityMode || 'tail-frame') !== 'motion-context'}
+                    className="mt-1 w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)] disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <option value={5}>5 帧 · 快速</option>
+                    <option value={22}>22 帧 · 推荐</option>
+                    <option value={39}>39 帧 · 强连续 / 更慢</option>
+                  </select>
+                </label>
+              </div>
+              <p className="text-[10px] font-mono leading-relaxed text-[var(--text-secondary)]">
+                Motion Context 直接续接上一段的画面与声音 latent，并在输出端同步裁掉重建头；仅对明确选择“接上一段”的相邻片段生效。关闭后完全回到现有单尾帧方式。
+              </p>
               <div className="space-y-2 p-3 rounded border border-[var(--accent-yellow)]/50 bg-[var(--bg-primary)]">
                 <div>
                   <p className="text-xs font-mono text-[var(--accent-yellow)]">首次连接 / 仙宫云实例重启后</p>

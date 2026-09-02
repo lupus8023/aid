@@ -423,7 +423,11 @@ export async function executeSeriesClaim(
         locationId: s.locationId,
         sceneStyle: project.locations.find(l => l.id === s.locationId)?.description,
         sceneImageUrl: project.locations.find(l => l.id === s.locationId)?.imageUrl,
-        characters: s.characterIds.map(id => project.characters.find(c => c.id === id)!.name),
+        // A screenplay can occasionally omit a speaking role from characterIds.
+        // Include registered dialogue speakers in the visual cast up front so
+        // Story does not fail later with a generic voice-contract error.
+        characters: [...new Set([...s.characterIds, ...s.dialogue.map(d => d.characterId)])]
+          .map(id => project.characters.find(c => c.id === id)!.name),
         dialogue: s.dialogue.map(d => ({ character: project.characters.find(c => c.id === d.characterId)!.name, text: d.text, emotion: d.emotion })),
       })),
     }),
