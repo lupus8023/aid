@@ -85,6 +85,16 @@ test('uploading one fixed prop rescans an existing screenplay and attaches it on
   assert.ok(p.episodes[0].script.every(shot => shot.objectIds.length === 0));
 });
 
+test('a short Chinese prop alias does not steal a longer overlapping prop name', () => {
+  const p = fixture();
+  p.objects = [
+    { id: 'bag', name: '金色面膜袋', aliases: ['面膜'], description: '金色袋装面膜。', imageUrl: 'https://res.cloudinary.com/test/bag.png' },
+    { id: 'cloth', name: '灰色网状面膜布', aliases: ['面膜布'], description: '灰色网状布料。', imageUrl: 'https://res.cloudinary.com/test/cloth.png' },
+  ];
+  assert.deepEqual(seriesShotObjectIds(p, { objectIds: [], visual: '她展开灰色网状面膜布。', action: '' }), ['cloth']);
+  assert.deepEqual(new Set(seriesShotObjectIds(p, { objectIds: [], visual: '她先放下金色面膜袋，再展开灰色网状面膜布。', action: '' })), new Set(['bag', 'cloth']));
+});
+
 test('approved series dialogue goes straight to direction, retaining A-B-A exchanges, silence and sound', () => {
   const p = fixture(), cast = p.characters.map(c => ({ ...c, voiceId: `voice-${c.id}` }));
   const names = new Map(cast.map(c => [c.id, c.name]));

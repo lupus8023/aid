@@ -52,6 +52,7 @@ test('writes Ref2VA prompts in the official six-section natural-language format'
   assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S1\) begins speaking.*<d>\[Chinese] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
   assert.match(prompt, /画面禁字.*禁止字幕/);
+  assert.match(prompt, /固定道具参考图上原有品牌与印刷标记只允许原样保留/);
   assert.match(prompt, /REFERENCE PRIORITY: Each declared picture is the composition authority for its own discrete shot/);
   assert.match(prompt, /EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup/);
   assert.match(prompt, /do not crossfade, morph, interpolate, repeat, or soften a hard cut/);

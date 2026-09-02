@@ -323,12 +323,30 @@ export function seriesShotObjectIds(
   const objects = project.objects || [];
   const explicit = new Set((shot.objectIds || []).filter(id => objects.some(object => object.id === id)));
   const haystack = `${shot.visual || ''}\n${shot.action || ''}`.toLocaleLowerCase();
-  for (const object of objects) {
-    const names = [object.name, ...(object.aliases || [])].map(name => name.trim().toLocaleLowerCase()).filter(Boolean);
-    if (names.some(name => /^[a-z0-9][a-z0-9 _-]*$/i.test(name)
-      ? new RegExp(`(?:^|[^a-z0-9])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:$|[^a-z0-9])`, 'i').test(haystack)
-      : haystack.includes(name))) explicit.add(object.id);
+  const candidates = objects.flatMap(object => [object.name, ...(object.aliases || [])]
+    .map(name => name.trim().toLocaleLowerCase())
+    .filter(Boolean)
+    .flatMap(name => {
+      const english = /^[a-z0-9][a-z0-9 _-]*$/i.test(name);
+      const pattern = english
+        ? new RegExp(`(?:^|[^a-z0-9])(${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?=$|[^a-z0-9])`, 'gi')
+        : new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+      return [...haystack.matchAll(pattern)].map(match => {
+        const value = english ? match[1] : match[0];
+        const start = (match.index || 0) + (english ? match[0].lastIndexOf(value) : 0);
+        return { objectId: object.id, start, end: start + value.length, length: value.length };
+      });
+    }));
+  // A short alias such as “面膜” must not claim the same occurrence as the
+  // more specific registered prop “面膜布”. Keep every non-overlapping match,
+  // but let the longest name win when aliases overlap at the same text span.
+  const accepted: typeof candidates = [];
+  for (const candidate of candidates.sort((a, b) => b.length - a.length || a.start - b.start)) {
+    if (accepted.some(match => match.objectId !== candidate.objectId && candidate.start < match.end && candidate.end > match.start))
+      continue;
+    accepted.push(candidate);
   }
+  for (const match of accepted) explicit.add(match.objectId);
   return [...explicit];
 }
 

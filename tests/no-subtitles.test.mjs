@@ -23,7 +23,8 @@ test('H3 prompts use natural-language text-free direction inside the official st
   const source = await readFile(new URL('../lib/videoGenerator.ts', import.meta.url), 'utf8');
   assert.match(source, /subject_definitions:/);
   assert.match(source, /integrated_multimodal_description:/);
-  assert.match(source, /The photographic frame remains clean and text-free/);
+  assert.match(source, /Frames contain no generated text/);
+  assert.match(source, /Existing print on an explicit fixed-object reference/);
   assert.doesNotMatch(source, /画面里不要出现字幕、文字、标志、水印或界面/);
   assert.doesNotMatch(source, /timeline_json|aid_h3_timeline|frame_text_policy/);
   assert.match(source, /visualOverride: storyboard\.videoPrompt\.trim\(\)/);
@@ -41,7 +42,8 @@ test('provider boundary enforcement is idempotent', () => {
   const once = enforceNoSubtitles('Camera tracks left.');
   assert.equal(enforceNoSubtitles(once), once);
   assert.match(once, /CLEAN-FRAME PRESENTATION/);
-  assert.match(once, /Do not render subtitles, captions, titles, speech bubbles, logos, watermarks, UI, or any readable characters/);
+  assert.match(once, /Do not render subtitles, captions, titles, speech bubbles, watermarks, UI, or newly invented readable characters/);
+  assert.match(once, /fixed-object reference may remain only when copied exactly/);
   assert.equal((once.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
 });
 

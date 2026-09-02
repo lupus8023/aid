@@ -46,7 +46,7 @@ function fitH3PromptBudget(prompt: string): string {
 
   fitted = fitted.replace(
     /EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup\.[\s\S]*?(?=\n(?:SCRIPT DIALOGUE LOCK:|\[Shot 1\]))/i,
-    'EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup. Use motivated hard cuts; preserve axis, eyelines, screen direction, action phase, and geography; do not crossfade, morph, interpolate, repeat, or soften a hard cut.\n',
+    'EDITORIAL GRAMMAR: Use motivated hard cuts; preserve axis, eyelines, screen direction, action phase and geography; no crossfades, morphs, interpolation or repeats.\n',
   );
   if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
 
@@ -562,8 +562,8 @@ function buildOfficialGuidePrompt(
     officialMaterialReality(first.visualStyle),
     buildVideoCapturePresetContract(first.capturePreset),
     options.language === 'en'
-      ? 'The photographic frame remains clean and text-free. Dialogue tags control audio only; never render subtitles, captions, dialogue text, titles, overlays, speech bubbles, logos, watermarks, UI text, or readable words.'
-      : '画面禁字：对白标签只控制语音；禁止字幕、对白文字、标题、贴片、气泡、Logo、水印、界面文字和任何可读字符。',
+      ? 'Frames contain no generated text. Dialogue tags are audio only: no subtitles, captions, dialogue text, titles, overlays, speech bubbles, watermarks, UI text, or invented words. Existing print on an explicit fixed-object reference may remain only as an exact copy; never rewrite, add, remove, or move it.'
+      : '画面禁字：对白标签只控制语音；禁止字幕、对白文字、标题、贴片、气泡、水印、界面文字和新增字符。明确提供的固定道具参考图上原有品牌与印刷标记只允许原样保留，不得改写、增删或移位。',
     storyboards.length > 1
       ? 'EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup. Every transition must be motivated by action, gaze, dialogue, object, shape, or sound. Preserve the 180-degree axis, eyelines, screen direction, match-on-action phase, and location geography. Vary framing scale with dramatic purpose; do not crossfade, morph, interpolate, repeat, or soften a hard cut unless an explicit transition is written.'
       : '',
