@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       const refined = await refineVideoDirections(storyboards, (prompt, imageUrls) => {
         if (!apiKey && !dmxApiKey) throw new Error('请先配置剧本模型密钥，以细化旧分镜的动作与摄影；已有分镜内容不会改变');
         return chatOnce(prompt, { apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel || 'gpt-4o', imageUrls, maxOutputTokens: 2500, timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000 });
-      }, { rewrite: rewriteDirection === true, hasFirstFrame: hasFirstFrame === true, useReferenceImages: true, isFilmEnding: isFilmEnding === true });
+      }, { rewrite: rewriteDirection === true, hasFirstFrame: hasFirstFrame === true, useReferenceImages: true, isFilmEnding: isFilmEnding === true, language: language === 'en' ? 'en' : 'zh' });
       const videoPrompt = buildVideoSegmentPrompt(refined, [], {
         styleReference,
         isFilmEnding: isFilmEnding === true,

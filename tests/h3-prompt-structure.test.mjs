@@ -51,7 +51,7 @@ test('writes Ref2VA prompts in the official six-section natural-language format'
   assert.match(prompt, /\[Shot 2] At 00:\d{2}\.\d{3}, make a clean hard cut/);
   assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S1\) begins speaking.*<d>\[Chinese] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /photographic frame remains clean and text-free/);
+  assert.match(prompt, /画面禁字.*禁止字幕/);
   assert.match(prompt, /REFERENCE PRIORITY: Each declared picture is the composition authority for its own discrete shot/);
   assert.match(prompt, /EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup/);
   assert.match(prompt, /do not crossfade, morph, interpolate, repeat, or soften a hard cut/);
@@ -88,6 +88,20 @@ test('keeps silent clips free of dialogue and quarantines refreshed-prompt speec
   assert.match(prompt, /Camera pushes in/);
   assert.doesNotMatch(prompt, /临时加一句|Mei whispers|<d>/);
   assert.match(prompt, /overall_soundscape:\s+Natural location ambience stays clearly audible beneath dialogue and through pauses/);
+});
+
+test('treats a punctuation-only screenplay turn as a silent performance pause, not English speech', () => {
+  const prompt = buildVideoSegmentPrompt([shot(4, {
+    characters: ['裴行简', '沈贵妃'],
+    action: '裴行简压低目光回答；沈贵妃沉默片刻。',
+    speech: [
+      { speakerId: 'S01', character: '裴行简', exactLine: '也……买不到。主要是，还没开始卖。', emotion: '克制', delivery: '迟疑', volume: 'normal', lipSync: true, source: 'user_exact' },
+      { speakerId: 'S02', character: '沈贵妃', exactLine: '……', emotion: '意外', delivery: '停顿', volume: 'normal', lipSync: true, source: 'user_exact' },
+    ],
+  })], [], { duration: 10, language: 'zh', referenceAudioNames: ['裴行简'] });
+  assert.deepEqual(dialogueTags(prompt), [{ language: 'Chinese', text: '也……买不到。主要是，还没开始卖。' }]);
+  assert.doesNotMatch(prompt, /<d>\[English]|<d>\[Chinese] ……<\/d>/);
+  assert.match(prompt, /画面禁字.*禁止字幕/);
 });
 
 test('retains later-shot ambience and binds Foley to its own shot across locations', () => {
@@ -137,18 +151,25 @@ test('locks generated speech to the project language', () => {
   })], [], { duration: 7, language: 'en' }), /项目对白语言为 English/);
 });
 
-test('writes all directing prose in English while preserving Chinese dialogue', () => {
+test('keeps Chinese directing prose for Chinese H3 projects and exact Chinese dialogue', () => {
+  const videoDirection = {
+    action: 'Dr. Pan抬起面膜包装，再用食指点向印刷成分表。',
+    camera: '固定中景同时容纳他的双手、包装和成分表。',
+    detail: '包装薄膜随手指接触产生一道短暂反光。',
+    ending: '包装正面仍朝向镜头，食指停在成分表旁。',
+  };
   const chinese = buildVideoSegmentPrompt([shot(1, {
     characters: ['Dr. Pan'], objects: ['面膜', '成分表'],
     action: 'Dr. Pan展示一种新面膜及其成分表。',
     consequence: '观众开始关注面膜成分的作用。',
     prompt: 'Dr. Pan raises a face-mask package and points to the printed ingredient panel. A medium eye-level camera frames his hands and the package.',
     cameraMove: '固定',
+    videoDirection,
     speech: [{ speakerId: 'S01', character: 'Dr. Pan', exactLine: '这些成分可以给肌肤补充营养。', emotion: '专业而克制', delivery: '自然', volume: 'normal', lipSync: true, source: 'story_required' }],
   })], [], { duration: 8, language: 'zh', referenceAudioNames: ['Dr. Pan'] });
-  assert.match(chinese, /Dr\. Pan raises a face-mask package and points to the printed ingredient panel/);
+  for (const value of Object.values(videoDirection)) assert.ok(chinese.includes(value), value);
   assert.match(chinese, /<d>\[Chinese] 这些成分可以给肌肤补充营养。<\/d>/);
-  assert.doesNotMatch(chinese.replace(/<d>[\s\S]*?<\/d>/g, ''), /[㐀-鿿]/);
+  assert.match(chinese, /画面禁字.*禁止字幕/);
   assert.doesNotMatch(chinese, /观众开始关注|闭嘴|mouth closes|final word/i);
 
   const english = buildVideoSegmentPrompt([shot(1, {

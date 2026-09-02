@@ -80,3 +80,13 @@ export async function uploadImage(source: string) {
     return uploadBufferToCloudinary(await fitImageUpload(await downloadImage(source)), options);
   }
 }
+
+/** Browser-selected files should reach Companion as raw multipart bytes. This
+ * avoids a 33% base64 expansion and large JSON request that Chromium may abort
+ * before Next.js can return a useful error. */
+export async function uploadImageBuffer(buffer: Buffer) {
+  return uploadBufferToCloudinary(await fitImageUpload(buffer), {
+    folder: 'aid-images',
+    resource_type: 'image' as const,
+  });
+}

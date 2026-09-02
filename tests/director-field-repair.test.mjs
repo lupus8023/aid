@@ -48,29 +48,29 @@ test('rejects wrong episode-vs-batch paths, duplicate patches, overflow and clip
  assert.throws(()=>applyDirectorFieldRepairs(shots,{repairs:[...reply.repairs,{path:'shots[0].prompt',value:'Rewrite all.'}]},issues));
 });
 
-test('collects voice instruction and language violations independently of neighboring length errors',()=>{
- const invalid=structuredClone(shots);invalid[0].videoDirection.action='Luna whispers as she folds the note.';invalid[1].videoDirection.ending='Luna 转身离开。';
+test('collects English and Chinese voice contamination independently of neighboring length errors',()=>{
+ const invalid=structuredClone(shots);invalid[0].videoDirection.action='Luna whispers as she folds the note.';invalid[1].videoDirection.ending='Luna 开口说道台词。';
  const issues=directorFieldRepairs(invalid,beats);
  assert.deepEqual(issues.map(i=>i.path),['shots[0].videoDirection.action','shots[1].videoDirection.ending','shots[2].videoDirection.camera','shots[2].videoDirection.ending']);
  const total=structuredClone(shots.slice(0,1));total[0].videoDirection={action:'x'.repeat(300),camera:'x'.repeat(180),detail:'x'.repeat(140),ending:'x'.repeat(140)};
  const budget=directorFieldRepairs(total,beats.slice(0,1));assert.equal(budget.length,4);assert.ok(budget.reduce((sum,i)=>sum+i.limit,0)<=720);
 });
 
-test('repairs provider language violations in small checkpointed chunks',()=>{
- const invalid=Array.from({length:6},(_,index)=>({videoDirection:{...valid,action:`角色${index + 1}转身离开。`}}));
+test('repairs Chinese speech contamination in small checkpointed chunks',()=>{
+ const invalid=Array.from({length:6},(_,index)=>({videoDirection:{...valid,action:`角色${index + 1}开口说道台词。`}}));
  const sixBeats=Array.from({length:6},(_,index)=>({...beats[0],index:index + 1}));
  const issues=directorFieldRepairs(invalid,sixBeats);
  assert.equal(issues.length,6);
  assert.deepEqual(selectDirectorFieldRepairChunk(issues).map(issue=>issue.path),issues.slice(0,4).map(issue=>issue.path));
- assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1)),/translate its complete visible meaning/i);
- assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),new Error('不得截取原句前半段')),/rewrite the sentence with different wording/i);
+ assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),undefined,'zh'),/complete concise Chinese sentence/i);
+ assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),new Error('不得截取原句前半段'),'zh'),/rewrite the sentence with different wording/i);
 });
 
 test('six contaminated action fields recover incrementally without regenerating valid storyboard data',async()=>{
  const sixBeats=Array.from({length:6},(_,index)=>({...beats[0],index:index + 1}));
  const invalid=Array.from({length:6},(_,index)=>({
   index:index + 1,description:'Luna turns away from the table.',prompt:'Luna beside a table near the doorway.',marker:`keep-${index}`,
-  videoDirection:{...valid,action:`角色${index + 1}转身离开。`},
+  videoDirection:{...valid,action:`角色${index + 1}开口说道台词。`},
  }));
  let raw=JSON.stringify(invalid),calls=0,saves=0;
  const draft={read:async()=>raw,save:async value=>{raw=value;saves++;}};
@@ -80,16 +80,16 @@ test('six contaminated action fields recover incrementally without regenerating 
   const retained=JSON.parse(previous);
   const issues=selectDirectorFieldRepairChunk(directorFieldRepairs(retained,sixBeats));
   return JSON.stringify(applyDirectorFieldRepairs(retained,{repairs:issues.map(issue=>({
-   path:issue.path,value:'Luna turns away from the table and walks toward the doorway.',
+   path:issue.path,value:`角色${issue.index + 1}从桌边转身，走向门口。`,
   }))},issues,true));
  }});
  assert.equal(calls,2);assert.equal(saves,2);
  assert.deepEqual(repaired.map(shot=>shot.marker),invalid.map(shot=>shot.marker));
- assert.ok(repaired.every(shot=>!/\p{Script=Han}/u.test(shot.videoDirection.action)));
+ assert.ok(repaired.every(shot=>/走向门口。$/u.test(shot.videoDirection.action)));
 });
 
 test('checkpoints valid repairs when a provider omits or corrupts sibling entries',()=>{
- const invalid=structuredClone(shots);invalid[0].videoDirection.action='角色转身离开。';invalid[1].videoDirection.action='另一角色抬起手。';
+ const invalid=structuredClone(shots);invalid[0].videoDirection.action='角色开口说道台词。';invalid[1].videoDirection.action='另一角色大喊对白。';
  const issues=directorFieldRepairs(invalid,beats);
  const progress=applyDirectorFieldRepairProgress(invalid,{repairs:[
   {path:issues[0].path,value:'Luna turns away from the table and walks toward the doorway.'},

@@ -332,6 +332,20 @@ export function seriesShotObjectIds(
   return [...explicit];
 }
 
+/** Re-evaluate existing screenplays after the user registers, edits or removes
+ * a fixed prop. A prop is attached only to shots whose visual/action text uses
+ * its canonical name or alias; uploading once never means every shot. */
+export function rescanSeriesObjectUsage(
+  project: Pick<SeriesProject, 'objects' | 'episodes'>,
+): SeriesEpisode[] {
+  return project.episodes.map(episode => episode.script
+    ? { ...episode, script: episode.script.map(shot => ({
+        ...shot,
+        objectIds: seriesShotObjectIds(project, shot),
+      })) }
+    : episode);
+}
+
 export function episodeContext(project: SeriesProject, episode: SeriesEpisode) {
   const previous = project.episodes.filter((e) => e.number < episode.number);
   return {

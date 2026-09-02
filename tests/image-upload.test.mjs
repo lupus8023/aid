@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
-import { fitImageUpload, MAX_STORED_IMAGE_BYTES, uploadImage } from '../lib/imageUpload.ts';
+import { fitImageUpload, MAX_STORED_IMAGE_BYTES, uploadImage, uploadImageBuffer } from '../lib/imageUpload.ts';
 
 const width = 2048, height = 2048;
 const large = await sharp(randomBytes(width * height * 4), { raw: { width, height, channels: 4 } }).png().toBuffer();
@@ -86,6 +86,31 @@ test('completed getapib images are relayed as bytes instead of asking storage to
     };
     assert.equal((await uploadImage(source)).secure_url, 'https://assets.example.test/relayed.png');
     assert.equal(downloads, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of keys) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }
+  }
+});
+
+test('browser-selected fixed props upload as raw multipart bytes without base64 JSON expansion', async () => {
+  const keys = ['CLOUDINARY_URL', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET', 'CLOUDINARY_BACKUP_URL', 'CLOUDINARY_URL_BACKUP', 'AID_LOCAL_COMPANION'];
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  const upload = 'https://api.cloudinary.com/v1_1/fixture/image/upload';
+  const bytes = Buffer.from('one browser-selected fixed-prop image');
+  try {
+    keys.forEach(key => { delete process.env[key]; });
+    process.env.AID_LOCAL_COMPANION = '1';
+    globalThis.fetch = async (url, init) => {
+      if (String(url) === 'https://pandais.beauty/api/media-upload/sign')
+        return Response.json({ targets: [{ url: upload, fields: { signature: 'test', overwrite: 'false' } }] });
+      assert.equal(String(url), upload);
+      const file = init.body.get('file');
+      assert.notEqual(typeof file, 'string');
+      assert.deepEqual(Buffer.from(await file.arrayBuffer()), bytes);
+      return Response.json({ secure_url: 'https://assets.example.test/fixed-prop.png' });
+    };
+    assert.equal((await uploadImageBuffer(bytes)).secure_url, 'https://assets.example.test/fixed-prop.png');
   } finally {
     globalThis.fetch = originalFetch;
     for (const key of keys) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }

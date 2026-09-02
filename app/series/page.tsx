@@ -35,7 +35,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { readApiJson } from "@/lib/apiResponse";
 import { PRODUCTION_STYLE_PRESETS } from "@/lib/promptArchitecture";
 import { seriesRequest } from "@/lib/series/runner";
-import { episodeScreenplay } from "@/lib/series/domain";
+import { episodeScreenplay, seriesShotObjectIds } from "@/lib/series/domain";
 import { seriesStageBlocker } from "@/lib/series/readiness";
 import { partitionSeriesJobs } from '@/lib/series/jobHistory';
 import type {
@@ -87,6 +87,36 @@ function saveFile(
   a.download = fileName;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function uploadSeriesReference(base: string, file: File, label: string): Promise<string> {
+  if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 15 * 1024 * 1024) {
+    throw new Error('请选择15MB以内的PNG、JPEG或WebP图片');
+  }
+  const body = new FormData();
+  body.append('image', file, file.name || 'reference-image');
+  try {
+    const response = await fetch(`${base}/api/upload-image`, {
+      method: 'POST',
+      body,
+      signal: AbortSignal.timeout(180_000),
+    });
+    return (await readApiJson<{url:string}>(response, `${label}上传失败`)).url;
+  } catch (error) {
+    if (error instanceof TypeError && /fetch/i.test(error.message)) {
+      throw new Error(`${label}未上传：浏览器与本地 Companion 的文件通道中断，请确认 Companion 仍在运行后重试`);
+    }
+    throw error;
+  }
+}
+
+function fixedObjectUsage(project: SeriesProject, objectId: string): Array<{ episode: number; shots: number[] }> {
+  return project.episodes.flatMap(episode => {
+    const shots = (episode.script || [])
+      .filter(shot => seriesShotObjectIds(project, shot).includes(objectId))
+      .map(shot => shot.number);
+    return shots.length ? [{ episode: episode.number, shots }] : [];
+  });
 }
 
 function Labeled({
@@ -470,6 +500,7 @@ function CharacterCard({
 
 function FixedObjectCard({
   object,
+  usage = [],
   disabled,
   disabledReason,
   saving,
@@ -477,6 +508,7 @@ function FixedObjectCard({
   onDelete,
 }: {
   object?: SeriesObject;
+  usage?: Array<{ episode: number; shots: number[] }>;
   disabled: boolean;
   disabledReason?: string;
   saving?: boolean;
@@ -504,6 +536,18 @@ function FixedObjectCard({
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
             已锁定并用于全剧识别
           </p>
+        )}
+        {object && (
+          <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-xs leading-5">
+            <p className="text-[var(--text-secondary)]">剧本自动识别</p>
+            {usage.length ? usage.map(item => (
+              <p key={item.episode} className="mt-1 text-[#d8ceff]">
+                第 {item.episode} 集：第 {item.shots.join('、')} 镜使用
+              </p>
+            )) : (
+              <p className="mt-1 text-amber-200">当前已生成剧本尚未识别到该道具；以后写新剧本时仍会逐镜判断。</p>
+            )}
+          </div>
         )}
         <Labeled label="固定道具正名（剧本按此名称识别）">
           <input className={field} name="name" defaultValue={object?.name} required disabled={disabled} />
@@ -748,10 +792,7 @@ export default function SeriesPage() {
       if (!status.seriesStyleReference) throw new Error('当前 Companion 尚不支持全系列风格参考，请更新后再保存');
       let imageUrl = target.styleReference?.imageUrl;
       if (file) {
-        if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 15 * 1024 * 1024) throw new Error('请选择15MB以内的PNG、JPEG或WebP图片');
-        const imageData = await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file);});
-        const uploaded = await readApiJson<{url:string}>(await fetch(`${base}/api/upload-image`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageData})}), '风格图上传失败');
-        imageUrl=uploaded.url;
+        imageUrl = await uploadSeriesReference(base, file, '风格图');
       }
       if (!remove && !imageUrl) throw new Error('请先上传风格参考图');
       await seriesRequest({action:'edit',seriesId:target.id,revision:target.revision,patch:{styleReference:remove?null:{imageUrl,description}}},base);
@@ -782,10 +823,7 @@ export default function SeriesPage() {
       if (!status.seriesFixedObjects) throw new Error('当前 Companion 尚不支持全剧固定道具，请更新后再保存');
       let imageUrl = objectId ? (target.objects || []).find(object => object.id === objectId)?.imageUrl : undefined;
       if (file) {
-        if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 15 * 1024 * 1024) throw new Error('请选择15MB以内的PNG、JPEG或WebP图片');
-        const imageData = await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file);});
-        const uploaded = await readApiJson<{url:string}>(await fetch(`${base}/api/upload-image`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageData})}), '固定道具图上传失败');
-        imageUrl = uploaded.url;
+        imageUrl = await uploadSeriesReference(base, file, '固定道具图');
       }
       const result = await seriesRequest<{ project?: SeriesProject }>({ action:'upsert-object', seriesId:target.id, revision:target.revision, objectId, patch:{...patch,aliases:patch.aliases.split(/[，,、\n]/).map(value=>value.trim()).filter(Boolean),imageUrl} }, base);
       if (result.project) {
@@ -1574,6 +1612,7 @@ export default function SeriesPage() {
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                       {(project.objects || []).map(object => (
                         <FixedObjectCard key={object.id} object={object} disabled={editingLocked || busy || !connected}
+                          usage={fixedObjectUsage(project, object.id)}
                           disabledReason={fixedObjectDisabledReason}
                           saving={busy && objectFeedback?.tone === 'saving' && objectFeedback.target === object.id}
                           onSave={(patch,file)=>void saveFixedObject(object.id,patch,file)}

@@ -7,7 +7,7 @@ import type { VisualStyle } from '@/types';
 import { buildImageCaptureContract, getProductionStylePreset } from '@/lib/promptArchitecture';
 import { structuredRetryCorrection } from './storyWriter';
 import { buildDirectorCaptureContract } from '@/lib/capturePresets';
-import { VIDEO_DIRECTION_WRITING_CONTRACT, validateVideoDirection, videoDirectionSourceKey } from '@/lib/videoDirection';
+import { videoDirectionWritingContract, validateVideoDirection, videoDirectionSourceKey } from '@/lib/videoDirection';
 import { applyDirectorFieldRepairProgress, buildDirectorFieldRepairPrompt, directorFieldRepairs, selectDirectorFieldRepairChunk } from './directorRepair';
 import { usesPhotographicReferences } from '@/lib/gptImageReferences';
 import { buildGptImage2PhotographicContract } from '@/lib/gptImagePrompt';
@@ -36,9 +36,8 @@ export function buildDirectorPrompt(input: {
   const lastIndex = beats[beats.length - 1]?.index || 0;
   const stylePreset = getProductionStylePreset(visualStyle);
 
-  const langInstruction = language === 'en'
-    ? 'MANDATORY: output description, prompt and characterCostume in ENGLISH.'
-    : '强制：description 使用中文，prompt 使用英文，characterCostume 使用具体可视描述。';
+  const langInstruction = `项目语言 ${language === 'en' ? 'English' : '中文'} 只约束 speech 中的逐字台词；description、videoDirection 和 characterCostume 均使用中文。静态图片 prompt 与 sceneStyle 保持英文。`;
+  const videoDirectionShape = '{ "action": "中文因果动作", "camera": "中文摄影任务", "detail": "中文可见细节或空字符串", "ending": "中文可见镜尾状态" }';
 
   const storySpine = {
     title: storyPlan.title,
@@ -147,7 +146,7 @@ ${buildDirectorCaptureContract(capturePreset)}
 连续镜头应共享同一相机/镜头家族、色彩响应、主光方向和场景材质；每镜只改变有叙事理由的机位、距离、焦点、遮挡和曝光反应。真实感来自一致的物理因果，而不是反复添加 cinematic、8K、masterpiece、photorealistic 等泛化词。
 
 不要输出完整 H3 提示词或章节模板。只输出逐镜 videoDirection；下游会把 1–4 个分镜重新编组成一个不超过 15 秒的 H3 片段，统一加入参考绑定、切镜时间与逐字对白。
-${VIDEO_DIRECTION_WRITING_CONTRACT}
+${videoDirectionWritingContract('zh')}
 
 📝 输出（只输出 JSON 数组，按 beat 顺序，第 i 个元素对应第 i 个 beat）：
 [
@@ -155,7 +154,7 @@ ${VIDEO_DIRECTION_WRITING_CONTRACT}
     "index": ${firstIndex},
     "description": "镜头描述",
     "prompt": "English image prompt",
-    "videoDirection": { "action": "English causal action", "camera": "English motivated camera task", "detail": "One visible detail or empty string", "ending": "English visible end state" },
+    "videoDirection": ${videoDirectionShape},
     "shotSize": "景别",
     "cameraMove": "单一物理运镜",
     "angle": "机位",
@@ -349,12 +348,6 @@ export function validateDirectorShots(
     if (/\p{Script=Cyrillic}/u.test(description)) {
       throw new Error(`第 ${beats[index]?.index || index + 1} 镜 description 混入了异常西里尔字符`);
     }
-    if (language === 'en' && /\p{Script=Han}/u.test(description)) {
-      throw new Error(`第 ${beats[index]?.index || index + 1} 镜 description 未按英文输出`);
-    }
-    if (language === 'zh' && /\b[A-Za-z]{4,}\b/.test(description)) {
-      throw new Error(`第 ${beats[index]?.index || index + 1} 镜 description 混入了未解释的英文词`);
-    }
     const normalizedDescription = normalizedDialogueMatch(shot.description);
     for (const line of beats[index]?.speech || []) {
       const exactLine = normalizedDialogueMatch(line.exactLine);
@@ -433,7 +426,7 @@ export async function directStoryboard(input: {
         const repairs = selectDirectorFieldRepairChunk(allRepairs);
         if (retained && repairs.length) {
           console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, repairing ${repairs.length}/${allRepairs.length} invalid motion fields`);
-          const reply = await chatOnce(buildDirectorFieldRepairPrompt(retained, beats, repairs, lastError), {
+          const reply = await chatOnce(buildDirectorFieldRepairPrompt(retained, beats, repairs, lastError, language), {
             apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel,
             maxOutputTokens: 2_000,
             timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000,

@@ -158,13 +158,6 @@ function dialogueSafeVisualAction(value: unknown, exactSpokenLines: string[], la
   return compactActionArc(joined, 260);
 }
 
-function dialogueLanguage(text: string): string {
-  if (/[\u3040-\u30ff]/.test(text)) return 'Japanese';
-  if (/[\uac00-\ud7af]/.test(text)) return 'Korean';
-  if (/[\u3400-\u9fff]/.test(text)) return 'Chinese';
-  return 'English';
-}
-
 function officialShotFraming(storyboard: Storyboard): string {
   const framing = `${storyboard.shotSize || ''} ${storyboard.angle || ''}`.toLowerCase();
   const size = /大特写|extreme close/.test(framing) ? 'extreme close-up'
@@ -491,7 +484,10 @@ function buildOfficialGuidePrompt(
     const voiceProfile = rawVoiceProfile && !/[\u3400-\u9fff]/.test(rawVoiceProfile)
       ? ` in the consistent voice style: ${rawVoiceProfile}`
       : '';
-    const tagged = `<d>[${dialogueLanguage(line.exactLine)}] ${line.exactLine}</d>`;
+    // H3's language tag follows the approved project language. Detecting from
+    // individual text misclassified punctuation-only pauses and mixed brand
+    // names; the tag controls spoken audio, never visible captions.
+    const tagged = `<d>[${options.language === 'en' ? 'English' : 'Chinese'}] ${line.exactLine}</d>`;
     const sentence = `At ${h3Timestamp(line.start)}, ${speaker} begins speaking${voiceReference}${voiceProfile} ${officialDialogueDelivery(line)}: ${tagged}`;
     const lines = dialogueByShot.get(line.storyboardIndex) || [];
     lines.push(sentence);
@@ -541,7 +537,7 @@ function buildOfficialGuidePrompt(
     return [
       opening,
       directed ? `From ${h3Timestamp(range.start)} to ${h3Timestamp(range.end)}:` : castSentence,
-      /[.!?]$/.test(action) ? action : `${action}.`,
+      /[.!?。！？]$/.test(action) ? action : `${action}.`,
       directed?.detail ? bind(directed.detail) : '',
       performance,
       expression,
@@ -565,7 +561,9 @@ function buildOfficialGuidePrompt(
     style,
     officialMaterialReality(first.visualStyle),
     buildVideoCapturePresetContract(first.capturePreset),
-    'The photographic frame remains clean and text-free.',
+    options.language === 'en'
+      ? 'The photographic frame remains clean and text-free. Dialogue tags control audio only; never render subtitles, captions, dialogue text, titles, overlays, speech bubbles, logos, watermarks, UI text, or readable words.'
+      : '画面禁字：对白标签只控制语音；禁止字幕、对白文字、标题、贴片、气泡、Logo、水印、界面文字和任何可读字符。',
     storyboards.length > 1
       ? 'EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup. Every transition must be motivated by action, gaze, dialogue, object, shape, or sound. Preserve the 180-degree axis, eyelines, screen direction, match-on-action phase, and location geography. Vary framing scale with dramatic purpose; do not crossfade, morph, interpolate, repeat, or soften a hard cut unless an explicit transition is written.'
       : '',

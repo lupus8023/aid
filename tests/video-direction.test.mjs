@@ -42,7 +42,7 @@ test('registered Chinese names are bound without discarding the English action o
   assert.match(legacy, /breaks the seal and drops the photograph onto the table/);
 });
 
-test('an unambiguous shortened Chinese title is restored to its registered name while Chinese prose still fails', () => {
+test('an unambiguous shortened Chinese title is restored while Chinese directing prose remains valid', () => {
   const repaired = validateVideoDirection({
     action: '贵妃 points toward the tray while 青鸾 steps back.',
     camera: 'Track right until 贵妃 and 青鸾 share the frame.',
@@ -51,7 +51,7 @@ test('an unambiguous shortened Chinese title is restored to its registered name 
   }, ['沈贵妃', '青鸾']);
   assert.equal(repaired.action, '沈贵妃 points toward the tray while 青鸾 steps back.');
   assert.match(repaired.camera, /沈贵妃 and 青鸾/);
-  assert.throws(() => validateVideoDirection({ ...direction(), action: '沈贵妃转身离开。' }, ['沈贵妃']), /英文/);
+  assert.equal(validateVideoDirection({ ...direction(), action: '沈贵妃转身离开。' }, ['沈贵妃']).action, '沈贵妃转身离开。');
 });
 
 test('fields share the combined budget without splicing away words or negations', () => {
@@ -69,7 +69,8 @@ test('visual validation rejects dialogue, empty outcomes and generic adjective-o
     assert.throws(() => validateVideoDirection({ ...direction(), action }));
   }
   assert.throws(() => validateVideoDirection({ ...direction(), ending: '' }), /ending/);
-  assert.throws(() => validateVideoDirection({ ...direction(), action: '她打开信封。' }), /英文/);
+  assert.doesNotThrow(() => validateVideoDirection({ ...direction(), action: '她打开信封，取出照片后将信封放在桌面。' }));
+  assert.throws(() => validateVideoDirection({ ...direction(), action: '她开口说道台词。' }), /台词或声音/);
   assert.throws(() => validateVideoDirection({ ...direction(), detail: 'The answer is already here.' }, [], ['The answer is already here.']), /权威台词/);
   assert.doesNotThrow(() => validateVideoDirection({ ...direction(), detail: 'Her eyes widen.' }, [], ['Yes.']));
 });
@@ -319,6 +320,10 @@ test('new director generation requires bounded motion briefs while legacy valida
   assert.match(p, /videoDirection/);
   assert.match(p, /主动作|可见状态/);
   assert.match(p, /合计≤720/);
+  const englishDialogueProject = buildDirectorPrompt({ storyPlan: { requirements: [], sequences: [] }, beats: [beat], batchNumber: 1, totalBatches: 1, characters: [], objects: [], language: 'en' });
+  assert.match(englishDialogueProject, /项目语言 English 只约束 speech 中的逐字台词/);
+  assert.match(englishDialogueProject, /"action": "中文因果动作"/);
+  assert.doesNotMatch(englishDialogueProject, /videoDirection and characterCostume in ENGLISH/);
   const source = readFileSync(new URL('../lib/pipeline/storyDirector.ts', import.meta.url), 'utf8');
   assert.match(source, /videoDirection: raw\?\.videoDirection/);
   assert.match(source, /videoDirectionSource = videoDirectionSourceKey/);

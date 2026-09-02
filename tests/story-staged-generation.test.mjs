@@ -587,7 +587,7 @@ test('director normalization accepts provider wrappers and a direct object for o
   assert.deepEqual(normalizeDirectorShots(shot, 2), []);
 });
 
-test('director validation rejects language contamination and dialogue copied into visual direction', () => {
+test('director validation lets project language govern dialogue only and still rejects copied speech', () => {
   const beat = {
     index: 1,
     speech: [{ character: '人鱼公主', exactLine: 'Today, let it come on its own.' }],
@@ -595,12 +595,12 @@ test('director validation rejects language contamination and dialogue copied int
   assert.doesNotThrow(() => validateDirectorShots([
     { description: '[Medium shot] 人鱼公主 lowers her hand and turns toward the sea.', prompt: 'image prompt' },
   ], [beat], 'array(1)', 'en', ['人鱼公主']));
-  assert.throws(() => validateDirectorShots([
+  assert.doesNotThrow(() => validateDirectorShots([
     { description: '[中景] 人鱼公主 lowers her hand.', prompt: 'image prompt' },
-  ], [beat], 'array(1)', 'en', ['人鱼公主']), /未按英文输出/);
-  assert.throws(() => validateDirectorShots([
+  ], [beat], 'array(1)', 'en', ['人鱼公主']));
+  assert.doesNotThrow(() => validateDirectorShots([
     { description: '[中景] 人鱼公主 alarm 后转身。', prompt: 'image prompt' },
-  ], [beat], 'array(1)', 'zh', ['人鱼公主']), /未解释的英文词/);
+  ], [beat], 'array(1)', 'zh', ['人鱼公主']));
   assert.throws(() => validateDirectorShots([
     { description: '[Medium shot] 人鱼公主 says, “Today, let it come on its own.”', prompt: 'image prompt' },
   ], [beat], 'array(1)', 'en', ['人鱼公主']), /重复了权威台词/);

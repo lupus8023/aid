@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createSeries, parseOutline, parseEpisodes, parseScript, invalidateFrom, episodeContext, buildEpisodeProject, seriesShotObjectIds } from '../lib/series/domain.ts';
+import { createSeries, parseOutline, parseEpisodes, parseScript, invalidateFrom, episodeContext, buildEpisodeProject, rescanSeriesObjectUsage, seriesShotObjectIds } from '../lib/series/domain.ts';
 import { seriesPrompt } from '../lib/series/prompts.ts';
 import { storyStorageKeys } from '../lib/series/storageScope.ts';
 import { buildApprovedSeriesPlan, reconcileSeriesProductionContract, validateSeriesProduction } from '../lib/series/productionContract.ts';
@@ -69,6 +69,20 @@ test('a series fixed prop is identified in every matching shot and handed to Sto
   assert.match(prompt, /objectIds/);
   assert.match(prompt, /蓝瓷药瓶/);
   assert.match(prompt, /不得另起别名或重新设计/);
+});
+
+test('uploading one fixed prop rescans an existing screenplay and attaches it only to matching shots', () => {
+  const p = fixture(), raw = shotFixture();
+  raw.shots[0].visual += ' 桌上放着御赐药瓶。';
+  p.episodes[0].script = parseScript(raw, p, p.episodes[0]);
+  assert.ok(p.episodes[0].script.every(shot => shot.objectIds.length === 0));
+  p.objects = [{ id: 'o1', name: '蓝瓷药瓶', aliases: ['御赐药瓶'], description: '矮圆瓶身、银泵、正面窄白签与右下缺口。', imageUrl: 'https://res.cloudinary.com/test/blue-bottle.png' }];
+  p.episodes = rescanSeriesObjectUsage(p);
+  assert.deepEqual(p.episodes[0].script[0].objectIds, ['o1']);
+  assert.ok(p.episodes[0].script.slice(1).every(shot => shot.objectIds.length === 0));
+  p.objects = [];
+  p.episodes = rescanSeriesObjectUsage(p);
+  assert.ok(p.episodes[0].script.every(shot => shot.objectIds.length === 0));
 });
 
 test('approved series dialogue goes straight to direction, retaining A-B-A exchanges, silence and sound', () => {

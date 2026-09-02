@@ -5,9 +5,9 @@ import type { Storyboard, StoryVideoDirection } from '@/types';
 export const VIDEO_DIRECTION_LIMITS = { action: 300, camera: 180, detail: 140, ending: 140 } as const;
 export const VIDEO_DIRECTION_MAX_CHARACTERS = 720;
 
-export const VIDEO_DIRECTION_WRITING_CONTRACT = `
+const VIDEO_DIRECTION_WRITING_CONTRACT_BASE = `
 视频镜头细化（videoDirection，与静态图片 prompt 分开）：
-把锁定的 action、performance、stateBefore/stateAfter 与 editBridge 转写成英文、可直接拍摄的短导演说明。不是重新编剧，不新增事件、人物、道具、对白或音效。
+把锁定的 action、performance、stateBefore/stateAfter 与 editBridge 整理成可直接拍摄的短导演说明。不是重新编剧，不新增事件、人物、道具、对白或音效。
 - action：可见起始状态→已有触发→一个主动作→物理结果。细到能拍：必要时写明哪只手/身体部位、接触什么位置、朝哪个方向施力、速度如何变化，物体如何随之移动。只落实已有行动，不添加无关小动作；不能把完整动作退回静态图片描述。
 - camera：只写一个摄影任务：起始观察位置→运动类型、方向、幅度、速度/触发→结束时看见什么。幅度用有依据的距离、角度或构图变化（双人中景到单人近景），速度用匀速、与人物同速、触发后加速/减速；不要只写 small move、slow push 或 cinematic。
 - 为已有信息变化选择手法：横移通过前景视差揭示被遮挡的关系；推进/后撤改变主体与环境的占比；跟拍保持人物距离而让空间流过；移焦明确 A→B 和触发。不是每镜都动：locked-off camera 可让画内行动改变关系，固定机位移焦不等于移动相机。一镜到底只表示不切镜，不表示不运镜。不要把这些手法列成菜单或全部塞进一镜。
@@ -17,11 +17,24 @@ export const VIDEO_DIRECTION_WRITING_CONTRACT = `
 - ending：只写 camera/action 尚未说明的可见结果或下一镜接住的视线/运动；可在运动中交棒，不必每镜停稳、回正或恢复初始状态。不写观众理解或剧情评价。
 - 使用自然先后/因果措辞（as/when/after/then），不写绝对秒数，不把每镜机械切成固定比例；节奏服从动作和现有镜长。
 - 不靠 realistic/natural/cinematic/premium 等形容词充当动作或细节，不堆相机缺陷、风格标签、否定清单，不重复参考图已经确定的服装、布景与身份。
-- 四个字段一律英文，已登记角色/物体名称允许原样保留。中文剧本必须翻译完整动作与结果，不能丢弃。不得引用、翻译或概括逐字台词；对白只由 speech 控制。不写声音指令、口型台词暗示、<d> 标签或 H3 章节标记。
+{{LANGUAGE_RULE}}
 - 细致是可见信息精确，不是形容词多；不要为了短而删掉决定画面的方位、接触、速度和落点。预算优先给这些信息，删重复标签。建议 action约260、camera约160、detail约120、ending约100字符；四项合计≤720是硬上限（含空格标点），字段可以共享余量，不因单项略超建议值删除有效细节。同一信息只写一次，简单镜头不凑字数。
 - 先在预算内写完整句子。超限时删重复修饰、缩短次要细节，保留主体、触发、主动作、结果及摄影任务；不能截断单词、裁句拼接或删除否定词来满足限额。
-例：不要写“她自然地表现震惊，镜头电影感推进”。可写 action="Lin draws the photograph from the envelope; her grip loosens when she sees it." camera="From the table-height medium shot, dolly forward at an even pace as Lin lowers her hand, ending close on the photograph between her fingers." detail="Her smile fades before her fingers release." ending="The photograph lands face-up; her hand remains suspended." 另一种既有构图适用的写法：camera="Locked-off close shot: as Lin's thumb stops on the torn seam, rack focus once from the paper edge to her eyes behind it."（仅学习写法，不复制故事、机位或动作。）
+{{LANGUAGE_EXAMPLE}}
 `;
+
+export function videoDirectionWritingContract(_language: 'zh' | 'en' = 'zh'): string {
+  // The project language controls screenplay speech only. Chinese directing
+  // prose is intentional for H3 even when the authored dialogue is English.
+  const languageRule = '- 四个字段统一使用简洁、自然的中文；项目语言只约束 speech 中的逐字台词，不约束导演提示词。已登记角色/物体正名保持原样。不得引用、改写或概括逐字台词；对白只由 speech 控制。不写声音指令、暗示人物说出具体内容、<d> 标签或 H3 章节标记。';
+  const example = '例：不要写“她自然地表现震惊，镜头电影感推进”。可写 action="林岚从信封里抽出照片；看清画面后，右手握力松开。" camera="从桌面高度的中景开始，随她放低右手匀速推进，最后近景看清指间照片。" detail="她的笑意先消失，随后手指才松开。" ending="照片正面朝上落在桌面，她的右手仍悬在半空。" 另一种既有构图适用的写法：camera="固定近景；拇指停在破口时，只把焦点从纸边移到后方双眼。"（仅学习写法，不复制故事、机位或动作。）';
+  return VIDEO_DIRECTION_WRITING_CONTRACT_BASE
+    .replace('{{LANGUAGE_RULE}}', languageRule)
+    .replace('{{LANGUAGE_EXAMPLE}}', example);
+}
+
+// Backward-compatible default for callers that do not carry project language.
+export const VIDEO_DIRECTION_WRITING_CONTRACT = videoDirectionWritingContract('zh');
 
 export function videoDirectionEntityNames(shot: Partial<Storyboard>): string[] {
   return [...new Set([
@@ -36,11 +49,9 @@ export function withoutVideoEntityNames(value: string, names: string[]): string 
 }
 
 /**
- * Providers occasionally shorten a CJK character name while translating the
- * surrounding direction (for example 沈贵妃 -> 贵妃). Accept only an
- * unambiguous suffix of a registered name and restore the canonical spelling;
- * arbitrary Chinese prose is deliberately left in place so validation still
- * rejects it.
+ * Providers occasionally shorten a CJK character name (for example 沈贵妃 ->
+ * 贵妃). Accept only an unambiguous suffix of a registered name and restore the
+ * canonical spelling. Chinese directing prose itself is valid.
  */
 export function canonicalizeVideoDirectionEntityAliases(value: string, names: string[]): string {
   const canonical = [...new Set(names.map(name => String(name || '').trim()).filter(Boolean))];
@@ -57,8 +68,8 @@ export function validateVideoDirectionField(field: keyof StoryVideoDirection, va
   if (!text && field !== 'detail') throw new Error(`videoDirection.${field} 不能为空`);
   if (enforceFieldLimit && text.length > VIDEO_DIRECTION_LIMITS[field]) throw new Error(`videoDirection.${field} 为 ${text.length} 字符，修稿预算 ${VIDEO_DIRECTION_LIMITS[field]}；请重写完整短句，不要截断`);
   const prose = withoutVideoEntityNames(text, entityNames);
-  if (/[\p{Script=Han}\p{Script=Cyrillic}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(prose)) throw new Error(`videoDirection.${field} 必须用英文完整转写，名称除外`);
-  if (/<\/?d>|\[(?:Shot|Chinese|English)\b|(?:subject_definitions|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music)\s*:|\b(?:says?|whispers?|speaks?|shouts?|voiceover|narration|dialogue)\b/i.test(prose)) throw new Error(`videoDirection.${field} 混入台词或声音指令；只写可见动作`);
+  if (/[\p{Script=Cyrillic}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(prose)) throw new Error(`videoDirection.${field} 混入了项目语言之外的文字`);
+  if (/<\/?d>|\[(?:Shot|Chinese|English)\b|(?:subject_definitions|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music)\s*:|\b(?:says?|whispers?|speaks?|shouts?|voiceover|narration|dialogue)\b|(?:说道|说出|开口(?:说)?|低语|耳语|喊道|大喊|旁白|画外音|对白|台词|念出|读出)/i.test(prose)) throw new Error(`videoDirection.${field} 混入台词或声音指令；只写可见动作`);
   const normalized = (s: string) => s.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
   for (const line of exactLines) {
     const needle = normalized(line);
@@ -69,18 +80,27 @@ export function validateVideoDirectionField(field: keyof StoryVideoDirection, va
     if (copied) throw new Error(`videoDirection.${field} 重复了权威台词`);
   }
   if (field === 'action' && (/^(?:(?:the\s+)?(?:main\s+)?subject|\w+)\s+(?:completes? one clear physical action|makes? one natural gesture)/i.test(text)
-    || /^(?:realistic|natural|cinematic|premium|beautiful)(?:[\s,.!-]+(?:realistic|natural|cinematic|premium|beautiful))*[.!]?$/i.test(text))) {
+    || /^(?:角色|人物|主体)(?:完成|做出)(?:一个|一次)?(?:清晰|自然|明确)?(?:的)?(?:动作|手势)[。.!！]?$/u.test(text)
+    || /^(?:(?:realistic|natural|cinematic|premium|beautiful)(?:[\s,.!-]+)?)+[.!]?$/i.test(text)
+    || /^(?:(?:真实|自然|电影感|高级|唯美)[，、。.!！\s]*)+$/u.test(text))) {
     throw new Error('videoDirection.action 不能只是通用动作或风格形容词；写明具体动作与可见变化');
   }
   if (checkCameraSpecificity && field === 'camera'
-    && /\b(?:small|slight|short|minor)\s+(?:lateral\s+)?(?:settle|reframe|reframing|adjustment|shift|movement|move)\b/i.test(prose)
-    && !/\b(?:left|right|forward|backward|backwards|back|toward|towards|away|clockwise|counterclockwise|metres?|meters?|degrees?|rack focus)\b/i.test(prose)) {
+    && (/\b(?:small|slight|short|minor)\s+(?:lateral\s+)?(?:settle|reframe|reframing|adjustment|shift|movement|move)\b/i.test(prose)
+      || /(?:轻微|稍微|小幅)(?:调整|移动|重构|重新构图|横移)/u.test(prose))
+    && !(/\b(?:left|right|forward|backward|backwards|back|toward|towards|away|clockwise|counterclockwise|metres?|meters?|degrees?|rack focus)\b/i.test(prose)
+      || /(?:向左|向右|向前|向后|靠近|远离|顺时针|逆时针|米|度|移焦|拉焦|从.+到)/u.test(prose))) {
     throw new Error('videoDirection.camera 只有模糊微调；保留摄影意图，写明方向、幅度或起止构图及触发，不能仅说 slight lateral settle');
   }
   if (checkCameraSpecificity && field === 'camera' && /\blocked(?:-off|\s+off|\s+at)\b/i.test(prose)
     && /\b(?:dolly|truck|pan|tilt|nudge|reframe|track|orbit|arc)\b/i.test(prose)
     && !/\b(?:then|until|before|after)\b/i.test(prose)) {
     throw new Error('videoDirection.camera 同时要求固定与移动；明确选择固定机位（可移焦）或一条连续运动，不能同时 locked-off 又 nudge/reframe');
+  }
+  if (checkCameraSpecificity && field === 'camera' && /(?:固定机位|镜头固定|固定镜头)/u.test(prose)
+    && /(?:推近|拉远|横移|跟拍|摇摄|摇镜|环绕|升降|重新构图)/u.test(prose)
+    && !/(?:然后|随后|直到|之前|之后)/u.test(prose)) {
+    throw new Error('videoDirection.camera 同时要求固定与移动；明确选择固定机位（可移焦）或一条连续运动');
   }
   return text;
 }

@@ -82,6 +82,14 @@ export function isDirectingInstructionDialogue(value: unknown): boolean {
   return Boolean(text) && DIRECTING_LINE_PATTERNS.some(pattern => pattern.test(text));
 }
 
+/** A punctuation-only screenplay entry (for example “……” or "...") is an
+ * authored performance pause, not a vocal event. Keep it in the screenplay and
+ * delivery audit, but never send it to H3 as speech or request a voice for it. */
+export function isNonverbalPauseLine(value: unknown): boolean {
+  const text = clean(value);
+  return Boolean(text) && !/[\p{L}\p{N}]/u.test(text);
+}
+
 function stableSpeakerId(name: string): string {
   let hash = 0;
   for (const character of name) hash = (hash * 31 + character.codePointAt(0)!) % 97;
@@ -170,6 +178,10 @@ export function storyboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
     // same-speaker screenplay lines into one continuous H3 vocal event.
 }
 
+export function audibleStoryboardSpeech(storyboard: Storyboard): StorySpeechLine[] {
+  return storyboardSpeech(storyboard).filter(line => !isNonverbalPauseLine(line.exactLine));
+}
+
 function joinContinuousSpeech(previous: string, next: string): string {
   if (!previous) return next;
   if (!next) return previous;
@@ -191,7 +203,7 @@ function joinContinuousSpeech(previous: string, next: string): string {
  * reordering A's lines around B would change the authored dialogue.
  */
 export function consolidateSegmentSpeech(storyboards: Storyboard[]): IndexedSpeechLine[] {
-  const source = storyboards.flatMap((storyboard, storyboardIndex) => storyboardSpeech(storyboard).map(line => {
+  const source = storyboards.flatMap((storyboard, storyboardIndex) => audibleStoryboardSpeech(storyboard).map(line => {
     const sourceIndex = line.sourceStoryboardId
       ? storyboards.findIndex(candidate => candidate.id === line.sourceStoryboardId)
       : storyboardIndex;
@@ -245,6 +257,7 @@ export function storyboardSpeechWarnings(storyboard: Storyboard): string[] {
   const visible = new Set(storyboard.characters || []);
   return rawLines.flatMap(line => {
     const exactLine = line.source === 'user_exact' ? clean(line.exactLine) : sanitizeGeneratedSpeechText(line.exactLine);
+    if (isNonverbalPauseLine(exactLine)) return [];
     if (!exactLine || isDirectingInstructionDialogue(exactLine)) return ['已拦截被误写成台词的导演/表演说明'];
     if (!visible.has(clean(line.character))) return [`已拦截未出场角色“${clean(line.character) || '未知'}”的台词`];
     const normalized = { ...line, character: clean(line.character), exactLine } as StorySpeechLine;
@@ -279,7 +292,7 @@ export function storyboardAudioPlan(storyboard: Storyboard): StoryAudioPlan {
 export function validateSpeechLanguage(storyboards: Storyboard[], language?: 'zh' | 'en'): string | undefined {
   if (!language) return undefined;
   const mismatch = storyboards
-    .flatMap(storyboard => storyboardSpeech(storyboard).map(line => ({ storyboard, line })))
+    .flatMap(storyboard => audibleStoryboardSpeech(storyboard).map(line => ({ storyboard, line })))
     .find(({ line }) => {
       if (line.source === 'user_exact') return false;
       const containsChinese = /[\u3400-\u9fff]/.test(line.exactLine);
@@ -312,7 +325,7 @@ export function validateSpeechContract(storyboards: Storyboard[]): string | unde
 }
 
 export function validateVoiceBindings(storyboards: Storyboard[]): string | undefined {
-  const missing = storyboards.flatMap(storyboardSpeech).find(line => !clean(line.voiceId));
+  const missing = storyboards.flatMap(audibleStoryboardSpeech).find(line => !clean(line.voiceId));
   return missing ? `角色“${missing.character}”尚未锁定音色，不能生成对白` : undefined;
 }
 

@@ -11,6 +11,7 @@ import {
   createSeries,
   invalidateFrom,
   parseScript,
+  rescanSeriesObjectUsage,
   seriesId,
   text,
 } from "@/lib/series/domain";
@@ -113,6 +114,11 @@ export async function POST(request: NextRequest) {
             if (current) project.objects[project.objects.indexOf(current)] = value;
             else project.objects.push(value);
           }
+          // The user registers the reference once. Re-scan every existing
+          // screenplay now and persist exactly which shots mention the
+          // canonical name or an alias; future parseScript calls do the same.
+          // A prop is never attached to every segment by default.
+          project.episodes = rescanSeriesObjectUsage(project);
           // The screenplay remains authoritative. Only visual production made
           // with the previous object identity is invalidated; delivered files
           // stay attached to their old episode version.
