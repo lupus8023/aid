@@ -18,6 +18,7 @@ import {
   selectComfyUIVideoOutput,
   comfyUIQueueContainsPrompt,
   comfyUIAssetCacheFileName,
+  buildComfyUISubtitleRemovalPrompt,
   taggedPrompt,
 } from '../lib/comfyui.ts';
 import {
@@ -37,6 +38,34 @@ test('uses stable content-addressed names for reusable H3 reference uploads', ()
   assert.equal(first, repeated);
   assert.match(first, /^[a-f0-9]{64}\.wav$/);
   assert.notEqual(first, changed);
+});
+
+test('builds a Director V2V subtitle-removal pass that preserves source audio', () => {
+  const definitions = {
+    UNETLoader: { input: { required: { unet_name: [['minimax_h3_ref2va_pruned_int8_convrot.safetensors']], weight_dtype: [['default']] } } },
+    CLIPLoader: { input: { required: { clip_name: [['qwen3vl_32b_minimax_h3_int8_convrot.safetensors']], type: [['minimax']], device: [['default']] } } },
+    VAELoader: { input: { required: { vae_name: [['minimax_h3_video_vae_fp16.safetensors', 'minimax_h3_audio_vae_fp32.safetensors']] } } },
+    LoraLoaderModelOnly: { input: { required: { model: ['MODEL'], lora_name: [['minimax_h3_turbo_4step_dasiwa_ref2va_hybrid_v1_T8.safetensors']], strength_model: ['FLOAT'] } } },
+    MiniMaxH3MemoryEfficientSageAttentionPatch: { input: { required: { model: ['MODEL'] } } },
+    MiniMaxH3Director: { input: { required: {} } },
+    CreateVideo: { input: { required: {} } },
+    SaveVideo: { input: { required: {} } },
+    PreviewAny: { input: { required: {} } },
+  };
+  const prompt = buildComfyUISubtitleRemovalPrompt({
+    source: {
+      relativePath: 'aid/assets/subtitle-source-paid.mp4', filename: 'subtitle-source-paid.mp4', subfolder: 'aid/assets',
+      width: 736, height: 1280, fps: 24, frameCount: 175, duration: 175 / 24,
+    },
+    outputPrefix: 'aid/subtitle/test', seed: 42, definitions,
+  });
+  assert.equal(prompt['1'].inputs.unet_name, 'minimax_h3_ref2va_pruned_int8_convrot.safetensors');
+  assert.match(prompt['30'].inputs.global_prompt, /Remove subtitles from the video/);
+  const timeline = JSON.parse(prompt['30'].inputs.timeline_data);
+  assert.equal(timeline.output.audioMode, 'source');
+  assert.equal(timeline.video.videoFile, 'aid/assets/subtitle-source-paid.mp4');
+  assert.equal(timeline.totalFrames, 175);
+  assert.deepEqual(prompt['31'].inputs.audio, ['30', 1]);
 });
 
 test('aligns requested duration to the H3 temporal block used by the remote workflow', () => {

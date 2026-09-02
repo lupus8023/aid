@@ -31,7 +31,7 @@ import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitec
 import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedPlannedVideoSegment, normalizeVideoSegmentPlan, refreshPlannedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { filmEndingDuration, isFilmEndingSegment } from '@/lib/filmEnding';
 import { FILM_ENDING_ASR_SKIPPED_WARNING, FILM_ENDING_WARNING, MAX_ENDING_REPAIRS, filmEndingDisposition, prepareFilmEndingRepair, type FilmEndingAudit } from '@/lib/filmEndingAudit';
-import { MAX_VIDEO_DUPLICATE_REPAIRS, prepareVideoDuplicateRepair, videoDuplicateAuditScope, type VideoDuplicateAudit } from '@/lib/videoDuplicateAudit';
+import { MAX_VIDEO_DUPLICATE_REPAIRS, prepareVideoDuplicateRepair, videoDuplicateAuditScope, videoSubtitleRemovalSourceTaskId, type VideoDuplicateAudit } from '@/lib/videoDuplicateAudit';
 import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS, previousSegmentTailSource } from '@/lib/videoContinuity';
@@ -2121,10 +2121,13 @@ export default function StoryPage() {
       const generationUrl = videoProvider === 'comfyui'
         ? comfyUIApiUrl('/api/generate-video', activeSettings.comfyui)
         : '/api/generate-video';
+      const subtitleRemovalSourceTaskId = videoProvider === 'comfyui'
+        ? videoSubtitleRemovalSourceTaskId(leader)
+        : undefined;
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ styleReference: styleReferenceRef.current, storyboard: storyboardForRequest, segmentStoryboards: portableSegment, isFilmEnding: finalSegment, language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, motionContext, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, videoProvider, fal: activeSettings.fal, comfyui: localComfyUISettings(activeSettings.comfyui) })
+        body: JSON.stringify({ styleReference: styleReferenceRef.current, storyboard: storyboardForRequest, segmentStoryboards: portableSegment, isFilmEnding: finalSegment, language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, motionContext, subtitleRemovalSourceTaskId, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, videoProvider, fal: activeSettings.fal, comfyui: localComfyUISettings(activeSettings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string; videoPrompt?: string }>(response, '视频任务创建失败');
       submittedTaskId = data.taskId;

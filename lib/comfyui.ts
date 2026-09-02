@@ -1107,6 +1107,187 @@ export interface H3NativeDialogueTurn {
   end?: number;
 }
 
+interface H3SubtitleRemovalSource {
+  relativePath: string;
+  filename: string;
+  subfolder: string;
+  width: number;
+  height: number;
+  fps: number;
+  frameCount: number;
+  duration: number;
+}
+
+function definitionOptions(definitions: JsonRecord, classType: string, field: string): string[] {
+  const spec = definitions?.[classType]?.input?.required?.[field];
+  const raw = Array.isArray(spec) ? spec[0] : undefined;
+  return Array.isArray(raw) ? raw.map(value => String(value)) : [];
+}
+
+function requiredDefinitionOption(
+  definitions: JsonRecord,
+  classType: string,
+  field: string,
+  preferred: string[],
+): string {
+  const options = definitionOptions(definitions, classType, field);
+  const value = preferred.find(candidate => options.includes(candidate));
+  if (value) return value;
+  throw new ComfyUIError(`云端 ${classType}.${field} 缺少去字幕所需模型：${preferred.join(' / ')}`);
+}
+
+/**
+ * Build the Director V2V pass used only after the visual audit has confirmed
+ * burned subtitles. Source audio is selected explicitly: the cleanup pass may
+ * alter pixels occupied by captions, but it must never regenerate dialogue.
+ */
+export function buildComfyUISubtitleRemovalPrompt(input: {
+  source: H3SubtitleRemovalSource;
+  outputPrefix: string;
+  seed: number;
+  definitions: JsonRecord;
+}): JsonRecord {
+  const { source, definitions } = input;
+  if (!definitions.MiniMaxH3Director) {
+    throw new ComfyUIError('云端缺少 MiniMax H3 Director，无法自动去除烧录字幕');
+  }
+  const diffusionModel = requiredDefinitionOption(definitions, 'UNETLoader', 'unet_name', [
+    'minimax_h3_ref2va_pruned_int8_convrot.safetensors',
+  ]);
+  const textEncoder = requiredDefinitionOption(definitions, 'CLIPLoader', 'clip_name', [
+    'qwen3vl_32b_minimax_h3_int8_convrot.safetensors',
+    'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',
+  ]);
+  const videoVae = requiredDefinitionOption(definitions, 'VAELoader', 'vae_name', [
+    'minimax_h3_video_vae_fp16.safetensors',
+  ]);
+  const audioVae = requiredDefinitionOption(definitions, 'VAELoader', 'vae_name', [
+    'minimax_h3_audio_vae_fp32.safetensors',
+  ]);
+  const loraClass = definitions.LoraLoaderModelOnly
+    ? 'LoraLoaderModelOnly'
+    : definitions.LoraLoaderBypassModelOnly
+      ? 'LoraLoaderBypassModelOnly'
+      : '';
+  if (!loraClass) throw new ComfyUIError('云端缺少可用的 H3 LoRA 加载节点');
+  const lora = requiredDefinitionOption(definitions, loraClass, 'lora_name', [
+    H3_DASIWA_4TURBO_PROFILE.lora,
+  ]);
+  const taskType = 'v2v — 视频转视频(Video to Video)';
+  const editPrompt = '<Video 1> Remove subtitles from the video. Preserve every other pixel, person, face, product, package, motion, camera movement, lighting, timing, and scene detail unchanged. Preserve the original audio exactly. Do not add text, captions, titles, overlays, logos, watermarks, boxes, blur bars, or replacement graphics.';
+  const timelineData = JSON.stringify({
+    version: 5,
+    editMode: 'global',
+    timelineMode: 'video',
+    totalFrames: source.frameCount,
+    frameRate: source.fps,
+    width: source.width,
+    height: source.height,
+    refMaxSize: Math.max(source.width, source.height),
+    output: {
+      mode: 'fixed',
+      width: source.width,
+      height: source.height,
+      longEdge: Math.max(source.width, source.height),
+      maxExportFrames: 0,
+      exportMode: 'all',
+      audioMode: 'source',
+      continuityEnabled: false,
+      continuityOverlapFrames: 22,
+    },
+    videoClips: [],
+    video: {
+      fileName: source.filename,
+      videoFile: source.relativePath,
+      subfolder: source.subfolder,
+      type: 'input',
+      frames: [],
+      frameMap: [],
+      sourceFrameCount: source.frameCount,
+      sourceFps: source.fps,
+      width: source.width,
+      height: source.height,
+      storageWidth: source.width,
+      storageHeight: source.height,
+      longEdge: Math.max(source.width, source.height),
+    },
+    global: {
+      taskType,
+      prompt: editPrompt,
+      refs: [],
+      refAudios: [],
+      referenceVideo: {},
+      continuousReference: false,
+      genImage: { imageFile: '' },
+    },
+    segments: [{
+      id: 'aid-subtitle-removal',
+      start: 0,
+      length: source.frameCount,
+      frameCount: source.frameCount,
+      durationSec: source.duration,
+      prompt: '',
+      taskType: '',
+      refs: [],
+      referenceVideo: {},
+      genImage: { imageFile: '' },
+      negativePrompt: '',
+    }],
+    gen: { defaultFrameCount: source.frameCount },
+    runSelectEnabled: false,
+    runSelection: [],
+    liveTaePreview: false,
+  });
+
+  const prompt: JsonRecord = {
+    '1': { class_type: 'UNETLoader', inputs: { unet_name: diffusionModel, weight_dtype: 'default' } },
+    '4': { class_type: 'CLIPLoader', inputs: { clip_name: textEncoder, type: 'minimax', device: 'default' } },
+    '5': { class_type: 'VAELoader', inputs: { vae_name: videoVae } },
+    '6': { class_type: 'VAELoader', inputs: { vae_name: audioVae } },
+  };
+  const baseModelId = definitions.MiniMaxH3MemoryEfficientSageAttentionPatch ? '2' : '1';
+  if (baseModelId === '2') {
+    prompt['2'] = { class_type: 'MiniMaxH3MemoryEfficientSageAttentionPatch', inputs: { model: ['1', 0] } };
+  }
+  prompt['3'] = {
+    class_type: loraClass,
+    inputs: { model: [baseModelId, 0], lora_name: lora, strength_model: H3_DASIWA_4TURBO_PROFILE.loraStrength },
+  };
+  prompt['30'] = {
+    class_type: 'MiniMaxH3Director',
+    inputs: {
+      model: ['3', 0],
+      video_vae: ['5', 0],
+      audio_vae: ['6', 0],
+      clip: ['4', 0],
+      task_type: taskType,
+      global_prompt: editPrompt,
+      bd_grp_sample: '采样设置',
+      cfg: 1,
+      seed: input.seed,
+      frame_rate: source.fps,
+      width: source.width,
+      height: source.height,
+      ref_max_size: Math.max(source.width, source.height),
+      total_frames: source.frameCount,
+      timeline_data: timelineData,
+      bd_grp_advanced: '高级采样 Advanced',
+      steps: H3_DASIWA_4TURBO_PROFILE.steps,
+      sampler: 'res_multistep',
+      scheduler: H3_DASIWA_4TURBO_PROFILE.scheduler,
+      shift_video: H3_DASIWA_4TURBO_PROFILE.shiftVideo,
+      shift_audio: H3_DASIWA_4TURBO_PROFILE.shiftAudio,
+      bd_grp_perf: '性能 Performance',
+      clear_vram_between_segments: true,
+      export_source_images: false,
+    },
+  };
+  prompt['31'] = { class_type: 'CreateVideo', inputs: { images: ['30', 0], audio: ['30', 1], fps: ['30', 2], bit_depth: 8 } };
+  prompt['32'] = { class_type: 'SaveVideo', inputs: { video: ['31', 0], filename_prefix: input.outputPrefix, format: 'auto', codec: 'auto' } };
+  if (definitions.PreviewAny) prompt['33'] = { class_type: 'PreviewAny', inputs: { source: ['30', 5] } };
+  return prompt;
+}
+
 function h3PromptText(prompt: JsonRecord): string {
   const promptNode = Object.values(prompt).find((node: any) => (
     node.class_type === 'PrimitiveStringMultiline'
@@ -1916,6 +2097,127 @@ export async function createComfyUIVideoTask(input: {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  } finally {
+    await cleanupPrivateKey(config);
+  }
+}
+
+function safeComfyOutputPath(config: ComfyUIConfig, output: ComfyOutputRef): string {
+  const filename = String(output.filename || '').trim();
+  const subfolder = String(output.subfolder || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  if (!filename || path.basename(filename) !== filename || subfolder.split('/').some(part => !part || part === '.' || part === '..')) {
+    throw new ComfyUIError('去字幕源视频的 ComfyUI 输出路径无效');
+  }
+  if (String(output.type || 'output') !== 'output') {
+    throw new ComfyUIError('去字幕源视频不是持久化的 ComfyUI 输出文件');
+  }
+  return `${config.workflowRoot.replace(/\/$/, '')}/output/${subfolder ? `${subfolder}/` : ''}${filename}`;
+}
+
+async function materializeComfyUISubtitleRemovalSource(
+  config: ComfyUIConfig,
+  sourceTaskId: string,
+): Promise<H3SubtitleRemovalSource> {
+  const promptId = unwrapComfyUITaskId(sourceTaskId);
+  if (String(sourceTaskId).startsWith(COMFYUI_LONG_TASK_PREFIX)) {
+    throw new ComfyUIError('长视频换人物任务不能作为 H3 去字幕源片');
+  }
+  const output = await withTunnel(config, async baseUrl => {
+    const history = await fetchJson(baseUrl, `/history/${encodeURIComponent(promptId)}`, {}, 30_000);
+    const item = history[promptId];
+    if (!item) throw new ComfyUIError('ComfyUI 中未找到需要去字幕的原视频任务');
+    if (item.status?.status_str === 'error') {
+      throw new ComfyUIError(`去字幕原视频任务失败：${comfyUIExecutionError(item.status?.messages, historyApiPrompt(item))}`);
+    }
+    const selected = selectComfyUIVideoOutput(item.outputs || {});
+    if (!selected) throw new ComfyUIError('需要去字幕的原任务没有视频输出');
+    return selected;
+  });
+  const sourcePath = safeComfyOutputPath(config, output);
+  const extension = path.extname(output.filename).toLowerCase();
+  if (!VIDEO_SUFFIXES.has(extension)) throw new ComfyUIError('去字幕源视频格式不受支持');
+  const relativePath = `aid/assets/subtitle-source-${promptId}${extension}`;
+  const inputPath = `${config.workflowRoot.replace(/\/$/, '')}/input/${relativePath}`;
+  const inputDirectory = path.posix.dirname(inputPath);
+  await runSsh(config, [
+    `mkdir -p -- ${shellQuote(inputDirectory)}`,
+    `source_bytes=$(wc -c < ${shellQuote(sourcePath)})`,
+    `target_bytes=$(if [ -f ${shellQuote(inputPath)} ]; then wc -c < ${shellQuote(inputPath)}; else printf 0; fi)`,
+    `if [ "$source_bytes" != "$target_bytes" ]; then cp --reflink=auto -- ${shellQuote(sourcePath)} ${shellQuote(inputPath)}; fi`,
+  ].join(' && '));
+  const rawProbe = await runSsh(config, [
+    'ffprobe -v error -select_streams v:0',
+    '-show_entries stream=width,height,r_frame_rate,avg_frame_rate,nb_frames,duration:format=duration',
+    '-of json', shellQuote(inputPath),
+  ].join(' '));
+  let probe: JsonRecord;
+  try {
+    probe = JSON.parse(rawProbe);
+  } catch {
+    throw new ComfyUIError('无法解析去字幕源视频参数');
+  }
+  const stream = probe.streams?.[0] || {};
+  const rateText = String(stream.avg_frame_rate || stream.r_frame_rate || '24/1');
+  const [rateNumerator, rateDenominator = '1'] = rateText.split('/');
+  const parsedFps = Number(rateNumerator) / Math.max(1, Number(rateDenominator));
+  const fps = Number.isFinite(parsedFps) && parsedFps > 0 ? parsedFps : H3_VIDEO_FPS;
+  const duration = Number(probe.format?.duration || stream.duration || 0);
+  const explicitFrames = Number(stream.nb_frames);
+  const frameCount = Number.isInteger(explicitFrames) && explicitFrames > 0
+    ? explicitFrames
+    : Math.max(5, Math.round(duration * fps));
+  const width = Number(stream.width);
+  const height = Number(stream.height);
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 64 || height < 64 || !Number.isFinite(duration) || duration <= 0) {
+    throw new ComfyUIError('去字幕源视频的分辨率或时长无效');
+  }
+  return {
+    relativePath,
+    filename: path.posix.basename(relativePath),
+    subfolder: path.posix.dirname(relativePath),
+    width,
+    height,
+    fps,
+    frameCount,
+    duration,
+  };
+}
+
+export async function createComfyUISubtitleRemovalTask(input: {
+  sourceTaskId: string;
+  settings?: ComfyUIClientSettings;
+}): Promise<{ taskId: string; promptId: string; prompt: string; workflow: 'director_v2v_subtitle_removal' }> {
+  const config = getComfyUIConfig(input.settings);
+  try {
+    if (!config.sshHost) throw new ComfyUIError('ComfyUI SSH Host 未配置');
+    const source = await materializeComfyUISubtitleRemovalSource(config, input.sourceTaskId);
+    const definitions = await readRemoteDefinitions(config);
+    const runId = randomBytes(6).toString('hex');
+    const seed = Number(BigInt(`0x${randomBytes(7).toString('hex')}`));
+    const prompt = buildComfyUISubtitleRemovalPrompt({
+      source,
+      outputPrefix: `aid/director_v2v_subtitle_removal/${runId}`,
+      seed,
+      definitions,
+    });
+    validatePrompt(prompt, definitions);
+    const promptId = await withTunnel(config, async baseUrl => {
+      const response = await fetchJson(baseUrl, '/prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, client_id: `aid-subtitle-removal-${runId}` }),
+      });
+      const submittedId = String(response.prompt_id || '').trim();
+      if (!submittedId) throw new ComfyUIError('ComfyUI 去字幕任务响应没有 prompt_id');
+      return submittedId;
+    });
+    const directorPrompt = String(prompt['30']?.inputs?.global_prompt || 'Remove subtitles from the video.');
+    return {
+      taskId: `${COMFYUI_TASK_PREFIX}${promptId}`,
+      promptId,
+      prompt: directorPrompt,
+      workflow: 'director_v2v_subtitle_removal',
+    };
   } finally {
     await cleanupPrivateKey(config);
   }

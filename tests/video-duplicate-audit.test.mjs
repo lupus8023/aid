@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseVideoDuplicates, prepareVideoDuplicateRepair, videoDuplicateAuditContext, videoDuplicateAuditScope, videoHasClosedCast } from '../lib/videoDuplicateAudit.ts';
+import { parseVideoDuplicates, prepareVideoDuplicateRepair, videoDuplicateAuditContext, videoDuplicateAuditScope, videoHasClosedCast, videoSubtitleRemovalSourceTaskId } from '../lib/videoDuplicateAudit.ts';
 import { videoSegmentGenerationSignature } from '../lib/videoSegments.ts';
 import { applyVideoDuplicateRepairPrompt, buildVideoSegmentPrompt } from '../lib/videoGenerator.ts';
 
@@ -82,6 +82,15 @@ test('confirmed burned subtitles create a text-free retry without changing dialo
   assert.deepEqual(repaired[0].speech, board.speech);
   assert.match(repaired[0].videoDuplicateRepairPrompt, /画面必须完全无字幕/);
   assert.match(repaired[0].videoDuplicateRepairPrompt, /对白只存在于音轨中/);
+  assert.equal(videoSubtitleRemovalSourceTaskId(repaired[0]), 'paid-text');
+});
+
+test('does not route duplicate-only repairs through subtitle-removal V2V', () => {
+  const board = {
+    videoDuplicateRepairPrompt: 'Keep exactly one body.',
+    videoDuplicateHistory: [{ taskId: 'paid-duplicate', audit: { subtitles: [], duplicates: [{ name: 'A', frames: [1, 2] }] } }],
+  };
+  assert.equal(videoSubtitleRemovalSourceTaskId(board), undefined);
 });
 
 test('repair preserves existing media receipts, exact speech and every other shot, with a durable bound', () => {

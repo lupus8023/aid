@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { applyFilmEndingPrompt, applySeriesVideoStyle, applyVideoDuplicateRepairPrompt, buildStoryboardVideoPrompt, buildVideoSegmentPrompt, generateStoryboardVideo } from '@/lib/videoGenerator';
 import { snapDurationToModel } from '@/lib/apimart';
-import { createComfyUIVideoTask } from '@/lib/comfyui';
+import { createComfyUISubtitleRemovalTask, createComfyUIVideoTask, isComfyUITask } from '@/lib/comfyui';
 import { audibleStoryboardSpeech, compileTimedSpeech } from '@/lib/speechAudioContract';
 import { allocateSegmentTimeline, estimateVideoSegmentSeconds, MAX_H3_SEGMENT_SECONDS } from '@/lib/videoSegments';
 import { createFalH3MaxVideoTask } from '@/lib/falVideo';
@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
     const {
       storyboard, segmentStoryboards = [], apiKey, videoModel, aspectRatio,
       characterAudios = [], firstFrameUrl,
+      subtitleRemovalSourceTaskId,
       motionContext,
       voiceReferences = {},  // { 角色名: CloudinaryURL }
       videoProvider = 'apimart', comfyui = {},
@@ -105,6 +106,23 @@ export async function POST(request: NextRequest) {
       });
     }
     if (videoProvider === 'comfyui') {
+      if (subtitleRemovalSourceTaskId) {
+        if (!isComfyUITask(String(subtitleRemovalSourceTaskId))) {
+          return NextResponse.json({ error: '自动去字幕缺少有效的原视频任务' }, { status: 400 });
+        }
+        const result = await createComfyUISubtitleRemovalTask({
+          sourceTaskId: String(subtitleRemovalSourceTaskId),
+          settings: comfyui,
+        });
+        return NextResponse.json({
+          taskId: result.taskId,
+          status: 'processing',
+          provider: 'comfyui',
+          workflow: result.workflow,
+          videoPrompt: result.prompt,
+          repair: 'subtitle-removal',
+        });
+      }
       if (videoStoryboards.some((shot: any) => !shot.imageUrl || typeof shot.imageUrl !== 'string')) return NextResponse.json({ error: 'Every selected storyboard needs an image' }, { status: 400 });
       if (videoStoryboards.some((shot: any) => shot.imageUrl.startsWith('blob:'))) {
         return NextResponse.json({ error: 'Storyboard image is a browser-only blob URL and cannot be read by Companion' }, { status: 400 });

@@ -4,6 +4,15 @@ import { extractJson } from './pipeline/json';
 export type VideoDuplicateAudit = NonNullable<Storyboard['videoDuplicateAudit']>;
 export const MAX_VIDEO_DUPLICATE_REPAIRS = 2;
 
+export function videoSubtitleRemovalSourceTaskId(
+  board: Pick<Storyboard, 'videoDuplicateHistory' | 'videoDuplicateRepairPrompt'>,
+): string | undefined {
+  if (!String(board.videoDuplicateRepairPrompt || '').includes('画面必须完全无字幕')) return undefined;
+  const latest = board.videoDuplicateHistory?.at(-1);
+  const confirmed = latest?.audit?.subtitles?.some(entry => entry.frames.length >= 2);
+  return confirmed && latest?.taskId ? latest.taskId : undefined;
+}
+
 export function videoDuplicateAuditContext(board: Pick<Storyboard, 'description' | 'videoDirection'>): string {
   return [board.description, board.videoDirection?.action, board.videoDirection?.camera, board.videoDirection?.detail, board.videoDirection?.ending]
     .filter(Boolean).join(' ');
