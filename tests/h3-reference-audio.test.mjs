@@ -17,6 +17,7 @@ import {
   sanitizeSubmittedH3Prompt,
   selectComfyUIVideoOutput,
   comfyUIQueueContainsPrompt,
+  comfyUIAssetCacheFileName,
   taggedPrompt,
 } from '../lib/comfyui.ts';
 import {
@@ -28,6 +29,15 @@ import {
 
 const TOTAL_BUDGET = 14.7;
 const MINIMUM_DURATION = 2;
+
+test('uses stable content-addressed names for reusable H3 reference uploads', () => {
+  const first = comfyUIAssetCacheFileName(Buffer.from('same reference'), 'voice.WAV');
+  const repeated = comfyUIAssetCacheFileName(Buffer.from('same reference'), 'another.wav');
+  const changed = comfyUIAssetCacheFileName(Buffer.from('different reference'), 'voice.wav');
+  assert.equal(first, repeated);
+  assert.match(first, /^[a-f0-9]{64}\.wav$/);
+  assert.notEqual(first, changed);
+});
 
 test('aligns requested duration to the H3 temporal block used by the remote workflow', () => {
   assert.equal(h3AlignedFrameCount(12), 294);

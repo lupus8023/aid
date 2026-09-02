@@ -624,7 +624,17 @@ export function buildVideoSegmentPrompt(
 /** Preserve repair direction even when the editor has a saved complete prompt override. */
 export function applyVideoDuplicateRepairPrompt(prompt: string, correction?: string): string {
   const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:CHARACTER CONTINUITY|VIDEO VISUAL) REPAIR:[^\n]*\n?/gm, '')).join('').trimEnd();
-  return correction ? fitH3PromptBudget(`${clean}\nVIDEO VISUAL REPAIR: ${correction.replace(/\s+/g, ' ').slice(0, 1200)}`) : clean;
+  if (!correction) return clean;
+  const directive = `VIDEO VISUAL REPAIR: ${correction.replace(/\s+/g, ' ').slice(0, 1200)} The <d> dialogue tags are audio-only instructions and must never become visible glyphs in any frame.`;
+  // The Director/H3 parser gives the official sections semantic weight. Put a
+  // confirmed visual correction inside detailed_description, immediately
+  // before the authored shots, instead of after non_diegetic_music where the
+  // model can treat it as trailing metadata and ignore it.
+  const marker = 'detailed_description:\n';
+  const markerIndex = clean.indexOf(marker);
+  return fitH3PromptBudget(markerIndex >= 0
+    ? `${clean.slice(0, markerIndex + marker.length)}${directive}\n${clean.slice(markerIndex + marker.length)}`
+    : `${clean}\n${directive}`);
 }
 
 /** The picture inputs already carry the style; never add its person as a video reference. */

@@ -28,6 +28,16 @@ test('count distinct bodies within each frame, not repeated appearances across t
   assert.ok(once.includes('<d>[English] Absolutely not.</d>'));
 });
 
+test('puts confirmed visual repairs inside the official detailed section before shots', () => {
+  const prompt = `subject_definitions:\n<Subject 1> is Luna.\n\nsummary:\nOne shot.\n\nretention_analysis:\nKeep Luna.\n\ndetailed_description:\n[Shot 1] Luna speaks <d>[English] Stop.</d>\n\noverall_soundscape:\nRoom tone.\n\nnon_diegetic_music:\nN/A`;
+  const repaired = applyVideoDuplicateRepairPrompt(prompt, '画面必须完全无字幕。');
+  assert.ok(repaired.indexOf('detailed_description:') < repaired.indexOf('VIDEO VISUAL REPAIR:'));
+  assert.ok(repaired.indexOf('VIDEO VISUAL REPAIR:') < repaired.indexOf('[Shot 1]'));
+  assert.ok(repaired.indexOf('[Shot 1]') < repaired.indexOf('overall_soundscape:'));
+  assert.match(repaired, /<d> dialogue tags are audio-only/);
+  assert.equal((repaired.match(/<d>\[English] Stop\.<\/d>/g) || []).length, 1);
+});
+
 test('combined H3 segments audit every authored shot with one stable cast scope', () => {
   const scope = videoDuplicateAuditScope([
     { sceneNumber: 13, characters: ['Luna', 'Inkfin'], description: 'Luna faces Inkfin.', videoDirection: { action: 'Inkfin waits.' } },

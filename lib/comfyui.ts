@@ -1449,11 +1449,37 @@ async function normalizeReferenceAudio(
   return { path: outputPath, duration: targetDuration };
 }
 
-async function uploadAsset(config: ComfyUIConfig, localPath: string, subfolder: string): Promise<string> {
-  const safeName = `${randomBytes(5).toString('hex')}${path.extname(localPath).toLowerCase()}`;
+export function comfyUIAssetCacheFileName(content: Uint8Array, localPath: string): string {
+  const extension = path.extname(localPath).toLowerCase().replace(/[^.a-z0-9]/g, '');
+  return `${createHash('sha256').update(content).digest('hex')}${extension}`;
+}
+
+async function uploadAsset(
+  config: ComfyUIConfig,
+  localPath: string,
+  subfolder: string,
+  options: { contentAddressed?: boolean } = {},
+): Promise<string> {
+  const content = options.contentAddressed ? await readFile(localPath) : undefined;
+  const safeName = content
+    ? comfyUIAssetCacheFileName(content, localPath)
+    : `${randomBytes(5).toString('hex')}${path.extname(localPath).toLowerCase()}`;
   const remoteDirectory = `${config.workflowRoot.replace(/\/$/, '')}/input/${subfolder}`;
   await runSsh(config, `mkdir -p -- ${shellQuote(remoteDirectory)}`);
   const remotePath = `${remoteDirectory}/${safeName}`;
+  if (content) {
+    const remoteBytes = Number((await runSsh(
+      config,
+      `if [ -f ${shellQuote(remotePath)} ]; then wc -c < ${shellQuote(remotePath)}; fi`,
+    )).trim());
+    if (remoteBytes === content.byteLength) {
+      console.log(`[comfyui] reuse cached asset: ${remotePath}`);
+      return `${subfolder}/${safeName}`;
+    }
+  }
+  const partialRemotePath = content
+    ? `${remotePath}.${randomBytes(5).toString('hex')}.part`
+    : remotePath;
   console.log(`[comfyui] uploadAsset: ${localPath} -> ${remotePath}`);
   if (config.sshPrivateKey) {
     const client = await getJsSshClient(config);
@@ -1462,8 +1488,13 @@ async function uploadAsset(config: ComfyUIConfig, localPath: string, subfolder: 
     });
     try {
       await new Promise<void>((resolve, reject) => {
-        sftp.fastPut(localPath, remotePath, error => error ? reject(error) : resolve());
+        sftp.fastPut(localPath, partialRemotePath, error => error ? reject(error) : resolve());
       });
+      if (content) {
+        await new Promise<void>((resolve, reject) => {
+          sftp.rename(partialRemotePath, remotePath, error => error ? reject(error) : resolve());
+        });
+      }
       return `${subfolder}/${safeName}`;
     } catch (error) {
       throw new ComfyUIError(`SFTP 上传失败：${path.basename(localPath)}；${error instanceof Error ? error.message : String(error)}`);
@@ -1477,11 +1508,12 @@ async function uploadAsset(config: ComfyUIConfig, localPath: string, subfolder: 
     '-o', 'BatchMode=yes', '-o', `ConnectTimeout=${SSH_CONNECT_TIMEOUT_SECONDS}`,
     '-o', 'ConnectionAttempts=2', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=2',
     ...connectionReuseArgs(config), ...(await identityArgs(config)),
-    localPath, `${config.sshUser}@${config.sshHost}:${remotePath}`,
+    localPath, `${config.sshUser}@${config.sshHost}:${partialRemotePath}`,
   ];
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       await execFileAsync('scp', args, { timeout: 600_000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' });
+      if (content) await runSsh(config, `mv -f -- ${shellQuote(partialRemotePath)} ${shellQuote(remotePath)}`);
       return `${subfolder}/${safeName}`;
     } catch (error: any) {
       lastError = String(error?.stderr || error?.stdout || error?.message || error).trim();
@@ -1834,9 +1866,9 @@ export async function createComfyUIVideoTask(input: {
       const localAudios = normalizedAudios.map(audio => audio.path);
 
       const remoteImages: string[] = [];
-      for (const image of localImages) remoteImages.push(await uploadAsset(config, image, subfolder));
+      for (const image of localImages) remoteImages.push(await uploadAsset(config, image, 'aid/assets', { contentAddressed: true }));
       const remoteAudios: string[] = [];
-      for (const audio of localAudios) remoteAudios.push(await uploadAsset(config, audio, subfolder));
+      for (const audio of localAudios) remoteAudios.push(await uploadAsset(config, audio, 'aid/assets', { contentAddressed: true }));
 
       const finalPrompt = taggedPrompt(
         shiftH3PromptTimecodes(input.prompt, motionContextHeadSeconds),
