@@ -2,7 +2,9 @@ import type { Storyboard } from '@/types';
 import { extractJson } from './pipeline/json';
 
 export type VideoDuplicateAudit = NonNullable<Storyboard['videoDuplicateAudit']>;
-export const MAX_VIDEO_DUPLICATE_REPAIRS = 2;
+// One clip can need both a creative cast repair and a deterministic subtitle
+// cleanup. Keep the loop bounded, but leave one extra pass for that combination.
+export const MAX_VIDEO_DUPLICATE_REPAIRS = 3;
 const COMFYUI_SUBTITLE_TASK_PREFIX = 'comfyui-subtitle:';
 
 export function videoSubtitleRemovalSourceTaskId(

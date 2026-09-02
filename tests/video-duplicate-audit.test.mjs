@@ -110,7 +110,7 @@ test('repair preserves existing media receipts, exact speech and every other sho
   assert.match(prompt, /same single body/);
   assert.equal((prompt.match(/<d>\[English] Absolutely not\.<\/d>/g) || []).length, 1);
   assert.throws(() => prepareVideoDuplicateRepair([bad], [bad], { ...audit, taskId: 'stale' }), /明确证据/);
-  const exhausted = { ...bad, videoDuplicateRepairAttempts: 2 };
+  const exhausted = { ...bad, videoDuplicateRepairAttempts: 3 };
   assert.throws(() => prepareVideoDuplicateRepair([exhausted], [exhausted], audit), /上限/);
   assert.throws(() => prepareVideoDuplicateRepair([bad], [bad], { ...audit, passed: null }), /明确证据/);
 });
@@ -135,7 +135,7 @@ test('legacy vague extra-body checkpoint gets one bounded exact-cast migration r
   const board = {
     id: 'scene-3', sceneNumber: 3, characters: ['Inkfin', 'Clawrence', 'Bram Brinejaw'],
     description: 'Three characters stand together.', videoStatus: 'completed',
-    videoTaskId: 'comfyui:legacy-extra', videoDuplicateRepairAttempts: 2,
+    videoTaskId: 'comfyui:legacy-extra', videoDuplicateRepairAttempts: 3,
     videoDuplicateRepairPrompt: 'Keep exactly one visible instance of each named character. Each person must remain the same single body throughout this shot.',
   };
   const audit = {
@@ -144,11 +144,11 @@ test('legacy vague extra-body checkpoint gets one bounded exact-cast migration r
     duplicates: [{ name: '__extra__', frames: [1, 2, 3], evidence: 'four bodies' }],
   };
   const migrated = prepareVideoDuplicateRepair([board], [board], audit);
-  assert.equal(migrated[0].videoDuplicateRepairAttempts, 3);
+  assert.equal(migrated[0].videoDuplicateRepairAttempts, 4);
   assert.match(migrated[0].videoDuplicateRepairPrompt, /exactly 3 visible story-character bodies total/i);
   assert.throws(() => prepareVideoDuplicateRepair(
-    [{ ...board, videoDuplicateRepairAttempts: 3, videoDuplicateRepairPrompt: migrated[0].videoDuplicateRepairPrompt }],
-    [{ ...board, videoDuplicateRepairAttempts: 3, videoDuplicateRepairPrompt: migrated[0].videoDuplicateRepairPrompt }],
+    [{ ...board, videoDuplicateRepairAttempts: 4, videoDuplicateRepairPrompt: migrated[0].videoDuplicateRepairPrompt }],
+    [{ ...board, videoDuplicateRepairAttempts: 4, videoDuplicateRepairPrompt: migrated[0].videoDuplicateRepairPrompt }],
     audit,
   ), /上限/);
 });
@@ -156,7 +156,7 @@ test('legacy vague extra-body checkpoint gets one bounded exact-cast migration r
 test('legacy H3 subtitle redraws get one migration to temporal inpainting', () => {
   const board = {
     id: 'scene-text', sceneNumber: 1, characters: ['裴行简'], description: '裴行简举起面膜袋。',
-    videoStatus: 'completed', videoTaskId: 'comfyui:legacy-redraw', videoDuplicateRepairAttempts: 2,
+    videoStatus: 'completed', videoTaskId: 'comfyui:legacy-redraw', videoDuplicateRepairAttempts: 3,
     videoDuplicateRepairPrompt: '画面必须完全无字幕。',
     videoDuplicateHistory: [{
       taskId: 'comfyui:older-redraw',
@@ -168,12 +168,12 @@ test('legacy H3 subtitle redraws get one migration to temporal inpainting', () =
     subtitles: [{ text: '乱码', frames: [1, 2, 3], evidence: 'bottom-center white text' }],
   };
   const migrated = prepareVideoDuplicateRepair([board], [board], audit);
-  assert.equal(migrated[0].videoDuplicateRepairAttempts, 3);
+  assert.equal(migrated[0].videoDuplicateRepairAttempts, 4);
   assert.equal(videoSubtitleRemovalSourceTaskId(migrated[0]), 'comfyui:legacy-redraw');
   const exhausted = {
     ...board,
     videoTaskId: 'comfyui-subtitle:already-tried',
-    videoDuplicateRepairAttempts: 3,
+    videoDuplicateRepairAttempts: 4,
     videoDuplicateHistory: [{ ...board.videoDuplicateHistory[0], taskId: 'comfyui-subtitle:already-tried' }],
   };
   assert.throws(() => prepareVideoDuplicateRepair(
