@@ -471,11 +471,15 @@ function CharacterCard({
 function FixedObjectCard({
   object,
   disabled,
+  disabledReason,
+  saving,
   onSave,
   onDelete,
 }: {
   object?: SeriesObject;
   disabled: boolean;
+  disabledReason?: string;
+  saving?: boolean;
   onSave: (patch: { name: string; aliases: string; description: string }, file?: File) => void;
   onDelete?: () => void;
 }) {
@@ -495,6 +499,12 @@ function FixedObjectCard({
         const file = data.get('image');
         onSave({ name: String(data.get('name') || ''), aliases: String(data.get('aliases') || ''), description: String(data.get('description') || '') }, file instanceof File && file.size ? file : undefined);
       }}>
+        {object && (
+          <p className="flex items-center gap-2 text-xs text-emerald-300" role="status">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+            已锁定并用于全剧识别
+          </p>
+        )}
         <Labeled label="固定道具正名（剧本按此名称识别）">
           <input className={field} name="name" defaultValue={object?.name} required disabled={disabled} />
         </Labeled>
@@ -508,9 +518,16 @@ function FixedObjectCard({
           <input className={`${field} text-xs`} type="file" name="image" accept="image/png,image/jpeg,image/webp" required={!object?.imageUrl} disabled={disabled} />
         </Labeled>
         <div className="flex gap-2">
-          <button className={`${button} flex-1`} disabled={disabled}>{object ? '保存并更新视觉断点' : '添加全剧固定道具'}</button>
+          <button className={`${button} flex-1`} disabled={disabled} aria-busy={saving || undefined}>
+            {saving ? '正在上传并保存…' : object ? '保存并更新视觉断点' : disabledReason ? '当前不可添加' : '添加全剧固定道具'}
+          </button>
           {onDelete && <button type="button" className={`${button} text-red-300`} disabled={disabled} onClick={onDelete}><Trash2 size={14} />删除</button>}
         </div>
+        {disabledReason && !saving && (
+          <p className="rounded-lg border border-amber-300/20 bg-amber-300/5 px-3 py-2 text-xs leading-5 text-amber-200" role="status">
+            {disabledReason}
+          </p>
+        )}
       </form>
     </article>
   );
@@ -535,6 +552,7 @@ export default function SeriesPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [objectFeedback, setObjectFeedback] = useState<{ target: string; tone: 'saving' | 'success' | 'error'; message: string }>();
   const [selection, setSelection] = useState<string[]>([]);
   const [episodeId, setEpisodeId] = useState("");
   const [preview, setPreview] = useState("");
@@ -562,6 +580,13 @@ export default function SeriesPage() {
     busy ? "正在保存，请稍候" :
     editingLocked ? "请等待当前任务完成，或先暂停制作队列" :
     seriesStageBlocker(project, "prepare");
+  const fixedObjectDisabledReason = !connected
+    ? '尚未连接 Companion，暂时不能保存固定道具。'
+    : editingLocked
+      ? '制作队列正在运行，固定道具尚未保存。请先点击页面上方“暂停队列”，等待当前任务保存断点后再添加。'
+      : busy && objectFeedback?.tone !== 'saving'
+        ? '另一项保存仍在进行，请稍候。'
+        : undefined;
   const latestDevelopment = jobs.filter(j => j.kind === "develop").at(-1);
 
   const refresh = useCallback(async (server: string) => {
@@ -623,6 +648,7 @@ export default function SeriesPage() {
     setEpisodeId("");
     setCastingId("");
     setPreview("");
+    setObjectFeedback(undefined);
   }, [selectedId]);
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
@@ -736,9 +762,21 @@ export default function SeriesPage() {
     finally { setBusy(false); }
   };
   const saveFixedObject = async (objectId: string | undefined, patch: { name: string; aliases: string; description: string }, file?: File) => {
-    if (!project || busy || editingLocked || base === undefined) return;
+    if (!project || base === undefined) {
+      setObjectFeedback({ target:objectId || 'new', tone:'error', message:'尚未连接 Companion，固定道具未保存。' });
+      return;
+    }
+    if (busy) {
+      setObjectFeedback({ target:objectId || 'new', tone:'error', message:'上一项保存仍在进行，请稍候。' });
+      return;
+    }
+    if (editingLocked) {
+      setObjectFeedback({ target:objectId || 'new', tone:'error', message:'制作队列仍在运行，固定道具未保存。请先暂停队列，等待当前任务保存断点后再添加。' });
+      return;
+    }
     const target = project;
     setBusy(true); setError(''); setNotice('');
+    setObjectFeedback({ target:objectId || 'new', tone:'saving', message:`正在上传并保存固定道具“${patch.name.trim()}”…` });
     try {
       const status = await readApiJson<{seriesFixedObjects?:boolean}>(await fetch(`${base}/api/companion/status`), '无法检查固定道具支持');
       if (!status.seriesFixedObjects) throw new Error('当前 Companion 尚不支持全剧固定道具，请更新后再保存');
@@ -749,10 +787,22 @@ export default function SeriesPage() {
         const uploaded = await readApiJson<{url:string}>(await fetch(`${base}/api/upload-image`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageData})}), '固定道具图上传失败');
         imageUrl = uploaded.url;
       }
-      await seriesRequest({ action:'upsert-object', seriesId:target.id, revision:target.revision, objectId, patch:{...patch,aliases:patch.aliases.split(/[，,、\n]/).map(value=>value.trim()).filter(Boolean),imageUrl} }, base);
+      const result = await seriesRequest<{ project?: SeriesProject }>({ action:'upsert-object', seriesId:target.id, revision:target.revision, objectId, patch:{...patch,aliases:patch.aliases.split(/[，,、\n]/).map(value=>value.trim()).filter(Boolean),imageUrl} }, base);
+      if (result.project) {
+        setSnapshot(current => ({
+          ...current,
+          projects: current.projects.map(item => item.id === result.project!.id ? result.project! : item),
+        }));
+      }
       await refresh(base);
-      setNotice(`固定道具“${patch.name.trim()}”已锁定。现有剧本和成片保留；后续视觉制作会在每次出现时复用指定图。`);
-    } catch (err) { setError(err instanceof Error?err.message:'固定道具保存失败'); }
+      const message = `固定道具“${patch.name.trim()}”已锁定并显示在下方。后续分镜每次识别到它，都会优先使用这张指定图。`;
+      setNotice(message);
+      setObjectFeedback({ target:objectId || 'new', tone:'success', message });
+    } catch (err) {
+      const message = err instanceof Error?err.message:'固定道具保存失败';
+      setError(message);
+      setObjectFeedback({ target:objectId || 'new', tone:'error', message:`保存失败：${message}` });
+    }
     finally { setBusy(false); }
   };
   const enqueue = async (kind: SeriesJobKind, episodeIds?: string[]) => {
@@ -1497,18 +1547,42 @@ export default function SeriesPage() {
                       </p>
                     )}
                     <div className="mb-4 mt-9">
-                      <h3 className="text-sm">全剧固定道具</h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm">全剧固定道具</h3>
+                        <span className="rounded-full bg-[#a78bfa]/10 px-2 py-0.5 text-[10px] text-[#c1afff]">
+                          已锁定 {(project.objects || []).length} 个
+                        </span>
+                      </div>
                       <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
                         只登记跨镜头、跨分集必须保持同一外观的关键道具。系统按正名识别它在剧本中的每次出现，并把这里的指定图作为不可变设计源；机位、光线和摆放可变，轮廓、比例、材质、结构与标记不可重画。
                       </p>
+                      {objectFeedback && (
+                        <p
+                          className={`mt-3 rounded-lg border px-3 py-2 text-xs leading-5 ${
+                            objectFeedback.tone === 'success'
+                              ? 'border-emerald-300/20 bg-emerald-300/5 text-emerald-200'
+                              : objectFeedback.tone === 'error'
+                                ? 'border-red-300/20 bg-red-300/5 text-red-200'
+                                : 'border-[#a78bfa]/20 bg-[#a78bfa]/5 text-[#d8ceff]'
+                          }`}
+                          role="status"
+                        >
+                          {objectFeedback.message}
+                        </p>
+                      )}
                     </div>
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                       {(project.objects || []).map(object => (
-                        <FixedObjectCard key={object.id} object={object} disabled={editingLocked || busy}
+                        <FixedObjectCard key={object.id} object={object} disabled={editingLocked || busy || !connected}
+                          disabledReason={fixedObjectDisabledReason}
+                          saving={busy && objectFeedback?.tone === 'saving' && objectFeedback.target === object.id}
                           onSave={(patch,file)=>void saveFixedObject(object.id,patch,file)}
                           onDelete={()=>void action({action:'delete-object',revision:project.revision,objectId:object.id},`固定道具“${object.name}”已删除；剧本和历史成片保留。`)} />
                       ))}
-                      <FixedObjectCard key={`new-object-${project.revision}`} disabled={editingLocked || busy} onSave={(patch,file)=>void saveFixedObject(undefined,patch,file)} />
+                      <FixedObjectCard key={`new-object-${project.revision}`} disabled={editingLocked || busy || !connected}
+                        disabledReason={fixedObjectDisabledReason}
+                        saving={busy && objectFeedback?.tone === 'saving' && objectFeedback.target === 'new'}
+                        onSave={(patch,file)=>void saveFixedObject(undefined,patch,file)} />
                     </div>
                     <h3 className="mb-4 mt-9 text-sm">常用场景</h3>
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
