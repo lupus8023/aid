@@ -59,6 +59,7 @@ export const config = {
     '/api/character-design',
     '/api/generate-costume',
     '/api/image-to-image',
+    '/api/upload-image',
     '/api/generate-audio',
     '/api/generate-story-plan',
     '/api/direct-storyboard',
