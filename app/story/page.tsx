@@ -2626,6 +2626,9 @@ export default function StoryPage() {
               } finally { if (ownsUrl && source.startsWith('blob:')) URL.revokeObjectURL(source); }
             });
             if (!duplicateAudit) throw new Error('视频画面检查未完成');
+            if (duplicateAudit.passed === null) {
+              throw new Error(`${groupLabel}：${duplicateAudit.reason}。已保留当前视频任务，确认画面无字幕后再继续交付`);
+            }
             if (duplicateAudit.passed !== false) break;
             const repaired = prepareVideoDuplicateRepair(storyboardsRef.current, refreshPlannedVideoSegment(storyboardsRef.current, group), duplicateAudit);
             storyboardsRef.current = repaired; setStoryboards(repaired); persistCurrentProject();
