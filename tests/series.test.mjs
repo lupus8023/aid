@@ -95,6 +95,21 @@ test('a short Chinese prop alias does not steal a longer overlapping prop name',
   assert.deepEqual(new Set(seriesShotObjectIds(p, { objectIds: [], visual: '她先放下金色面膜袋，再展开灰色网状面膜布。', action: '' })), new Set(['bag', 'cloth']));
 });
 
+test('rejects a fixed-prop id that is not grounded by its registered name or alias', () => {
+  const p = fixture();
+  p.objects = [
+    { id: 'bag', name: '金色面膜袋', aliases: ['袋装面膜'], description: '金色袋装面膜。', imageUrl: 'https://res.cloudinary.com/test/bag.png' },
+    { id: 'cloth', name: '灰色网状面膜布', aliases: ['面膜布'], description: '灰色网状布料。', imageUrl: 'https://res.cloudinary.com/test/cloth.png' },
+  ];
+  const raw = shotFixture();
+  raw.shots[0].objectIds = ['bag'];
+  raw.shots[0].visual += ' 宫人把普通面膜贴到贵妃脸上。';
+  assert.throws(() => parseScript(raw, p, p.episodes[0]), /金色面膜袋.*未使用其正名或登记别名/);
+  raw.shots[0].objectIds = ['cloth'];
+  raw.shots[0].visual += ' 她展开灰色网状面膜布。';
+  assert.deepEqual(parseScript(raw, p, p.episodes[0])[0].objectIds, ['cloth']);
+});
+
 test('approved series dialogue goes straight to direction, retaining A-B-A exchanges, silence and sound', () => {
   const p = fixture(), cast = p.characters.map(c => ({ ...c, voiceId: `voice-${c.id}` }));
   const names = new Map(cast.map(c => [c.id, c.name]));

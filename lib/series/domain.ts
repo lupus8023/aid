@@ -295,7 +295,13 @@ export function parseScript(
     )
       throw new Error("台词角色未登记为本镜发声角色");
     const visual = required(s.visual, "镜头画面"), action = required(s.action, "镜头行动");
-    const inferredObjectIds = seriesShotObjectIds(project, { objectIds: requestedObjectIds, visual, action });
+    const mentionedObjectIds = seriesShotObjectIds(project, { objectIds: [], visual, action });
+    const ungroundedObjects = requestedObjectIds.filter(id => !mentionedObjectIds.includes(id));
+    if (ungroundedObjects.length) {
+      const names = ungroundedObjects.map(id => project.objects.find(object => object.id === id)?.name || id);
+      throw new Error(`镜头 ${i + 1} 标记了固定道具 ${names.join('、')}，但 visual/action 未使用其正名或登记别名`);
+    }
+    const inferredObjectIds = [...new Set([...requestedObjectIds, ...mentionedObjectIds])];
     return {
       number: i + 1,
       seconds,
@@ -357,9 +363,12 @@ export function rescanSeriesObjectUsage(
   project: Pick<SeriesProject, 'objects' | 'episodes'>,
 ): SeriesEpisode[] {
   return project.episodes.map(episode => episode.script
-    ? { ...episode, script: episode.script.map(shot => ({
+      ? { ...episode, script: episode.script.map(shot => ({
         ...shot,
-        objectIds: seriesShotObjectIds(project, shot),
+        // Rebuild from authored visible/action text. Keeping old explicit ids
+        // here could make a packet reference silently stand in for a mask
+        // cloth even when the shot never names that registered prop.
+        objectIds: seriesShotObjectIds(project, { ...shot, objectIds: [] }),
       })) }
     : episode);
 }
