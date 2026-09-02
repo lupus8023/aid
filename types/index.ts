@@ -165,6 +165,7 @@ export interface Storyboard {
     mediaSha256: string;
     passed: boolean | null;
     duplicates: Array<{ name: string; frames: number[]; evidence: string }>;
+    subtitles?: Array<{ text: string; frames: number[]; evidence: string }>;
     reason: string;
     checkedAt: string;
   };

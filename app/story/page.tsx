@@ -2598,14 +2598,13 @@ export default function StoryPage() {
           if (!isDone) throw new Error('任务结束但没有返回完整视频');
         };
         await retryUntilCompleted(groupLabel, completeGroup);
-        if (videoProvider === 'comfyui' && group.some(item => item.characters.length)) {
+        if (videoProvider === 'comfyui') {
           for (let round = 0; round <= MAX_VIDEO_DUPLICATE_REPAIRS; round++) {
             if (autoAbortRef.current) return;
             let duplicateAudit: VideoDuplicateAudit | undefined;
-            await retryUntilCompleted(`${groupLabel}：检查重复角色`, async () => {
+            await retryUntilCompleted(`${groupLabel}：检查重复角色与烧录字幕`, async () => {
               const current = refreshPlannedVideoSegment(storyboardsRef.current, group), leader = current[0];
               const { names, context } = videoDuplicateAuditScope(current);
-              if (!names.length) throw new Error('视频片段没有可核验的角色');
               if (!leader.videoTaskId) throw new Error('视频尚未返回任务编号');
               if (leader.videoDuplicateAudit?.taskId === leader.videoTaskId) { duplicateAudit = leader.videoDuplicateAudit; return; }
               const cached = leader.videoCacheKey ? await cachedVideoObjectUrl(leader.videoCacheKey) : undefined;
@@ -2620,17 +2619,17 @@ export default function StoryPage() {
                 form.append('metadata', JSON.stringify({ names, context, apiKey: active.apiKey, dmxApiKey: active.dmxApiKey, provider: active.scriptProvider || 'auto', model: active.scriptModel || 'gpt-4o' }));
                 const response = await fetchStoryApi('/api/series/audit-video-duplicates', { method: 'POST', body: form }, active.comfyui);
                 const result = await readApiJson<{ audit: VideoDuplicateAudit }>(response, '视频角色检查失败');
-                if (!result.audit || result.audit.taskId !== leader.videoTaskId || ![true, false, null].includes(result.audit.passed)) throw new Error('视频角色核验未返回当前任务结果');
+                if (!result.audit || result.audit.taskId !== leader.videoTaskId || ![true, false, null].includes(result.audit.passed)) throw new Error('视频画面核验未返回当前任务结果');
                 duplicateAudit = result.audit;
                 commitStoryboards(items => items.map(b => b.id === leader.id ? { ...b, videoDuplicateAudit: result.audit } : b));
                 persistCurrentProject();
               } finally { if (ownsUrl && source.startsWith('blob:')) URL.revokeObjectURL(source); }
             });
-            if (!duplicateAudit) throw new Error('视频角色检查未完成');
+            if (!duplicateAudit) throw new Error('视频画面检查未完成');
             if (duplicateAudit.passed !== false) break;
             const repaired = prepareVideoDuplicateRepair(storyboardsRef.current, refreshPlannedVideoSegment(storyboardsRef.current, group), duplicateAudit);
             storyboardsRef.current = repaired; setStoryboards(repaired); persistCurrentProject();
-            await retryUntilCompleted(`${groupLabel}：纠正重复角色`, completeGroup);
+            await retryUntilCompleted(`${groupLabel}：纠正重复角色或烧录字幕`, completeGroup);
           }
         }
         if (videoProvider === 'comfyui' && isFilmEndingSegment(storyboardsRef.current, group)) {

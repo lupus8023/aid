@@ -49,6 +49,31 @@ test('only supported duplicate-body evidence across multiple sampled frames allo
   assert.throws(() => parseVideoDuplicates('{}', ['Luna']), /格式/);
 });
 
+test('burned dialogue text requires adjacent-frame confirmation and ignores physical labels', () => {
+  const frame = (number, readableText) => ({ frame: number, visible: [], readableText });
+  const subtitle = text => ({ text, position: 'bottom center', kind: 'subtitle', evidence: 'white dialogue glyphs over the picture' });
+  const physical = { text: '御赐', position: 'engraved on box', kind: 'physical_label', evidence: 'moves with the prop surface' };
+  const one = parseVideoDuplicates(JSON.stringify({ observations: [frame(1, [subtitle('娘娘')]), frame(2, []), frame(3, [physical])] }), []);
+  assert.equal(one.passed, null);
+  assert.deepEqual(one.subtitles[0].frames, [1]);
+  const confirmed = parseVideoDuplicates(JSON.stringify({ observations: [frame(1, [subtitle('娘娘')]), frame(2, [subtitle('娘娘')]), frame(3, [physical])] }), []);
+  assert.equal(confirmed.passed, false);
+  assert.match(confirmed.reason, /烧录字幕/);
+  const clean = parseVideoDuplicates(JSON.stringify({ observations: [frame(1, [physical]), frame(2, []), frame(3, [])] }), []);
+  assert.equal(clean.passed, true);
+  assert.deepEqual(clean.subtitles, []);
+});
+
+test('confirmed burned subtitles create a text-free retry without changing dialogue', () => {
+  const board = { id: 'bad-text', sceneNumber: 4, characters: [], imageUrl: 'approved.png', videoTaskId: 'paid-text', videoStatus: 'completed', speech: [{ character: '甲', exactLine: '娘娘。' }] };
+  const audit = { taskId: 'paid-text', passed: false, duplicates: [], subtitles: [{ text: '娘娘', frames: [1, 2, 3], evidence: 'bottom-center white text' }] };
+  const repaired = prepareVideoDuplicateRepair([board], [board], audit);
+  assert.equal(repaired[0].videoTaskId, undefined);
+  assert.deepEqual(repaired[0].speech, board.speech);
+  assert.match(repaired[0].videoDuplicateRepairPrompt, /画面必须完全无字幕/);
+  assert.match(repaired[0].videoDuplicateRepairPrompt, /对白只存在于音轨中/);
+});
+
 test('repair preserves existing media receipts, exact speech and every other shot, with a durable bound', () => {
   const earlier = { id: 'first', sceneNumber: 1, videoTaskId: 'other-paid', videoStatus: 'completed' };
   const bad = { id: 'bad', sceneNumber: 2, characters: ['Luna'], imageUrl: 'approved.png', videoTaskId: 'paid-bad', videoStatus: 'completed', videoCacheKey: 'old', speech: [{ character: 'Luna', exactLine: 'Absolutely not.' }], description: 'Luna reads the paper.' };

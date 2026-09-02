@@ -623,8 +623,8 @@ export function buildVideoSegmentPrompt(
 
 /** Preserve repair direction even when the editor has a saved complete prompt override. */
 export function applyVideoDuplicateRepairPrompt(prompt: string, correction?: string): string {
-  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^CHARACTER CONTINUITY REPAIR:[^\n]*\n?/gm, '')).join('').trimEnd();
-  return correction ? fitH3PromptBudget(`${clean}\nCHARACTER CONTINUITY REPAIR: ${correction.replace(/\s+/g, ' ').slice(0, 1200)}`) : clean;
+  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:CHARACTER CONTINUITY|VIDEO VISUAL) REPAIR:[^\n]*\n?/gm, '')).join('').trimEnd();
+  return correction ? fitH3PromptBudget(`${clean}\nVIDEO VISUAL REPAIR: ${correction.replace(/\s+/g, ' ').slice(0, 1200)}`) : clean;
 }
 
 /** The picture inputs already carry the style; never add its person as a video reference. */

@@ -52,3 +52,13 @@ test('image-to-video sends the text-free policy to both ComfyUI and remote provi
   assert.match(source, /let enhancedPrompt = safePrompt/);
   assert.match(source, /createVideoTask\(\s*enhancedPrompt/s);
 });
+
+test('automatic ComfyUI production audits subtitles even when a shot has no characters', async () => {
+  const source = await readFile(new URL('../app/story/page.tsx', import.meta.url), 'utf8');
+  const auditSource = await readFile(new URL('../app/api/series/audit-video-duplicates/route.ts', import.meta.url), 'utf8');
+  assert.match(source, /if \(videoProvider === 'comfyui'\) \{/);
+  assert.doesNotMatch(source, /videoProvider === 'comfyui' && group\.some\(item => item\.characters\.length\)/);
+  assert.match(source, /检查重复角色与烧录字幕/);
+  assert.match(auditSource, /readableText: parsed\.readableText/);
+  assert.match(auditSource, /readableText: f\.readableText/);
+});
