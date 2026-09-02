@@ -80,6 +80,48 @@ export async function POST(request: NextRequest) {
           db.projects.unshift(created);
           return { project: created };
         }
+        case "upsert-object":
+        case "delete-object": {
+          if (!project) throw new Error("连续剧不存在");
+          if (busy(project.id)) throw new Error("请先暂停制作队列，待当前任务保存断点后再修改固定道具");
+          if (body.revision !== project.revision) throw new Error("内容已有更新，请刷新后再修改固定道具");
+          project.objects ||= [];
+          const current = typeof body.objectId === 'string'
+            ? project.objects.find(object => object.id === body.objectId)
+            : undefined;
+          if (body.action === 'delete-object') {
+            if (!current) throw new Error('固定道具不存在');
+            project.objects = project.objects.filter(object => object.id !== current.id);
+          } else {
+            const name = text(body.patch?.name, 120);
+            const description = text(body.patch?.description, 2000);
+            const aliases = (Array.isArray(body.patch?.aliases) ? body.patch.aliases : String(body.patch?.aliases || '').split(/[，,、\n]/))
+              .map((value: unknown) => text(value, 120)).filter(Boolean);
+            const imageUrl = text(body.patch?.imageUrl, 4000) || current?.imageUrl || '';
+            if (!name || !description) throw new Error('固定道具需要名称和可制作描述');
+            if (!imageUrl) throw new Error('固定道具必须上传指定参考图后才能保存');
+            let parsed: URL;
+            try { parsed = new URL(imageUrl); } catch { throw new Error('固定道具参考图地址无效'); }
+            if (parsed.protocol !== 'https:' || parsed.username || parsed.password)
+              throw new Error('固定道具参考图需要安全的HTTPS地址');
+            const candidateNames = [name, ...aliases].map(value => value.toLocaleLowerCase());
+            const existingNames = project.objects.filter(object => object.id !== current?.id)
+              .flatMap(object => [object.name, ...(object.aliases || [])]).map(value => value.toLocaleLowerCase());
+            if (new Set(candidateNames).size !== candidateNames.length || candidateNames.some(value => existingNames.includes(value)))
+              throw new Error('固定道具名称重复；请编辑已有道具');
+            const value = { id: current?.id || seriesId('object'), name, aliases, description, imageUrl };
+            if (current) project.objects[project.objects.indexOf(current)] = value;
+            else project.objects.push(value);
+          }
+          // The screenplay remains authoritative. Only visual production made
+          // with the previous object identity is invalidated; delivered files
+          // stay attached to their old episode version.
+          project.episodes = project.episodes.map(episode => episode.production
+            ? { ...episode, version: episode.version + 1, production: undefined }
+            : episode);
+          touchProject(project);
+          return { project };
+        }
         case "cast-character": {
           if (!project) throw new Error("连续剧不存在");
           if (busy(project.id))

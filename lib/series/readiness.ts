@@ -8,6 +8,8 @@ export function seriesStageBlocker(project: SeriesProject | undefined, kind: Ser
   if (kind === "prepare") {
     if (!project.characters.length || !project.locations.length)
       return "请先生成总纲中的角色与场景清单";
+    if ((project.objects || []).some(object => !object.imageUrl))
+      return `请先为固定道具上传指定参考图：${(project.objects || []).filter(object => !object.imageUrl).map(object => object.name).join('、')}`;
     return "";
   }
   if (project.episodes.length !== project.episodeCount || project.episodes.some(e => e.needsReview))
@@ -20,5 +22,6 @@ export function seriesAssetsReady(project: SeriesProject): boolean {
     project.characters.every(c => c.locked &&
       (c.appearance === "voice_only" || Boolean(c.bibleUrl)) &&
       (!c.speaking || Boolean(c.voiceId && c.voiceReferenceUrl))) &&
-    project.locations.every(l => Boolean(l.imageUrl));
+    project.locations.every(l => Boolean(l.imageUrl)) &&
+    (project.objects || []).every(object => Boolean(object.imageUrl));
 }

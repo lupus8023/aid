@@ -232,16 +232,19 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       objectsWithoutRef.push(obj);
     }
   });
-  // Midjourney previously received only the first reference, which was always
-  // the character bible. Even after multi-reference support, putting the
-  // environment first makes its narrative location the composition anchor.
-  // Referenced scene objects come next so a low provider reference limit can
-  // never silently discard the product/prop that the current shot requires.
-  const referenceEntries: Array<{ image: string; description: string; fallback: string }> = isMidjourneyImageModel(selectedImageModel)
-    ? [...(sceneReferenceEntry ? [sceneReferenceEntry] : []), ...objectReferenceEntries, ...characterReferenceEntries]
-    : [...objectReferenceEntries, ...characterReferenceEntries, ...(sceneReferenceEntry ? [sceneReferenceEntry] : [])];
+  // Fixed prop identity is never optional environment flavor. Put referenced
+  // objects first for every provider so low reference limits cannot discard
+  // the exact design that the shot is required to preserve.
+  const referenceEntries: Array<{ image: string; description: string; fallback: string }> = [
+    ...objectReferenceEntries,
+    ...characterReferenceEntries,
+    ...(sceneReferenceEntry ? [sceneReferenceEntry] : []),
+  ];
 
   const selectedReferenceEntries = referenceEntries.slice(0, maxReferenceImages);
+  if (objectReferenceEntries.length > maxReferenceImages) {
+    throw new Error(`This shot requires ${objectReferenceEntries.length} immutable object references, but ${selectedImageModel} supports only ${maxReferenceImages}; generation stopped before payment.`);
+  }
   const omittedReferenceEntries = referenceEntries.slice(maxReferenceImages);
   const referenceImages = selectedReferenceEntries.map(entry => entry.image);
 

@@ -2,7 +2,7 @@
 
 import { prepareSeriesImage, SeriesImagePreparationError, type SeriesImageAsset } from "./imagePreparation";
 import { ApiResponseError, readApiJson } from "@/lib/apiResponse";
-import { buildEpisodeProject } from "./domain";
+import { buildEpisodeProject, seriesShotObjectIds } from "./domain";
 import { copiedDialogueShotNumbers } from "./scriptRepair";
 import { repairEpisodeDialogue, synchronizeEpisodeDialogue } from "./productionDialogueRepair";
 import { storyStorageKeys } from "./storageScope";
@@ -156,7 +156,7 @@ export async function executeSeriesClaim(
       await save("总编剧：开发整季总纲、角色与场景");
       const outline =
         await generate<
-          Pick<SeriesProject, "bible" | "characters" | "locations">
+          Pick<SeriesProject, "bible" | "characters" | "locations" | "objects">
         >("outline");
       Object.assign(project, outline);
       await save("故事总纲已保存");
@@ -423,6 +423,7 @@ export async function executeSeriesClaim(
         locationId: s.locationId,
         sceneStyle: project.locations.find(l => l.id === s.locationId)?.description,
         sceneImageUrl: project.locations.find(l => l.id === s.locationId)?.imageUrl,
+        objects: seriesShotObjectIds(project, s).map(id => project.objects.find(object => object.id === id)!.name),
         // A screenplay can occasionally omit a speaking role from characterIds.
         // Include registered dialogue speakers in the visual cast up front so
         // Story does not fail later with a generic voice-contract error.

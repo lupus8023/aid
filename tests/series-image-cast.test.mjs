@@ -49,6 +49,24 @@ test('visual checks reject missing and duplicated fictional roles regardless of 
   assert.deepEqual(visibleImageCast(board, cast).map(c => c.name), ['Luna', 'Rill']);
 });
 
+test('fixed props are compared with their own immutable reference before a frame passes', async () => {
+  const object = { id: 'o1', name: 'blue serum bottle', description: 'Frosted blue glass, silver pump, narrow white label.', imageUrl: 'https://res.cloudinary.com/test/bottle.jpg' };
+  const objectBoard = { ...board, characters: ['Luna'], objects: [object.name] };
+  const mismatch = { characters: [good.characters[0]], unexpected: [], objects: [{ name: object.name, status: 'wrong_design', evidence: 'The pump and label are missing.' }] };
+  assert.equal(parseImageCastCheck(mismatch, objectBoard, cast, [object]).passed, false);
+  const check = await auditImageCast(objectBoard, cast, {}, {
+    objects: [object], draft: { read: async () => undefined, save: async () => {} }, image: async url => url,
+    chat: async (prompt, options) => {
+      assert.equal(options.imageUrls.length, 3);
+      assert.match(prompt, /immutable fixed-prop references/);
+      assert.match(prompt, /silhouette, dimensions\/proportions, component layout/);
+      return JSON.stringify(mismatch);
+    },
+  });
+  assert.equal(check.passed, false);
+  assert.match(check.issues.join(' '), /Object blue serum bottle: wrong_design/);
+});
+
 test('cached visual checks survive a retry without fetching images or buying another model call', async () => {
   let saved, calls = 0, images = 0;
   const draft = { read: async () => saved, save: async raw => { saved = raw; } };

@@ -31,8 +31,8 @@ export function prepareImageCastRepair(board: Storyboard, check: ImageCastCheck,
     ...board, characters: storyboardVisualCastNames(board, characters.filter(c => c.appearance !== 'voice_only').map(c => c.name)),
     imageUrl: undefined, gridSourceUrl: undefined, taskId: undefined, imageTaskMode: undefined, imageCandidateUrls: undefined,
     imagePromptOverride: undefined, imageRetryCount: 0, status: 'pending',
-    imageFailureReason: `角色一致性自动修复：${check.issues.join('；')}`,
+    imageFailureReason: `视觉身份一致性自动修复：${check.issues.join('；')}`,
     imageCastRepairAttempts: attempts + 1,
-    imageCastRepairPrompt: `CHARACTER CONTINUITY CORRECTION: Show exactly ${cast.length} distinct identities from their original reference sheets: ${cast.map(c => `${c.name}: ${c.description.slice(0, 180)}`).join('; ')}. Match species, face/head, body and wardrobe; no missing, merged or duplicated roles. Never replace an animal or fantasy creature with a human. Keep each identity recognizable. Previous defects: ${check.issues.join('; ').slice(0, 600)}.\n\nOriginal shot, preserve its action: ${board.prompt}`,
+    imageCastRepairPrompt: `VISUAL IDENTITY CONTINUITY CORRECTION: Show exactly ${cast.length} distinct character identities from their original reference sheets: ${cast.map(c => `${c.name}: ${c.description.slice(0, 180)}`).join('; ')}. Match species, face/head, body and wardrobe; no missing, merged or duplicated roles. Never replace an animal or fantasy creature with a human. For every registered object reference, preserve its exact silhouette, proportions, parts, material, color and physical markings; never redesign, substitute, deform or duplicate it. Previous defects: ${check.issues.join('; ').slice(0, 600)}.\n\nOriginal shot, preserve its action: ${board.prompt}`,
   };
 }

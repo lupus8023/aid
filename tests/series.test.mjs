@@ -3,7 +3,8 @@ import test from 'node:test';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createSeries, parseOutline, parseEpisodes, parseScript, invalidateFrom, episodeContext, buildEpisodeProject } from '../lib/series/domain.ts';
+import { createSeries, parseOutline, parseEpisodes, parseScript, invalidateFrom, episodeContext, buildEpisodeProject, seriesShotObjectIds } from '../lib/series/domain.ts';
+import { seriesPrompt } from '../lib/series/prompts.ts';
 import { storyStorageKeys } from '../lib/series/storageScope.ts';
 import { buildApprovedSeriesPlan, reconcileSeriesProductionContract, validateSeriesProduction } from '../lib/series/productionContract.ts';
 import { auditStoryDelivery } from '../lib/storyDeliveryAudit.ts';
@@ -49,6 +50,25 @@ test('screenwriter receives the appearance classification for every episode char
   p.characters[1].appearance = 'voice_only';
   const context = episodeContext(p, p.episodes[0]);
   assert.deepEqual(context.characters.map(c => c.appearance), ['on_screen', 'voice_only']);
+});
+
+test('a series fixed prop is identified in every matching shot and handed to Story with its exact reference', () => {
+  const p = fixture();
+  p.objects = [{ id: 'o1', name: '蓝瓷药瓶', aliases: ['御赐药瓶'], description: '矮圆瓶身、银泵、正面窄白签与右下缺口。', imageUrl: 'https://res.cloudinary.com/test/blue-bottle.png' }];
+  const raw = shotFixture();
+  raw.shots[0].visual += ' 桌上放着御赐药瓶。';
+  const script = parseScript(raw, p, p.episodes[0]);
+  assert.deepEqual(script[0].objectIds, ['o1']);
+  assert.deepEqual(seriesShotObjectIds(p, script[0]), ['o1']);
+  p.episodes[0].script = script;
+  p.characters = p.characters.map(character => ({ ...character, locked: true, voiceId: 'fixture-voice' }));
+  const production = buildEpisodeProject(p, p.episodes[0]);
+  assert.equal(production.objects[0].imageUrl, p.objects[0].imageUrl);
+  assert.match(production.storyContent, /固定道具：蓝瓷药瓶/);
+  const prompt = seriesPrompt('script', p, p.episodes[0].id);
+  assert.match(prompt, /objectIds/);
+  assert.match(prompt, /蓝瓷药瓶/);
+  assert.match(prompt, /不得另起别名或重新设计/);
 });
 
 test('approved series dialogue goes straight to direction, retaining A-B-A exchanges, silence and sound', () => {

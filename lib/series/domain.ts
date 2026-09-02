@@ -65,7 +65,7 @@ export function createSeries(input: Partial<SeriesProject>): SeriesProject {
 export function parseOutline(
   raw: any,
   project: SeriesProject,
-): Pick<SeriesProject, "bible" | "characters" | "locations"> {
+): Pick<SeriesProject, "bible" | "characters" | "locations" | "objects"> {
   const b = raw?.bible;
   if (
     !b ||
@@ -156,6 +156,16 @@ export function parseOutline(
     arcs,
     promises,
   };
+  const objects: SeriesProject['objects'] = (Array.isArray(raw.objects) ? raw.objects : []).map((object: any, index: number) => ({
+    id: `o${index + 1}`,
+    name: required(object.name, "固定道具名称"),
+    description: required(object.description, "固定道具描述"),
+    aliases: list(object.aliases),
+    imageUrl: "",
+  }));
+  const objectNames = objects.flatMap(object => [object.name, ...object.aliases]).map(name => name.toLocaleLowerCase());
+  if (new Set(objectNames).size !== objectNames.length)
+    throw new Error('固定道具名称重复，请合并为同一个全剧资产');
   return {
     bible,
     characters,
@@ -164,6 +174,7 @@ export function parseOutline(
       name: required(l.name, "场景名称"),
       description: required(l.description, "场景描述"),
     })),
+    objects,
   };
 }
 
@@ -251,6 +262,7 @@ export function parseScript(
     throw new Error("单集剧本必须为18镜");
   const shots: SeriesShot[] = raw.shots.map((s: any, i: number) => {
     const characterIds = list(s.characterIds),
+      requestedObjectIds = list(s.objectIds),
       locationId = text(s.locationId),
       seconds = Number(s.seconds);
     if (
@@ -265,6 +277,8 @@ export function parseScript(
       !episode.locationIds.includes(locationId)
     )
       throw new Error("镜头引用了本集清单之外的人物／场景");
+    if (requestedObjectIds.some(id => !project.objects.some(object => object.id === id)))
+      throw new Error("镜头引用了未登记的全剧固定道具");
     const dialogue: SeriesShot["dialogue"] = (
       Array.isArray(s.dialogue) ? s.dialogue : []
     ).map((d: any) => ({
@@ -280,13 +294,16 @@ export function parseScript(
       )
     )
       throw new Error("台词角色未登记为本镜发声角色");
+    const visual = required(s.visual, "镜头画面"), action = required(s.action, "镜头行动");
+    const inferredObjectIds = seriesShotObjectIds(project, { objectIds: requestedObjectIds, visual, action });
     return {
       number: i + 1,
       seconds,
       locationId,
       characterIds,
-      visual: required(s.visual, "镜头画面"),
-      action: required(s.action, "镜头行动"),
+      objectIds: inferredObjectIds,
+      visual,
+      action,
       dialogue,
       sound: text(s.sound),
       purpose: required(s.purpose, "镜头作用"),
@@ -297,6 +314,22 @@ export function parseScript(
     throw new Error(`镜头总时长 ${duration} 秒，应为115–125秒`);
   checkScriptDialogue(shots, project.language);
   return shots;
+}
+
+export function seriesShotObjectIds(
+  project: Pick<SeriesProject, 'objects'>,
+  shot: Pick<SeriesShot, 'objectIds' | 'visual' | 'action'>,
+): string[] {
+  const objects = project.objects || [];
+  const explicit = new Set((shot.objectIds || []).filter(id => objects.some(object => object.id === id)));
+  const haystack = `${shot.visual || ''}\n${shot.action || ''}`.toLocaleLowerCase();
+  for (const object of objects) {
+    const names = [object.name, ...(object.aliases || [])].map(name => name.trim().toLocaleLowerCase()).filter(Boolean);
+    if (names.some(name => /^[a-z0-9][a-z0-9 _-]*$/i.test(name)
+      ? new RegExp(`(?:^|[^a-z0-9])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:$|[^a-z0-9])`, 'i').test(haystack)
+      : haystack.includes(name))) explicit.add(object.id);
+  }
+  return [...explicit];
 }
 
 export function episodeContext(project: SeriesProject, episode: SeriesEpisode) {
@@ -318,6 +351,7 @@ export function episodeContext(project: SeriesProject, episode: SeriesEpisode) {
     locations: project.locations
       .filter((l) => episode.locationIds.includes(l.id))
       .map(({ id, name, description }) => ({ id, name, description })),
+    objects: (project.objects || []).map(({ id, name, aliases, description }) => ({ id, name, aliases, description })),
     recent: previous
       .slice(-2)
       .map(({ number, synopsis, resolution, hook, nextOpening }) => ({
@@ -371,13 +405,16 @@ export function episodeScreenplay(
 ): string {
   const name = (id: string) =>
     project.characters.find((c) => c.id === id)?.name || id;
+  const objectNames = (shot: SeriesShot) => seriesShotObjectIds(project, shot)
+    .map(id => project.objects.find(object => object.id === id)?.name)
+    .filter(Boolean);
   return [
     `连续剧《${project.name}》第${episode.number}集《${episode.title}》；18镜，约120秒。`,
     "以下是已定稿单集。严格保留事件、角色、顺序和结尾，不要扩写后续集数，不新增有台词角色。用户已锁定下列台词，必须逐字保留。",
     `开场：${episode.opening}\n故事：${episode.synopsis}\n本集回报：${episode.resolution}\n末镜钩子：${episode.hook}`,
     ...(episode.script || []).map(
       (s) =>
-        `镜头 ${s.number}（${s.seconds}秒）\n场景：${project.locations.find((l) => l.id === s.locationId)?.name}\n人物：${s.characterIds.map(name).join("、")}\n画面：${s.visual}\n行动：${s.action}\n${s.dialogue.map((d) => `台词：${name(d.characterId)}：“${d.text}”\n表演：${d.emotion}`).join("\n")}\n声音：${s.sound}\n叙事作用：${s.purpose}`,
+        `镜头 ${s.number}（${s.seconds}秒）\n场景：${project.locations.find((l) => l.id === s.locationId)?.name}\n人物：${s.characterIds.map(name).join("、")}\n固定道具：${objectNames(s).join('、') || '无'}\n画面：${s.visual}\n行动：${s.action}\n${s.dialogue.map((d) => `台词：${name(d.characterId)}：“${d.text}”\n表演：${d.emotion}`).join("\n")}\n声音：${s.sound}\n叙事作用：${s.purpose}`,
     ),
   ].join("\n\n");
 }
@@ -401,7 +438,7 @@ export function buildEpisodeProject(
       voiceLocked: true,
       imageUrl: c.bibleUrl || c.imageUrl,
     })),
-    objects: project.objects,
+    objects: project.objects || [],
     storyContent: episodeScreenplay(project, episode),
     language: project.language,
     targetShotCount: 18,

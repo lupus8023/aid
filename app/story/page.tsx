@@ -1400,9 +1400,13 @@ export default function StoryPage() {
           ? specificScenes.map(image => ({ image, label: `ENVIRONMENT: shots ${group.filter(s => s.sceneImageOverride === image).map(s => s.sceneNumber).join(',')}` }))
           : sceneImagesRef.current[0] ? [{ image: sceneImagesRef.current[0], label: 'ENVIRONMENT: scene/world reference' }] : [];
         const referenceLimit = getImageModelCapabilities(gridImageModel).maxReferenceImages;
-        const references = isMidjourneyImageModel(activeSettings.imageModel)
-          ? [...sceneReference, ...objectReferences, ...characterReferences].slice(0, referenceLimit)
-          : [...objectReferences, ...characterReferences, ...sceneReference].slice(0, referenceLimit);
+        if (objectReferences.length > referenceLimit) {
+          throw new Error(`本批需要 ${objectReferences.length} 张固定道具参考，但当前图片模型最多支持 ${referenceLimit} 张；已停止提交以避免道具被替换`);
+        }
+        // A registered fixed prop is an immutable identity source, not optional
+        // environment flavor. Keep it ahead of every other reference for all
+        // providers so a low image limit can never silently drop it.
+        const references = [...objectReferences, ...characterReferences, ...sceneReference].slice(0, referenceLimit);
         const refLabels = references.map(reference => reference.label);
         const refImages = references.map(reference => reference.image);
         let gridUrl = '';
@@ -2486,7 +2490,7 @@ export default function StoryPage() {
       if (autoAbortRef.current) return;
 
       if (storyStorageKeys().isolated || isMidjourneyImageModel(settingsRef.current.imageModel)) {
-        await retryUntilCompleted('核验分镜角色一致性', async () => {
+        await retryUntilCompleted('核验分镜角色与固定道具一致性', async () => {
           const cast: ImageCastCharacter[] = charactersRef.current.map(c => ({ name: c.name, description: c.description, appearance: (c as ImageCastCharacter).appearance, imageUrl: costumeImagesRef.current[c.name] || c.imageUrl }));
           for (let round = 0; round <= 2; round++) {
             // A previous repair may have saved a cleared image before a worker
@@ -2500,13 +2504,13 @@ export default function StoryPage() {
             for (let start = 0; start < boards.length; start += 3) {
               if (autoAbortRef.current) return;
               const batch = boards.slice(start, start + 3);
-              setAutoStage(`角色核验：镜头 ${start + 1}–${Math.min(start + 3, boards.length)}`);
+              setAutoStage(`角色/固定道具核验：镜头 ${start + 1}–${Math.min(start + 3, boards.length)}`);
               const active = settingsRef.current;
               const response = await fetchStoryApi('/api/series/audit-images', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ boards: batch.map(b => ({ sceneNumber: b.sceneNumber, imageUrl: b.imageUrl, characters: b.characters, backgroundContext: isGptImage2Model(active.imageModel) ? b.prompt : undefined, requireSingleFrame: isMidjourneyImageModel(active.imageModel) })), characters: cast, apiKey: active.apiKey, dmxApiKey: active.dmxApiKey, scriptProvider: active.scriptProvider || 'auto', scriptModel: active.scriptModel || 'gpt-4o' }),
+                body: JSON.stringify({ boards: batch.map(b => ({ sceneNumber: b.sceneNumber, imageUrl: b.imageUrl, characters: b.characters, objects: b.objects, backgroundContext: isGptImage2Model(active.imageModel) ? b.prompt : undefined, requireSingleFrame: isMidjourneyImageModel(active.imageModel) })), characters: cast, objects: objectsRef.current, apiKey: active.apiKey, dmxApiKey: active.dmxApiKey, scriptProvider: active.scriptProvider || 'auto', scriptModel: active.scriptModel || 'gpt-4o' }),
               }, active.comfyui);
-              const result = await readApiJson<{ checks: ImageCastCheck[] }>(response, '分镜角色核验失败');
+              const result = await readApiJson<{ checks: ImageCastCheck[] }>(response, '分镜视觉身份核验失败');
               if (result.checks?.length !== batch.length || batch.some(b => !result.checks.some(c => c.sceneNumber === b.sceneNumber && c.imageUrl === b.imageUrl && (typeof c.passed === 'boolean' || c.passed === null)))) throw new Error('角色核验未完整返回当前图片结果');
               checks.push(...result.checks);
               commitStoryboards(items => items.map(item => {

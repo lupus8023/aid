@@ -7,7 +7,7 @@ export function setSeriesStyleReference(project: SeriesProject, input: unknown):
   project.visualHistory ||= [];
   project.visualHistory.push({
     changedAt: new Date().toISOString(), styleReference: project.styleReference,
-    characters: structuredClone(project.characters), locations: structuredClone(project.locations),
+    characters: structuredClone(project.characters), locations: structuredClone(project.locations), objects: structuredClone(project.objects),
     productions: project.episodes.filter(e => e.production).map(e => ({ episodeId:e.id, version:e.version, production:structuredClone(e.production!) })),
   });
   project.styleReference = style ? { ...style, version: project.visualHistory.length } : undefined;

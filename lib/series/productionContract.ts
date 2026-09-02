@@ -11,6 +11,7 @@ export interface SeriesProductionContract {
   shots?: Array<{
     number: number; seconds: number; characters: string[];
     action: string; visual: string; purpose: string;
+    objects?: string[];
     locationId?: string; sceneStyle?: string; sceneImageUrl?: string;
     sound?: string;
     dialogue: Array<{ character: string; text: string; emotion: string }>;
@@ -88,7 +89,7 @@ export function buildApprovedSeriesPlan(contract: SeriesProductionContract, sour
     const previous = shots[shot.number - 2], next = shots[shot.number];
     const beat: Beat = {
       index: shot.number, sourceShotRefs: [shot.number], sequenceId: sequence.id, locationId: sequence.locationId,
-      shotSize: '', cameraMove: '', angle: '', action: shot.action, performance: [], characters: [...shot.characters], objects: [],
+      shotSize: '', cameraMove: '', angle: '', action: shot.action, performance: [], characters: [...shot.characters], objects: [...(shot.objects || [])],
       dialogueLines: [], dialogueTurns: [], speech: [],
       audioPlan: { backgroundHuman: 'none', environment: shot.sound ? [shot.sound] : [], foley: [], music: 'none', silenceBefore: 0, silenceAfter: 0 },
       clipType: shot.dialogue.length ? 'dialogue' : 'action', dramaticPurpose: shot.purpose,
@@ -147,6 +148,7 @@ export function bindSeriesPlan(contract: SeriesProductionContract, plan: StoryPl
     beat.dramaticPurpose = shot.purpose;
     beat.durationHint = shot.seconds;
     beat.characters = [...shot.characters];
+    beat.objects = [...(shot.objects || [])];
     beat.dialogueLines = shot.dialogue.map(({ character, text }) => ({ character, text }));
     beat.dialogueTurns = shot.dialogue.map((d, index) => ({
       speaker: d.character, exactLine: d.text, function: 'approved_dialogue',

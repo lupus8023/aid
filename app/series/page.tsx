@@ -14,6 +14,7 @@ import {
   Layers3,
   Library,
   Loader2,
+  Package,
   Pause,
   Play,
   Plus,
@@ -43,6 +44,7 @@ import type {
   SeriesEpisode,
   SeriesJob,
   SeriesJobKind,
+  SeriesObject,
   SeriesProject,
   SeriesSnapshot,
 } from "@/lib/series/types";
@@ -466,6 +468,54 @@ function CharacterCard({
   );
 }
 
+function FixedObjectCard({
+  object,
+  disabled,
+  onSave,
+  onDelete,
+}: {
+  object?: SeriesObject;
+  disabled: boolean;
+  onSave: (patch: { name: string; aliases: string; description: string }, file?: File) => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <article className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]">
+      {object?.imageUrl ? (
+        <img src={object.imageUrl} alt={object.name} className="aspect-[4/3] w-full bg-[#141517] object-contain" />
+      ) : (
+        <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 bg-[#1d1e23]">
+          <Package size={40} className="text-[#a78bfa]/30" />
+          <p className="text-xs text-[var(--text-secondary)]">上传指定图后锁定全剧外观</p>
+        </div>
+      )}
+      <form className="space-y-3 p-4" onSubmit={event => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        const file = data.get('image');
+        onSave({ name: String(data.get('name') || ''), aliases: String(data.get('aliases') || ''), description: String(data.get('description') || '') }, file instanceof File && file.size ? file : undefined);
+      }}>
+        <Labeled label="固定道具正名（剧本按此名称识别）">
+          <input className={field} name="name" defaultValue={object?.name} required disabled={disabled} />
+        </Labeled>
+        <Labeled label="不可变化的识别细节">
+          <textarea className={field} name="description" defaultValue={object?.description} rows={3} required disabled={disabled} placeholder="尺寸比例、轮廓、材质、颜色、结构、文字/标记和磨损位置" />
+        </Labeled>
+        <Labeled label="剧本别名（用逗号分隔）">
+          <input className={field} name="aliases" defaultValue={(object?.aliases || []).join('，')} disabled={disabled} placeholder="例如：御赐木匣，面膜盒" />
+        </Labeled>
+        <Labeled label={object?.imageUrl ? '替换指定图（不选则保留当前图）' : '指定参考图'}>
+          <input className={`${field} text-xs`} type="file" name="image" accept="image/png,image/jpeg,image/webp" required={!object?.imageUrl} disabled={disabled} />
+        </Labeled>
+        <div className="flex gap-2">
+          <button className={`${button} flex-1`} disabled={disabled}>{object ? '保存并更新视觉断点' : '添加全剧固定道具'}</button>
+          {onDelete && <button type="button" className={`${button} text-red-300`} disabled={disabled} onClick={onDelete}><Trash2 size={14} />删除</button>}
+        </div>
+      </form>
+    </article>
+  );
+}
+
 export default function SeriesPage() {
   const { settings, saveSettings } = useSettings();
   const [showSettings, setShowSettings] = useState(false);
@@ -683,6 +733,26 @@ export default function SeriesPage() {
       setNotice('全系列风格已保存。旧视觉素材已归档，继续队列将按新风格重制；剧本和声音保留。');
       return true;
     } catch (err) { setError(err instanceof Error?err.message:'风格保存失败'); return false; }
+    finally { setBusy(false); }
+  };
+  const saveFixedObject = async (objectId: string | undefined, patch: { name: string; aliases: string; description: string }, file?: File) => {
+    if (!project || busy || editingLocked || base === undefined) return;
+    const target = project;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const status = await readApiJson<{seriesFixedObjects?:boolean}>(await fetch(`${base}/api/companion/status`), '无法检查固定道具支持');
+      if (!status.seriesFixedObjects) throw new Error('当前 Companion 尚不支持全剧固定道具，请更新后再保存');
+      let imageUrl = objectId ? (target.objects || []).find(object => object.id === objectId)?.imageUrl : undefined;
+      if (file) {
+        if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 15 * 1024 * 1024) throw new Error('请选择15MB以内的PNG、JPEG或WebP图片');
+        const imageData = await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file);});
+        const uploaded = await readApiJson<{url:string}>(await fetch(`${base}/api/upload-image`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageData})}), '固定道具图上传失败');
+        imageUrl = uploaded.url;
+      }
+      await seriesRequest({ action:'upsert-object', seriesId:target.id, revision:target.revision, objectId, patch:{...patch,aliases:patch.aliases.split(/[，,、\n]/).map(value=>value.trim()).filter(Boolean),imageUrl} }, base);
+      await refresh(base);
+      setNotice(`固定道具“${patch.name.trim()}”已锁定。现有剧本和成片保留；后续视觉制作会在每次出现时复用指定图。`);
+    } catch (err) { setError(err instanceof Error?err.message:'固定道具保存失败'); }
     finally { setBusy(false); }
   };
   const enqueue = async (kind: SeriesJobKind, episodeIds?: string[]) => {
@@ -1426,6 +1496,20 @@ export default function SeriesPage() {
                         生成整季总纲后，角色清单会出现在这里。
                       </p>
                     )}
+                    <div className="mb-4 mt-9">
+                      <h3 className="text-sm">全剧固定道具</h3>
+                      <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
+                        只登记跨镜头、跨分集必须保持同一外观的关键道具。系统按正名识别它在剧本中的每次出现，并把这里的指定图作为不可变设计源；机位、光线和摆放可变，轮廓、比例、材质、结构与标记不可重画。
+                      </p>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      {(project.objects || []).map(object => (
+                        <FixedObjectCard key={object.id} object={object} disabled={editingLocked || busy}
+                          onSave={(patch,file)=>void saveFixedObject(object.id,patch,file)}
+                          onDelete={()=>void action({action:'delete-object',revision:project.revision,objectId:object.id},`固定道具“${object.name}”已删除；剧本和历史成片保留。`)} />
+                      ))}
+                      <FixedObjectCard key={`new-object-${project.revision}`} disabled={editingLocked || busy} onSave={(patch,file)=>void saveFixedObject(undefined,patch,file)} />
+                    </div>
                     <h3 className="mb-4 mt-9 text-sm">常用场景</h3>
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                       {project.locations.map((l) => (

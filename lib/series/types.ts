@@ -70,6 +70,10 @@ export interface SeriesLocation extends SeriesImageAsset {
   imageTaskId?: string;
 }
 
+export interface SeriesObject extends ObjectItem {
+  aliases: string[];
+}
+
 export interface SeriesPromise {
   id: string;
   question: string;
@@ -93,6 +97,7 @@ export interface SeriesShot {
   seconds: number;
   locationId: string;
   characterIds: string[];
+  objectIds?: string[];
   visual: string;
   action: string;
   dialogue: Array<{ characterId: string; text: string; emotion: string }>;
@@ -136,7 +141,7 @@ export interface SeriesEpisode {
 
 export interface SeriesProject {
   styleReference?: ImageStyleReference;
-  visualHistory?: Array<{ changedAt: string; styleReference?: ImageStyleReference; characters: SeriesCharacter[]; locations: SeriesLocation[]; productions: Array<{ episodeId: string; version: number; production: ProjectData }> }>;
+  visualHistory?: Array<{ changedAt: string; styleReference?: ImageStyleReference; characters: SeriesCharacter[]; locations: SeriesLocation[]; objects?: ObjectItem[]; productions: Array<{ episodeId: string; version: number; production: ProjectData }> }>;
   id: string;
   revision: number;
   name: string;
@@ -151,7 +156,7 @@ export interface SeriesProject {
   bible?: SeriesBible;
   characters: SeriesCharacter[];
   locations: SeriesLocation[];
-  objects: ObjectItem[];
+  objects: SeriesObject[];
   episodes: SeriesEpisode[];
   episodeNotes?: Record<string, Record<string, string>>; // 用户对分集的修改，重规划时保持权威
   paused: boolean;
