@@ -209,12 +209,20 @@ export function parseEpisodes(
   const characterIds = new Set(project.characters.map((c) => c.id)),
     locationIds = new Set(project.locations.map((l) => l.id));
   const promiseIds = new Set(project.bible?.promises.map((p) => p.id));
-  return raw.episodes.map((e: any, i: number) => {
+  const episodes = raw.episodes.map((e: any, i: number) => {
     const number = start + i;
     for (const [key, value] of Object.entries(
       project.episodeNotes?.[`ep-${number}`] || {},
     )) {
-      if (text(e[key]) !== value)
+      const candidate = text(e[key]);
+      const addition = candidate.includes(value) ? candidate.replace(value, '').trim() : '';
+      const authorizedObjectAddition = Boolean(
+        project.pendingNarrativeObjectIds?.length &&
+        addition && addition.length <= 500 &&
+        seriesShotObjectIds(project, { objectIds: [], visual: addition, action: '' })
+          .some(id => project.pendingNarrativeObjectIds!.includes(id)),
+      );
+      if (candidate !== value && !authorizedObjectAddition)
         throw new Error(`第${number}集没有保留用户修改的${key}字段`);
     }
     if (Number(e.number) !== number) throw new Error("分集编号不连续");
@@ -270,6 +278,40 @@ export function parseEpisodes(
       deliveries: [],
     };
   });
+  if (start + count - 1 === project.episodeCount && project.pendingNarrativeObjectIds?.length) {
+    const completed = project.episodes.filter(episode => episode.number < start);
+    const missing = project.pendingNarrativeObjectIds.filter(objectId =>
+      ![...completed, ...episodes].some(episode => seriesEpisodeObjectIds(project, episode).includes(objectId)));
+    if (missing.length) {
+      const names = missing.map(id => project.objects.find(object => object.id === id)?.name || id);
+      throw new Error(`新增固定道具尚未写入分集故事：${names.join('、')}`);
+    }
+  }
+  return episodes;
+}
+
+function authoredFieldWithNarrativeProps(
+  source: string,
+  candidate: unknown,
+  label: string,
+  project: SeriesProject,
+  allowedObjectIds: string[],
+): string {
+  if (!source || !allowedObjectIds.length) return source || required(candidate, label);
+  const value = required(candidate, label);
+  if (value === source) return source;
+  if (!value.includes(source))
+    throw new Error(`${label}必须完整保留用户原稿，只能围绕新增固定道具做最小增补`);
+  const addition = value.replace(source, '').trim();
+  if (!addition || addition.length > 300)
+    throw new Error(`${label}的新增道具补充过长或无有效内容`);
+  const names = project.objects
+    .filter(object => allowedObjectIds.includes(object.id))
+    .flatMap(object => [object.name, ...(object.aliases || [])])
+    .filter(Boolean);
+  if (!names.some(name => addition.toLocaleLowerCase().includes(name.toLocaleLowerCase())))
+    throw new Error(`${label}的增补只能用于落实本集新增固定道具`);
+  return value;
 }
 
 export function parseScript(
@@ -281,6 +323,8 @@ export function parseScript(
   const authored = project.sourceMode === 'authored_screenplay'
     ? parseAuthoredScreenplay(project.brief, project.language)
     : undefined;
+  const narrativeObjectIds = seriesEpisodeObjectIds(project, episode)
+    .filter(id => project.objects.find(object => object.id === id)?.narrativeRequired);
   if (raw.shots.length !== project.shotCount)
     throw new ScriptShotCountError(raw.shots.length, project.shotCount);
   const structureIssues: ScriptStructureIssue[] = [];
@@ -329,8 +373,12 @@ export function parseScript(
     }
     // In authored-screenplay mode the model resolves asset IDs, but the user's
     // directed image and physical action remain the production authority.
-    const visual = authoredShot?.imagePrompt || required(s.visual, "镜头画面");
-    const action = authoredShot?.action || required(s.action, "镜头行动");
+    const visual = authoredShot
+      ? authoredFieldWithNarrativeProps(authoredShot.imagePrompt, s.visual, "镜头画面", project, narrativeObjectIds)
+      : required(s.visual, "镜头画面");
+    const action = authoredShot
+      ? authoredFieldWithNarrativeProps(authoredShot.action, s.action, "镜头行动", project, narrativeObjectIds)
+      : required(s.action, "镜头行动");
     const mentionedObjectIds = seriesShotObjectIds(project, { objectIds: [], visual, action });
     // A formed screenplay may use a natural variant such as “黑色面膜” while
     // the registered prop is “黑灰色纱布面膜”. In this mode objectIds are the
@@ -363,11 +411,20 @@ export function parseScript(
       shotSize: authoredShot?.shotSize || text(s.shotSize),
       camera: authoredShot?.camera || text(s.camera),
       atmosphere: authoredShot?.atmosphere || text(s.atmosphere),
-      imagePrompt: authoredShot?.imagePrompt || text(s.imagePrompt),
+      // In an authored screenplay visual normally equals the source image
+      // prompt. When a user-authorized prop is appended, production must use
+      // that minimally extended prompt rather than silently reverting to source.
+      imagePrompt: authoredShot ? visual : text(s.imagePrompt),
       sourceSeconds: authoredShot?.sourceSeconds,
     };
   });
   if (structureIssues.length) throw new ScriptStructureError(structureIssues);
+  if (narrativeObjectIds.length) {
+    const grounded = new Set(shots.flatMap(shot => seriesShotObjectIds(project, { ...shot, objectIds: [] })));
+    const missing = narrativeObjectIds.filter(id => !grounded.has(id));
+    if (missing.length)
+      throw new Error(`本集镜头尚未落实新增固定道具：${missing.map(id => project.objects.find(object => object.id === id)?.name || id).join('、')}`);
+  }
   const duration = shots.reduce((n, s) => n + s.seconds, 0);
   if (!authored && Math.abs(duration - project.durationSeconds) > 5)
     throw new Error(`镜头总时长 ${duration} 秒，应接近${project.durationSeconds}秒`);
@@ -409,6 +466,38 @@ export function seriesShotObjectIds(
   }
   for (const match of accepted) explicit.add(match.objectId);
   return [...explicit];
+}
+
+/** Fixed props mentioned by an episode's narrative contract. This becomes the
+ * authoritative scope for placing a newly added prop into detailed shots. */
+export function seriesEpisodeObjectIds(
+  project: Pick<SeriesProject, 'objects'>,
+  episode: Pick<SeriesEpisode, 'title' | 'synopsis' | 'opening' | 'goal' | 'conflict' | 'choice' | 'resolution' | 'hook' | 'nextOpening' | 'stateChanges' | 'knowledgeChanges'>,
+): string[] {
+  const narrative = [
+    episode.title, episode.synopsis, episode.opening, episode.goal,
+    episode.conflict, episode.choice, episode.resolution, episode.hook,
+    episode.nextOpening, ...(episode.stateChanges || []),
+    ...(episode.knowledgeChanges || []).map(change => change.learns),
+  ].join('\n');
+  return seriesShotObjectIds(project, { objectIds: [], visual: narrative, action: '' });
+}
+
+/** A newly registered fixed prop is expected to enter the story. Preserve old
+ * deliveries, but invalidate working episode/script/production drafts so the
+ * develop job can place it coherently before storyboards are expanded again. */
+export function scheduleSeriesObjectInsertion(project: SeriesProject, objectId: string): void {
+  const object = project.objects.find(item => item.id === objectId);
+  if (!object) throw new Error('固定道具不存在');
+  object.narrativeRequired = true;
+  project.pendingNarrativeObjectIds = [...new Set([...(project.pendingNarrativeObjectIds || []), objectId])];
+  if (project.episodes.length) {
+    project.episodes = invalidateFrom(
+      project,
+      1,
+      `新增固定道具“${object.name}”，正在反向重写分集故事并重新展开分镜`,
+    ).episodes;
+  }
 }
 
 /** Re-evaluate existing screenplays after the user registers, edits or removes

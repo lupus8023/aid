@@ -13,6 +13,7 @@ import {
   invalidateFrom,
   parseScript,
   rescanSeriesObjectUsage,
+  scheduleSeriesObjectInsertion,
   seriesId,
   seriesObjectReferenceMode,
   text,
@@ -92,9 +93,12 @@ export async function POST(request: NextRequest) {
           const current = typeof body.objectId === 'string'
             ? project.objects.find(object => object.id === body.objectId)
             : undefined;
+          const isNewObject = body.action === 'upsert-object' && !current;
           if (body.action === 'delete-object') {
             if (!current) throw new Error('固定道具不存在');
             project.objects = project.objects.filter(object => object.id !== current.id);
+            const remainingPending = (project.pendingNarrativeObjectIds || []).filter(id => id !== current.id);
+            project.pendingNarrativeObjectIds = remainingPending.length ? remainingPending : undefined;
           } else {
             const name = text(body.patch?.name, 120);
             const description = text(body.patch?.description, 2000);
@@ -129,9 +133,16 @@ export async function POST(request: NextRequest) {
               .flatMap(object => [object.name, ...(object.aliases || [])]).map(value => value.toLocaleLowerCase());
             if (new Set(candidateNames).size !== candidateNames.length || candidateNames.some(value => existingNames.includes(value)))
               throw new Error('固定道具名称重复；请编辑已有道具');
-            const value = { id: current?.id || seriesId('object'), name, aliases, description, imageUrl, referenceMode };
+            const value = {
+              id: current?.id || seriesId('object'), name, aliases, description,
+              imageUrl, referenceMode,
+              narrativeRequired: current ? current.narrativeRequired : true,
+            };
             if (current) project.objects[project.objects.indexOf(current)] = value;
-            else project.objects.push(value);
+            else {
+              project.objects.push(value);
+              scheduleSeriesObjectInsertion(project, value.id);
+            }
           }
           // The user registers the reference once. Re-scan every existing
           // screenplay now and persist exactly which shots mention the
@@ -144,8 +155,40 @@ export async function POST(request: NextRequest) {
           project.episodes = project.episodes.map(episode => episode.production
             ? { ...episode, version: episode.version + 1, production: undefined }
             : episode);
+          let narrativeQueued = false;
+          if (isNewObject && project.bible) {
+            const effectiveSettings = enforceSeriesVideoProvider({
+              ...(body.settings || {}),
+              apiKey: body.settings?.apiKey || process.env.APIMART_API_KEY || '',
+            });
+            if (!effectiveSettings.apiKey && !effectiveSettings.dmxApiKey)
+              throw new Error('新增固定道具需要剧本模型配置，尚未保存；请先在设置中配置剧本 API');
+            const sealedSettings = await sealSettings(effectiveSettings);
+            const existing = db.jobs.find(job =>
+              job.seriesId === project.id && job.kind === 'develop' &&
+              job.status === 'paused');
+            if (existing) {
+              existing.status = 'queued';
+              existing.attempts = 0;
+              existing.consecutiveInterruptions = 0;
+              existing.cancelRequested = false;
+              existing.error = undefined;
+              existing.finishedAt = undefined;
+              existing.stage = '新增固定道具，反向重写分集故事';
+              existing.updatedAt = now;
+              existing.sealedSettings = sealedSettings;
+            } else {
+              db.jobs.push({
+                id: seriesId('job'), seriesId: project.id, kind: 'develop',
+                status: 'queued', stage: '新增固定道具，反向重写分集故事',
+                attempts: 0, createdAt: now, updatedAt: now, sealedSettings,
+              });
+            }
+            project.paused = false;
+            narrativeQueued = true;
+          }
           touchProject(project);
-          return { project };
+          return { project, narrativeQueued };
         }
         case "cast-character": {
           if (!project) throw new Error("连续剧不存在");

@@ -649,7 +649,9 @@ function FixedObjectCard({
                 第 {item.episode} 集：第 {item.shots.join('、')} 镜使用
               </p>
             )) : (
-              <p className="mt-1 text-amber-200">当前已生成剧本尚未识别到该道具；以后写新剧本时仍会逐镜判断。</p>
+              <p className="mt-1 text-amber-200">
+                {object.narrativeRequired ? '已要求写入剧情；分集更新后将重新展开相关分镜。' : '当前已生成剧本尚未识别到该道具。'}
+              </p>
             )}
           </div>
         )}
@@ -951,19 +953,22 @@ export default function SeriesPage() {
     setBusy(true); setError(''); setNotice('');
     setObjectFeedback({ target:objectId || 'new', tone:'saving', message:`正在上传并保存固定道具“${patch.name.trim()}”…` });
     try {
-      const status = await readApiJson<{seriesFixedObjects?:boolean;seriesObjectAutoReferences?:boolean}>(await fetch(`${base}/api/companion/status`), '无法检查固定道具支持');
+      const status = await readApiJson<{seriesFixedObjects?:boolean;seriesObjectAutoReferences?:boolean;seriesNarrativeObjectInsertion?:boolean}>(await fetch(`${base}/api/companion/status`), '无法检查固定道具支持');
       if (!status.seriesFixedObjects) throw new Error('当前 Companion 尚不支持全剧固定道具，请更新后再保存');
       if (patch.referenceMode === 'auto' && !status.seriesObjectAutoReferences)
         throw new Error('自动生成道具参考图需要更新 Companion 后再保存');
+      if (!objectId && !status.seriesNarrativeObjectInsertion)
+        throw new Error('新增道具自动写入剧情需要更新 Companion 后再保存');
       let imageUrl: string | undefined;
       if (file) {
         imageUrl = await uploadSeriesReference(base, file, '固定道具图');
       }
-      const result = await seriesRequest<{ project?: SeriesProject }>({
+      const result = await seriesRequest<{ project?: SeriesProject; narrativeQueued?: boolean }>({
         action:'upsert-object',
         seriesId:target.id,
         revision:target.revision,
         objectId,
+        settings,
         patch:{
           ...patch,
           aliases:patch.aliases.split(/[，,、\n]/).map(value=>value.trim()).filter(Boolean),
@@ -977,9 +982,14 @@ export default function SeriesPage() {
         }));
       }
       await refresh(base);
-      const message = patch.referenceMode === 'auto'
-        ? `固定道具“${patch.name.trim()}”已登记为自动参考；资产定稿时会生成并锁定参考图。`
-        : `固定道具“${patch.name.trim()}”已按用户指定图锁定。后续分镜识别到它时会复用这张图。`;
+      const sourceMessage = patch.referenceMode === 'auto'
+        ? '资产定稿时会自动生成并锁定参考图。'
+        : '已按用户指定图锁定外观。';
+      const message = !objectId
+        ? result.narrativeQueued
+          ? `固定道具“${patch.name.trim()}”已新增并进入分集故事重写队列；完成后会重新展开相关分镜。${sourceMessage}`
+          : `固定道具“${patch.name.trim()}”已新增；开发故事时会直接写入剧情。${sourceMessage}`
+        : `固定道具“${patch.name.trim()}”已更新。${sourceMessage}`;
       setNotice(message);
       setObjectFeedback({ target:objectId || 'new', tone:'success', message });
     } catch (err) {
@@ -1781,7 +1791,7 @@ export default function SeriesPage() {
                         </span>
                       </div>
                       <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
-                        只登记跨镜头、跨分集必须保持同一外观的关键道具。总纲识别出的道具默认自动生成参考图；品牌商品、指定包装或已有实物请选择“我指定参考图”。两种来源都会在定稿后作为不可变设计源，机位、光线和摆放可变，轮廓、比例、材质、结构与标记不可重画。
+                        只登记跨镜头、跨分集必须保持同一外观的关键道具。手动新增即表示要把它写入剧情：系统会反向重写分集故事，再重新展开相关分镜；已有成型原稿只做最小增补。总纲识别出的道具默认自动生成参考图；品牌商品、指定包装或已有实物请选择“我指定参考图”。
                       </p>
                       {objectFeedback && (
                         <p

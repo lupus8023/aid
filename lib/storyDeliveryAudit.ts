@@ -131,9 +131,10 @@ export function auditStoryDelivery(
     const expectedMilestones = ['opening', 'inciting_incident', 'first_threshold', 'midpoint_reversal', 'crisis_choice', 'climax_proof', 'resolution'];
     const milestones = storyPlan.structure || [];
     if (storyPlan.seriesEpisode) {
-      if (beats.length !== 18 || ['opening', 'goal', 'conflict', 'choice', 'resolution', 'hook'].some(key =>
+      const expectedShots = Number(storyPlan.targetShotCount);
+      if (!Number.isInteger(expectedShots) || expectedShots < 1 || beats.length !== expectedShots || ['opening', 'goal', 'conflict', 'choice', 'resolution', 'hook'].some(key =>
         !String(storyPlan.seriesEpisode?.[key as keyof NonNullable<StoryPlan['seriesEpisode']>] || '').trim()))
-        errors.push('连续剧分集缺少完整18镜或开场、目标、冲突、选择、回报、钩子合同');
+        errors.push(`连续剧分集缺少完整${Number.isInteger(expectedShots) && expectedShots > 0 ? expectedShots : '计划'}镜或开场、目标、冲突、选择、回报、钩子合同`);
     } else if (milestones.length !== expectedMilestones.length
       || expectedMilestones.some(name => milestones.filter(item => item.name === name).length !== 1)) {
       errors.push('全片缺少完整的七个叙事里程碑');

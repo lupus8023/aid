@@ -20,6 +20,7 @@ export async function GET() {
     seriesObjectAutoReferences: true,
     seriesCharacterCardJobs: true,
     seriesAssetScriptReconciliation: true,
+    seriesNarrativeObjectInsertion: true,
     seriesRecovery: true,
     seriesCrossLanguageVoices: true,
     sshDirectHost: process.env.COMFYUI_SSH_DIRECT_HOST || '',

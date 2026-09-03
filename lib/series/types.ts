@@ -74,6 +74,8 @@ export interface SeriesObject extends ObjectItem, SeriesImageAsset {
   aliases: string[];
   /** Missing on legacy records: o1/o2… are outline-generated, object-* are user-created. */
   referenceMode?: "auto" | "upload";
+  /** User-added fixed props are story requirements, not library-only assets. */
+  narrativeRequired?: boolean;
 }
 
 export interface SeriesPromise {
@@ -176,6 +178,8 @@ export interface SeriesProject {
   characters: SeriesCharacter[];
   locations: SeriesLocation[];
   objects: SeriesObject[];
+  /** Newly added props that still need to be placed meaningfully in episode stories. */
+  pendingNarrativeObjectIds?: string[];
   episodes: SeriesEpisode[];
   episodeNotes?: Record<string, Record<string, string>>; // 用户对分集的修改，重规划时保持权威
   paused: boolean;

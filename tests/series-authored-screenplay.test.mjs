@@ -106,3 +106,39 @@ test('formed screenplay keeps original prop wording while objectIds bind the reg
   project.episodes = rescanSeriesObjectUsage(project);
   assert.deepEqual(project.episodes[0].script[1].objectIds, ['o1']);
 });
+
+test('a user-added prop may minimally extend a formed screenplay without replacing its original fields', () => {
+  const project = createSeries({ name: '成稿新增道具', brief: authoredBrief, episodeCount: 1 });
+  Object.assign(project, parseOutline({
+    ...outlineFixture(),
+    objects: [{ name: '银针', aliases: [], description: '细长银针，尾端有一处弯折' }],
+    bible: { ...outlineFixture().bible, arcs: [{ start: 1, end: 1, goal: '查明照片真相', reversal: '陈叔暴露反应' }], promises: [{ question: '照片是什么？', plantedIn: 1, payoffIn: 1, answer: '照片留下手表线索' }] },
+  }, project));
+  project.objects[0].narrativeRequired = true;
+  const episodeRaw = episodeFixtures().episodes[0];
+  episodeRaw.nextOpening = '';
+  episodeRaw.plants = ['p1'];
+  episodeRaw.paysOff = ['p1'];
+  episodeRaw.synopsis += '林知夏用银针挑起照片边角。';
+  project.episodes = parseEpisodes({ episodes: [episodeRaw] }, project, 1, 1);
+  const source = parseAuthoredScreenplay(authoredBrief).shots;
+  const raw = { shots: source.map((shot, index) => ({
+    number: index + 1,
+    seconds: shot.sourceSeconds,
+    locationId: 'l1',
+    characterIds: ['c1', 'c2'],
+    objectIds: index === 0 ? ['o1'] : [],
+    visual: index === 0 ? `${shot.imagePrompt} 桌边放着银针。` : shot.imagePrompt,
+    action: shot.action,
+    dialogue: shot.dialogueLines.map((line, lineIndex) => ({ characterId: lineIndex === 1 ? 'c2' : 'c1', text: line, emotion: '自然' })),
+    sound: '环境声', purpose: shot.atmosphere,
+  })) };
+  const script = parseScript(raw, project, project.episodes[0]);
+  assert.ok(script[0].visual.includes(source[0].imagePrompt));
+  assert.match(script[0].visual, /银针/);
+  assert.equal(script[0].imagePrompt, script[0].visual);
+  assert.deepEqual(script[0].objectIds, ['o1']);
+  const rewritten = structuredClone(raw);
+  rewritten.shots[0].visual = '林知夏拿着银针改做另一件事。';
+  assert.throws(() => parseScript(rewritten, project, project.episodes[0]), /必须完整保留用户原稿/);
+});

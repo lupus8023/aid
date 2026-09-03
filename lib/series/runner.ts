@@ -2,7 +2,7 @@
 
 import { prepareSeriesImage, SeriesImagePreparationError, type SeriesImageAsset } from "./imagePreparation";
 import { ApiResponseError, readApiJson } from "@/lib/apiResponse";
-import { buildEpisodeProject, seriesObjectReferenceMode, seriesShotObjectIds } from "./domain";
+import { buildEpisodeProject, seriesEpisodeObjectIds, seriesObjectReferenceMode, seriesShotObjectIds } from "./domain";
 import { copiedDialogueShotNumbers } from "./scriptRepair";
 import { repairEpisodeDialogue, synchronizeEpisodeDialogue } from "./productionDialogueRepair";
 import { seriesScriptAssetFingerprint } from './scriptStructureRepair';
@@ -226,6 +226,26 @@ export async function executeSeriesClaim(
       await save(
         `第${result.episodes.at(-1)!.number}集故事与悬念承接已保存`,
       );
+    }
+    if (project.pendingNarrativeObjectIds?.length) {
+      const missing = project.pendingNarrativeObjectIds.filter(objectId =>
+        !project.episodes.some(episode => seriesEpisodeObjectIds(project, episode).includes(objectId)));
+      if (missing.length)
+        throw new Error(`新增固定道具尚未写入分集故事：${missing.map(id => project.objects.find(object => object.id === id)?.name || id).join('、')}`);
+      const inserted = project.pendingNarrativeObjectIds
+        .map(id => project.objects.find(object => object.id === id)?.name || id);
+      // If a user-edited field was extended only to place the authorized prop,
+      // the combined value becomes the new user authority for future rewrites.
+      for (const [episodeId, notes] of Object.entries(project.episodeNotes || {})) {
+        const rewritten = project.episodes.find(episode => episode.id === episodeId);
+        if (!rewritten) continue;
+        for (const key of Object.keys(notes)) {
+          const value = rewritten[key as keyof SeriesEpisode];
+          if (typeof value === 'string') notes[key] = value;
+        }
+      }
+      project.pendingNarrativeObjectIds = undefined;
+      await save(`新增固定道具已写入分集故事：${inserted.join('、')}`);
     }
     return;
   }

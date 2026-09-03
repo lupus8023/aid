@@ -1,3 +1,9 @@
+## 0.1.179 - 2026-09-03
+
+- Treat every manually added series prop as a narrative requirement: automatically queue episode-story rewriting, preserve historical deliveries, and require the prop to perform a concrete visible role in at least one episode and its detailed shots instead of remaining a library-only asset.
+- Protect formed screenplays during authorized prop insertion: the model may append only a short visible prop interaction while every original action/image-prompt word, exact dialogue line, shot boundary, and order remain intact.
+- Remove the last hard-coded 18-shot series production preflight. Story planning, delivery audit, queue labels, and production contracts now validate against each project's actual `shotCount`, including the current 9-shot authored project.
+
 ## 0.1.178 - 2026-09-03
 
 - Allow one-episode series projects from both the creation form and domain validation; pasted formed screenplays still auto-detect as a single episode with their authored shot count.

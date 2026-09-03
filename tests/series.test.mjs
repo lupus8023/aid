@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createSeries, parseOutline, parseEpisodes, parseScript, invalidateFrom, episodeContext, buildEpisodeProject, rescanSeriesObjectUsage, seriesObjectReferenceMode, seriesShotObjectIds } from '../lib/series/domain.ts';
+import { createSeries, parseOutline, parseEpisodes, parseScript, invalidateFrom, episodeContext, buildEpisodeProject, rescanSeriesObjectUsage, scheduleSeriesObjectInsertion, seriesEpisodeObjectIds, seriesObjectReferenceMode, seriesShotObjectIds } from '../lib/series/domain.ts';
 import { buildFixedObjectReferencePrompt } from '../lib/promptArchitecture.ts';
 import { seriesPrompt } from '../lib/series/prompts.ts';
 import { storyStorageKeys } from '../lib/series/storageScope.ts';
@@ -66,6 +66,37 @@ test('outline props are automatic while legacy user-created props remain uploads
   assert.match(prompt, /exactly one complete object/i);
   assert.match(prompt, /No people, hands/i);
   assert.match(prompt, /never invent lettering/i);
+});
+
+test('a newly added fixed prop invalidates working stories and becomes a required narrative insertion', () => {
+  const p = fixture();
+  p.episodes[0].deliveries = [{ id: 'old-film', fileName: 'old.mp4', createdAt: '2026-09-03T00:00:00.000Z', episodeVersion: 1, bytes: 10 }];
+  p.objects.push({ id: 'object-ring', name: '鎏金指环', aliases: ['指环'], description: '刻有缺口的鎏金指环', imageUrl: '', referenceMode: 'auto' });
+  scheduleSeriesObjectInsertion(p, 'object-ring');
+  assert.deepEqual(p.pendingNarrativeObjectIds, ['object-ring']);
+  assert.equal(p.objects.at(-1).narrativeRequired, true);
+  assert.ok(p.episodes.every(episode => episode.needsReview?.includes('鎏金指环')));
+  assert.ok(p.episodes.every(episode => !episode.script && !episode.production));
+  assert.equal(p.episodes[0].deliveries[0].id, 'old-film');
+});
+
+test('episode rewriting and detailed shots must actually place every newly added prop', () => {
+  const p = createSeries({ name: '道具写入剧情', brief: '测试新增道具', episodeCount: 3 });
+  Object.assign(p, parseOutline(outlineFixture(), p));
+  p.objects.push({ id: 'object-ring', name: '鎏金指环', aliases: ['指环'], description: '刻有缺口的鎏金指环', imageUrl: '', referenceMode: 'auto', narrativeRequired: true });
+  p.pendingNarrativeObjectIds = ['object-ring'];
+  const raw = episodeFixtures();
+  assert.throws(() => parseEpisodes(raw, p, 1, 3), /新增固定道具尚未写入分集故事.*鎏金指环/);
+  p.episodeNotes = { 'ep-2': { synopsis: raw.episodes[1].synopsis } };
+  raw.episodes[1].synopsis += '她用鎏金指环压住父亲留下的照片，发现缺口与钥匙吻合。';
+  p.episodes = parseEpisodes(raw, p, 1, 3);
+  assert.deepEqual(seriesEpisodeObjectIds(p, p.episodes[1]), ['object-ring']);
+  assert.throws(() => parseScript(shotFixture(), p, p.episodes[1]), /本集镜头尚未落实新增固定道具.*鎏金指环/);
+  const shots = shotFixture();
+  shots.shots[0].visual += ' 桌上放着鎏金指环。';
+  shots.shots[0].objectIds = ['object-ring'];
+  assert.deepEqual(parseScript(shots, p, p.episodes[1])[0].objectIds, ['object-ring']);
+  assert.match(seriesPrompt('episodes', p), /新增固定道具写入任务/);
 });
 
 test('a series fixed prop is identified in every matching shot and handed to Story with its exact reference', () => {
@@ -150,6 +181,14 @@ test('approved series dialogue goes straight to direction, retaining A-B-A excha
   assert.deepEqual(auditStoryDelivery(plan, boards).errors, [], 'episode contract is audited without inventing a standalone seven-act structure');
   const brokenPlan = structuredClone(plan); brokenPlan.seriesEpisode.goal = '';
   assert.match(auditStoryDelivery(brokenPlan, boards).errors.join(' '), /分集缺少/);
+  const variablePlan = structuredClone(plan);
+  variablePlan.targetShotCount = 9;
+  variablePlan.sequences = variablePlan.sequences.map(sequence => ({
+    ...sequence,
+    beats: sequence.beats.filter(beat => beat.index <= 9),
+  })).filter(sequence => sequence.beats.length);
+  const variableBoards = boards.slice(0, 9);
+  assert.doesNotMatch(auditStoryDelivery(variablePlan, variableBoards).errors.join(' '), /分集缺少完整|18镜/);
   const ordinaryPlan = { ...plan, seriesEpisode: undefined };
   assert.match(auditStoryDelivery(ordinaryPlan, boards).errors.join(' '), /七个叙事里程碑/);
   const invalid = structuredClone(contract); invalid.shots[0].number = 2;
