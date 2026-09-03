@@ -62,7 +62,7 @@ test('repairs Chinese speech contamination in small checkpointed chunks',()=>{
  const issues=directorFieldRepairs(invalid,sixBeats);
  assert.equal(issues.length,6);
  assert.deepEqual(selectDirectorFieldRepairChunk(issues).map(issue=>issue.path),issues.slice(0,4).map(issue=>issue.path));
- assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),undefined,'zh'),/complete concise Chinese sentence/i);
+ assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),undefined,'zh'),/complete concise English sentence/i);
  assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),new Error('不得截取原句前半段'),'zh'),/rewrite the sentence with different wording/i);
 });
 
@@ -80,12 +80,12 @@ test('six contaminated action fields recover incrementally without regenerating 
   const retained=JSON.parse(previous);
   const issues=selectDirectorFieldRepairChunk(directorFieldRepairs(retained,sixBeats));
   return JSON.stringify(applyDirectorFieldRepairs(retained,{repairs:issues.map(issue=>({
-   path:issue.path,value:`角色${issue.index + 1}从桌边转身，走向门口。`,
+   path:issue.path,value:`Character ${issue.index + 1} turns from the table and walks toward the doorway.`,
   }))},issues,true));
  }});
  assert.equal(calls,2);assert.equal(saves,2);
  assert.deepEqual(repaired.map(shot=>shot.marker),invalid.map(shot=>shot.marker));
- assert.ok(repaired.every(shot=>/走向门口。$/u.test(shot.videoDirection.action)));
+ assert.ok(repaired.every(shot=>/walks toward the doorway\.$/u.test(shot.videoDirection.action)));
 });
 
 test('checkpoints valid repairs when a provider omits or corrupts sibling entries',()=>{

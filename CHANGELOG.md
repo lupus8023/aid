@@ -1,3 +1,7 @@
+## 0.1.172 - 2026-09-03
+
+- Make incremental director-field repair prompts output English visual prose, matching H3 validation and preventing Chinese productions from looping after a contaminated or over-budget draft.
+
 ## 0.1.171 - 2026-09-03
 
 - Restore English-only H3 visual direction for Chinese productions while keeping exact Chinese dialogue inside `<d>[Chinese]`; use one concise clean-frame instruction and translate legacy visual metadata to neutral English fallbacks to reduce burned subtitle risk.

@@ -61,7 +61,7 @@ export function buildDirectorFieldRepairPrompt(shots: any[], beats: DirectorRepa
     editBridge: beats[index].editBridge, videoDirection: shots[index].videoDirection,
   }));
   void language; // Project language applies to dialogue, not H3 directing prose.
-  const outputRule = 'Every replacement must be a complete concise Chinese sentence ending in Chinese or standard punctuation. Keep registered entity names verbatim; do not translate Chinese direction into English.';
+  const outputRule = 'Every replacement must be a complete concise English sentence ending in standard punctuation. Keep registered entity names verbatim; translate all other visual direction into English.';
   return `You are correcting only invalid camera and visible-action directions in an already approved storyboard batch.
 Return JSON {"repairs":[{"path":"the exact requested path","value":"a complete concise sentence"}]}, one entry for EVERY requested path and NO others. Paths use zero-based batch positions; shotNumber is the real episode shot number. Never confuse them.
 Fix the reported validation problem. Rewrite overlong text in fewer words; remove dialogue/sound instructions from visual direction while retaining the visible actions. Preserve the named actors, main action, camera viewpoint/movement, direction, negations, visible ending and continuity. Remove redundant modifiers and repeated staging. Do not invent an event or change dialogue, image prompts, costumes, identities or any other field. Do not copy a full storyboard array. Do not truncate words or append punctuation to a clipped prefix. ${outputRule}
