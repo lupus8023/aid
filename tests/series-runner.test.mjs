@@ -5,6 +5,50 @@ import { createSeries, parseOutline, parseEpisodes, parseScript } from '../lib/s
 import { storyStorageKeys } from '../lib/series/storageScope.ts';
 import { outlineFixture, episodeFixtures, shotFixture } from './fixtures/series.mjs';
 
+test('script runner records the asset-authoritative reverse repair before finalizing', async () => {
+  const project = createSeries({ name: '反向修稿记录', brief: 'test', episodeCount: 3 });
+  Object.assign(project, parseOutline(outlineFixture(), project));
+  project.episodes = parseEpisodes(episodeFixtures(), project, 1, 3);
+  project.characters.forEach((character, index) => {
+    character.locked = true;
+    character.bibleUrl = `https://assets.test/character-${index}.png`;
+    character.voiceId = `voice-${index}`;
+    character.voiceReferenceUrl = `https://assets.test/voice-${index}.mp3`;
+  });
+  project.locations.forEach(location => { location.imageUrl = `https://assets.test/${location.id}.png`; });
+  project.episodes[0].script = parseScript(shotFixture(), project, project.episodes[0]);
+  project.episodes[0].scriptAssetFingerprint = 'pre-final-assets';
+  const previousFetch = globalThis.fetch;
+  const stages = [];
+  globalThis.fetch = async (url, init) => {
+    if (url === '/api/companion/status') return Response.json({ ok: true });
+    const body = JSON.parse(init.body);
+    if (url === '/api/series/generate') return Response.json({
+      script: parseScript(shotFixture(), project, project.episodes[0]),
+      scriptAssetRepairs: [{ shotNumber: 5, kind: 'speaker_added', detail: '补入发声角色 林知夏' }],
+    });
+    if (url === '/api/companion/series') {
+      stages.push(body.stage);
+      return Response.json({ revision: body.project.revision + 1 });
+    }
+    throw new Error(`Unexpected ${url}`);
+  };
+  try {
+    await executeSeriesClaim({
+      project,
+      job: { id: 'script-job', episodeId: project.episodes[0].id, kind: 'script', lease: 'fixture' },
+      settings: { apiKey: 'fixture' },
+    }, new AbortController().signal, () => {});
+    assert.equal(project.episodes[0].scriptAssetRepairs.length, 1);
+    assert.equal(project.episodes[0].scriptAssetRepairs[0].changes[0].kind, 'speaker_added');
+    assert.ok(stages.some(stage => /按最终角色与道具反向修正 1 处/.test(stage)));
+    assert.ok(stages.some(stage => /按最终角色与道具复核18镜剧本/.test(stage)));
+    assert.match(stages.at(-1), /18镜已定稿/);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test('production runner reuses locked shared assets, saves checkpoints and uploads the episode without touching ordinary Story', async () => {
   const project = createSeries({ name: '运行器测试', brief: '虚构测试', episodeCount: 3 });
   Object.assign(project, parseOutline(outlineFixture(), project));

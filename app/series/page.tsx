@@ -43,6 +43,7 @@ import {
 import { seriesRequest } from "@/lib/series/runner";
 import { episodeScreenplay, seriesObjectReferenceMode, seriesShotObjectIds } from "@/lib/series/domain";
 import { seriesStageBlocker } from "@/lib/series/readiness";
+import { seriesScriptAssetFingerprint } from '@/lib/series/scriptStructureRepair';
 import { partitionSeriesJobs } from '@/lib/series/jobHistory';
 import type {
   SeriesCharacter,
@@ -181,6 +182,8 @@ function EpisodeEditor({
 }) {
   const [showShots, setShowShots] = useState(false);
   const [jsonError, setJsonError] = useState("");
+  const scriptAssetsCurrent = episode.scriptAssetFingerprint === seriesScriptAssetFingerprint(project, episode);
+  const lastAssetRepair = episode.scriptAssetRepairs?.at(-1);
   return (
     <div
       className="fixed inset-0 z-40 flex justify-end bg-black/60"
@@ -283,6 +286,14 @@ function EpisodeEditor({
             </form>
           ) : episode.script ? (
             <>
+              {scriptAssetsCurrent && episode.scriptAssetsReconciledAt ? (
+                <div className="mb-5 rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-xs text-emerald-100">
+                  <p>已按最终角色与道具复核 · {new Date(episode.scriptAssetsReconciledAt).toLocaleString()}</p>
+                  {lastAssetRepair && <p className="mt-2 leading-5 text-emerald-100/75">最近自动校正 {lastAssetRepair.changes.length} 处：{lastAssetRepair.changes.map(change => change.detail).join('；')}</p>}
+                </div>
+              ) : (
+                <p className="mb-5 rounded-xl border border-amber-400/25 bg-amber-400/10 p-4 text-xs text-amber-100">最终角色或道具已变化；成片前会自动反向复核并修正这版剧本。</p>
+              )}
               <div className="mb-5 flex items-center gap-3 text-xs text-[var(--text-secondary)]">
                 <span>18个镜头</span>
                 <span>
@@ -976,7 +987,7 @@ export default function SeriesPage() {
     finally { setBusy(false); }
   };
   const enqueue = async (kind: SeriesJobKind, episodeIds?: string[], assetId?: string) => {
-    if (kind === "prepare") {
+    if (["prepare", "script", "produce"].includes(kind)) {
       if (base === undefined || (!assetId && prepareBlocker) || (assetId && (!connected || !project?.bible))) return;
       try {
         const response = await fetch(`${base}/api/companion/status`, {
@@ -986,13 +997,16 @@ export default function SeriesPage() {
           seriesIndependentPreparation?: boolean;
           seriesCharacterCardJobs?: boolean;
           seriesObjectAutoReferences?: boolean;
+          seriesAssetScriptReconciliation?: boolean;
         }>(response, "无法检查定稿支持");
-        if (!status.seriesIndependentPreparation)
+        if (kind === 'prepare' && !status.seriesIndependentPreparation)
           throw new Error("独立角色场景定稿需要 Companion v0.1.105 或更新版本，请更新后重新连接。");
-        if (assetId && !status.seriesCharacterCardJobs)
+        if (kind === 'prepare' && assetId && !status.seriesCharacterCardJobs)
           throw new Error('单独生成角色卡需要更新 Companion 后重新连接。');
-        if (!assetId && (project?.objects || []).some(object => seriesObjectReferenceMode(object) === 'auto' && !object.imageUrl) && !status.seriesObjectAutoReferences)
+        if (kind === 'prepare' && !assetId && (project?.objects || []).some(object => seriesObjectReferenceMode(object) === 'auto' && !object.imageUrl) && !status.seriesObjectAutoReferences)
           throw new Error('自动生成道具参考图需要更新 Companion 后重新连接。');
+        if (["script", "produce"].includes(kind) && !status.seriesAssetScriptReconciliation)
+          throw new Error('资产定稿后反向校正剧本需要 Companion v0.1.175 或更新版本，请更新后重新连接。');
       } catch (err) {
         setError(err instanceof Error ? err.message : "无法检查定稿支持");
         return;
@@ -1090,6 +1104,8 @@ export default function SeriesPage() {
       jobs.filter((j) => j.episodeId === episode.id).at(-1)?.status === "failed"
     )
       return { label: "制作需处理", color: "text-red-300" };
+    if (project && episode.script && episode.scriptAssetFingerprint !== seriesScriptAssetFingerprint(project, episode))
+      return { label: '剧本待资产复核', color: 'text-amber-200' };
     return {
       label: episode.script ? "18镜就绪" : "故事就绪",
       color: "text-[var(--text-secondary)]",

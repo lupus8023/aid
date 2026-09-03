@@ -6,6 +6,7 @@ import { imageModelRequiresApiKey } from '@/lib/imageModels';
 import { enforceSeriesVideoProvider, mergeResumedSeriesSettings, resetEpisodeVideosForProviderChange } from '@/lib/series/videoProviderChange';
 import { castSeriesRole } from "@/lib/series/casting";
 import { seriesAssetsReady, seriesStageBlocker } from "@/lib/series/readiness";
+import { seriesScriptAssetFingerprint } from '@/lib/series/scriptStructureRepair';
 import { moveSeriesToTrash, restoreSeriesFromTrash } from "@/lib/series/trash";
 import {
   createSeries,
@@ -200,6 +201,8 @@ export async function POST(request: NextRequest) {
                 episode,
               );
               episode.production = undefined;
+              episode.scriptAssetFingerprint = seriesScriptAssetFingerprint(project, episode);
+              episode.scriptAssetsReconciledAt = new Date().toISOString();
               episode.version++;
             }
             if (changed) {
@@ -329,9 +332,10 @@ export async function POST(request: NextRequest) {
             ...(body.settings || {}),
             apiKey: body.settings?.apiKey || process.env.APIMART_API_KEY || '',
           });
+          const needsPreparation = kind === 'script' && !seriesAssetsReady(project);
           if (kind !== "prepare" && !effectiveSettings.apiKey && !effectiveSettings.dmxApiKey)
             throw new Error("请先在设置中配置剧本API");
-          if (["prepare", "produce"].includes(kind)
+          if ((["prepare", "produce"].includes(kind) || needsPreparation)
             && imageModelRequiresApiKey(effectiveSettings.imageModel || 'seedream-5-0-pro')
             && !effectiveSettings.apiKey)
             throw new Error("当前图片模型需要 APIMart API Key；请先在设置中配置后再开始制作");
@@ -347,8 +351,12 @@ export async function POST(request: NextRequest) {
             ? project.bible ? '' : '请先完成整季总纲'
             : seriesStageBlocker(project, kind);
           if (blocker) throw new Error(blocker);
+          if (needsPreparation) {
+            const preparationBlocker = seriesStageBlocker(project, 'prepare');
+            if (preparationBlocker) throw new Error(preparationBlocker);
+          }
           if (
-            ["prepare", "produce"].includes(kind) &&
+            (["prepare", "produce"].includes(kind) || needsPreparation) &&
             !assetId &&
             project.characters.some(
               (c) => c.speaking && (!c.voiceId || !c.voiceReferenceUrl),
@@ -372,7 +380,7 @@ export async function POST(request: NextRequest) {
                   (e) =>
                     (!selectedIds || selectedIds.has(e.id)) &&
                     (kind === "script"
-                      ? !e.script
+                      ? !e.script || e.scriptAssetFingerprint !== seriesScriptAssetFingerprint(project, e)
                       : !e.deliveries.some(
                           (d) => d.episodeVersion === e.version,
                         )),
@@ -381,6 +389,33 @@ export async function POST(request: NextRequest) {
             : [undefined];
           const sealedSettings = await sealSettings(effectiveSettings);
           let added = 0;
+          if (needsPreparation) {
+            const existingPreparation = db.jobs.find(
+              job => job.seriesId === project.id && job.kind === 'prepare' && !job.assetId &&
+                ["queued", "running", "paused"].includes(job.status),
+            );
+            if (existingPreparation?.status === 'paused') {
+              existingPreparation.status = 'queued';
+              existingPreparation.cancelRequested = false;
+              existingPreparation.error = undefined;
+              existingPreparation.stage = '先完成角色、场景与道具定稿';
+              existingPreparation.updatedAt = now;
+              existingPreparation.sealedSettings = sealedSettings;
+            } else if (!existingPreparation) {
+              db.jobs.push({
+                id: seriesId('job'),
+                seriesId: project.id,
+                kind: 'prepare',
+                status: 'queued',
+                stage: '先完成角色、场景与道具定稿',
+                attempts: 0,
+                createdAt: now,
+                updatedAt: now,
+                sealedSettings,
+              });
+              added++;
+            }
+          }
           for (const episodeId of episodeIds) {
             if (
               db.jobs.some(

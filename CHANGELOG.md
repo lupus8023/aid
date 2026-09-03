@@ -1,3 +1,9 @@
+## 0.1.175 - 2026-09-03
+
+- Reconcile each 18-shot screenplay against the finalized character and fixed-prop registry before storyboard production: safely restore valid speaking cast, repair all ungrounded prop references in one bounded pass, and normalize shot count without changing or reordering dialogue.
+- Make manual 18-shot generation queue unfinished shared-asset preparation first; one-click production performs the same reconciliation automatically before entering Story.
+- Persist and display a per-episode record of automatic asset-authoritative screenplay corrections instead of silently changing the draft.
+
 ## 0.1.174 - 2026-09-03
 
 - Show a persistent “Saved to library” badge on up-to-date series character cards and an immediate inline success confirmation after saving; automatically clear the badge when the card appearance or reusable voice changes.

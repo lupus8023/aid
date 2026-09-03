@@ -5,9 +5,10 @@ import { ApiResponseError, readApiJson } from "@/lib/apiResponse";
 import { buildEpisodeProject, seriesObjectReferenceMode, seriesShotObjectIds } from "./domain";
 import { copiedDialogueShotNumbers } from "./scriptRepair";
 import { repairEpisodeDialogue, synchronizeEpisodeDialogue } from "./productionDialogueRepair";
+import { seriesScriptAssetFingerprint } from './scriptStructureRepair';
 import { storyStorageKeys } from "./storageScope";
 import { ensurePhotographicAnchor } from './photographicAnchor';
-import { seriesStageBlocker } from "./readiness";
+import { seriesAssetsReady, seriesStageBlocker } from "./readiness";
 import { isGptImage2Model } from '@/lib/imageModels';
 import { usesPhotographicReferences } from '@/lib/gptImageReferences';
 import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '@/lib/midjourney';
@@ -204,6 +205,8 @@ export async function executeSeriesClaim(
     ? project.bible ? "" : "请先完成整季总纲"
     : seriesStageBlocker(project, job.kind);
   if (blocker) throw new Error(blocker);
+  if (job.kind === 'script' && !seriesAssetsReady(project))
+    throw new Error('角色、场景与道具尚未全部定稿；请先完成前置资产任务后从断点重试');
   if (job.kind === "prepare" || job.kind === "produce") {
     const cast = targetCharacter
       ? [targetCharacter]
@@ -402,13 +405,29 @@ export async function executeSeriesClaim(
     if (job.kind === "prepare") return;
   }
   if (!episode) throw new Error("本集不存在");
-  if (!episode.script) {
-    await save(`执行编剧：第${episode.number}集18镜与台词`);
+  const scriptAssetFingerprint = seriesScriptAssetFingerprint(project, episode);
+  if (!episode.script || episode.scriptAssetFingerprint !== scriptAssetFingerprint) {
+    await save(episode.script
+      ? `第${episode.number}集按最终角色与道具复核18镜剧本`
+      : `执行编剧：第${episode.number}集18镜与台词`);
     const result = await generate<{
       script: NonNullable<SeriesEpisode["script"]>;
+      scriptAssetRepairs?: NonNullable<SeriesEpisode['scriptAssetRepairs']>[number]['changes'];
     }>("script", project, episode.id);
     episode.script = result.script;
-    await save(`第${episode.number}集18镜已定稿`);
+    const reconciledAt = new Date().toISOString();
+    episode.scriptAssetFingerprint = scriptAssetFingerprint;
+    episode.scriptAssetsReconciledAt = reconciledAt;
+    if (result.scriptAssetRepairs?.length) {
+      episode.scriptAssetRepairs = [
+        ...(episode.scriptAssetRepairs || []),
+        { at: reconciledAt, changes: result.scriptAssetRepairs },
+      ];
+      await save(`第${episode.number}集已按最终角色与道具反向修正 ${result.scriptAssetRepairs.length} 处`);
+    }
+    await save(result.scriptAssetRepairs?.length
+      ? `第${episode.number}集18镜已定稿`
+      : `第${episode.number}集已按最终角色与道具复核，18镜无需改动`);
   }
   if (!episode.deliveries.some(d => d.episodeVersion === episode.version) && copiedDialogueShotNumbers(episode.script).length) {
     await save(`第${episode.number}集自动纠正台词串镜，保留其余素材`);

@@ -120,7 +120,11 @@ test('rejects a fixed-prop id that is not grounded by its registered name or ali
   const raw = shotFixture();
   raw.shots[0].objectIds = ['bag'];
   raw.shots[0].visual += ' 宫人把普通面膜贴到贵妃脸上。';
-  assert.throws(() => parseScript(raw, p, p.episodes[0]), /金色面膜袋.*未使用其正名或登记别名/);
+  assert.throws(() => parseScript(raw, p, p.episodes[0]), error => {
+    assert.equal(error.name, 'ScriptStructureError');
+    assert.deepEqual(error.issues.map(issue => [issue.kind, issue.objectName]), [['ungrounded_object', '金色面膜袋']]);
+    return true;
+  });
   raw.shots[0].objectIds = ['cloth'];
   raw.shots[0].visual += ' 她展开灰色网状面膜布。';
   assert.deepEqual(parseScript(raw, p, p.episodes[0])[0].objectIds, ['cloth']);

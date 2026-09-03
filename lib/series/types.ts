@@ -108,6 +108,16 @@ export interface SeriesShot {
 }
 
 export interface SeriesEpisode {
+  scriptAssetFingerprint?: string;
+  scriptAssetsReconciledAt?: string;
+  scriptAssetRepairs?: Array<{
+    at: string;
+    changes: Array<{
+      shotNumber: number;
+      kind: 'speaker_added' | 'object_grounded' | 'object_removed' | 'shot_count_normalized';
+      detail: string;
+    }>;
+  }>;
   productionDialogueRepairs?: Array<{ at: string; shots: number[] }>;
   dialogueRepairs?: Array<{ at: string; shots: number[]; reason: string; before: Array<Pick<SeriesShot, "number" | "dialogue">>; after: Array<Pick<SeriesShot, "number" | "dialogue">> }>;
   id: string;

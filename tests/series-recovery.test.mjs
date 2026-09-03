@@ -367,6 +367,81 @@ test('script repair lists all overlong dialogue and preserves shot timing, speak
   await generateSeriesStage('script', p, p.episodes[0].id, { read: async () => draft, chat: async () => assert.fail('cached script must be reused') });
 });
 
+test('asset-finalized script repair safely adds a valid speaker without another model call', async () => {
+  const { shotFixture } = await import('./fixtures/series.mjs');
+  const p = fixture();
+  p.episodes = parseEpisodes(episodeFixtures(), p, 1, 3);
+  const raw = shotFixture();
+  raw.shots[4].characterIds = [];
+  let draft = JSON.stringify(raw), calls = 0, saves = 0;
+  const result = await generateSeriesStage('script', p, p.episodes[0].id, {
+    read: async () => draft,
+    save: async value => { draft = value; saves++; },
+    chat: async () => { calls++; throw new Error('speaker repair must be deterministic'); },
+  });
+  assert.equal(calls, 0);
+  assert.equal(saves, 1);
+  assert.deepEqual(result.script[4].characterIds, ['c1']);
+  assert.deepEqual(result.scriptAssetRepairs, [{ shotNumber: 5, kind: 'speaker_added', detail: '补入发声角色 林知夏' }]);
+});
+
+test('all ungrounded fixed props are reconciled in one bounded model repair', async () => {
+  const { shotFixture } = await import('./fixtures/series.mjs');
+  const p = fixture();
+  p.episodes = parseEpisodes(episodeFixtures(), p, 1, 3);
+  p.objects = [
+    { id: 'bag', name: '金色面膜袋', aliases: ['袋装面膜'], description: '金色袋装面膜。', imageUrl: 'https://assets.test/bag.png', referenceMode: 'auto' },
+    { id: 'mirror', name: '莲纹铜镜', aliases: ['铜镜'], description: '背面莲纹的铜镜。', imageUrl: 'https://assets.test/mirror.png', referenceMode: 'upload' },
+  ];
+  const raw = shotFixture();
+  raw.shots[0].objectIds = ['bag'];
+  raw.shots[0].visual = '近景，她拿起桌上的小袋子。';
+  raw.shots[1].objectIds = ['mirror'];
+  raw.shots[1].visual = '近景，她继续观察照片。';
+  let draft = JSON.stringify(raw), calls = 0;
+  const result = await generateSeriesStage('script', p, p.episodes[0].id, {
+    read: async () => draft,
+    save: async value => { draft = value; },
+    chat: async prompt => {
+      calls++;
+      assert.match(prompt, /金色面膜袋/);
+      assert.match(prompt, /莲纹铜镜/);
+      return JSON.stringify({ repairs: [
+        { shotNumber: 1, objectId: 'bag', decision: 'ground', field: 'visual', value: '近景，她拿起桌上的金色面膜袋。' },
+        { shotNumber: 2, objectId: 'mirror', decision: 'remove' },
+      ] });
+    },
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.script[0].visual, '近景，她拿起桌上的金色面膜袋。');
+  assert.deepEqual(result.script[0].objectIds, ['bag']);
+  assert.deepEqual(result.script[1].objectIds, []);
+  assert.deepEqual(result.scriptAssetRepairs.map(change => change.kind), ['object_grounded', 'object_removed']);
+});
+
+test('shot-count normalization preserves every dialogue turn and fixed-prop clue', async () => {
+  const { shotFixture } = await import('./fixtures/series.mjs');
+  const p = fixture();
+  p.episodes = parseEpisodes(episodeFixtures(), p, 1, 3);
+  const valid = shotFixture();
+  const raw = structuredClone(valid);
+  raw.shots.push({ ...structuredClone(raw.shots[17]), number: 19, seconds: 2, dialogue: [] });
+  let draft = JSON.stringify(raw), calls = 0;
+  const result = await generateSeriesStage('script', p, p.episodes[0].id, {
+    read: async () => draft,
+    save: async value => { draft = value; },
+    chat: async prompt => {
+      calls++;
+      assert.match(prompt, /现有19镜/);
+      return JSON.stringify(valid);
+    },
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.script.length, 18);
+  assert.equal(result.scriptAssetRepairs[0].kind, 'shot_count_normalized');
+  assert.deepEqual(result.script.flatMap(shot => shot.dialogue), valid.shots.flatMap(shot => shot.dialogue));
+});
+
 test('dialogue repair rejects unsafe patches and cannot bypass timing or 18-shot validation', async () => {
   const { shotFixture } = await import('./fixtures/series.mjs');
   const { checkScriptDialogue, ScriptDialogueError, applyDialogueRepairs } = await import('../lib/series/scriptRepair.ts');

@@ -9,6 +9,11 @@ import type {
 import type { ProjectData } from "@/hooks/useProject";
 import { checkEpisodeTextFields } from './fieldRepair';
 import { checkScriptDialogue } from './scriptRepair';
+import {
+  ScriptShotCountError,
+  ScriptStructureError,
+  type ScriptStructureIssue,
+} from './scriptStructureRepair';
 
 export function seriesId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -268,8 +273,10 @@ export function parseScript(
   project: SeriesProject,
   episode: SeriesEpisode,
 ): SeriesShot[] {
-  if (!Array.isArray(raw?.shots) || raw.shots.length !== 18)
-    throw new Error("单集剧本必须为18镜");
+  if (!Array.isArray(raw?.shots)) throw new Error("单集剧本必须包含shots数组");
+  if (raw.shots.length !== 18) throw new ScriptShotCountError(raw.shots.length);
+  const structureIssues: ScriptStructureIssue[] = [];
+  const missingSpeakers = new Set<string>();
   const shots: SeriesShot[] = raw.shots.map((s: any, i: number) => {
     const characterIds = list(s.characterIds),
       requestedObjectIds = list(s.objectIds),
@@ -296,20 +303,30 @@ export function parseScript(
       text: required(d.text, "台词"),
       emotion: text(d.emotion) || "自然",
     }));
-    if (
-      dialogue.some(
-        (d) =>
-          !characterIds.includes(d.characterId) ||
-          !project.characters.find((c) => c.id === d.characterId)?.speaking,
-      )
-    )
-      throw new Error("台词角色未登记为本镜发声角色");
+    for (const line of dialogue) {
+      const character = project.characters.find((c) => c.id === line.characterId);
+      if (!character || !episode.characterIds.includes(line.characterId) || !character.speaking)
+        throw new Error("台词引用了本集未登记或不可发声的角色");
+      const speakerKey = `${i}:${line.characterId}`;
+      if (!characterIds.includes(line.characterId) && !missingSpeakers.has(speakerKey)) {
+        missingSpeakers.add(speakerKey);
+        structureIssues.push({
+          kind: 'missing_speaker', index: i, shotNumber: i + 1,
+          characterId: line.characterId, characterName: character.name,
+        });
+      }
+    }
     const visual = required(s.visual, "镜头画面"), action = required(s.action, "镜头行动");
     const mentionedObjectIds = seriesShotObjectIds(project, { objectIds: [], visual, action });
     const ungroundedObjects = requestedObjectIds.filter(id => !mentionedObjectIds.includes(id));
     if (ungroundedObjects.length) {
-      const names = ungroundedObjects.map(id => project.objects.find(object => object.id === id)?.name || id);
-      throw new Error(`镜头 ${i + 1} 标记了固定道具 ${names.join('、')}，但 visual/action 未使用其正名或登记别名`);
+      for (const id of ungroundedObjects) {
+        const object = project.objects.find(item => item.id === id)!;
+        structureIssues.push({
+          kind: 'ungrounded_object', index: i, shotNumber: i + 1,
+          objectId: id, objectName: object.name, aliases: object.aliases || [], visual, action,
+        });
+      }
     }
     const inferredObjectIds = [...new Set([...requestedObjectIds, ...mentionedObjectIds])];
     return {
@@ -325,6 +342,7 @@ export function parseScript(
       purpose: required(s.purpose, "镜头作用"),
     };
   });
+  if (structureIssues.length) throw new ScriptStructureError(structureIssues);
   const duration = shots.reduce((n, s) => n + s.seconds, 0);
   if (Math.abs(duration - 120) > 5)
     throw new Error(`镜头总时长 ${duration} 秒，应为115–125秒`);
