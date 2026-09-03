@@ -6,6 +6,7 @@ import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { probeMedia } from "@/lib/companionVideoExportServer";
+import { assertSeriesDeliveryDuration } from "@/lib/series/deliveryValidation";
 import {
   deliveryPath,
   requireLease,
@@ -58,10 +59,7 @@ export async function POST(request: NextRequest) {
     );
     if (!bytes) throw new Error("成片内容为空");
     const media = await probeMedia(temporary);
-    if (media.duration < 90 || media.duration > 150)
-      throw new Error(
-        `成片时长${Math.round(media.duration)}秒不符合约2分钟规格（90–150秒），请调整镜头时长后重制`,
-      );
+    assertSeriesDeliveryDuration(media.duration);
     if (!media.hasAudio) throw new Error("成片缺少声音轨道");
     const expectedRatio = meta.aspectRatio === "1:1" ? 1 : meta.aspectRatio === "9:16" ? 9 / 16 : 16 / 9;
     if (Math.abs(media.width / media.height - expectedRatio) > 0.05)

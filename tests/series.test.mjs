@@ -14,6 +14,7 @@ import { rankFishVoiceModels } from '../lib/fishVoiceDiscovery.ts';
 import { withSeriesDb, publicSnapshot, sealSettings, openSettings, requireLease, deliveryPath } from '../lib/series/store.ts';
 import { outlineFixture, episodeFixtures, shotFixture } from './fixtures/series.mjs';
 import { moveSeriesToTrash, restoreSeriesFromTrash } from '../lib/series/trash.ts';
+import { assertSeriesDeliveryDuration } from '../lib/series/deliveryValidation.ts';
 
 function fixture() {
   const p = createSeries({ name: '回声档案', brief: '修复照片获得线索但失去记忆', episodeCount: 3 });
@@ -22,6 +23,13 @@ function fixture() {
   p.episodes[0].script = parseScript(shotFixture(), p, p.episodes[0]);
   return p;
 }
+
+test('series delivery accepts the produced runtime instead of enforcing a two-minute window', () => {
+  for (const duration of [35, 64, 120, 151, 600])
+    assert.doesNotThrow(() => assertSeriesDeliveryDuration(duration));
+  for (const duration of [0, -1, Number.NaN, Number.POSITIVE_INFINITY])
+    assert.throws(() => assertSeriesDeliveryDuration(duration), /有效的成片时长/);
+});
 
 test('square series keeps its chosen ratio when handed off to episode production', () => {
   const p = createSeries({ name: 'Square story', brief: 'A square-framed story', episodeCount: 3, aspectRatio: '1:1' });

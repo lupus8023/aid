@@ -1,3 +1,9 @@
+## 0.1.180 - 2026-09-03
+
+- Remove the arbitrary 90–150 second delivery gate. Series films now retain their actual screenplay and exported-timeline duration, whether shorter or longer than two minutes.
+- Keep the necessary delivery safeguards: the uploaded film must still have a readable positive duration, video and audio tracks, the project aspect ratio, and a locally verified untruncated export timeline.
+- Replace the obsolete “18 shots / about 2 minutes” home-page promise with project-driven shot count and duration wording.
+
 ## 0.1.179 - 2026-09-03
 
 - Treat every manually added series prop as a narrative requirement: automatically queue episode-story rewriting, preserve historical deliveries, and require the prop to perform a concrete visible role in at least one episode and its detailed shots instead of remaining a library-only asset.

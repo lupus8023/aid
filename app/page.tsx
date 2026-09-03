@@ -37,8 +37,8 @@ const creationModes = [
     icon: Layers3,
     label: '连续剧制片',
     english: 'Series Studio',
-    description: '从整季总纲、分集悬念到角色定稿，连续制作每集18镜短剧。',
-    meta: '18镜 / 约2分钟 · 自动选声 · 分集交付',
+    description: '从整季总纲、分集悬念到角色定稿，按项目实际镜数连续制作短剧。',
+    meta: '镜数与时长跟随剧本 · 自动选声 · 分集交付',
     accent: 'purple',
   },
   {

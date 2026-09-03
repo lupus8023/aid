@@ -1242,7 +1242,7 @@ export default function SeriesPage() {
                 成为下一集的开始。
               </h1>
               <p className="mt-6 max-w-lg text-sm leading-7 text-[var(--text-secondary)]">
-                写下故事创意，系统规划长线冲突与分集悬念，建立全剧角色和声音，再将每集18镜逐步制作成片。
+                写下故事创意，系统规划长线冲突与分集悬念，建立全剧角色和声音，再按项目实际镜数逐步制作成片。
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <button
