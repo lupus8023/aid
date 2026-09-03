@@ -1,3 +1,8 @@
+## 0.1.185 - 2026-09-04
+
+- Remove the remaining hard-coded 18-shot summary and legacy project-count labels from series actions, progress cards, and current/historical job titles. Script tabs, shot totals, and ready badges now show the actual saved episode length.
+- Clarify four-panel reference batching without implying a fixed shot count for every episode. This is a web-only UI release; existing scripts and assets are unchanged, and Companion 0.1.184 remains compatible without an update.
+
 ## 0.1.184 - 2026-09-04
 
 - Replace Story's nine-panel reference generation with native 2×2 four-panel sheets. Prompt layout, batching, server-side crop geometry, canvas previews, progress labels, error text, and split requests now all use four shots per batch.

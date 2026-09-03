@@ -75,9 +75,6 @@ const jobNames: Record<SeriesJobKind, string> = {
   script: "分镜剧本",
   produce: "单集成片",
 };
-function jobName(kind: SeriesJobKind, shotCount: number): string {
-  return kind === "script" ? `${shotCount}镜剧本` : jobNames[kind];
-}
 const statusNames = {
   queued: "排队中",
   running: "制作中",
@@ -216,7 +213,7 @@ function EpisodeEditor({
             分集故事
           </button>
           <button className={button} onClick={() => setShowShots(true)}>
-            {project.shotCount}镜剧本 {episode.script ? "✓" : "待生成"}
+            分镜剧本 {episode.script?.length ? `${episode.script.length}镜 ✓` : "待生成"}
           </button>
           <button
             className={`${button} ml-auto`}
@@ -298,7 +295,7 @@ function EpisodeEditor({
                 <p className="mb-5 rounded-xl border border-amber-400/25 bg-amber-400/10 p-4 text-xs text-amber-100">最终角色或道具已变化；成片前会自动反向复核并修正这版剧本。</p>
               )}
               <div className="mb-5 flex items-center gap-3 text-xs text-[var(--text-secondary)]">
-                <span>18个镜头</span>
+                <span>{episode.script.length}个镜头</span>
                 <span>
                   {episode.script.reduce((n, s) => n + s.seconds, 0)}秒
                 </span>
@@ -390,9 +387,9 @@ function EpisodeEditor({
           ) : (
             <div className="py-20 text-center text-[var(--text-secondary)]">
               <BookOpen className="mx-auto mb-4 opacity-50" size={36} />
-              <p className="text-sm">分集故事已就绪，尚未展开{project.shotCount}镜。</p>
+              <p className="text-sm">分集故事已就绪，尚未生成分镜剧本。</p>
               <p className="mt-2 text-xs">
-                点击列表中的“写{project.shotCount}镜”，或成片时自动补齐。
+                点击列表中的“生成分镜剧本”，或成片时自动补齐。参考图每批 4 镜，已有成稿保留原镜数。
               </p>
             </div>
           )}
@@ -1164,7 +1161,7 @@ export default function SeriesPage() {
     if (project && episode.script && episode.scriptAssetFingerprint !== seriesScriptAssetFingerprint(project, episode))
       return { label: '剧本待资产复核', color: 'text-amber-200' };
     return {
-      label: episode.script ? `${project?.shotCount || 16}镜就绪` : "故事就绪",
+      label: episode.script?.length ? `${episode.script.length}镜就绪` : "故事就绪",
       color: "text-[var(--text-secondary)]",
     };
   };
@@ -1332,7 +1329,7 @@ export default function SeriesPage() {
                   </h1>
                   <p className="mt-3 text-xs text-[var(--text-secondary)]">
                     {project.episodeCount} 集{" "}
-                    <span className="mx-2 opacity-40">/</span> 每集{project.shotCount}镜 ·
+                    <span className="mx-2 opacity-40">/</span> 四宫格参考 · 镜数按各集剧本 ·
                     约{project.durationSeconds}秒 <span className="mx-2 opacity-40">/</span>{" "}
                     {project.aspectRatio}{" "}
                     <span className="mx-2 opacity-40">/</span> {completed}{" "}
@@ -1414,7 +1411,7 @@ export default function SeriesPage() {
                       project.characters.every((c) => c.locked),
                   },
                   {
-                    label: `${project.shotCount}镜剧本`,
+                    label: "分镜剧本",
                     value: `${project.episodes.filter((e) => e.script).length} / ${project.episodeCount}`,
                     done:
                       project.episodes.filter((e) => e.script).length ===
@@ -1495,7 +1492,7 @@ export default function SeriesPage() {
                             )
                           }
                         >
-                          批量写{project.shotCount}镜
+                          批量生成分镜剧本
                         </button>
                         {selection.length > 0 && (
                           <button
@@ -1619,7 +1616,7 @@ export default function SeriesPage() {
                                   ) : (
                                     <BookOpen size={12} />
                                   )}
-                                  {ep.script ? "成片" : `写${project.shotCount}镜`}
+                                  {ep.script ? "成片" : "生成分镜剧本"}
                                 </button>
                                 {ep.deliveries.length > 0 && (
                                   <a
@@ -1953,7 +1950,7 @@ export default function SeriesPage() {
                           )}
                           <div className="min-w-0 flex-1">
                             <p className="text-sm">
-                              {jobName(j.kind, project.shotCount)}{" "}
+                              {jobNames[j.kind]}{" "}
                               {j.episodeId &&
                                 `· 第${project.episodes.find((e) => e.id === j.episodeId)?.number}集`}
                             </p>
@@ -2006,7 +2003,7 @@ export default function SeriesPage() {
                           <summary className="cursor-pointer text-xs text-[var(--text-secondary)]">历史任务记录 · {historicalJobs.length}（不代表当前执行结果）</summary>
                           <p className="mt-3 text-xs text-[var(--text-muted)]">同阶段已有较新任务，请使用上方当前任务重试。失败的历史记录可删除，不影响已保存的内容。</p>
                           {historicalJobs.map(j => <article key={j.id} className="mt-4 border-t border-[var(--border-color)] pt-3 text-xs text-[var(--text-muted)]">
-                            <p>{jobName(j.kind, project.shotCount)} · {statusNames[j.status]} · {new Date(j.updatedAt).toLocaleString()}</p>
+                            <p>{jobNames[j.kind]} · {statusNames[j.status]} · {new Date(j.updatedAt).toLocaleString()}</p>
                             <p className="mt-2 break-words">{j.error || j.stage}</p>
                             {j.status === "failed" && (
                               <button
