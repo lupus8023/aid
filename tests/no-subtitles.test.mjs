@@ -25,8 +25,8 @@ test('H3 prompts use natural-language text-free direction inside the official st
   assert.match(source, /subject_definitions:/);
   assert.match(source, /integrated_multimodal_description:/);
   assert.match(source, /NO_SUBTITLE_POLICY/);
-  assert.match(policy, /Every <d> block is soundtrack audio only/);
-  assert.match(policy, /no added subtitles, captions, dialogue glyphs, phonetic text, romanization/);
+  assert.match(policy, /Deliver clean camera-original footage before graphics/);
+  assert.match(policy, /Dialogue exists only in the audio track/);
   assert.doesNotMatch(source, /画面里不要出现字幕、文字、标志、水印或界面/);
   assert.doesNotMatch(source, /timeline_json|aid_h3_timeline|frame_text_policy/);
   assert.match(source, /visualOverride: storyboard\.videoPrompt\.trim\(\)/);

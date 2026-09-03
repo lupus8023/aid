@@ -49,21 +49,21 @@ test('writes Ref2VA prompts in the official six-section natural-language format'
   assert.doesNotMatch(prompt, /timeline_json|aid_h3_timeline|audio_event_lock|shot_contracts|dialogue_events|first_word_at|final_word_complete_by/);
   assert.match(prompt, /\[Shot 1] The shot follows <Picture 1> as its composition reference/);
   assert.match(prompt, /\[Shot 2] At 00:\d{2}\.\d{3}, make a clean hard cut/);
-  assert.match(prompt, /During the authored action, <Subject 1> \(S1\) speaks.*<d>\[Chinese] 线索就在这里。<\/d>/);
+  assert.match(prompt, /Dialogue: <Subject 1> \(S1\) speaks.*<d>\[Chinese] 线索就在这里。<\/d>/);
   assert.doesNotMatch(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S1\) (?:begins speaking|speaks)/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /Every <d> block is soundtrack audio only/);
-  assert.match(prompt, /no added subtitles, captions, dialogue glyphs, phonetic text, romanization/);
-  assert.equal((prompt.match(/Every <d> block is soundtrack audio only/g) || []).length, 1);
+  assert.match(prompt, /Deliver clean camera-original footage before graphics/);
+  assert.match(prompt, /Dialogue exists only in the audio track/);
+  assert.doesNotMatch(prompt, /\b(?:subtitles?|captions?|phonetic|romanization)\b/i);
+  assert.equal((prompt.match(/Deliver clean camera-original footage before graphics/g) || []).length, 1);
   const detailed = prompt.split('detailed_description:')[1].split('overall_soundscape:')[0];
-  assert.ok(detailed.indexOf('Every <d> block is soundtrack audio only') < detailed.indexOf('[Shot 1]'));
-  assert.match(prompt, /REFERENCE PRIORITY: Each declared picture is the composition authority for its own discrete shot/);
-  assert.match(prompt, /Treat every picture as a separate photographed setup/);
-  assert.match(prompt, /do not crossfade, morph, interpolate, repeat, or soften a hard cut/);
-  assert.match(prompt, /natural skin micro-texture and fine facial detail/);
-  assert.match(prompt, /The complete vocal track consists only of the ordered <d> blocks below/);
-  assert.match(prompt, /Before the first <d> cue, use only the specified non-vocal location sound/);
-  assert.match(prompt, /<Audio 1>: reference - its voice timbre guides <Subject 1> without copying the original audio signal/);
+  assert.ok(detailed.indexOf('Deliver clean camera-original footage before graphics') < detailed.indexOf('[Shot 1]'));
+  assert.match(prompt, /REFERENCE: Each declared picture fixes its shot opening/);
+  assert.match(prompt, /EDITING: Treat each picture as a separate shot/);
+  assert.match(prompt, /do not morph or crossfade unless the screenplay specifies it/);
+  assert.match(prompt, /Keep realistic skin, hair, hands, fabric/);
+  assert.doesNotMatch(prompt, /The complete vocal track consists only of the ordered <d> blocks below/);
+  assert.match(prompt, /Bound audio supplies voice timbre only/);
   assert.doesNotMatch(prompt.split('retention_analysis:')[1].split('detailed_description:')[0], /\(S\d+\)/);
   assert.match(prompt, /From 00:\d{2}\.\d{3} to 00:\d{2}\.\d{3}/);
   assert.doesNotMatch(prompt, /闭嘴|嘴巴闭合|说完最后一个字|mouth closes|final word|says once/i);
@@ -79,11 +79,9 @@ test('locks one storyboard as the exact I2VA first frame and limits allowed chan
       breath: 'shallow breathing', reaction: 'one tear gathers', subtext: 'do not let anyone see the fear',
     }],
   })], [], { duration: 8, language: 'en' });
-  assert.match(prompt, /REFERENCE PRIORITY — LOCK to <Picture 1>; DO NOT REDRAW/);
-  assert.match(prompt, /exact first frame at 00:00\.000, not loose style inspiration/);
-  assert.match(prompt, /Only the explicitly described physical action, micro-expression, gaze, breathing, camera movement, and physically caused effects may change/);
-  assert.match(prompt, /natural skin micro-texture and fine facial detail/);
-  assert.match(prompt, /Avoid waxy or plastic skin, beauty-filter smoothing/);
+  assert.match(prompt, /REFERENCE: <Picture 1> is the exact first frame at 00:00\.000/);
+  assert.match(prompt, /change only the authored action, expression and camera/);
+  assert.match(prompt, /Keep realistic skin, hair, hands, fabric/);
   assert.match(prompt, /From 00:00\.000 to 00:\d{2}\.\d{3}/);
   assert.doesNotMatch(prompt, /8K|HDR|ultra[- ]?high definition/i);
 });
@@ -109,7 +107,7 @@ test('treats a punctuation-only screenplay turn as a silent performance pause, n
   })], [], { duration: 10, language: 'zh', referenceAudioNames: ['裴行简'] });
   assert.deepEqual(dialogueTags(prompt), [{ language: 'Chinese', text: '也……买不到。主要是，还没开始卖。' }]);
   assert.doesNotMatch(prompt, /<d>\[English]|<d>\[Chinese] ……<\/d>/);
-  assert.match(prompt, /Every <d> block is soundtrack audio only/);
+  assert.match(prompt, /Dialogue exists only in the audio track/);
 });
 
 test('retains later-shot ambience and binds Foley to its own shot across locations', () => {
@@ -178,7 +176,7 @@ test('keeps visual direction English for Chinese H3 projects and preserves exact
   for (const value of Object.values(videoDirection)) assert.ok(!chinese.includes(value), value);
   assert.match(chinese, /Dr\. Pan raises a face-mask package and points to the printed ingredient panel/);
   assert.match(chinese, /<d>\[Chinese] 这些成分可以给肌肤补充营养。<\/d>/);
-  assert.match(chinese, /Every <d> block is soundtrack audio only/);
+  assert.match(chinese, /Dialogue exists only in the audio track/);
   assert.doesNotMatch(chinese, /观众开始关注|闭嘴|mouth closes|final word/i);
   assert.doesNotMatch(chinese.replace(/<d>[\s\S]*?<\/d>/g, ''), /[\u3400-\u9fff]/);
 

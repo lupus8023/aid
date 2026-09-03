@@ -1,3 +1,9 @@
+## 0.1.182 - 2026-09-03
+
+- Rebuild storyboard-to-H3 conversion around the authored camera plan: every shot now reads linearly as framing, concrete action and expression, camera path, ending state, exact dialogue, and sound instead of burying the scene beneath repeated meta-contracts.
+- Cut the current dialogue-shot prompt by roughly one third while preserving all four approved `videoDirection` fields and every exact `<d>` line. Subject, picture, and audio bindings remain explicit; repeated retention, material, edit, and speech prose is consolidated.
+- Prevent subtitle vocabulary from becoming a generation cue: dialogue prompts now ask positively for clean camera-original imagery and audio-only speech without enumerating subtitles, captions, phonetics, or romanization. This remains generation-time prompt control and adds no OCR, subtitle QC, or cleanup pass. The prompt contract advances to `h3-v39`.
+
 ## 0.1.181 - 2026-09-03
 
 - Rebuild native H3 generation prompts around the official six-section structure: visual direction stays English, only exact Chinese dialogue remains inside `<d>[Chinese]`, and clean-frame, series-look, repair, and film-ending instructions now live before the authored shot prose instead of trailing the final dialogue.

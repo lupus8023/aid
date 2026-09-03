@@ -123,13 +123,13 @@ test('camera paths change perspective without weakening identity or exact frame 
   for (const group of [[s], [s, { ...s, id: 's2', sceneNumber: 2 }]]) {
     const p = buildVideoSegmentPrompt(group, [], { duration: 8 });
     assert.ok(p.includes(direction().camera));
-    assert.match(p, /Framing, perspective, parallax, focus and occlusion may evolve continuously/);
+    assert.match(p, /change only the authored action, expression(?:, camera and edit| and camera)/);
     assert.doesNotMatch(p, /framing, and color palette throughout|every picture composition and setting/);
     assert.match(p, /identity|face/);
   }
   const p = buildVideoSegmentPrompt([s], [], { duration: 8, firstFrameUrl: 'opening' });
   assert.match(p, /exact first frame at 00:00\.000/);
-  assert.match(p, /<Picture 2> is the exact required final frame/);
+  assert.match(p, /Reach <Picture 2> as the exact final frame/);
 });
 
 test('legacy camera sentences retain their actual path and fixed-camera focus transfers', () => {

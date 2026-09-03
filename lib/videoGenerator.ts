@@ -46,7 +46,7 @@ function fitH3PromptBudget(prompt: string): string {
   if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
 
   fitted = fitted.replace(
-    /Treat every picture as a separate photographed setup\.[\s\S]*?(?=\n(?:The complete vocal track|\[Shot 1\]))/i,
+    /EDITING:[^\n]*/i,
     'Use motivated hard cuts; preserve axis, eyelines, screen direction, action phase and geography; no crossfades, morphs, interpolation or repeats.\n',
   );
   if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
@@ -253,17 +253,17 @@ function storyboardCastNames(storyboard: Storyboard): string[] {
 
 function officialReferencePriorityLock(storyboards: Storyboard[], isFirstLastMode: boolean): string {
   if (storyboards.length > 1) {
-    return 'REFERENCE PRIORITY: Each declared picture is the composition authority for its own discrete shot opening. Preserve identity, wardrobe, setting topology, materials, lighting and palette. Framing, perspective, parallax, focus and occlusion may evolve continuously with the authored motion; never morph between pictures or merge identities.';
+    return 'REFERENCE: Each declared picture fixes its shot opening. Keep the same identities, wardrobe, objects, setting, light and color; change only the authored action, expression, camera and edit.';
   }
   const endLock = isFirstLastMode
-    ? ' <Picture 2> is the exact required final frame and must be reached without recasting or restyling the subject.'
+    ? ' Reach <Picture 2> as the exact final frame without recasting or restyling.'
     : '';
-  return `REFERENCE PRIORITY — LOCK to <Picture 1>; DO NOT REDRAW. <Picture 1> is the exact first frame at 00:00.000, not loose style inspiration. Preserve face, hair, skin, body proportions, wardrobe, object design, setting topology, lighting direction and color palette. Only the explicitly described physical action, micro-expression, gaze, breathing, camera movement, and physically caused effects may change. Framing, perspective, parallax, focus and occlusion may evolve continuously along the authored camera path; retain the lens unless a zoom is specified.${endLock}`;
+  return `REFERENCE: <Picture 1> is the exact first frame at 00:00.000. Keep its identities, faces, hair, body proportions, wardrobe, objects, setting, light, lens and color; change only the authored action, expression and camera.${endLock}`;
 }
 
 function officialMaterialReality(style: unknown): string {
   if (['anime', '3d-cg', 'stop-motion'].includes(String(style || ''))) return '';
-  return 'Maintain photographic material reality: natural skin micro-texture and fine facial detail, physically plausible eye and hair highlights, visible fabric weave and weight, grounded contact shadows, and restrained optical depth. Avoid waxy or plastic skin, beauty-filter smoothing, synthetic hair, warped hands, facial drift, costume mutation, and extra people.';
+  return 'Keep realistic skin, hair, hands, fabric, material reflections, contact shadows and optical depth.';
 }
 
 function officialTemporalPerformance(
@@ -506,13 +506,9 @@ function buildOfficialGuidePrompt(
     const tagged = `<d>[${options.language === 'en' ? 'English' : 'Chinese'}] ${line.exactLine}</d>`;
     const existing = dialogueByShot.get(line.storyboardIndex) || [];
     const previousSpeaker = existing.at(-1)?.character;
-    const turn = existing.length === 0
-      ? 'During the authored action'
-      : previousSpeaker === line.character
-        ? 'Then'
-        : 'In direct response';
+    const turn = existing.length === 0 ? '' : previousSpeaker === line.character ? 'Then ' : 'In response, ';
     const verb = existing.length === 0 ? 'speaks' : previousSpeaker === line.character ? 'continues' : 'replies';
-    const sentence = `${turn}, ${speaker} ${verb}${voiceReference}${voiceProfile} ${officialDialogueDelivery(line)}: ${tagged}`;
+    const sentence = `${turn}${speaker} ${verb}${voiceReference}${voiceProfile} ${officialDialogueDelivery(line)}: ${tagged}`;
     existing.push({ character: line.character, sentence });
     dialogueByShot.set(line.storyboardIndex, existing);
   }
@@ -566,19 +562,15 @@ function buildOfficialGuidePrompt(
     const endFrameLanding = isFirstLastMode
       ? 'The movement reaches the pose and composition in <Picture 2> at the end of the shot.'
       : '';
+    const actionText = /[.!?。！？]$/.test(action) ? action : `${action}.`;
     return [
-      opening,
-      castSentence,
-      /[.!?。！？]$/.test(action) ? action : `${action}.`,
-      directed?.detail ? bind(directed.detail) : '',
-      performance,
-      expression,
-      directed ? '' : officialTemporalPerformance(storyboard, range, picture, storyboards.length),
-      camera,
-      directed ? bind(directed.ending) : 'The established positions and eyelines remain consistent.',
-      dialogue,
-      endFrameLanding,
-    ].filter(Boolean).join(' ');
+      `${opening} [${h3Timestamp(range.start)}–${h3Timestamp(range.end)}]`,
+      `Framing: ${castSentence}`,
+      `Action and expression: ${[actionText, directed?.detail ? bind(directed.detail) : '', performance, expression, directed ? '' : officialTemporalPerformance(storyboard, range, picture, storyboards.length)].filter(Boolean).join(' ')}`,
+      `Camera: ${camera}`,
+      `Ending: ${directed ? bind(directed.ending) : 'Keep the established positions and eyelines.'}${endFrameLanding ? ` ${endFrameLanding}` : ''}`,
+      dialogue ? `Dialogue: ${dialogue}` : '',
+    ].filter(Boolean).join('\n');
   });
 
   const style = OFFICIAL_H3_STYLE_OPENING[String(first.visualStyle || 'cinematic-natural')]
@@ -594,10 +586,7 @@ function buildOfficialGuidePrompt(
     officialMaterialReality(first.visualStyle),
     buildVideoCapturePresetContract(first.capturePreset),
     storyboards.length > 1
-      ? 'Treat every picture as a separate photographed setup. Motivate every transition with action, gaze, dialogue, object, shape, or sound. Preserve the 180-degree axis, eyelines, screen direction, match-on-action phase, and location geography. Vary framing scale with dramatic purpose; do not crossfade, morph, interpolate, repeat, or soften a hard cut unless the screenplay specifies it.'
-      : '',
-    timedSpeech.length
-      ? 'The complete vocal track consists only of the ordered <d> blocks below. Perform and lip-sync every written word exactly once, in order and in its tagged language, using the described speaker and story beat. Before the first <d> cue, use only the specified non-vocal location sound.'
+      ? 'EDITING: Treat each picture as a separate shot. Use motivated cuts, preserve axis, eyelines, screen direction, action phase and geography; do not morph or crossfade unless the screenplay specifies it.'
       : '',
     timedSpeech.length ? H3_DIALOGUE_NO_SUBTITLE_POLICY : NO_SUBTITLE_POLICY,
     englishVisualOverride,
@@ -632,12 +621,9 @@ function buildOfficialGuidePrompt(
   const taskTypes = [storyboards.length === 1 ? 'locked-first-frame image-to-video' : 'keyframe completion', ...(referenceAudioNames.length ? ['audio reference'] : [])];
   const summary = `[${taskTypes.join(' + ')}] The target video contains ${storyboards.length} sequential shot${storyboards.length === 1 ? '' : 's'} built from the declared picture references${referenceAudioNames.length ? ' and voice-timbre references' : ''}.`;
   const retention = [
-    ...characters.map((name, index) => `<Subject ${index + 1}> (appears in ${storyboards
-      .map((storyboard, storyboardIndex) => storyboardCastNames(storyboard).includes(name) ? `[Shot ${storyboardIndex + 1}]` : '')
-      .filter(Boolean).join(', ')}): fully_preserved - identity and wardrobe remain consistent.`),
-    ...(hasContinuityReference ? ['<Picture 1> ([Shot 1] opening frame): fully_preserved - its composition anchors the opening.'] : []),
-    ...storyboards.map((_, index) => `<Picture ${storyboardPictureOrdinal(index)}> ([Shot ${index + 1}] composition): opening anchor - subject placement and viewpoint establish the start; identity, setting and lighting persist as the authored movement unfolds.`),
-    ...referenceAudioNames.map((name, index) => `<Audio ${index + 1}>: reference - its voice timbre guides ${subjectId.get(name) ? `<Subject ${subjectId.get(name)}>` : name} without copying the original audio signal.`),
+    'Keep every declared subject, wardrobe, object and setting consistent with its picture.',
+    'Each picture fixes the opening composition of its declared shot; follow only the authored action and camera from there.',
+    ...(referenceAudioNames.length ? ['Bound audio supplies voice timbre only; generate the written <d> dialogue as a fresh performance.'] : []),
   ];
   const prompt = `subject_definitions:\n${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}\n\nsummary:\n${summary}\n\nretention_analysis:\n${retention.join('\n')}\n\ndetailed_description:\n${detailed}\n\noverall_soundscape:\n${soundscape}\n\nnon_diegetic_music:\n${music}`;
   return fitH3PromptBudget(prompt);
