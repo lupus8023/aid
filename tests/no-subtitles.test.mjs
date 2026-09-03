@@ -21,10 +21,12 @@ const storyboard = {
 
 test('H3 prompts use natural-language text-free direction inside the official structure', async () => {
   const source = await readFile(new URL('../lib/videoGenerator.ts', import.meta.url), 'utf8');
+  const policy = await readFile(new URL('../lib/videoTextPolicy.ts', import.meta.url), 'utf8');
   assert.match(source, /subject_definitions:/);
   assert.match(source, /integrated_multimodal_description:/);
-  assert.match(source, /CLEAN-FRAME PRESENTATION: The photographic frame remains clean and text-free/);
-  assert.match(source, /Keep supplied prop markings unchanged/);
+  assert.match(source, /NO_SUBTITLE_POLICY/);
+  assert.match(policy, /Keep <d> audio-only/);
+  assert.match(policy, /No visible subtitles, captions, dialogue glyphs, phonetic text, or romanization/);
   assert.doesNotMatch(source, /画面里不要出现字幕、文字、标志、水印或界面/);
   assert.doesNotMatch(source, /timeline_json|aid_h3_timeline|frame_text_policy/);
   assert.match(source, /visualOverride: storyboard\.videoPrompt\.trim\(\)/);
@@ -42,8 +44,8 @@ test('provider boundary enforcement is idempotent', () => {
   const once = enforceNoSubtitles('Camera tracks left.');
   assert.equal(enforceNoSubtitles(once), once);
   assert.match(once, /CLEAN-FRAME PRESENTATION/);
-  assert.match(once, /The photographic frame remains clean and text-free/);
-  assert.match(once, /Keep supplied prop markings unchanged/);
+  assert.match(once, /free of added typography/);
+  assert.match(once, /Preserve only lettering already present in reference pictures/);
   assert.equal((once.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
 });
 

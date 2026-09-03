@@ -14,6 +14,7 @@ import {
   ScriptStructureError,
   type ScriptStructureIssue,
 } from './scriptStructureRepair';
+import { parseAuthoredScreenplay } from './authoredScreenplay';
 
 export function seriesId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -50,9 +51,11 @@ export function generatedCharacterAppearance(c: { appearance?: unknown; descript
 }
 
 export function createSeries(input: Partial<SeriesProject>): SeriesProject {
+  const language = input.language === "en" ? "en" : "zh";
+  const authored = parseAuthoredScreenplay(input.brief, language);
   const count = Number(input.episodeCount ?? 12);
-  if (!Number.isInteger(count) || count < 2 || count > 100)
-    throw new Error("集数需为 2–100 的整数");
+  if (!Number.isInteger(count) || count < (authored ? 1 : 2) || count > 100)
+    throw new Error(authored ? "成稿集数需为 1–100 的整数" : "集数需为 2–100 的整数");
   const now = new Date().toISOString();
   return {
     id: seriesId("series"),
@@ -60,10 +63,11 @@ export function createSeries(input: Partial<SeriesProject>): SeriesProject {
     name: required(input.name, "剧名"),
     brief: required(input.brief, "故事创意"),
     genre: text(input.genre) || "悬疑",
-    episodeCount: count,
-    shotCount: 18,
-    durationSeconds: 120,
-    language: input.language === "en" ? "en" : "zh",
+    sourceMode: authored ? "authored_screenplay" : undefined,
+    episodeCount: authored ? 1 : count,
+    shotCount: authored?.shots.length || 18,
+    durationSeconds: authored?.durationSeconds || 120,
+    language,
     aspectRatio: input.aspectRatio === "1:1" ? "1:1" : input.aspectRatio === "16:9" ? "16:9" : "9:16",
     visualStyle: input.visualStyle || "cinematic-natural",
     characters: [],
@@ -274,14 +278,18 @@ export function parseScript(
   episode: SeriesEpisode,
 ): SeriesShot[] {
   if (!Array.isArray(raw?.shots)) throw new Error("单集剧本必须包含shots数组");
-  if (raw.shots.length !== 18) throw new ScriptShotCountError(raw.shots.length);
+  const authored = project.sourceMode === 'authored_screenplay'
+    ? parseAuthoredScreenplay(project.brief, project.language)
+    : undefined;
+  if (raw.shots.length !== project.shotCount)
+    throw new ScriptShotCountError(raw.shots.length, project.shotCount);
   const structureIssues: ScriptStructureIssue[] = [];
   const missingSpeakers = new Set<string>();
   const shots: SeriesShot[] = raw.shots.map((s: any, i: number) => {
     const characterIds = list(s.characterIds),
       requestedObjectIds = list(s.objectIds),
       locationId = text(s.locationId),
-      seconds = Number(s.seconds);
+      seconds = authored?.shots[i]?.seconds || Number(s.seconds);
     if (
       Number(s.number) !== i + 1 ||
       !Number.isFinite(seconds) ||
@@ -303,6 +311,9 @@ export function parseScript(
       text: required(d.text, "台词"),
       emotion: text(d.emotion) || "自然",
     }));
+    const authoredShot = authored?.shots[i];
+    if (authoredShot && JSON.stringify(dialogue.map(line => line.text)) !== JSON.stringify(authoredShot.dialogueLines))
+      throw new Error(`第 ${i + 1} 镜没有逐字保留用户原稿台词及顺序`);
     for (const line of dialogue) {
       const character = project.characters.find((c) => c.id === line.characterId);
       if (!character || !episode.characterIds.includes(line.characterId) || !character.speaking)
@@ -316,7 +327,10 @@ export function parseScript(
         });
       }
     }
-    const visual = required(s.visual, "镜头画面"), action = required(s.action, "镜头行动");
+    // In authored-screenplay mode the model resolves asset IDs, but the user's
+    // directed image and physical action remain the production authority.
+    const visual = authoredShot?.imagePrompt || required(s.visual, "镜头画面");
+    const action = authoredShot?.action || required(s.action, "镜头行动");
     const mentionedObjectIds = seriesShotObjectIds(project, { objectIds: [], visual, action });
     const ungroundedObjects = requestedObjectIds.filter(id => !mentionedObjectIds.includes(id));
     if (ungroundedObjects.length) {
@@ -339,14 +353,21 @@ export function parseScript(
       action,
       dialogue,
       sound: text(s.sound),
-      purpose: required(s.purpose, "镜头作用"),
+      purpose: authoredShot?.atmosphere || required(s.purpose, "镜头作用"),
+      shotSize: authoredShot?.shotSize || text(s.shotSize),
+      camera: authoredShot?.camera || text(s.camera),
+      atmosphere: authoredShot?.atmosphere || text(s.atmosphere),
+      imagePrompt: authoredShot?.imagePrompt || text(s.imagePrompt),
+      sourceSeconds: authoredShot?.sourceSeconds,
     };
   });
   if (structureIssues.length) throw new ScriptStructureError(structureIssues);
   const duration = shots.reduce((n, s) => n + s.seconds, 0);
-  if (Math.abs(duration - 120) > 5)
-    throw new Error(`镜头总时长 ${duration} 秒，应为115–125秒`);
-  checkScriptDialogue(shots, project.language);
+  if (!authored && Math.abs(duration - project.durationSeconds) > 5)
+    throw new Error(`镜头总时长 ${duration} 秒，应接近${project.durationSeconds}秒`);
+  // Authored dialogue is immutable. Its duration is expanded at import time
+  // instead of shortening the user's words in an automatic repair pass.
+  if (!authored) checkScriptDialogue(shots, project.language);
   return shots;
 }
 
@@ -478,12 +499,12 @@ export function episodeScreenplay(
     .map(id => project.objects.find(object => object.id === id)?.name)
     .filter(Boolean);
   return [
-    `连续剧《${project.name}》第${episode.number}集《${episode.title}》；18镜，约120秒。`,
-    "以下是已定稿单集。严格保留事件、角色、顺序和结尾，不要扩写后续集数，不新增有台词角色。用户已锁定下列台词，必须逐字保留。",
+    `连续剧《${project.name}》第${episode.number}集《${episode.title}》；${project.shotCount}镜，约${project.durationSeconds}秒。`,
+    "以下是已定稿单集。严格保留事件、角色、镜头顺序、动作、景别、运镜、氛围和结尾，不要扩写后续集数，不新增有台词角色。用户已锁定下列台词，必须逐字保留。",
     `开场：${episode.opening}\n故事：${episode.synopsis}\n本集回报：${episode.resolution}\n末镜钩子：${episode.hook}`,
     ...(episode.script || []).map(
       (s) =>
-        `镜头 ${s.number}（${s.seconds}秒）\n场景：${project.locations.find((l) => l.id === s.locationId)?.name}\n人物：${s.characterIds.map(name).join("、")}\n固定道具：${objectNames(s).join('、') || '无'}\n画面：${s.visual}\n行动：${s.action}\n${s.dialogue.map((d) => `台词：${name(d.characterId)}：“${d.text}”\n表演：${d.emotion}`).join("\n")}\n声音：${s.sound}\n叙事作用：${s.purpose}`,
+        `镜头 ${s.number}（${s.seconds}秒${s.sourceSeconds && s.sourceSeconds !== s.seconds ? `；原稿${s.sourceSeconds}秒，为完整对白仅延长时长` : ''}）\n场景：${project.locations.find((l) => l.id === s.locationId)?.name}\n人物：${s.characterIds.map(name).join("、")}\n固定道具：${objectNames(s).join('、') || '无'}\n景别：${s.shotSize || ''}\nAI生图提示词：${s.imagePrompt || s.visual}\n行动：${s.action}\n运镜：${s.camera || ''}\n氛围：${s.atmosphere || s.purpose}\n${s.dialogue.map((d) => `台词：${name(d.characterId)}：“${d.text}”\n表演：${d.emotion}`).join("\n")}\n声音：${s.sound}\n叙事作用：${s.purpose}`,
     ),
   ].join("\n\n");
 }
@@ -492,7 +513,7 @@ export function buildEpisodeProject(
   project: SeriesProject,
   episode: SeriesEpisode,
 ): ProjectData {
-  if (!episode.script) throw new Error("本集尚无18镜定稿");
+  if (!episode.script) throw new Error(`本集尚无${project.shotCount}镜定稿`);
   const characters = project.characters.filter((c) =>
     episode.characterIds.includes(c.id),
   );
@@ -510,7 +531,7 @@ export function buildEpisodeProject(
     objects: project.objects || [],
     storyContent: episodeScreenplay(project, episode),
     language: project.language,
-    targetShotCount: 18,
+    targetShotCount: project.shotCount,
     aspectRatio: project.aspectRatio,
     visualStyle: project.visualStyle,
     styleReference: project.styleReference,

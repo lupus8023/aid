@@ -213,7 +213,7 @@ function EpisodeEditor({
             分集故事
           </button>
           <button className={button} onClick={() => setShowShots(true)}>
-            18镜剧本 {episode.script ? "✓" : "待生成"}
+            {project.shotCount}镜剧本 {episode.script ? "✓" : "待生成"}
           </button>
           <button
             className={`${button} ml-auto`}
@@ -387,9 +387,9 @@ function EpisodeEditor({
           ) : (
             <div className="py-20 text-center text-[var(--text-secondary)]">
               <BookOpen className="mx-auto mb-4 opacity-50" size={36} />
-              <p className="text-sm">分集故事已就绪，尚未展开18镜。</p>
+              <p className="text-sm">分集故事已就绪，尚未展开{project.shotCount}镜。</p>
               <p className="mt-2 text-xs">
-                点击列表中的“写18镜”，或成片时自动补齐。
+                点击列表中的“写{project.shotCount}镜”，或成片时自动补齐。
               </p>
             </div>
           )}
@@ -1107,7 +1107,7 @@ export default function SeriesPage() {
     if (project && episode.script && episode.scriptAssetFingerprint !== seriesScriptAssetFingerprint(project, episode))
       return { label: '剧本待资产复核', color: 'text-amber-200' };
     return {
-      label: episode.script ? "18镜就绪" : "故事就绪",
+      label: episode.script ? `${project?.shotCount || 18}镜就绪` : "故事就绪",
       color: "text-[var(--text-secondary)]",
     };
   };
@@ -1275,8 +1275,8 @@ export default function SeriesPage() {
                   </h1>
                   <p className="mt-3 text-xs text-[var(--text-secondary)]">
                     {project.episodeCount} 集{" "}
-                    <span className="mx-2 opacity-40">/</span> 每集18镜 ·
-                    约2分钟 <span className="mx-2 opacity-40">/</span>{" "}
+                    <span className="mx-2 opacity-40">/</span> 每集{project.shotCount}镜 ·
+                    约{project.durationSeconds}秒 <span className="mx-2 opacity-40">/</span>{" "}
                     {project.aspectRatio}{" "}
                     <span className="mx-2 opacity-40">/</span> {completed}{" "}
                     集成片就绪
@@ -1357,7 +1357,7 @@ export default function SeriesPage() {
                       project.characters.every((c) => c.locked),
                   },
                   {
-                    label: "18镜剧本",
+                    label: `${project.shotCount}镜剧本`,
                     value: `${project.episodes.filter((e) => e.script).length} / ${project.episodeCount}`,
                     done:
                       project.episodes.filter((e) => e.script).length ===
@@ -1438,7 +1438,7 @@ export default function SeriesPage() {
                             )
                           }
                         >
-                          批量写18镜
+                          批量写{project.shotCount}镜
                         </button>
                         {selection.length > 0 && (
                           <button
@@ -1562,7 +1562,7 @@ export default function SeriesPage() {
                                   ) : (
                                     <BookOpen size={12} />
                                   )}
-                                  {ep.script ? "成片" : "写18镜"}
+                                  {ep.script ? "成片" : `写${project.shotCount}镜`}
                                 </button>
                                 {ep.deliveries.length > 0 && (
                                   <a
@@ -2148,7 +2148,7 @@ export default function SeriesPage() {
                 <Labeled label="题材">
                   <input name="genre" className={field} defaultValue="悬疑" />
                 </Labeled>
-                <Labeled label="计划集数 · 每集18镜 / 约2分钟">
+                <Labeled label="计划集数 · 故事创意默认每集18镜；粘贴带镜号成稿时自动按原稿">
                   <input
                     name="episodeCount"
                     type="number"

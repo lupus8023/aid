@@ -6,6 +6,7 @@ import { buildVideoCapturePresetContract, isObservationalCapturePreset } from '.
 import { currentVideoDirection, videoDirectionEntityNames } from './videoDirection';
 import { FILM_ENDING_SECONDS } from './filmEnding';
 import { normalizeImageStyleReference, type ImageStyleReference } from './imageStyleReference';
+import { H3_DIALOGUE_NO_SUBTITLE_POLICY, NO_SUBTITLE_POLICY } from './videoTextPolicy';
 
 function h3Timestamp(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -576,15 +577,15 @@ function buildOfficialGuidePrompt(
     style,
     officialMaterialReality(first.visualStyle),
     buildVideoCapturePresetContract(first.capturePreset),
-    'CLEAN-FRAME PRESENTATION: The photographic frame remains clean and text-free. Dialogue is audio only. Keep supplied prop markings unchanged.',
     storyboards.length > 1
       ? 'EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup. Every transition must be motivated by action, gaze, dialogue, object, shape, or sound. Preserve the 180-degree axis, eyelines, screen direction, match-on-action phase, and location geography. Vary framing scale with dramatic purpose; do not crossfade, morph, interpolate, repeat, or soften a hard cut unless an explicit transition is written.'
       : '',
     timedSpeech.length
-      ? 'SCRIPT DIALOGUE LOCK: Every <d> line is screenplay-authoritative. Reproduce every word in order exactly as written; do not paraphrase, shorten, translate, add, repeat, or substitute dialogue.'
+      ? 'SCRIPT DIALOGUE LOCK: <d> is authoritative soundtrack speech. Synthesize and lip-sync every word exactly in order; never paraphrase, shorten, translate, add, repeat, or substitute it.'
       : '',
     englishVisualOverride,
     ...shotParagraphs,
+    timedSpeech.length ? H3_DIALOGUE_NO_SUBTITLE_POLICY : NO_SUBTITLE_POLICY,
   ].filter(Boolean).join('\n');
   const soundscape = officialH3Soundscape(storyboards);
   const music = officialH3Music(storyboards);

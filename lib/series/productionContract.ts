@@ -4,13 +4,14 @@ import { MAX_H3_REFERENCE_SPEAKERS, MAX_H3_SPEECH_TURNS, validateSpeechContract 
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 
 export interface SeriesProductionContract {
-  shotCount: 18;
+  shotCount: number;
   voices: Record<string, string | undefined>;
   dialogue: Array<{ character: string; text: string }>;
   story?: { title: string; theme: string; logline: string; opening: string; goal: string; conflict: string; choice: string; resolution: string; hook: string };
   shots?: Array<{
     number: number; seconds: number; characters: string[];
     action: string; visual: string; purpose: string;
+    shotSize?: string; camera?: string; atmosphere?: string; imagePrompt?: string;
     objects?: string[];
     locationId?: string; sceneStyle?: string; sceneImageUrl?: string;
     sound?: string;
@@ -56,9 +57,11 @@ export function reconcileSeriesProductionContract(
 // the director's input without asking a second writer to rewrite its dialogue.
 export function buildApprovedSeriesPlan(contract: SeriesProductionContract, sourceBrief: string, characters: WriterCharacter[]): StoryPlan {
   const shots = contract.shots;
-  if (contract.shotCount !== 18 || shots?.length !== 18) throw new Error('连续剧定稿必须包含完整18镜');
+  if (!Number.isInteger(contract.shotCount) || contract.shotCount < 1 || shots?.length !== contract.shotCount)
+    throw new Error(`连续剧定稿必须包含完整${contract.shotCount || 0}镜`);
   const duration = shots.reduce((sum, shot) => sum + shot.seconds, 0);
-  if (!Number.isFinite(duration) || duration < 115 || duration > 125) throw new Error('连续剧定稿总时长需为115–125秒');
+  if (!Number.isFinite(duration) || duration < contract.shotCount * 2 || duration > contract.shotCount * 15)
+    throw new Error('连续剧定稿总时长与逐镜时长不一致');
   const cast = new Map(characters.map(c => [c.name, c]));
   shots.forEach((shot, index) => {
     if (shot.number !== index + 1 || !Number.isFinite(shot.seconds) || shot.seconds < 2 || shot.seconds > 15 || !shot.action || !shot.visual || !shot.purpose || !shot.locationId)
@@ -89,7 +92,7 @@ export function buildApprovedSeriesPlan(contract: SeriesProductionContract, sour
     const previous = shots[shot.number - 2], next = shots[shot.number];
     const beat: Beat = {
       index: shot.number, sourceShotRefs: [shot.number], sequenceId: sequence.id, locationId: sequence.locationId,
-      shotSize: '', cameraMove: '', angle: '', action: shot.action, performance: [], characters: [...shot.characters], objects: [...(shot.objects || [])],
+      shotSize: shot.shotSize || '', cameraMove: shot.camera || '', angle: '', action: shot.action, performance: [], characters: [...shot.characters], objects: [...(shot.objects || [])],
       dialogueLines: [], dialogueTurns: [], speech: [],
       audioPlan: { backgroundHuman: 'none', environment: shot.sound ? [shot.sound] : [], foley: [], music: 'none', silenceBefore: 0, silenceAfter: 0 },
       clipType: shot.dialogue.length ? 'dialogue' : 'action', dramaticPurpose: shot.purpose,
@@ -97,15 +100,15 @@ export function buildApprovedSeriesPlan(contract: SeriesProductionContract, sour
       consequence: shot.purpose, characterChange: '', nextCause: next?.action || story?.resolution || shot.purpose,
       informationGain: shot.purpose, dialoguePurpose: shot.dialogue.length ? 'approved_dialogue' : 'visual_only',
       dialogueUnitId: `${sequence.id}-exchange`, dialogueContext: shot.visual,
-      montageRole: shot.number === 18 ? 'payoff' : shot.number === 1 ? 'setup' : 'development',
+      montageRole: shot.number === contract.shotCount ? 'payoff' : shot.number === 1 ? 'setup' : 'development',
       editBridge: next?.visual || story?.hook || shot.visual, audienceQuestion: story?.hook || '',
       durationHint: shot.seconds, transition: 'cut', continuityFrom: previous?.locationId === shot.locationId ? previous.number : undefined,
-      sceneStyle: shot.sceneStyle || '', promptDraft: shot.visual,
+      sceneStyle: shot.sceneStyle || '', promptDraft: shot.imagePrompt || shot.visual,
     };
     sequence.beats.push(beat);
   }
   const plan: StoryPlan = {
-    id: `series-plan-${crypto.randomUUID()}`, targetShotCount: 18, targetDurationSeconds: 120, estimatedDurationSeconds: duration,
+    id: `series-plan-${crypto.randomUUID()}`, targetShotCount: contract.shotCount, targetDurationSeconds: duration, estimatedDurationSeconds: duration,
     sourceBrief, title: story?.title || 'Approved series episode', theme: story?.theme || '', logline: story?.logline || '',
     seriesEpisode: { opening: story.opening, goal: story.goal, conflict: story.conflict, choice: story.choice, resolution: story.resolution, hook: story.hook },
     protagonist: characters[0]?.name || '', externalWant: story?.goal || '', internalNeed: '', stakes: story?.conflict || '',
@@ -144,7 +147,9 @@ export function bindSeriesPlan(contract: SeriesProductionContract, plan: StoryPl
     if (shot.number !== beat.index || shot.characters.some(name => !(name in contract.voices)))
       throw new Error('定稿镜头编号或人物无效');
     beat.action = shot.action;
-    beat.promptDraft = shot.visual;
+    beat.promptDraft = shot.imagePrompt || shot.visual;
+    beat.shotSize = shot.shotSize || beat.shotSize;
+    beat.cameraMove = shot.camera || beat.cameraMove;
     beat.dramaticPurpose = shot.purpose;
     beat.durationHint = shot.seconds;
     beat.characters = [...shot.characters];
@@ -180,7 +185,7 @@ export function validateSeriesProduction(
   storyboards: Array<Pick<Storyboard, 'speech'>>,
 ): void {
   if (storyboards.length !== contract.shotCount)
-    throw new Error("连续剧导演结果偏离已定稿的18镜");
+    throw new Error(`连续剧导演结果偏离已定稿的${contract.shotCount}镜`);
   const canonical = (value: string) => value.replace(/\s+/g, "");
   const expected = new Map<string, string>();
   for (const line of contract.dialogue)

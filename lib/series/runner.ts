@@ -20,6 +20,7 @@ import type {
   StoryBridgeEvent,
 } from "./types";
 import type { ProjectData } from "@/hooks/useProject";
+import { parseAuthoredScreenplay } from './authoredScreenplay';
 
 const wait = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
@@ -151,6 +152,40 @@ export async function executeSeriesClaim(
       persist: async imageData => (await call<{ url: string }>("/api/upload-image", { imageData })).url,
     });
   };
+
+  // Projects created before authored-screenplay mode may already contain a
+  // padded 18-shot adaptation. On the next queued action, migrate the working
+  // project in place while retaining its prepared assets and old deliveries.
+  const authored = parseAuthoredScreenplay(project.brief, project.language);
+  if (authored && project.sourceMode !== 'authored_screenplay') {
+    const first = project.episodes.find(candidate => candidate.number === 1);
+    project.sourceMode = 'authored_screenplay';
+    project.episodeCount = 1;
+    project.shotCount = authored.shots.length;
+    project.durationSeconds = authored.durationSeconds;
+    if (first) {
+      const namedCharacters = project.characters.filter(character =>
+        [character.name, ...(character.aliases || [])].some(name => name && project.brief.includes(name)));
+      const actions = authored.shots.map(shot => shot.action).filter(Boolean);
+      Object.assign(first, {
+        synopsis: actions.join(' '),
+        opening: actions[0] || first.opening,
+        goal: actions[0] || first.goal,
+        conflict: actions[Math.min(1, actions.length - 1)] || first.conflict,
+        choice: actions[Math.floor(actions.length / 2)] || first.choice,
+        resolution: actions.at(-1) || first.resolution,
+        hook: actions.at(-1) || first.hook,
+        nextOpening: '',
+        characterIds: namedCharacters.length ? namedCharacters.map(character => character.id) : first.characterIds,
+        script: undefined,
+        production: undefined,
+        needsReview: undefined,
+        version: first.version + 1,
+      });
+      project.episodes = [first];
+    }
+    await save(`已识别${authored.shots.length}镜权威成稿；保留资产，撤销旧扩写并按原动作重新制片`);
+  }
 
   if (job.kind === "develop") {
     if (!project.bible) {
@@ -408,13 +443,15 @@ export async function executeSeriesClaim(
   const scriptAssetFingerprint = seriesScriptAssetFingerprint(project, episode);
   if (!episode.script || episode.scriptAssetFingerprint !== scriptAssetFingerprint) {
     await save(episode.script
-      ? `第${episode.number}集按最终角色与道具复核18镜剧本`
-      : `执行编剧：第${episode.number}集18镜与台词`);
+      ? `第${episode.number}集按最终角色与道具复核${project.shotCount}镜剧本`
+      : `执行编剧：第${episode.number}集${project.shotCount}镜与台词`);
     const result = await generate<{
       script: NonNullable<SeriesEpisode["script"]>;
       scriptAssetRepairs?: NonNullable<SeriesEpisode['scriptAssetRepairs']>[number]['changes'];
     }>("script", project, episode.id);
     episode.script = result.script;
+    if (project.sourceMode === 'authored_screenplay')
+      project.durationSeconds = episode.script.reduce((sum, shot) => sum + shot.seconds, 0);
     const reconciledAt = new Date().toISOString();
     episode.scriptAssetFingerprint = scriptAssetFingerprint;
     episode.scriptAssetsReconciledAt = reconciledAt;
@@ -426,8 +463,8 @@ export async function executeSeriesClaim(
       await save(`第${episode.number}集已按最终角色与道具反向修正 ${result.scriptAssetRepairs.length} 处`);
     }
     await save(result.scriptAssetRepairs?.length
-      ? `第${episode.number}集18镜已定稿`
-      : `第${episode.number}集已按最终角色与道具复核，18镜无需改动`);
+      ? `第${episode.number}集${project.shotCount}镜已定稿`
+      : `第${episode.number}集已按最终角色与道具复核，${project.shotCount}镜无需改动`);
   }
   if (!episode.deliveries.some(d => d.episodeVersion === episode.version) && copiedDialogueShotNumbers(episode.script).length) {
     await save(`第${episode.number}集自动纠正台词串镜，保留其余素材`);
@@ -452,7 +489,7 @@ export async function executeSeriesClaim(
   localStorage.setItem(
     keys.contract,
     JSON.stringify({
-      shotCount: 18,
+      shotCount: project.shotCount,
       story: { title: `${project.name} · 第${episode.number}集 · ${episode.title}`, theme: project.bible?.theme || '', logline: episode.synopsis, opening: episode.opening, goal: episode.goal, conflict: episode.conflict, choice: episode.choice, resolution: episode.resolution, hook: episode.hook },
       voices: Object.fromEntries(
         project.characters
@@ -468,6 +505,7 @@ export async function executeSeriesClaim(
       ),
       shots: episode.script.map(s => ({
         number: s.number, seconds: s.seconds, action: s.action, visual: s.visual, purpose: s.purpose, sound: s.sound,
+        shotSize: s.shotSize, camera: s.camera, atmosphere: s.atmosphere, imagePrompt: s.imagePrompt,
         locationId: s.locationId,
         sceneStyle: project.locations.find(l => l.id === s.locationId)?.description,
         sceneImageUrl: project.locations.find(l => l.id === s.locationId)?.imageUrl,

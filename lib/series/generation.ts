@@ -78,7 +78,7 @@ export async function generateSeriesStage(
       ? structureIssues!.filter(issue => issue.kind === 'ungrounded_object')
       : undefined;
     const instruction = focusedShotCount
-      ? `本轮只把现有${shotCount}镜归并或拆分为严格18镜。保留全部原台词的文字、角色、情绪与先后顺序，保留固定道具线索、开场因果和末镜钩子；不得新增角色、场景、对白、支线或结局。可合并相邻低信息镜头或拆分过载镜头，重新连续编号并把总时长控制在115–125秒、单镜2–15秒。返回完整的 {"shots":[...]}，不要解释。`
+      ? `本轮只把现有${shotCount}镜校正为严格${project.shotCount}镜。保留全部原台词的文字、角色、情绪与先后顺序，保留固定道具线索、开场因果和末镜钩子；不得新增角色、场景、对白、支线或结局。${project.sourceMode === 'authored_screenplay' ? '用户原稿镜头边界、动作、景别、运镜、氛围和AI生图提示词均已锁定，只能补回遗漏镜头，不能归并、拆分或改写。' : `可合并相邻低信息镜头或拆分过载镜头，重新连续编号并把总时长控制在${project.durationSeconds - 5}–${project.durationSeconds + 5}秒。`}单镜2–15秒。返回完整的 {"shots":[...]}，不要解释。`
       : focusedStructure
       ? `ASSET-AUTHORITATIVE SCREENPLAY REPAIR. Final registered prop names and references are authoritative. Process every listed target exactly once: ${JSON.stringify(objectTargets)}. If the fixed prop is visibly present, held, used or visually changes state in that shot, choose decision="ground" and minimally revise only visual OR action so it contains the exact canonical objectName or one registered alias. If it is merely discussed, absent, off-screen, or was tagged speculatively, choose decision="remove". Do not change dialogue, characters, timing, scene, purpose, plot or any untargeted field. Return only {"repairs":[{"shotNumber":7,"objectId":"o1","decision":"ground|remove","field":"visual|action only for ground","value":"complete minimally revised field only for ground"}]}.`
       : ownership
@@ -130,7 +130,7 @@ export async function generateSeriesStage(
             ? fieldIssues!.map(issue => issue.path)
             : focusedStructure
               ? objectTargets!.map(issue => `第${issue.shotNumber}镜/${issue.objectName}`)
-              : [`${shotCount}镜→18镜`];
+              : [`${shotCount}镜→${project.shotCount}镜`];
         problem = `${paths.join('、')} 仍需修正；${error instanceof Error ? error.message : '修稿格式错误'}`;
         continue;
       }

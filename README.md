@@ -54,7 +54,7 @@
 - **Real-time Progress**: Live status updates during image and video generation
 - **Batch Processing**: Generate multiple storyboard scenes simultaneously
 - **Project Management**: Save, load, and export your projects with ease
-- **Series Studio**: Plan a season, generate character cards individually, reuse finished cast through the character library, separate automatic prop references from user-specified product images, reconcile scripts against finalized assets, produce 18-shot episodes, and download each episode separately. See [连续剧制片说明](docs/series-studio.md).
+- **Series Studio**: Plan a season, generate character cards individually, reuse finished cast through the character library, separate automatic prop references from user-specified product images, and download each episode separately. Story ideas use the 18-shot episode workflow; pasted numbered shooting scripts retain their authored shots, actions, camera, image prompts, and exact dialogue. See [连续剧制片说明](docs/series-studio.md).
 
 ---
 

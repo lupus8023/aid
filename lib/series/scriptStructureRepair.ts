@@ -35,7 +35,7 @@ export class ScriptStructureError extends Error {
       speakers.length ? `${speakers.length}处台词角色未登记为本镜发声角色（${speakers.map(issue => `第${issue.shotNumber}镜/${issue.characterName}`).join('、')}）` : '',
       objects.length ? `${objects.length}处固定道具引用与画面文字不一致（${objects.map(issue => `第${issue.shotNumber}镜/${issue.objectName}`).join('、')}）` : '',
     ].filter(Boolean);
-    super(`18镜剧本需要反向校正：${parts.join('；')}`);
+    super(`镜头剧本需要反向校正：${parts.join('；')}`);
     this.name = 'ScriptStructureError';
   }
 }
@@ -55,8 +55,8 @@ export function seriesScriptAssetFingerprint(project: SeriesProject, episode: Se
 }
 
 export class ScriptShotCountError extends Error {
-  constructor(public actual: number) {
-    super(`单集剧本返回${actual}镜，必须自动归并或拆分为18镜`);
+  constructor(public actual: number, public expected = 18) {
+    super(`单集剧本返回${actual}镜，必须自动归并或拆分为${expected}镜`);
     this.name = 'ScriptShotCountError';
   }
 }
@@ -144,8 +144,8 @@ const dialogueSignature = (shots: any[]) => JSON.stringify(shots.flatMap(shot =>
 ));
 
 export function applyShotCountRepair(raw: any, reply: any, project: SeriesProject) {
-  if (!Array.isArray(reply?.shots) || reply.shots.length !== 18)
-    throw new Error('镜头归并修稿必须返回恰好18镜');
+  if (!Array.isArray(reply?.shots) || reply.shots.length !== project.shotCount)
+    throw new Error(`镜头归并修稿必须返回恰好${project.shotCount}镜`);
   const original = Array.isArray(raw?.shots) ? raw.shots : [];
   if (dialogueSignature(original) !== dialogueSignature(reply.shots))
     throw new Error('镜头归并不得删除、增加、改写或调序任何台词');
@@ -161,7 +161,7 @@ export function applyShotCountRepair(raw: any, reply: any, project: SeriesProjec
     logs: [{
       shotNumber: 0,
       kind: 'shot_count_normalized' as const,
-      detail: `将${original.length}镜归并或拆分为18镜，保留全部原台词与固定道具线索`,
+      detail: `将${original.length}镜归并或拆分为${project.shotCount}镜，保留全部原台词与固定道具线索`,
     }],
   };
 }

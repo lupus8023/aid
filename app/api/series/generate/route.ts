@@ -23,10 +23,10 @@ export async function POST(request: NextRequest) {
       );
     if (
       !Number.isInteger(project.episodeCount) ||
-      project.episodeCount < 2 ||
+      project.episodeCount < 1 ||
       project.episodeCount > 100
     )
-      return NextResponse.json({ error: "集数需为2–100" }, { status: 400 });
+      return NextResponse.json({ error: "集数需为1–100" }, { status: 400 });
     const series = project as SeriesProject;
     const prompt = seriesPrompt(stage, series, episodeId);
     return streamingJsonResponse(async () => {

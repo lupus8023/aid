@@ -1,12 +1,11 @@
-/**
- * H3 has one positive conditioning stream. Repeating a long list of words such
- * as "subtitle", "caption" and "title card" can make those concepts more
- * salient. Keep the visual-text rule short, positive and present only once at
- * the provider boundary.
- */
+/** Keep dialogue markup an audio instruction instead of letting a multimodal
+ * model reinterpret the literal words as typography in the photographed
+ * frame. This is a generation-time contract, not an OCR/QC pass. */
 export const NO_SUBTITLE_POLICY_MARKER = 'CLEAN-FRAME PRESENTATION';
 
-export const NO_SUBTITLE_POLICY = `${NO_SUBTITLE_POLICY_MARKER}: The photographic frame remains clean and text-free. Dialogue is audio only. Keep supplied prop markings unchanged.`;
+export const NO_SUBTITLE_POLICY = `${NO_SUBTITLE_POLICY_MARKER}: Keep every frame photographic and free of added typography; no subtitles, captions, dialogue lettering, phonetic lines, logos, or watermarks. Preserve only lettering already present in reference pictures.`;
+
+export const H3_DIALOGUE_NO_SUBTITLE_POLICY = `${NO_SUBTITLE_POLICY_MARKER}: Keep <d> audio-only. No visible subtitles, captions, dialogue glyphs, phonetic text, or romanization; preserve reference lettering.`;
 
 /** Add the clean-frame rule once, without wrapping or multiplying it. */
 export function enforceNoSubtitles(prompt: string): string {

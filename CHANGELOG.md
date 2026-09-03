@@ -1,3 +1,9 @@
+## 0.1.177 - 2026-09-03
+
+- Recognize pasted, numbered shooting scripts as authoritative screenplays instead of story ideas: retain their original shot count and exact action, framing, camera, atmosphere, image prompt, dialogue, and order without inventing additional episodes or plot.
+- Expand only technically impossible shot durations so exact dialogue can finish; finalized character, location, and prop IDs are still reconciled, while model-written replacements for authored action or dialogue are rejected. Existing padded projects migrate on their next queued retry while retaining prepared assets and historical deliveries.
+- Keep Chinese `<d>` dialogue as soundtrack/lip-sync data only and place an explicit no-visible-dialogue rule after all shot prose. The H3 prompt contract advances to `h3-v37`, invalidating affected old video cache entries without adding subtitle OCR, quality checks, or removal passes.
+
 ## 0.1.176 - 2026-09-03
 
 - Remove the contradictory director instructions that told Chinese projects to write `videoDirection` in both Chinese and English; all examples, output fields and preflight rules now consistently require English visual prose while preserving only registered Chinese character and object names.

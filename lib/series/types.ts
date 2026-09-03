@@ -105,6 +105,12 @@ export interface SeriesShot {
   dialogue: Array<{ characterId: string; text: string; emotion: string }>;
   sound: string;
   purpose: string;
+  /** Verbatim directing fields retained when the user pasted a formed script. */
+  shotSize?: string;
+  camera?: string;
+  atmosphere?: string;
+  imagePrompt?: string;
+  sourceSeconds?: number;
 }
 
 export interface SeriesEpisode {
@@ -159,9 +165,10 @@ export interface SeriesProject {
   name: string;
   brief: string;
   genre: string;
+  sourceMode?: "authored_screenplay";
   episodeCount: number;
-  shotCount: 18;
-  durationSeconds: 120;
+  shotCount: number;
+  durationSeconds: number;
   language: "zh" | "en";
   aspectRatio: AppSettings['aspectRatio'];
   visualStyle: VisualStyle;

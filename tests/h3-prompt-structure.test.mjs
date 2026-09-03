@@ -51,14 +51,14 @@ test('writes Ref2VA prompts in the official six-section natural-language format'
   assert.match(prompt, /\[Shot 2] At 00:\d{2}\.\d{3}, make a clean hard cut/);
   assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S1\) begins speaking.*<d>\[Chinese] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /CLEAN-FRAME PRESENTATION: The photographic frame remains clean and text-free/);
-  assert.match(prompt, /Keep supplied prop markings unchanged/);
+  assert.match(prompt, /CLEAN-FRAME PRESENTATION: Keep <d> audio-only/);
+  assert.match(prompt, /No visible subtitles, captions, dialogue glyphs, phonetic text, or romanization/);
   assert.equal((prompt.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
   assert.match(prompt, /REFERENCE PRIORITY: Each declared picture is the composition authority for its own discrete shot/);
   assert.match(prompt, /EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup/);
   assert.match(prompt, /do not crossfade, morph, interpolate, repeat, or soften a hard cut/);
   assert.match(prompt, /natural skin micro-texture and fine facial detail/);
-  assert.match(prompt, /SCRIPT DIALOGUE LOCK: Every <d> line is screenplay-authoritative/);
+  assert.match(prompt, /SCRIPT DIALOGUE LOCK: <d> is authoritative soundtrack speech/);
   assert.match(prompt, /From 00:\d{2}\.\d{3} to 00:\d{2}\.\d{3}/);
   assert.doesNotMatch(prompt, /闭嘴|嘴巴闭合|说完最后一个字|mouth closes|final word|says once/i);
   assert.match(prompt, /non_diegetic_music:\s+N\/A/);
@@ -103,7 +103,7 @@ test('treats a punctuation-only screenplay turn as a silent performance pause, n
   })], [], { duration: 10, language: 'zh', referenceAudioNames: ['裴行简'] });
   assert.deepEqual(dialogueTags(prompt), [{ language: 'Chinese', text: '也……买不到。主要是，还没开始卖。' }]);
   assert.doesNotMatch(prompt, /<d>\[English]|<d>\[Chinese] ……<\/d>/);
-  assert.match(prompt, /CLEAN-FRAME PRESENTATION: The photographic frame remains clean and text-free/);
+  assert.match(prompt, /CLEAN-FRAME PRESENTATION: Keep <d> audio-only/);
 });
 
 test('retains later-shot ambience and binds Foley to its own shot across locations', () => {
@@ -172,7 +172,7 @@ test('keeps visual direction English for Chinese H3 projects and preserves exact
   for (const value of Object.values(videoDirection)) assert.ok(!chinese.includes(value), value);
   assert.match(chinese, /Dr\. Pan raises a face-mask package and points to the printed ingredient panel/);
   assert.match(chinese, /<d>\[Chinese] 这些成分可以给肌肤补充营养。<\/d>/);
-  assert.match(chinese, /CLEAN-FRAME PRESENTATION: The photographic frame remains clean and text-free/);
+  assert.match(chinese, /Keep <d> audio-only/);
   assert.doesNotMatch(chinese, /观众开始关注|闭嘴|mouth closes|final word/i);
   assert.doesNotMatch(chinese.replace(/<d>[\s\S]*?<\/d>/g, ''), /[\u3400-\u9fff]/);
 

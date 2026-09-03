@@ -616,7 +616,9 @@ export default function StoryPage() {
         projectLanguageRef.current = savedLanguage;
         setProjectLanguage(savedLanguage);
       }
-      setTargetShotCount(normalizeTargetShotCount(savedProject.targetShotCount));
+      setTargetShotCount(storyStorageKeys().isolated
+        ? Math.max(1, Math.min(81, Math.trunc(Number(savedProject.targetShotCount) || DEFAULT_TARGET_SHOT_COUNT)))
+        : normalizeTargetShotCount(savedProject.targetShotCount));
       const savedAspectRatio = projectStoryAspectRatio(savedProject.aspectRatio, savedProject.storyboards || [], settings.aspectRatio);
       projectAspectLockedRef.current = Boolean(
         savedProject.aspectRatio
@@ -950,7 +952,10 @@ export default function StoryPage() {
         projectLanguageLockedRef.current = Boolean(data.language);
         projectLanguageRef.current = importedLanguage;
         setProjectLanguage(importedLanguage);
-        setTargetShotCount(normalizeTargetShotCount(data.targetShotCount));
+        const importedTargetShotCount = storyStorageKeys().isolated
+          ? Math.max(1, Math.min(81, Math.trunc(Number(data.targetShotCount) || DEFAULT_TARGET_SHOT_COUNT)))
+          : normalizeTargetShotCount(data.targetShotCount);
+        setTargetShotCount(importedTargetShotCount);
         const importedAspectRatio = projectStoryAspectRatio(data.aspectRatio, data.storyboards || [], settingsRef.current.aspectRatio);
         projectAspectLockedRef.current = Boolean(data.aspectRatio || (data.storyboards || []).some((item: Storyboard) => item.aspectRatio));
         projectAspectRatioRef.current = importedAspectRatio;
@@ -990,7 +995,7 @@ export default function StoryPage() {
           objects: importedObjects,
           storyContent: data.storyContent || '',
           language: importedLanguage,
-          targetShotCount: normalizeTargetShotCount(data.targetShotCount),
+          targetShotCount: importedTargetShotCount,
           aspectRatio: importedAspectRatio,
           visualStyle: normalizeVisualStyle(data.visualStyle || settingsRef.current.visualStyle),
           capturePreset: importedCapturePreset,
@@ -1138,10 +1143,13 @@ export default function StoryPage() {
     const writerCharacters = voiceLockedCharacters.map(({ name, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }) => ({ name, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }));
     const writerObjects = objects.map(({ name, description }) => ({ name, description }));
     const activeSettings = settingsRef.current;
-    // Older Companion builds ignore the structured field below, so append the
-    // same production spec to the brief as a backwards-compatible contract.
-    const planningSynopsis = `${storyContent.trim()}\n\n${buildShotCountContract(targetShotCount, language)}`;
     const savedSeriesContract = storyStorageKeys().isolated ? localStorage.getItem(storyStorageKeys().contract) : null;
+    // Ordinary stories still need the generic shot-count contract. A series
+    // episode already has exact per-shot timing; appending a 5s/shot estimate
+    // would contradict an authored screenplay whose dialogue required longer.
+    const planningSynopsis = savedSeriesContract
+      ? storyContent.trim()
+      : `${storyContent.trim()}\n\n${buildShotCountContract(targetShotCount, language)}`;
     if (storyStorageKeys().isolated && !savedSeriesContract) throw new Error('连续剧定稿合同缺失，停止导演');
     const approvedSeriesContract = savedSeriesContract
       ? reconcileSeriesProductionContract(JSON.parse(savedSeriesContract), writerCharacters)
@@ -1169,7 +1177,9 @@ export default function StoryPage() {
       storyPlan = {
         ...generatedPlan,
         targetShotCount,
-        targetDurationSeconds: targetDurationSeconds(targetShotCount),
+        targetDurationSeconds: approvedSeriesContract?.shots
+          ? approvedSeriesContract.shots.reduce((sum, shot) => sum + shot.seconds, 0)
+          : targetDurationSeconds(targetShotCount),
         estimatedDurationSeconds: generatedPlan.sequences.reduce((total, sequence) => (
           total + sequence.beats.reduce((sum, beat) => sum + beat.durationHint, 0)
         ), 0),
