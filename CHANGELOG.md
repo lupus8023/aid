@@ -1,3 +1,7 @@
+## 0.1.174 - 2026-09-03
+
+- Show a persistent “Saved to library” badge on up-to-date series character cards and an immediate inline success confirmation after saving; automatically clear the badge when the card appearance or reusable voice changes.
+
 ## 0.1.173 - 2026-09-03
 
 - Add per-character card generation jobs that can be queued independently, plus one-click saving of completed series characters and their reusable voice metadata to the browser character library.

@@ -125,6 +125,30 @@ function fixedObjectUsage(project: SeriesProject, objectId: string): Array<{ epi
   });
 }
 
+function currentSeriesLibraryCharacterIds(project: SeriesProject): Set<string> {
+  const history = parseStoredArray(localStorage.getItem(CHARACTER_HISTORY_STORAGE_KEY));
+  return new Set(project.characters.flatMap(character => {
+    if (!character.bibleUrl) return [];
+    const expectedId = `series-character-${project.id}-${character.id}`;
+    const saved = history.find(value => {
+      if (!value || typeof value !== 'object') return false;
+      const record = value as Record<string, unknown>;
+      return record.id === expectedId || (
+        record.sourceSeriesId === project.id && record.sourceCharacterId === character.id
+      );
+    }) as Record<string, unknown> | undefined;
+    if (!saved) return [];
+    const same = (value: unknown, expected: unknown) => String(value || '') === String(expected || '');
+    return same(saved.imageUrl, character.bibleUrl) &&
+      same(saved.description, character.description) &&
+      same(saved.voiceId, character.voiceId) &&
+      same(saved.voiceProfile, character.voiceProfile) &&
+      same(saved.voiceReferenceUrl, character.voiceReferenceUrl)
+      ? [character.id]
+      : [];
+  }));
+}
+
 function Labeled({
   label,
   children,
@@ -374,6 +398,8 @@ function CharacterCard({
   generationPending,
   generationDisabled,
   onAddToLibrary,
+  inLibrary,
+  justSaved,
 }: {
   character: SeriesCharacter;
   disabled: boolean;
@@ -384,6 +410,8 @@ function CharacterCard({
   generationPending: boolean;
   generationDisabled: boolean;
   onAddToLibrary: () => void;
+  inLibrary: boolean;
+  justSaved: boolean;
 }) {
   const imageIssue = character.imageIssue || character.photographicAnchor?.imageIssue;
   return (
@@ -403,11 +431,18 @@ function CharacterCard({
       <div className="p-4">
         <div className="flex justify-between gap-2">
           <h3 className="font-medium">{character.name}</h3>
-          <span
-            className={`text-xs ${character.locked ? "text-emerald-300" : "text-amber-200"}`}
-          >
-            {character.locked ? character.appearance === 'voice_only' ? '声音已定稿' : "已定稿" : "待定稿"} · v{character.version}
-          </span>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {inLibrary && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-300/10 px-2 py-1 text-[10px] text-emerald-300">
+                <Check size={11} />已入库
+              </span>
+            )}
+            <span
+              className={`text-xs ${character.locked ? "text-emerald-300" : "text-amber-200"}`}
+            >
+              {character.locked ? character.appearance === 'voice_only' ? '声音已定稿' : "已定稿" : "待定稿"} · v{character.version}
+            </span>
+          </div>
         </div>
         <p className="mt-1 text-xs text-[var(--text-secondary)]">
           {character.role}{" "}
@@ -440,8 +475,13 @@ function CharacterCard({
             onClick={onAddToLibrary}
           >
             <Library size={14} />
-            加入 / 更新角色库
+            {inLibrary ? '更新角色库' : '加入角色库'}
           </button>
+        )}
+        {justSaved && (
+          <p role="status" className="mt-2 flex items-center gap-1.5 text-xs text-emerald-300">
+            <CheckCircle2 size={13} />已成功加入角色库，以后可以一键选用
+          </p>
         )}
         <button
           type="button"
@@ -668,6 +708,8 @@ export default function SeriesPage() {
   const [preview, setPreview] = useState("");
   const [castingId, setCastingId] = useState("");
   const [voiceCharacterId, setVoiceCharacterId] = useState('');
+  const [libraryCharacterIds, setLibraryCharacterIds] = useState<Set<string>>(() => new Set());
+  const [recentLibrarySaveId, setRecentLibrarySaveId] = useState('');
   const project = snapshot.projects.find((p) => p.id === selectedId);
   const jobs = useMemo(
     () => snapshot.jobs.filter((j) => j.seriesId === selectedId),
@@ -760,6 +802,16 @@ export default function SeriesPage() {
     setPreview("");
     setObjectFeedback(undefined);
   }, [selectedId]);
+  useEffect(() => {
+    if (!project) {
+      setLibraryCharacterIds(new Set());
+      return;
+    }
+    const sync = () => setLibraryCharacterIds(currentSeriesLibraryCharacterIds(project));
+    sync();
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, [project]);
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -960,6 +1012,11 @@ export default function SeriesPage() {
         record,
       );
       localStorage.setItem(CHARACTER_HISTORY_STORAGE_KEY, JSON.stringify(history));
+      setLibraryCharacterIds(currentSeriesLibraryCharacterIds(project));
+      setRecentLibrarySaveId(character.id);
+      window.setTimeout(() => {
+        setRecentLibrarySaveId(current => current === character.id ? '' : current);
+      }, 4000);
       setError('');
       setNotice(`“${character.name}”已加入角色库，以后可在“从角色库选角”中一键复用。`);
     } catch (err) {
@@ -1676,6 +1733,8 @@ export default function SeriesPage() {
                           )}
                           generationDisabled={busy || !connected || !project.bible}
                           onAddToLibrary={() => saveCharacterToLibrary(c)}
+                          inLibrary={libraryCharacterIds.has(c.id)}
+                          justSaved={recentLibrarySaveId === c.id}
                           onSave={(patch) =>
                             void action(
                               {
