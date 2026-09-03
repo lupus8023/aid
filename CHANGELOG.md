@@ -1,3 +1,9 @@
+## 0.1.183 - 2026-09-03
+
+- Let every missing character card, scene reference, and automatic prop reference be generated independently from its own card. A recoverable task ID is resumed; an explicit manual retry may start one fresh paid attempt only when the previous submission cannot be resumed.
+- Treat a user-specified character image and a library-selected character as approved production imagery. Automatic preparation may fill missing voice or other assets but never redraw those approved characters or user-uploaded props.
+- Keep bulk preparation useful after partial manual setup: completed and specified assets remain locked, other assets continue independently, and failure messages now point directly to the per-asset recovery controls.
+
 ## 0.1.182 - 2026-09-03
 
 - Rebuild storyboard-to-H3 conversion around the authored camera plan: every shot now reads linearly as framing, concrete action and expression, camera path, ending state, exact dialogue, and sound instead of burying the scene beneath repeated meta-contracts.

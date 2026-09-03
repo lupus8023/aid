@@ -145,6 +145,7 @@ export function applyLibraryActor(
     imageUrl: actor.imageUrl,
     // Selection approves an existing image, even for legacy actors without a full card.
     bibleUrl: actor.bibleUrl || actor.imageUrl,
+    imageSource: 'library',
     gender: actor.gender || character.gender,
     ageGroup: actor.ageGroup || character.ageGroup,
     voiceId,

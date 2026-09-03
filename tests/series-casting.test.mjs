@@ -40,6 +40,7 @@ test('casting replaces appearance but retains the dramatic identity, storyline a
   const cast = project.characters[0];
   for (const key of ['id', 'name', 'role', 'want', 'secret', 'arc', 'aliases', 'importance', 'speaking']) assert.deepEqual(cast[key], original[key]);
   assert.equal(cast.bibleUrl, actor.bibleUrl);
+  assert.equal(cast.imageSource, 'library');
   assert.equal(cast.voiceId, actor.voiceId);
   assert.equal(cast.voiceLocked, true);
   assert.equal(cast.locked, false, 'a missing voice sample still needs preparation');

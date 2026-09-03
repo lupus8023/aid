@@ -22,6 +22,8 @@ export interface SeriesCharacter extends Character, SeriesImageAsset {
   locked: boolean;
   version: number;
   bibleUrl?: string;
+  /** Who approved the current production image. User/library images are final and are never redrawn automatically. */
+  imageSource?: "auto" | "user" | "library";
   photographicAnchor?: SeriesImageAsset & {
     designBrief?: string;
     reusedCandidateTaskId?: string;
@@ -195,7 +197,7 @@ export interface SeriesJob {
   id: string;
   seriesId: string;
   episodeId?: string;
-  /** A prepare job may target one character card without preparing every asset. */
+  /** A prepare job may target one character, location, or automatic prop without preparing every asset. */
   assetId?: string;
   kind: SeriesJobKind;
   status: SeriesJobStatus;

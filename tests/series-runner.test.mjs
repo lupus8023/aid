@@ -178,6 +178,96 @@ test('a targeted character-card job generates only that card', async () => {
   }
 });
 
+test('targeted scene and automatic-prop jobs generate only the clicked asset', async () => {
+  const project = createSeries({ name: '单项公共资产', brief: 'test', episodeCount: 3 });
+  Object.assign(project, parseOutline(outlineFixture(), project));
+  project.objects = [
+    { id: 'o1', name: '铜镜', aliases: [], description: '椭圆青铜镜。', imageUrl: '', referenceMode: 'auto' },
+    { id: 'object-user', name: '指定锦盒', aliases: [], description: '用户指定包装。', imageUrl: 'https://assets.test/box.png', referenceMode: 'upload' },
+  ];
+  const targetLocation = project.locations[0];
+  const targetObject = project.objects[0];
+  const saved = { fetch: globalThis.fetch, setTimeout: globalThis.setTimeout };
+  const submissions = [];
+  globalThis.setTimeout = (fn, delay, ...args) => saved.setTimeout(fn, delay === 3000 ? 0 : delay, ...args);
+  globalThis.fetch = async (url, init) => {
+    if (url === '/api/companion/status') return Response.json({ ok: false });
+    const body = JSON.parse(init.body);
+    if (url === '/api/companion/series') return Response.json({ revision: body.project.revision + 1 });
+    if (url === '/api/generate-costume') { submissions.push(body); return Response.json({ taskId: `target-${body.type}` }); }
+    if (url === '/api/check-image-status') return Response.json({ status: 'completed', imageUrl: `https://assets.test/${body.taskId}.png` });
+    if (url === '/api/upload-image') return Response.json({ url: body.imageData });
+    throw new Error(`Unexpected ${url}`);
+  };
+  try {
+    await executeSeriesClaim({
+      project,
+      job: { id: 'target-location', kind: 'prepare', assetId: targetLocation.id, lease: 'fixture' },
+      settings: { imageModel: 'fixture-image' },
+    }, new AbortController().signal, () => {});
+    assert.deepEqual(submissions.map(item => item.type), ['scene']);
+    assert.ok(targetLocation.imageUrl);
+    assert.ok(project.locations.slice(1).every(location => !location.imageUrl));
+    assert.ok(project.characters.every(character => !character.bibleUrl));
+
+    await executeSeriesClaim({
+      project,
+      job: { id: 'target-object', kind: 'prepare', assetId: targetObject.id, lease: 'fixture' },
+      settings: { imageModel: 'fixture-image' },
+    }, new AbortController().signal, () => {});
+    assert.deepEqual(submissions.map(item => item.type), ['scene', 'object']);
+    assert.ok(targetObject.imageUrl);
+    assert.equal(project.objects[1].imageUrl, 'https://assets.test/box.png');
+  } finally {
+    Object.assign(globalThis, saved);
+  }
+});
+
+test('bulk preparation never redraws user-approved characters or uploaded props', async () => {
+  const project = createSeries({ name: '部分指定资产', brief: 'test', episodeCount: 3 });
+  Object.assign(project, parseOutline(outlineFixture(), project));
+  const approved = project.characters[0];
+  approved.imageUrl = approved.bibleUrl = 'https://assets.test/user-character.png';
+  approved.imageSource = 'user';
+  project.characters.forEach(character => {
+    character.voiceId = `voice-${character.id}`;
+    character.voiceReferenceUrl = 'https://assets.test/voice.mp3';
+  });
+  approved.locked = true;
+  project.objects = [
+    { id: 'o1', name: '自动铜镜', aliases: [], description: '椭圆青铜镜。', imageUrl: '', referenceMode: 'auto' },
+    { id: 'object-user', name: '指定锦盒', aliases: [], description: '用户指定包装。', imageUrl: 'https://assets.test/user-box.png', referenceMode: 'upload' },
+  ];
+  const saved = { fetch: globalThis.fetch, setTimeout: globalThis.setTimeout };
+  const submissions = [];
+  globalThis.setTimeout = (fn, delay, ...args) => saved.setTimeout(fn, delay === 3000 ? 0 : delay, ...args);
+  globalThis.fetch = async (url, init) => {
+    if (url === '/api/companion/status') return Response.json({ ok: false });
+    const body = JSON.parse(init.body);
+    if (url === '/api/companion/series') return Response.json({ revision: body.project.revision + 1 });
+    if (url === '/api/generate-costume') { submissions.push(body); return Response.json({ taskId: `paid-${submissions.length}` }); }
+    if (url === '/api/check-image-status') return Response.json({ status: 'completed', imageUrl: `https://assets.test/${body.taskId}.png` });
+    if (url === '/api/upload-image') return Response.json({ url: body.imageData });
+    throw new Error(`Unexpected ${url}`);
+  };
+  try {
+    await executeSeriesClaim({
+      project,
+      job: { id: 'bulk-partial', kind: 'prepare', lease: 'fixture' },
+      settings: { imageModel: 'fixture-image' },
+    }, new AbortController().signal, () => {});
+    assert.equal(approved.imageUrl, 'https://assets.test/user-character.png');
+    assert.equal(approved.bibleUrl, 'https://assets.test/user-character.png');
+    assert.ok(!submissions.some(item => item.name === approved.name));
+    assert.ok(!submissions.some(item => item.name === '指定锦盒'));
+    assert.equal(submissions.filter(item => item.type === 'object').length, 1);
+    assert.ok(project.characters.slice(1).every(character => character.bibleUrl));
+    assert.ok(project.locations.every(location => location.imageUrl));
+  } finally {
+    Object.assign(globalThis, saved);
+  }
+});
+
 test('photographic preparation uses the reviewed single card, checkpoints submission identity, and skips unused sheets', async () => {
  const project=createSeries({name:'Photo preparation',brief:'test',episodeCount:3});
  Object.assign(project,parseOutline(outlineFixture(),project));

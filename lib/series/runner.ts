@@ -254,17 +254,26 @@ export async function executeSeriesClaim(
   const targetCharacter = job.kind === "prepare" && job.assetId
     ? project.characters.find((character) => character.id === job.assetId)
     : undefined;
-  if (job.assetId && !targetCharacter) throw new Error("要生成的角色不存在");
+  const targetLocation = job.kind === "prepare" && job.assetId
+    ? project.locations.find((location) => location.id === job.assetId)
+    : undefined;
+  const targetObject = job.kind === "prepare" && job.assetId
+    ? (project.objects || []).find((object) => object.id === job.assetId)
+    : undefined;
+  if (job.assetId && !targetCharacter && !targetLocation && !targetObject)
+    throw new Error("要生成的单项素材不存在");
   if (targetCharacter?.appearance === "voice_only") throw new Error("仅声音角色无需生成角色卡");
-  const blocker = targetCharacter
+  if (targetObject && seriesObjectReferenceMode(targetObject) !== 'auto')
+    throw new Error('用户指定道具需要上传参考图，不能自动生成');
+  const blocker = job.assetId
     ? project.bible ? "" : "请先完成整季总纲"
     : seriesStageBlocker(project, job.kind);
   if (blocker) throw new Error(blocker);
   if (job.kind === 'script' && !seriesAssetsReady(project))
     throw new Error('角色、场景与道具尚未全部定稿；请先完成前置资产任务后从断点重试');
   if (job.kind === "prepare" || job.kind === "produce") {
-    const cast = targetCharacter
-      ? [targetCharacter]
+    const cast = job.assetId
+      ? targetCharacter ? [targetCharacter] : []
       : project.characters.filter((c) => !episode || episode.characterIds.includes(c.id));
     const missingVoices: string[] = [];
     const missingImages: string[] = [];
@@ -400,6 +409,7 @@ export async function executeSeriesClaim(
             );
           }
           character.imageUrl = character.bibleUrl;
+          character.imageSource = 'auto';
         }
       } catch (error) {
         if (signal.aborted || !(error instanceof SeriesImagePreparationError)) throw error;
@@ -413,9 +423,10 @@ export async function executeSeriesClaim(
       character.locked = !character.speaking || Boolean(character.voiceId && character.voiceReferenceUrl);
       await save(character.locked ? `${character.name} 角色定稿 v${character.version}` : `${character.name} 形象已保存，声音待选择`);
     }
-    for (const location of (targetCharacter ? [] : project.locations.filter(
-      (l) => !episode || episode.locationIds.includes(l.id),
-    ))) {
+    const locations = job.assetId
+      ? targetLocation ? [targetLocation] : []
+      : project.locations.filter((l) => !episode || episode.locationIds.includes(l.id));
+    for (const location of locations) {
       if (location.imageUrl) continue;
       try {
         location.imageUrl = await image(
@@ -433,9 +444,10 @@ export async function executeSeriesClaim(
         await save(`${location.name} 图像待处理；继续准备其余素材`);
       }
     }
-    for (const object of (targetCharacter ? [] : (project.objects || []).filter(
-      (item) => seriesObjectReferenceMode(item) === "auto",
-    ))) {
+    const objects = job.assetId
+      ? targetObject ? [targetObject] : []
+      : (project.objects || []).filter((item) => seriesObjectReferenceMode(item) === "auto");
+    for (const object of objects) {
       if (object.imageUrl) continue;
       try {
         object.imageUrl = await image(
@@ -455,7 +467,7 @@ export async function executeSeriesClaim(
         await save(`${object.name} 道具图像待处理；继续准备其余素材`);
       }
     }
-    if (missingImages.length) throw new ApiResponseError(`其余可准备素材已保存；${missingImages.length} 项图像待处理：${missingImages.join('、')}。具体原因见“角色与场景”中的单项提示。审核拒绝不会自动重提，临时查询故障保留任务编号。${missingVoices.length ? `另有 ${missingVoices.length} 个角色待选声：${missingVoices.join('、')}。` : ''}`, 'IMAGE_PREPARATION_REQUIRED');
+    if (missingImages.length) throw new ApiResponseError(`其余可准备素材已保存；${missingImages.length} 项图像待处理：${missingImages.join('、')}。具体原因见“角色与场景”的单项提示，可在对应卡片手动生成或继续原任务。审核拒绝不会自动重提，临时查询故障保留任务编号。${missingVoices.length ? `另有 ${missingVoices.length} 个角色待选声：${missingVoices.join('、')}。` : ''}`, 'IMAGE_PREPARATION_REQUIRED');
     if (missingVoices.length) throw new ApiResponseError(`可继续准备的角色和场景素材已保存；${missingVoices.length} 个角色仍待选择 Fish 音色：${missingVoices.join('、')}。请到“角色与场景 → 从 Fish 音色库选声”指定后从断点重试，已有素材不会重做。`, 'VOICE_SELECTION_REQUIRED');
     if (job.kind === "prepare") return;
   }

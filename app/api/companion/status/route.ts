@@ -19,6 +19,7 @@ export async function GET() {
     seriesFixedObjects: true,
     seriesObjectAutoReferences: true,
     seriesCharacterCardJobs: true,
+    seriesIndividualAssetJobs: true,
     seriesAssetScriptReconciliation: true,
     seriesNarrativeObjectInsertion: true,
     seriesFlexibleDeliveryDuration: true,

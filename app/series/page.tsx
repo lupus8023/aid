@@ -428,6 +428,9 @@ function CharacterCard({
   justSaved: boolean;
 }) {
   const imageIssue = character.imageIssue || character.photographicAnchor?.imageIssue;
+  const approvedImageSource = character.imageSource
+    || (character.casting ? 'library' : undefined)
+    || (!character.imageSubmissionKey && !character.photographicAnchor && character.imageUrl && character.bibleUrl === character.imageUrl ? 'user' : undefined);
   return (
     <article className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]">
       {character.bibleUrl || character.imageUrl ? (
@@ -462,6 +465,12 @@ function CharacterCard({
           {character.role}{" "}
           {character.appearance === "voice_only" ? "· 仅声音" : ""}
         </p>
+        {approvedImageSource === 'user' && character.bibleUrl && (
+          <p className="mt-2 text-xs text-emerald-300">用户指定形象 · 已直接锁定，自动完稿不会重画</p>
+        )}
+        {approvedImageSource === 'library' && character.bibleUrl && (
+          <p className="mt-2 text-xs text-[#c1afff]">角色库形象 · 已直接复用，自动完稿不会重画</p>
+        )}
         {!character.bibleUrl && character.imageUrl && character.appearance !== 'voice_only' && <p className="mt-2 text-xs text-amber-200">当前显示原始参考图；本轮角色卡尚未完成。</p>}
         {imageIssue && !character.bibleUrl && <p role="status" className="mt-3 text-xs leading-5 text-amber-200">
           {imageIssue.kind === 'review' ? '图像未通过上游审核，不会自动重复提交。' : '图像尚未完成。'}{imageIssue.message}
@@ -479,7 +488,13 @@ function CharacterCard({
             onClick={onGenerate}
           >
             {generationPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            {generationPending ? '角色卡已在队列中' : '生成这张角色卡'}
+            {generationPending
+              ? '角色卡已在队列中'
+              : imageIssue?.kind === 'pending' && (character.imageTaskId || character.photographicAnchor?.imageTaskId)
+                ? '继续原角色卡任务'
+                : imageIssue
+                  ? '手动重新生成角色卡'
+                  : '生成这张角色卡'}
           </button>
         )}
         {character.bibleUrl && (
@@ -561,7 +576,7 @@ function CharacterCard({
                 disabled={disabled}
               />
             </Labeled>
-            <Labeled label="参考图HTTPS地址（留空自动生成）">
+            <Labeled label="指定形象HTTPS地址（留空才自动生成）">
               <input
                 className={field}
                 name="imageUrl"
@@ -595,6 +610,9 @@ function FixedObjectCard({
   saving,
   onSave,
   onDelete,
+  onGenerate,
+  generationPending,
+  generationDisabled,
 }: {
   object?: SeriesObject;
   usage?: Array<{ episode: number; shots: number[] }>;
@@ -603,6 +621,9 @@ function FixedObjectCard({
   saving?: boolean;
   onSave: (patch: { name: string; aliases: string; description: string; referenceMode: 'auto' | 'upload' }, file?: File) => void;
   onDelete?: () => void;
+  onGenerate?: () => void;
+  generationPending?: boolean;
+  generationDisabled?: boolean;
 }) {
   const [referenceMode, setReferenceMode] = useState<'auto' | 'upload'>(
     object ? seriesObjectReferenceMode(object) : 'upload',
@@ -655,6 +676,11 @@ function FixedObjectCard({
             )}
           </div>
         )}
+        {object?.imageIssue && !object.imageUrl && (
+          <p role="status" className="rounded-lg border border-amber-300/20 bg-amber-300/5 px-3 py-2 text-xs leading-5 text-amber-200">
+            {object.imageIssue.message}
+          </p>
+        )}
         <Labeled label="固定道具正名（剧本按此名称识别）">
           <input className={field} name="name" defaultValue={object?.name} required disabled={disabled} />
         </Labeled>
@@ -682,6 +708,18 @@ function FixedObjectCard({
           <Labeled label={object?.imageUrl && seriesObjectReferenceMode(object) === 'upload' ? '替换指定图（不选则保留当前图）' : '指定参考图'}>
             <input className={`${field} text-xs`} type="file" name="image" accept="image/png,image/jpeg,image/webp" required={mustUpload} disabled={disabled} />
           </Labeled>
+        )}
+        {object && referenceMode === 'auto' && !object.imageUrl && onGenerate && (
+          <button type="button" className={`${primary} w-full`} disabled={generationDisabled || generationPending} onClick={onGenerate}>
+            {generationPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            {generationPending
+              ? '道具参考图已在队列中'
+              : object.imageIssue?.kind === 'pending' && object.imageTaskId
+                ? '继续原道具任务'
+                : object.imageIssue
+                  ? '手动重新生成道具图'
+                  : '生成这张道具图'}
+          </button>
         )}
         <div className="flex gap-2">
           <button className={`${button} flex-1`} disabled={disabled} aria-busy={saving || undefined}>
@@ -1009,13 +1047,14 @@ export default function SeriesPage() {
         const status = await readApiJson<{
           seriesIndependentPreparation?: boolean;
           seriesCharacterCardJobs?: boolean;
+          seriesIndividualAssetJobs?: boolean;
           seriesObjectAutoReferences?: boolean;
           seriesAssetScriptReconciliation?: boolean;
         }>(response, "无法检查定稿支持");
         if (kind === 'prepare' && !status.seriesIndependentPreparation)
           throw new Error("独立角色场景定稿需要 Companion v0.1.105 或更新版本，请更新后重新连接。");
-        if (kind === 'prepare' && assetId && !status.seriesCharacterCardJobs)
-          throw new Error('单独生成角色卡需要更新 Companion 后重新连接。');
+        if (kind === 'prepare' && assetId && !status.seriesIndividualAssetJobs)
+          throw new Error('单独生成角色、场景或道具需要更新 Companion 后重新连接。');
         if (kind === 'prepare' && !assetId && (project?.objects || []).some(object => seriesObjectReferenceMode(object) === 'auto' && !object.imageUrl) && !status.seriesObjectAutoReferences)
           throw new Error('自动生成道具参考图需要更新 Companion 后重新连接。');
         if (["script", "produce"].includes(kind) && !status.seriesAssetScriptReconciliation)
@@ -1025,9 +1064,14 @@ export default function SeriesPage() {
         return;
       }
     }
+    const targetAsset = assetId && project
+      ? project.characters.find(item => item.id === assetId)
+        || project.locations.find(item => item.id === assetId)
+        || (project.objects || []).find(item => item.id === assetId)
+      : undefined;
     await action(
-      { action: "enqueue", kind, episodeIds, assetId, settings },
-      assetId ? "角色卡已加入队列；不会重复生成其他角色、场景或声音。" : "已加入队列，系统将自动补齐所需步骤。",
+      { action: "enqueue", kind, episodeIds, assetId, manualImageRetry: Boolean(assetId), settings },
+      assetId ? `“${targetAsset?.name || '单项素材'}”已加入单项生成队列；不会重新生成其他已指定或已完成素材。` : "已加入队列，系统将自动补齐所需步骤。",
     );
   };
   const saveCharacterToLibrary = (character: SeriesCharacter) => {
@@ -1814,6 +1858,9 @@ export default function SeriesPage() {
                           usage={fixedObjectUsage(project, object.id)}
                           disabledReason={fixedObjectDisabledReason}
                           saving={busy && objectFeedback?.tone === 'saving' && objectFeedback.target === object.id}
+                          generationPending={jobs.some(job => job.kind === 'prepare' && job.assetId === object.id && ['queued', 'running', 'paused'].includes(job.status))}
+                          generationDisabled={busy || editingLocked || !connected || !project.bible}
+                          onGenerate={()=>void enqueue('prepare', undefined, object.id)}
                           onSave={(patch,file)=>void saveFixedObject(object.id,patch,file)}
                           onDelete={()=>void action({action:'delete-object',revision:project.revision,objectId:object.id},`固定道具“${object.name}”已删除；剧本和历史成片保留。`)} />
                       ))}
@@ -1842,6 +1889,25 @@ export default function SeriesPage() {
                             <p className="mt-2 text-xs leading-6 text-[var(--text-secondary)]">
                               {l.description}
                             </p>
+                            {!l.imageUrl && (
+                              <button
+                                type="button"
+                                className={`${primary} mt-3 w-full`}
+                                disabled={busy || editingLocked || !connected || !project.bible || jobs.some(job => job.kind === 'prepare' && job.assetId === l.id && ['queued', 'running', 'paused'].includes(job.status))}
+                                onClick={() => void enqueue('prepare', undefined, l.id)}
+                              >
+                                {jobs.some(job => job.kind === 'prepare' && job.assetId === l.id && ['queued', 'running', 'paused'].includes(job.status))
+                                  ? <Loader2 size={14} className="animate-spin" />
+                                  : <Sparkles size={14} />}
+                                {jobs.some(job => job.kind === 'prepare' && job.assetId === l.id && ['queued', 'running', 'paused'].includes(job.status))
+                                  ? '场景参考图已在队列中'
+                                  : l.imageIssue?.kind === 'pending' && l.imageTaskId
+                                    ? '继续原场景任务'
+                                    : l.imageIssue
+                                      ? '手动重新生成场景图'
+                                      : '生成这张场景图'}
+                              </button>
+                            )}
                           </div>
                         </article>
                       ))}

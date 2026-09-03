@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { prepareSeriesImage, SeriesImagePreparationError } from '../lib/series/imagePreparation.ts';
+import { prepareSeriesImage, resetSeriesImageForManualRetry, SeriesImagePreparationError } from '../lib/series/imagePreparation.ts';
 const ops = extra => ({label:'角色卡', wait:async()=>{}, save:async()=>{}, aborted:()=>false, persist:async url=>url, ...extra});
+
+test('an explicit retry starts fresh only when the original task cannot be resumed', () => {
+ const ambiguous={imageSubmissionKey:'old-key',imageIssue:{kind:'uncertain',message:'response lost'},imageFailures:[{message:'timeout'}]};
+ assert.equal(resetSeriesImageForManualRetry(ambiguous),true);
+ assert.deepEqual(ambiguous,{});
+ const pending={imageTaskId:'paid-task',imageSubmissionKey:'old-key',imageIssue:{kind:'pending',message:'status outage'}};
+ assert.equal(resetSeriesImageForManualRetry(pending),false);
+ assert.equal(pending.imageTaskId,'paid-task');
+ const reviewed={imageTaskId:'rejected-task',imageIssue:{kind:'review',message:'content review'}};
+ assert.equal(resetSeriesImageForManualRetry(reviewed),true);
+ assert.deepEqual(reviewed,{});
+});
 
 test('MJ moderation keeps its paid task and refuses repeat submissions across worker retries', async () => {
  const asset={imageTaskId:'paid-1'};let submits=0,polls=0;

@@ -8,6 +8,19 @@ export interface SeriesImageAsset {
 }
 export class SeriesImagePreparationError extends Error {}
 
+/** An explicit click may abandon a failed or unidentifiable submission and
+ * authorize one fresh attempt. A pending task with a known ID is resumed so
+ * the click cannot buy a duplicate while the original task is still usable. */
+export function resetSeriesImageForManualRetry(asset: SeriesImageAsset): boolean {
+  if (!asset.imageIssue) return false;
+  if (asset.imageIssue.kind === 'pending' && asset.imageTaskId) return false;
+  delete asset.imageTaskId;
+  delete asset.imageSubmissionKey;
+  delete asset.imageIssue;
+  delete asset.imageFailures;
+  return true;
+}
+
 /** A failed provider task is different from a failed status request. Only the
  * former may start another paid task, and only for explicit temporary errors. */
 export async function prepareSeriesImage(asset: SeriesImageAsset, operations: {

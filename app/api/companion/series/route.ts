@@ -7,6 +7,7 @@ import { enforceSeriesVideoProvider, mergeResumedSeriesSettings, resetEpisodeVid
 import { castSeriesRole } from "@/lib/series/casting";
 import { seriesAssetsReady, seriesStageBlocker } from "@/lib/series/readiness";
 import { seriesScriptAssetFingerprint } from '@/lib/series/scriptStructureRepair';
+import { resetSeriesImageForManualRetry } from '@/lib/series/imagePreparation';
 import { moveSeriesToTrash, restoreSeriesFromTrash } from "@/lib/series/trash";
 import {
   createSeries,
@@ -275,6 +276,10 @@ export async function POST(request: NextRequest) {
             const voiceBriefChanged =
               typeof body.patch?.voiceBrief === "string" &&
               text(body.patch.voiceBrief) !== character.voiceBrief;
+            const existingImageIsUserApproved = character.imageSource === 'user' || character.imageSource === 'library' || Boolean(character.casting) || (
+              !character.imageSource && !character.casting && Boolean(character.imageUrl) &&
+              character.bibleUrl === character.imageUrl && !character.imageSubmissionKey && !character.photographicAnchor
+            );
             for (const key of [
               "description",
               "voiceBrief",
@@ -288,9 +293,21 @@ export async function POST(request: NextRequest) {
                 if (value !== text(character[key])) {
                   characterChanged = true;
                   character[key] = value;
-                  if (key === "description" || key === "imageUrl") {
+                  if (key === "description" && !existingImageIsUserApproved) {
                     character.casting = undefined;
                     character.bibleUrl = undefined;
+                    character.imageTaskId = undefined;
+                    character.imageSubmissionKey = undefined;
+                    character.imageIssue = undefined;
+                    character.imageFailures = undefined;
+                    character.photographicAnchor = undefined;
+                    character.photographicSheetUrl = undefined;
+                    character.photographicCardReview = undefined;
+                  }
+                  if (key === "imageUrl") {
+                    character.casting = undefined;
+                    character.bibleUrl = value || undefined;
+                    character.imageSource = value ? 'user' : undefined;
                     character.imageTaskId = undefined;
                     character.imageSubmissionKey = undefined;
                     character.imageIssue = undefined;
@@ -318,7 +335,9 @@ export async function POST(request: NextRequest) {
               character.voiceCandidates = undefined;
               character.voiceLocked = false;
             }
-            character.locked = false;
+            character.locked = character.appearance === 'voice_only'
+              ? !character.speaking || Boolean(character.voiceId && character.voiceReferenceUrl)
+              : Boolean(character.bibleUrl) && (!character.speaking || Boolean(character.voiceId && character.voiceReferenceUrl));
             character.version++;
             project.episodes = project.episodes.map((e) =>
               e.characterIds.includes(character.id)
@@ -386,14 +405,33 @@ export async function POST(request: NextRequest) {
           const targetCharacter = assetId
             ? project.characters.find(character => character.id === assetId)
             : undefined;
-          if (assetId && !targetCharacter)
-            throw new Error('要生成的角色不存在');
+          const targetLocation = assetId
+            ? project.locations.find(location => location.id === assetId)
+            : undefined;
+          const targetObject = assetId
+            ? (project.objects || []).find(object => object.id === assetId)
+            : undefined;
+          if (assetId && !targetCharacter && !targetLocation && !targetObject)
+            throw new Error('要生成的单项素材不存在');
           if (targetCharacter?.appearance === 'voice_only')
             throw new Error('仅声音角色无需生成角色卡');
+          if (targetObject && seriesObjectReferenceMode(targetObject) !== 'auto')
+            throw new Error('用户指定道具需要上传参考图，不能自动生成');
           const blocker = assetId
             ? project.bible ? '' : '请先完成整季总纲'
             : seriesStageBlocker(project, kind);
           if (blocker) throw new Error(blocker);
+          if (assetId && body.manualImageRetry) {
+            let reset = false;
+            if (targetCharacter) {
+              reset = resetSeriesImageForManualRetry(targetCharacter) || reset;
+              if (targetCharacter.photographicAnchor)
+                reset = resetSeriesImageForManualRetry(targetCharacter.photographicAnchor) || reset;
+            }
+            if (targetLocation) reset = resetSeriesImageForManualRetry(targetLocation) || reset;
+            if (targetObject) reset = resetSeriesImageForManualRetry(targetObject) || reset;
+            if (reset) touchProject(project);
+          }
           if (needsPreparation) {
             const preparationBlocker = seriesStageBlocker(project, 'prepare');
             if (preparationBlocker) throw new Error(preparationBlocker);
@@ -697,8 +735,16 @@ export async function POST(request: NextRequest) {
             if (job.kind === "prepare") {
               if (job.assetId) {
                 const character = owner.characters.find(item => item.id === job.assetId);
-                if (!character?.bibleUrl)
+                const location = owner.locations.find(item => item.id === job.assetId);
+                const object = (owner.objects || []).find(item => item.id === job.assetId);
+                if (character && !character.bibleUrl)
                   throw new Error("角色卡尚未保存，不能标记成功");
+                if (location && !location.imageUrl)
+                  throw new Error("场景参考图尚未保存，不能标记成功");
+                if (object && !object.imageUrl)
+                  throw new Error("道具参考图尚未保存，不能标记成功");
+                if (!character && !location && !object)
+                  throw new Error("单项素材不存在，不能标记成功");
               } else if (!seriesAssetsReady(owner)) {
                 throw new Error("角色形象、声音、场景或道具尚未定稿，不能标记成功");
               }
