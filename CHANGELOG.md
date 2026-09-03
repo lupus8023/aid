@@ -1,3 +1,9 @@
+## 0.1.178 - 2026-09-03
+
+- Allow one-episode series projects from both the creation form and domain validation; pasted formed screenplays still auto-detect as a single episode with their authored shot count.
+- In authored-screenplay mode, keep the user's natural prop wording unchanged and treat validated `objectIds` as the asset binding. Retained drafts no longer enter an impossible rewrite loop merely because “black mask” differs from the registered canonical prop name; generated scripts keep the stricter textual-grounding check.
+- Preserve explicit authored prop bindings during later asset rescans and show the project's real shot count in queue job names instead of always saying “18-shot screenplay”.
+
 ## 0.1.177 - 2026-09-03
 
 - Recognize pasted, numbered shooting scripts as authoritative screenplays instead of story ideas: retain their original shot count and exact action, framing, camera, atmosphere, image prompt, dialogue, and order without inventing additional episodes or plot.

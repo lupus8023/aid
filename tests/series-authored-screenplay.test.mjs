@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createSeries, parseEpisodes, parseOutline, parseScript } from '../lib/series/domain.ts';
+import { createSeries, parseEpisodes, parseOutline, parseScript, rescanSeriesObjectUsage } from '../lib/series/domain.ts';
 import { parseAuthoredScreenplay } from '../lib/series/authoredScreenplay.ts';
 import { seriesPrompt } from '../lib/series/prompts.ts';
 import { episodeFixtures, outlineFixture } from './fixtures/series.mjs';
@@ -27,6 +27,12 @@ test('recognizes a formed screenplay and keeps its shot count instead of expandi
   assert.equal(project.episodeCount, 1);
   assert.equal(project.shotCount, 2);
   assert.equal(project.durationSeconds, authored.durationSeconds);
+});
+
+test('allows a one-episode project even when the brief is not a formed screenplay', () => {
+  const project = createSeries({ name: '单集故事', brief: '一个完整的单集故事。', episodeCount: 1 });
+  assert.equal(project.episodeCount, 1);
+  assert.equal(project.sourceMode, undefined);
 });
 
 test('authored screenplay prompt locks action, camera, image prompt and exact dialogue', () => {
@@ -60,3 +66,43 @@ test('authored screenplay prompt locks action, camera, image prompt and exact di
   assert.throws(() => parseScript({ shots: raw.shots.map((shot, index) => index ? shot : { ...shot, dialogue: [{ ...shot.dialogue[0], text: '模型改写了台词。' }] }) }, project, project.episodes[0]), /没有逐字保留用户原稿台词/);
 });
 
+test('formed screenplay keeps original prop wording while objectIds bind the registered asset', () => {
+  const project = createSeries({ name: '已有成稿', brief: authoredBrief, episodeCount: 1 });
+  Object.assign(project, parseOutline({
+    ...outlineFixture(),
+    objects: [{
+      name: '黄铜旧怀表', aliases: [], description: '一块有划痕的黄铜旧怀表',
+      continuity: '外观保持一致', source: 'auto', referenceMode: 'auto',
+    }],
+    bible: { ...outlineFixture().bible, arcs: [{ start: 1, end: 1, goal: '查明照片真相', reversal: '陈叔暴露反应' }], promises: [{ question: '照片是什么？', plantedIn: 1, payoffIn: 1, answer: '照片留下手表线索' }] },
+  }, project));
+  const episodeRaw = episodeFixtures().episodes[0];
+  episodeRaw.nextOpening = '';
+  episodeRaw.plants = ['p1'];
+  episodeRaw.paysOff = ['p1'];
+  project.episodes = parseEpisodes({ episodes: [episodeRaw] }, project, 1, 1);
+
+  const source = parseAuthoredScreenplay(authoredBrief).shots;
+  const raw = {
+    shots: source.map((shot, index) => ({
+      number: index + 1,
+      seconds: shot.sourceSeconds,
+      locationId: 'l1',
+      characterIds: ['c1', 'c2'],
+      objectIds: ['o1'],
+      visual: '模型返回的画面',
+      action: '模型返回的动作',
+      dialogue: shot.dialogueLines.map((line, lineIndex) => ({ characterId: lineIndex === 1 ? 'c2' : 'c1', text: line, emotion: '自然' })),
+      sound: '环境声',
+      purpose: '推进剧情',
+    })),
+  };
+  const script = parseScript(raw, project, project.episodes[0]);
+  assert.equal(script[1].visual, source[1].imagePrompt);
+  assert.equal(script[1].action, source[1].action);
+  assert.deepEqual(script[1].objectIds, ['o1']);
+
+  project.episodes[0].script = script;
+  project.episodes = rescanSeriesObjectUsage(project);
+  assert.deepEqual(project.episodes[0].script[1].objectIds, ['o1']);
+});

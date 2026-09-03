@@ -72,9 +72,12 @@ type Tab = (typeof tabs)[number]["id"];
 const jobNames: Record<SeriesJobKind, string> = {
   develop: "整季编剧",
   prepare: "角色与场景定稿",
-  script: "18镜剧本",
+  script: "分镜剧本",
   produce: "单集成片",
 };
+function jobName(kind: SeriesJobKind, shotCount: number): string {
+  return kind === "script" ? `${shotCount}镜剧本` : jobNames[kind];
+}
 const statusNames = {
   queued: "排队中",
   running: "制作中",
@@ -1874,7 +1877,7 @@ export default function SeriesPage() {
                           )}
                           <div className="min-w-0 flex-1">
                             <p className="text-sm">
-                              {jobNames[j.kind]}{" "}
+                              {jobName(j.kind, project.shotCount)}{" "}
                               {j.episodeId &&
                                 `· 第${project.episodes.find((e) => e.id === j.episodeId)?.number}集`}
                             </p>
@@ -1927,7 +1930,7 @@ export default function SeriesPage() {
                           <summary className="cursor-pointer text-xs text-[var(--text-secondary)]">历史任务记录 · {historicalJobs.length}（不代表当前执行结果）</summary>
                           <p className="mt-3 text-xs text-[var(--text-muted)]">同阶段已有较新任务，请使用上方当前任务重试。失败的历史记录可删除，不影响已保存的内容。</p>
                           {historicalJobs.map(j => <article key={j.id} className="mt-4 border-t border-[var(--border-color)] pt-3 text-xs text-[var(--text-muted)]">
-                            <p>{jobNames[j.kind]} · {statusNames[j.status]} · {new Date(j.updatedAt).toLocaleString()}</p>
+                            <p>{jobName(j.kind, project.shotCount)} · {statusNames[j.status]} · {new Date(j.updatedAt).toLocaleString()}</p>
                             <p className="mt-2 break-words">{j.error || j.stage}</p>
                             {j.status === "failed" && (
                               <button
@@ -2148,11 +2151,11 @@ export default function SeriesPage() {
                 <Labeled label="题材">
                   <input name="genre" className={field} defaultValue="悬疑" />
                 </Labeled>
-                <Labeled label="计划集数 · 故事创意默认每集18镜；粘贴带镜号成稿时自动按原稿">
+                <Labeled label="计划集数 · 支持单集；粘贴带镜号成稿时自动按原稿">
                   <input
                     name="episodeCount"
                     type="number"
-                    min={2}
+                    min={1}
                     max={100}
                     defaultValue={12}
                     className={field}

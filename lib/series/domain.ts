@@ -54,8 +54,8 @@ export function createSeries(input: Partial<SeriesProject>): SeriesProject {
   const language = input.language === "en" ? "en" : "zh";
   const authored = parseAuthoredScreenplay(input.brief, language);
   const count = Number(input.episodeCount ?? 12);
-  if (!Number.isInteger(count) || count < (authored ? 1 : 2) || count > 100)
-    throw new Error(authored ? "成稿集数需为 1–100 的整数" : "集数需为 2–100 的整数");
+  if (!Number.isInteger(count) || count < 1 || count > 100)
+    throw new Error("集数需为 1–100 的整数");
   const now = new Date().toISOString();
   return {
     id: seriesId("series"),
@@ -332,7 +332,13 @@ export function parseScript(
     const visual = authoredShot?.imagePrompt || required(s.visual, "镜头画面");
     const action = authoredShot?.action || required(s.action, "镜头行动");
     const mentionedObjectIds = seriesShotObjectIds(project, { objectIds: [], visual, action });
-    const ungroundedObjects = requestedObjectIds.filter(id => !mentionedObjectIds.includes(id));
+    // A formed screenplay may use a natural variant such as “黑色面膜” while
+    // the registered prop is “黑灰色纱布面膜”. In this mode objectIds are the
+    // authoritative asset binding: do not rewrite the user's action/image text
+    // merely to make it contain a canonical asset name verbatim.
+    const ungroundedObjects = authored
+      ? []
+      : requestedObjectIds.filter(id => !mentionedObjectIds.includes(id));
     if (ungroundedObjects.length) {
       for (const id of ungroundedObjects) {
         const object = project.objects.find(item => item.id === id)!;
@@ -409,15 +415,18 @@ export function seriesShotObjectIds(
  * a fixed prop. A prop is attached only to shots whose visual/action text uses
  * its canonical name or alias; uploading once never means every shot. */
 export function rescanSeriesObjectUsage(
-  project: Pick<SeriesProject, 'objects' | 'episodes'>,
+  project: Pick<SeriesProject, 'objects' | 'episodes' | 'sourceMode'>,
 ): SeriesEpisode[] {
   return project.episodes.map(episode => episode.script
       ? { ...episode, script: episode.script.map(shot => ({
         ...shot,
-        // Rebuild from authored visible/action text. Keeping old explicit ids
-        // here could make a packet reference silently stand in for a mask
-        // cloth even when the shot never names that registered prop.
-        objectIds: seriesShotObjectIds(project, { ...shot, objectIds: [] }),
+        // Generated scripts are rebuilt from their text. A formed screenplay
+        // keeps its explicit asset bindings because the user's original wording
+        // is intentionally immutable and may use a colloquial prop name.
+        objectIds: seriesShotObjectIds(project, {
+          ...shot,
+          objectIds: project.sourceMode === 'authored_screenplay' ? shot.objectIds : [],
+        }),
       })) }
     : episode);
 }
