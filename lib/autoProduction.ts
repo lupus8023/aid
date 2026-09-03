@@ -55,6 +55,33 @@ export type AutoImageBatchPlan =
   | { kind: 'generate-missing'; storyboardIds: string[] };
 
 /**
+ * Submit independent video groups in small parallel waves. A group that starts
+ * from the previous segment's tail must remain alone so its reference frame is
+ * available before submission.
+ */
+export function planAutoVideoBatches(groups: Storyboard[][], maxConcurrency = 2): Storyboard[][][] {
+  const limit = Math.max(1, Math.floor(maxConcurrency) || 1);
+  const batches: Storyboard[][][] = [];
+  for (let index = 0; index < groups.length;) {
+    const current = groups[index];
+    if (current[0]?.videoStartMode === 'previous-segment-tail') {
+      batches.push([current]);
+      index += 1;
+      continue;
+    }
+    const batch = [current];
+    while (batch.length < limit && index + batch.length < groups.length) {
+      const candidate = groups[index + batch.length];
+      if (candidate[0]?.videoStartMode === 'previous-segment-tail') break;
+      batch.push(candidate);
+    }
+    batches.push(batch);
+    index += batch.length;
+  }
+  return batches;
+}
+
+/**
  * Resume the paid nine-panel task whenever the unfinished cards still point
  * to one durable task id. Otherwise a fully missing batch gets one fresh grid,
  * while a partially completed batch repairs only its missing cards so already

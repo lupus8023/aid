@@ -38,11 +38,12 @@ test('registered Chinese names are bound without discarding the English action o
   const p = buildVideoSegmentPrompt([shot({ characters: ['人鱼公主'], videoDirection: d })], [], { duration: 8 });
   assert.match(p, /<Subject 1> breaks the envelope seal/);
   assert.ok(p.includes(d.ending));
+  assert.doesNotMatch(p, /[\u3400-\u9fff]/);
   const legacy = buildVideoSegmentPrompt([shot({ characters: ['人鱼公主'], action: '人鱼公主 breaks the seal and drops the photograph onto the table.' })], [], { duration: 8 });
   assert.match(legacy, /breaks the seal and drops the photograph onto the table/);
 });
 
-test('an unambiguous shortened Chinese title is restored while Chinese directing prose remains valid', () => {
+test('an unambiguous shortened Chinese title is restored inside English directing prose', () => {
   const repaired = validateVideoDirection({
     action: '贵妃 points toward the tray while 青鸾 steps back.',
     camera: 'Track right until 贵妃 and 青鸾 share the frame.',
@@ -51,7 +52,7 @@ test('an unambiguous shortened Chinese title is restored while Chinese directing
   }, ['沈贵妃', '青鸾']);
   assert.equal(repaired.action, '沈贵妃 points toward the tray while 青鸾 steps back.');
   assert.match(repaired.camera, /沈贵妃 and 青鸾/);
-  assert.equal(validateVideoDirection({ ...direction(), action: '沈贵妃转身离开。' }, ['沈贵妃']).action, '沈贵妃转身离开。');
+  assert.throws(() => validateVideoDirection({ ...direction(), action: '沈贵妃转身离开。' }, ['沈贵妃']), /必须用英文/);
 });
 
 test('fields share the combined budget without splicing away words or negations', () => {
@@ -69,8 +70,8 @@ test('visual validation rejects dialogue, empty outcomes and generic adjective-o
     assert.throws(() => validateVideoDirection({ ...direction(), action }));
   }
   assert.throws(() => validateVideoDirection({ ...direction(), ending: '' }), /ending/);
-  assert.doesNotThrow(() => validateVideoDirection({ ...direction(), action: '她打开信封，取出照片后将信封放在桌面。' }));
-  assert.throws(() => validateVideoDirection({ ...direction(), action: '她开口说道台词。' }), /台词或声音/);
+  assert.throws(() => validateVideoDirection({ ...direction(), action: '她打开信封，取出照片后将信封放在桌面。' }), /必须用英文/);
+  assert.throws(() => validateVideoDirection({ ...direction(), action: '她开口说道台词。' }));
   assert.throws(() => validateVideoDirection({ ...direction(), detail: 'The answer is already here.' }, [], ['The answer is already here.']), /权威台词/);
   assert.doesNotThrow(() => validateVideoDirection({ ...direction(), detail: 'Her eyes widen.' }, [], ['Yes.']));
 });

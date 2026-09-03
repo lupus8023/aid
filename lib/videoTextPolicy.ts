@@ -6,7 +6,7 @@
  */
 export const NO_SUBTITLE_POLICY_MARKER = 'CLEAN-FRAME PRESENTATION';
 
-export const NO_SUBTITLE_POLICY = `${NO_SUBTITLE_POLICY_MARKER}: Keep every generated frame free of generated text. Spoken words exist only in the synchronized audio track. Do not render subtitles, captions, titles, speech bubbles, watermarks, UI, or newly invented readable characters. Existing printed markings on an explicitly supplied fixed-object reference may remain only when copied exactly.`;
+export const NO_SUBTITLE_POLICY = `${NO_SUBTITLE_POLICY_MARKER}: The photographic frame remains clean and text-free. Dialogue is audio only. Keep supplied prop markings unchanged.`;
 
 /** Add the clean-frame rule once, without wrapping or multiplying it. */
 export function enforceNoSubtitles(prompt: string): string {

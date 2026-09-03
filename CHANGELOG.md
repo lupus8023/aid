@@ -1,3 +1,9 @@
+## 0.1.171 - 2026-09-03
+
+- Restore English-only H3 visual direction for Chinese productions while keeping exact Chinese dialogue inside `<d>[Chinese]`; use one concise clean-frame instruction and translate legacy visual metadata to neutral English fallbacks to reduce burned subtitle risk.
+- Remove automatic image-cast and video duplicate/subtitle vision gates from one-click production, relying on locked references and prompt contracts without blocking or regenerating completed media.
+- Run independent video segments in bounded two-wide batches while preserving explicit previous-tail dependencies, task recovery, and compatible previously paid clips; new prompts use `h3-v36`.
+
 ## 0.1.144
 
 - Fix the cross-platform Companion release check so the image-safety test resolves its shared TypeScript module under clean GitHub runners.

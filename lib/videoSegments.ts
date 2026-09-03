@@ -8,7 +8,7 @@ export const VIDEO_SEGMENT_PLANNING_CONTRACT = 'cinematic-edit-v2';
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v35';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v36';
 
 export interface VideoSegmentDefinition {
   id: string;
@@ -556,10 +556,11 @@ function hasMatchingVideoGeneration(storyboards: Storyboard[]): boolean {
   if (!saved) return true;
   const current = videoSegmentGenerationSignature(storyboards);
   if (saved === current) return true;
-  // Preserve paid v33 clips that already started from their own storyboard
-  // and whose creative inputs are unchanged. Do not rewrite their provenance.
+  // Preserve compatible paid v33/v35 clips that already started from their own
+  // storyboard and whose creative inputs are unchanged. Do not rewrite them.
   return !leader.continuousFromPrev && leader.videoStartMode !== 'previous-segment-tail'
-    && saved.startsWith('h3-v33-') && saved.slice(7) === current.slice(7);
+    && (saved.startsWith('h3-v33-') || saved.startsWith('h3-v35-'))
+    && saved.slice(7) === current.slice(7);
 }
 
 export function isCompletedVideoSegment(storyboards: Storyboard[]): boolean {

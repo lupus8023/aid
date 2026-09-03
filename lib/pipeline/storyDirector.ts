@@ -146,7 +146,7 @@ ${buildDirectorCaptureContract(capturePreset)}
 连续镜头应共享同一相机/镜头家族、色彩响应、主光方向和场景材质；每镜只改变有叙事理由的机位、距离、焦点、遮挡和曝光反应。真实感来自一致的物理因果，而不是反复添加 cinematic、8K、masterpiece、photorealistic 等泛化词。
 
 不要输出完整 H3 提示词或章节模板。只输出逐镜 videoDirection；下游会把 1–4 个分镜重新编组成一个不超过 15 秒的 H3 片段，统一加入参考绑定、切镜时间与逐字对白。
-${videoDirectionWritingContract('zh')}
+${videoDirectionWritingContract('en')}
 
 📝 输出（只输出 JSON 数组，按 beat 顺序，第 i 个元素对应第 i 个 beat）：
 [

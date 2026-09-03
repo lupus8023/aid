@@ -44,7 +44,7 @@ ${referenceContext}
 ${options.isFilmEnding ? `整片末镜 ID 为 ${storyboards.at(-1)?.id}：在其最后一句对白/旁白完整结束后自然延续至少1秒可见状态或行动，不新增台词，不定格或补黑帧；不把这条片尾要求应用于同批其他镜头。` : ''}
 ${options.rewrite ? '本次明确要求重新编写：已排除旧的运镜句子，不作同义改写。保留动作、首帧位置、对白口型和剪辑交棒；从当前画面的深度、遮挡、人物距离重新设计摄影任务，让结束构图或焦点交付已有信息变化。固定镜头有明确作用时仍可使用，不新增切镜。' : '已有 cameraMove 是本镜摄影意图；把它落实为可执行过程，不替换成通用运镜。'}
 同批前后镜仅用于确定景别、视线和运动交接，不提前发生后镜事件，也不为追求变化强行移动固定机位。
-${videoDirectionWritingContract('zh')}
+${videoDirectionWritingContract('en')}
 返回 JSON 数组，每项仅含 id 与 videoDirection，必须逐项匹配输入 ID。
 输入资料：${JSON.stringify(source)}`;
   let problem = '';
@@ -64,7 +64,7 @@ ${videoDirectionWritingContract('zh')}
     try {
       const issues = retained ? directorFieldRepairs(retained, repairContext) : [];
       const response = await chat(retained && issues.length
-        ? `${buildDirectorFieldRepairPrompt(retained, repairContext, issues, undefined, 'zh')}\n${referenceContext}${problem ? `\nPrevious validation failure: ${problem}. Correct this explicitly; do not repeat the rejected patch.` : ''}`
+        ? `${buildDirectorFieldRepairPrompt(retained, repairContext, issues, undefined, 'en')}\n${referenceContext}${problem ? `\nPrevious validation failure: ${problem}. Correct this explicitly; do not repeat the rejected patch.` : ''}`
         : `${prompt}${problem ? `\n上次校验失败：${problem}。请重新输出完整数组，保留具体动作与结果并在字符预算内重写，不截句。` : ''}`, imageUrls);
       received = true;
       contentAttempts++;

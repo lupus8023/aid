@@ -9,6 +9,7 @@ import {
   isTransientAutoProductionError,
   normalizeStoryboardImageArtifact,
   planAutoImageBatch,
+  planAutoVideoBatches,
 } from '../lib/autoProduction.ts';
 
 test('a recent active paid task is awaited without counting a failed generation', () => {
@@ -88,6 +89,22 @@ test('uses bounded exponential-style retry delays', () => {
   assert.equal(autoRetryDelayMs(2), 8_000);
   assert.equal(autoRetryDelayMs(5), 60_000);
   assert.equal(autoRetryDelayMs(99), 60_000);
+});
+
+test('runs independent video groups two at a time while preserving tail-frame dependencies', () => {
+  const groups = [
+    [shot(1)],
+    [shot(2)],
+    [shot(3, { videoStartMode: 'previous-segment-tail' })],
+    [shot(4)],
+    [shot(5)],
+  ];
+  assert.deepEqual(planAutoVideoBatches(groups).map(batch => batch.map(group => group[0].sceneNumber)), [
+    [1, 2],
+    [3],
+    [4, 5],
+  ]);
+  assert.deepEqual(planAutoVideoBatches(groups, 1).map(batch => batch.length), [1, 1, 1, 1, 1]);
 });
 
 test('moderation is not retried even when the provider error also mentions a gateway code', () => {

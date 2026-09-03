@@ -31,7 +31,7 @@ import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitec
 import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedPlannedVideoSegment, normalizeVideoSegmentPlan, refreshPlannedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { filmEndingDuration, isFilmEndingSegment } from '@/lib/filmEnding';
 import { FILM_ENDING_ASR_SKIPPED_WARNING, FILM_ENDING_WARNING, MAX_ENDING_REPAIRS, filmEndingDisposition, prepareFilmEndingRepair, type FilmEndingAudit } from '@/lib/filmEndingAudit';
-import { MAX_VIDEO_DUPLICATE_REPAIRS, prepareVideoDuplicateRepair, videoDuplicateAuditScope, videoSubtitleRemovalSourceTaskId, type VideoDuplicateAudit } from '@/lib/videoDuplicateAudit';
+import { videoSubtitleRemovalSourceTaskId } from '@/lib/videoDuplicateAudit';
 import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS, previousSegmentTailSource } from '@/lib/videoContinuity';
@@ -53,8 +53,8 @@ import { castCharacterVoice, castStoryVoices, lockStoryboardVoiceIds } from '@/l
 import { applyStoryAspectRatio, hasStoryMedia, projectStoryAspectRatio, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { storyStorageKeys } from '@/lib/series/storageScope';
 import { bindSeriesPlan, buildApprovedSeriesPlan, reconcileSeriesProductionContract, validateSeriesProduction } from '@/lib/series/productionContract';
-import { prepareImageCastRepair, visibleImageCast, type ImageCastCheck, type ImageCastCharacter } from '@/lib/series/imageCastContract';
-import { AwaitingMediaTaskError, autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, imagePollingTimeoutError, isTransientAutoProductionError, normalizeStoryboardImageArtifact, planAutoImageBatch } from '@/lib/autoProduction';
+import { visibleImageCast, type ImageCastCharacter } from '@/lib/series/imageCastContract';
+import { AwaitingMediaTaskError, autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, imagePollingTimeoutError, isTransientAutoProductionError, normalizeStoryboardImageArtifact, planAutoImageBatch, planAutoVideoBatches } from '@/lib/autoProduction';
 import { effectiveStoryCast } from '@/lib/storyCast';
 import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '@/lib/midjourney';
 import { applyCapturePreset, DEFAULT_CAPTURE_PRESET, normalizeCapturePreset } from '@/lib/capturePresets';
@@ -1622,46 +1622,6 @@ export default function StoryPage() {
           }
           await pollImageStatus(storyboard.id, taskId, generationProjectId, activeSettings.apiKey);
           persistCurrentProject();
-          if (isMidjourneyImageModel(activeSettings.imageModel)) {
-            for (;;) {
-            // Check before moving to the next shot; always compare with the
-            // fixed original cast, never propagate an unaudited generated face.
-            const current = storyboardsRef.current.find(s => s.id === storyboard.id);
-            if (!current?.imageUrl || generationProjectId !== projectIdRef.current) return;
-            const cast: ImageCastCharacter[] = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters).map(c => ({ name: c.name, description: c.description, appearance: (c as ImageCastCharacter).appearance, imageUrl: costumeImagesRef.current[c.name] || c.imageUrl }));
-            const response = await fetchStoryApi('/api/series/audit-images', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ boards: [{ sceneNumber: current.sceneNumber, imageUrl: current.imageUrl, characters: current.characters, requireSingleFrame: true }], characters: cast, apiKey: activeSettings.apiKey, dmxApiKey: activeSettings.dmxApiKey, scriptProvider: activeSettings.scriptProvider || 'auto', scriptModel: activeSettings.scriptModel || 'gpt-4o' }),
-            }, activeSettings.comfyui);
-            const { checks } = await readApiJson<{ checks: ImageCastCheck[] }>(response, 'MJ 单镜角色核验失败');
-            const check = checks?.[0];
-            if (checks?.length !== 1 || check.sceneNumber !== current.sceneNumber || check.imageUrl !== current.imageUrl || ![true, false, null].includes(check.passed)) throw new Error('MJ 核验未返回当前镜头结果');
-            if (generationProjectId !== projectIdRef.current || storyboardsRef.current.find(s => s.id === current.id)?.imageUrl !== check.imageUrl) return;
-            if (check.passed === false) {
-              const candidates = current.imageCandidateUrls || [];
-              if (candidates.length) {
-                const upload = await fetch('/api/upload-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageData: candidates[0] }) });
-                const { url } = await readApiJson<{ url: string }>(upload, '保存 MJ 备用候选失败');
-                if (!url || generationProjectId !== projectIdRef.current) return;
-                const nextBoards = replaceStoryboardAndInvalidateChangedVideo(storyboardsRef.current, { ...current, imageUrl: url, imageCandidateUrls: candidates.slice(1) });
-                storyboardsRef.current = nextBoards;
-                setStoryboards(nextBoards);
-                persistCurrentProject(nextBoards);
-                continue;
-              }
-              const repaired = prepareImageCastRepair(current, check, cast);
-              const repairedBoards = replaceStoryboardAndInvalidateChangedVideo(storyboardsRef.current, repaired);
-              storyboardsRef.current = repairedBoards;
-              setStoryboards(repairedBoards);
-              persistCurrentProject(repairedBoards);
-              await handleGenerateImage(repaired, options);
-            } else {
-              commitStoryboards(items => items.map(s => s.id === current.id ? { ...s, imageCastReviewWarning: check.passed === null ? check.issues.join('；') : undefined } : s));
-              persistCurrentProject();
-            }
-            break;
-            }
-          }
           return;
         } catch (error) {
           throw error;
@@ -2487,59 +2447,6 @@ export default function StoryPage() {
         if (unfinished.length) throw new Error(`仍有 ${unfinished.length} 个分镜未完成`);
       });
       if (autoAbortRef.current) return;
-
-      if (storyStorageKeys().isolated || isMidjourneyImageModel(settingsRef.current.imageModel)) {
-        await retryUntilCompleted('核验分镜角色与固定道具一致性', async () => {
-          const cast: ImageCastCharacter[] = charactersRef.current.map(c => ({ name: c.name, description: c.description, appearance: (c as ImageCastCharacter).appearance, imageUrl: costumeImagesRef.current[c.name] || c.imageUrl }));
-          for (let round = 0; round <= 2; round++) {
-            // A previous repair may have saved a cleared image before a worker
-            // interruption. Complete those pending repairs before auditing.
-            for (const missing of storyboardsRef.current.filter(b => !hasUsableStoryboardImage(b))) {
-              if (autoAbortRef.current) return;
-              await handleGenerateImage(missing, { throwOnError: true });
-            }
-            const checks: ImageCastCheck[] = [];
-            const boards = storyboardsRef.current;
-            for (let start = 0; start < boards.length; start += 3) {
-              if (autoAbortRef.current) return;
-              const batch = boards.slice(start, start + 3);
-              setAutoStage(`角色/固定道具核验：镜头 ${start + 1}–${Math.min(start + 3, boards.length)}`);
-              const active = settingsRef.current;
-              const response = await fetchStoryApi('/api/series/audit-images', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ boards: batch.map(b => ({ sceneNumber: b.sceneNumber, imageUrl: b.imageUrl, characters: b.characters, objects: b.objects, backgroundContext: isGptImage2Model(active.imageModel) ? b.prompt : undefined, requireSingleFrame: isMidjourneyImageModel(active.imageModel) })), characters: cast, objects: objectsRef.current, apiKey: active.apiKey, dmxApiKey: active.dmxApiKey, scriptProvider: active.scriptProvider || 'auto', scriptModel: active.scriptModel || 'gpt-4o' }),
-              }, active.comfyui);
-              const result = await readApiJson<{ checks: ImageCastCheck[] }>(response, '分镜视觉身份核验失败');
-              if (result.checks?.length !== batch.length || batch.some(b => !result.checks.some(c => c.sceneNumber === b.sceneNumber && c.imageUrl === b.imageUrl && (typeof c.passed === 'boolean' || c.passed === null)))) throw new Error('角色核验未完整返回当前图片结果');
-              checks.push(...result.checks);
-              commitStoryboards(items => items.map(item => {
-                const check = result.checks.find(c => c.sceneNumber === item.sceneNumber && c.imageUrl === item.imageUrl);
-                if (!check) return item;
-                const warning = check.passed === null ? check.issues.join('；') : undefined;
-                return item.imageCastReviewWarning === warning ? item : { ...item, imageCastReviewWarning: warning };
-              }));
-              persistCurrentProject();
-            }
-            const failed = checks.filter(check => check.passed === false);
-            if (!failed.length) return;
-            for (const check of failed) {
-              if (autoAbortRef.current) return;
-              const current = storyboardsRef.current.find(b => b.sceneNumber === check.sceneNumber)!;
-              const repaired = prepareImageCastRepair(current, check, cast);
-              // React may defer state updater callbacks. The generator below
-              // must see the cleared image synchronously, before its skip guard.
-              const nextBoards = replaceStoryboardAndInvalidateChangedVideo(storyboardsRef.current, repaired);
-              storyboardsRef.current = nextBoards;
-              setStoryboards(nextBoards);
-              persistCurrentProject();
-              setAutoStage(`自动补图：镜头 ${check.sceneNumber} 角色不一致`);
-              await handleGenerateImage(repaired, { throwOnError: true });
-            }
-          }
-          throw new Error('分镜角色核验未通过，已保留断点');
-        });
-      }
-      if (autoAbortRef.current) return;
       setCurrentStep(5);
       const videoProvider = settingsRef.current.videoProvider || 'apimart';
       const isH3SegmentProvider = videoProvider === 'comfyui' || videoProvider === 'fal';
@@ -2554,7 +2461,7 @@ export default function StoryPage() {
       if (deliveryAudit.errors.length) {
         throw new Error(`视频分段前故事交付校验失败：${deliveryAudit.errors.slice(0, 4).join('；')}`);
       }
-      for (const group of videoGroups) {
+      const completeVideoGroup = async (group: Storyboard[]) => {
         if (autoAbortRef.current) return;
         const groupLabel = `视频片段 ${group.map(item => item.sceneNumber).join('·')}`;
         const completeGroup = async () => {
@@ -2597,47 +2504,6 @@ export default function StoryPage() {
           if (!isDone) throw new Error('任务结束但没有返回完整视频');
         };
         await retryUntilCompleted(groupLabel, completeGroup);
-        if (videoProvider === 'comfyui') {
-          for (let round = 0; round <= MAX_VIDEO_DUPLICATE_REPAIRS; round++) {
-            if (autoAbortRef.current) return;
-            let duplicateAudit: VideoDuplicateAudit | undefined;
-            await retryUntilCompleted(`${groupLabel}：检查重复角色与烧录字幕`, async () => {
-              const current = refreshPlannedVideoSegment(storyboardsRef.current, group), leader = current[0];
-              const { names, context } = videoDuplicateAuditScope(current);
-              if (!leader.videoTaskId) throw new Error('视频尚未返回任务编号');
-              // A null result means the vision check itself was unavailable or
-              // inconclusive. Preserve the paid clip, but retry the audit after
-              // recovery instead of turning a transient check outage into a
-              // permanent checkpoint.
-              if (leader.videoDuplicateAudit?.taskId === leader.videoTaskId && leader.videoDuplicateAudit.passed !== null) { duplicateAudit = leader.videoDuplicateAudit; return; }
-              const cached = leader.videoCacheKey ? await cachedVideoObjectUrl(leader.videoCacheKey) : undefined;
-              const source = cached || leader.videoSourceUrl || leader.videoUrl || await downloadComfyUIVideo(leader.videoTaskId, settingsRef.current.comfyui, { smoothAudioTail: true });
-              const ownsUrl = Boolean(cached || (!leader.videoSourceUrl && !leader.videoUrl));
-              try {
-                const media = await fetch(source);
-                if (!media.ok) throw new Error('视频读取失败，保留当前任务后重试检查');
-                const active = settingsRef.current, form = new FormData();
-                form.append('video', await media.blob(), 'video.mp4');
-                form.append('taskId', leader.videoTaskId);
-                form.append('metadata', JSON.stringify({ names, context, apiKey: active.apiKey, dmxApiKey: active.dmxApiKey, provider: active.scriptProvider || 'auto', model: active.scriptModel || 'gpt-4o' }));
-                const response = await fetchStoryApi('/api/series/audit-video-duplicates', { method: 'POST', body: form }, active.comfyui);
-                const result = await readApiJson<{ audit: VideoDuplicateAudit }>(response, '视频角色检查失败');
-                if (!result.audit || result.audit.taskId !== leader.videoTaskId || ![true, false, null].includes(result.audit.passed)) throw new Error('视频画面核验未返回当前任务结果');
-                duplicateAudit = result.audit;
-                commitStoryboards(items => items.map(b => b.id === leader.id ? { ...b, videoDuplicateAudit: result.audit } : b));
-                persistCurrentProject();
-              } finally { if (ownsUrl && source.startsWith('blob:')) URL.revokeObjectURL(source); }
-            });
-            if (!duplicateAudit) throw new Error('视频画面检查未完成');
-            if (duplicateAudit.passed === null) {
-              throw new Error(`${groupLabel}：${duplicateAudit.reason}。已保留当前视频任务，确认画面无字幕后再继续交付`);
-            }
-            if (duplicateAudit.passed !== false) break;
-            const repaired = prepareVideoDuplicateRepair(storyboardsRef.current, refreshPlannedVideoSegment(storyboardsRef.current, group), duplicateAudit);
-            storyboardsRef.current = repaired; setStoryboards(repaired); persistCurrentProject();
-            await retryUntilCompleted(`${groupLabel}：纠正重复角色或烧录字幕`, completeGroup);
-          }
-        }
         if (videoProvider === 'comfyui' && isFilmEndingSegment(storyboardsRef.current, group)) {
           // H3 already verifies the supplied dialogue while generating the clip. Fish ASR is
           // an additional timing audit for the requested quiet tail, so its absence must not
@@ -2648,7 +2514,7 @@ export default function StoryPage() {
               ...b, videoEndingWarning: FILM_ENDING_ASR_SKIPPED_WARNING,
             } : b));
             persistCurrentProject();
-            continue;
+            return;
           }
           for (let round = 0; round <= MAX_ENDING_REPAIRS; round++) {
             if (autoAbortRef.current) return;
@@ -2695,6 +2561,17 @@ export default function StoryPage() {
             await retryUntilCompleted('自动修复末镜无配音结尾', completeGroup);
           }
         }
+      };
+
+      // Keep at most two independent paid renders in flight. The local H3 GPU
+      // still executes its queue safely, while reference preparation, upload,
+      // polling, download and cache writes overlap. A tail-frame continuation
+      // remains a hard dependency and therefore runs only after its predecessor.
+      for (const batch of planAutoVideoBatches(videoGroups)) {
+        if (autoAbortRef.current) return;
+        const results = await Promise.allSettled(batch.map(completeVideoGroup));
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (failed) throw failed.reason;
       }
       if (autoAbortRef.current) return;
 

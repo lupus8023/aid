@@ -24,17 +24,19 @@ const VIDEO_DIRECTION_WRITING_CONTRACT_BASE = `
 `;
 
 export function videoDirectionWritingContract(_language: 'zh' | 'en' = 'zh'): string {
-  // The project language controls screenplay speech only. Chinese directing
-  // prose is intentional for H3 even when the authored dialogue is English.
-  const languageRule = '- 四个字段统一使用简洁、自然的中文；项目语言只约束 speech 中的逐字台词，不约束导演提示词。已登记角色/物体正名保持原样。不得引用、改写或概括逐字台词；对白只由 speech 控制。不写声音指令、暗示人物说出具体内容、<d> 标签或 H3 章节标记。';
-  const example = '例：不要写“她自然地表现震惊，镜头电影感推进”。可写 action="林岚从信封里抽出照片；看清画面后，右手握力松开。" camera="从桌面高度的中景开始，随她放低右手匀速推进，最后近景看清指间照片。" detail="她的笑意先消失，随后手指才松开。" ending="照片正面朝上落在桌面，她的右手仍悬在半空。" 另一种既有构图适用的写法：camera="固定近景；拇指停在破口时，只把焦点从纸边移到后方双眼。"（仅学习写法，不复制故事、机位或动作。）';
+  // Keep H3's visual-conditioning prose in English. The approved project
+  // language applies only to exact dialogue inside <d>; mixing Chinese visual
+  // direction with Chinese dialogue made visible glyphs much more frequent in
+  // production, while the earlier all-English directing contract did not.
+  const languageRule = '- 四个字段一律使用简洁、自然的英文；已登记角色/物体正名允许原样保留。项目语言只约束 speech 中的逐字台词。不得引用、翻译或概括逐字台词；对白只由 speech 控制。不写声音指令、暗示人物说出具体内容、<d> 标签或 H3 章节标记。';
+  const example = '例：不要写“她自然地表现震惊，镜头电影感推进”。可写 action="Lin draws the photograph from the envelope; her right hand loosens when she sees it." camera="From the table-height medium shot, dolly forward at an even pace as Lin lowers her hand, ending close on the photograph between her fingers." detail="Her smile fades before her fingers release." ending="The photograph lands face-up; her right hand remains suspended." 另一种既有构图适用的写法：camera="Locked-off close shot: as Lin\'s thumb stops on the torn seam, rack focus once from the paper edge to her eyes behind it."（仅学习写法，不复制故事、机位或动作。）';
   return VIDEO_DIRECTION_WRITING_CONTRACT_BASE
     .replace('{{LANGUAGE_RULE}}', languageRule)
     .replace('{{LANGUAGE_EXAMPLE}}', example);
 }
 
 // Backward-compatible default for callers that do not carry project language.
-export const VIDEO_DIRECTION_WRITING_CONTRACT = videoDirectionWritingContract('zh');
+export const VIDEO_DIRECTION_WRITING_CONTRACT = videoDirectionWritingContract('en');
 
 export function videoDirectionEntityNames(shot: Partial<Storyboard>): string[] {
   return [...new Set([
@@ -51,7 +53,7 @@ export function withoutVideoEntityNames(value: string, names: string[]): string 
 /**
  * Providers occasionally shorten a CJK character name (for example 沈贵妃 ->
  * 贵妃). Accept only an unambiguous suffix of a registered name and restore the
- * canonical spelling. Chinese directing prose itself is valid.
+ * canonical spelling before enforcing English visual prose.
  */
 export function canonicalizeVideoDirectionEntityAliases(value: string, names: string[]): string {
   const canonical = [...new Set(names.map(name => String(name || '').trim()).filter(Boolean))];
@@ -68,7 +70,7 @@ export function validateVideoDirectionField(field: keyof StoryVideoDirection, va
   if (!text && field !== 'detail') throw new Error(`videoDirection.${field} 不能为空`);
   if (enforceFieldLimit && text.length > VIDEO_DIRECTION_LIMITS[field]) throw new Error(`videoDirection.${field} 为 ${text.length} 字符，修稿预算 ${VIDEO_DIRECTION_LIMITS[field]}；请重写完整短句，不要截断`);
   const prose = withoutVideoEntityNames(text, entityNames);
-  if (/[\p{Script=Cyrillic}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(prose)) throw new Error(`videoDirection.${field} 混入了项目语言之外的文字`);
+  if (/[\p{Script=Han}\p{Script=Cyrillic}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(prose)) throw new Error(`videoDirection.${field} 必须用英文完整转写，登记的角色与物体名称除外`);
   if (/<\/?d>|\[(?:Shot|Chinese|English)\b|(?:subject_definitions|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music)\s*:|\b(?:says?|whispers?|speaks?|shouts?|voiceover|narration|dialogue)\b|(?:说道|说出|开口(?:说)?|低语|耳语|喊道|大喊|旁白|画外音|对白|台词|念出|读出)/i.test(prose)) throw new Error(`videoDirection.${field} 混入台词或声音指令；只写可见动作`);
   const normalized = (s: string) => s.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
   for (const line of exactLines) {

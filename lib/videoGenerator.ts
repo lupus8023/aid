@@ -228,7 +228,7 @@ function officialPerformanceDirection(storyboard: Storyboard, segmentShotCount: 
       .filter(value => value && !containsHan(value));
     if (!pieces.length) return '';
     const character = String(cue.character || '').trim();
-    const label = character ? `${character}: ` : `Visible character ${index + 1}: `;
+    const label = character && !containsHan(character) ? `${character}: ` : `Visible character ${index + 1}: `;
     return `${label}${compactActionArc(pieces.join('; '), index === 0 ? primaryBudget : supportingBudget)}`;
   }).filter(Boolean).join(' ');
 }
@@ -253,7 +253,7 @@ function officialReferencePriorityLock(storyboards: Storyboard[], isFirstLastMod
 
 function officialMaterialReality(style: unknown): string {
   if (['anime', '3d-cg', 'stop-motion'].includes(String(style || ''))) return '';
-  return 'Maintain photographic material reality: natural skin micro-texture and fine facial detail, physically plausible eye and hair highlights, visible fabric weave and weight, grounded contact shadows, and restrained optical depth. No waxy or plastic skin, beauty-filter smoothing, synthetic hair, warped hands, facial drift, costume mutation, extra people, subtitles, logos, watermarks, or on-screen text.';
+  return 'Maintain photographic material reality: natural skin micro-texture and fine facial detail, physically plausible eye and hair highlights, visible fabric weave and weight, grounded contact shadows, and restrained optical depth. Avoid waxy or plastic skin, beauty-filter smoothing, synthetic hair, warped hands, facial drift, costume mutation, and extra people.';
 }
 
 function officialTemporalPerformance(
@@ -405,13 +405,18 @@ function officialH3EditSentence(
 
 function officialH3Soundscape(storyboards: Storyboard[]): string {
   const plans = storyboards.map(storyboardAudioPlan);
-  if (plans.every(plan => !plan.environment.length && !plan.foley.length && plan.backgroundHuman !== 'indistinct_nonverbal')) {
+  const englishCues = plans.map(plan => ({
+    ...plan,
+    environment: plan.environment.filter(value => !containsHan(String(value || ''))),
+    foley: plan.foley.filter(value => !containsHan(String(value || ''))),
+  }));
+  if (englishCues.every(plan => !plan.environment.length && !plan.foley.length && plan.backgroundHuman !== 'indistinct_nonverbal')) {
     return 'Natural location ambience stays clearly audible beneath dialogue and through pauses, steady within each setting. Respect intentional silence.';
   }
   // A segment can cross locations. Flattening all plans and taking the first
   // four sounds erased later shots' ambience and played early Foley everywhere.
   // Keep each sound attached to the same shot as its visible source.
-  const shots = plans.map((plan, index) => {
+  const shots = englishCues.map((plan, index) => {
     return [
       `[Shot ${index + 1}] Location bed: ${plan.environment.length ? plan.environment.join('; ') : 'natural ambience matching the visible setting'}.`,
       plan.foley.length ? `Action Foley: ${plan.foley.join('; ')}.` : '',
@@ -427,7 +432,8 @@ function officialH3Soundscape(storyboards: Storyboard[]): string {
 }
 
 function officialH3Music(storyboards: Storyboard[]): string {
-  const music = [...new Set(storyboards.map(storyboard => storyboardAudioPlan(storyboard).music).filter(value => value && value !== 'none'))];
+  const music = [...new Set(storyboards.map(storyboard => storyboardAudioPlan(storyboard).music)
+    .filter(value => value && value !== 'none' && !containsHan(String(value))))];
   return music.length ? `The non-diegetic score uses ${music.join('; ')}.` : 'N/A';
 }
 
@@ -473,7 +479,7 @@ function buildOfficialGuidePrompt(
     const localSpeaker = speakerId.get(line.character) || 1;
     const speaker = useSubjectLabels && subject
       ? `<Subject ${subject}> (S${localSpeaker})`
-      : `${line.character} (S${localSpeaker})`;
+      : `${containsHan(line.character) ? 'The visible speaker' : line.character} (S${localSpeaker})`;
     const voiceReference = audio ? ` using the voice timbre referenced from <Audio ${audio}>` : '';
     const rawVoiceProfile = !audio
       ? String(options.voiceProfiles?.[line.character] || '').replace(/[\r\n]+/g, ' ').trim()
@@ -503,12 +509,21 @@ function buildOfficialGuidePrompt(
       return useSubjectLabels && id ? `<Subject ${id}>` : name;
     });
     const primarySubject = cast[0] || 'The main subject';
-    const directed = currentVideoDirection(storyboard);
+    // Saved Chinese directing briefs are from the short-lived mixed-language
+    // contract. Do not let one legacy brief block a paid render: fall back to
+    // the English image-action/camera compiler until it is explicitly refined.
+    let directed: ReturnType<typeof currentVideoDirection>;
+    try { directed = currentVideoDirection(storyboard); } catch { directed = undefined; }
     // These four compact fields were authored and validated together. Never
     // splice them, replace them with a still-image sentence, or add a second
     // generic acting/timing instruction that competes with the authored event.
-    const bind = (value: string) => characters
-      .map((name, index) => ({ name, label: useSubjectLabels ? `<Subject ${index + 1}>` : name }))
+    const bind = (value: string) => videoDirectionEntityNames(storyboard)
+      .map(name => ({
+        name,
+        label: subjectId.has(name)
+          ? (useSubjectLabels ? `<Subject ${subjectId.get(name)}>` : 'the visible character')
+          : 'the referenced object',
+      }))
       .sort((a, b) => b.name.length - a.name.length)
       .reduce((text, { name, label }) => containsHan(name) ? text.replaceAll(name, label) : text, value);
     const action = directed ? bind(directed.action) : officialH3PhysicalAction(storyboard, primarySubject);
@@ -561,9 +576,7 @@ function buildOfficialGuidePrompt(
     style,
     officialMaterialReality(first.visualStyle),
     buildVideoCapturePresetContract(first.capturePreset),
-    options.language === 'en'
-      ? 'Frames contain no generated text. Dialogue tags are audio only: no subtitles, captions, dialogue text, titles, overlays, speech bubbles, watermarks, UI text, or invented words. Existing print on an explicit fixed-object reference may remain only as an exact copy; never rewrite, add, remove, or move it.'
-      : '画面禁字：对白标签只控制语音；禁止字幕、对白文字、标题、贴片、气泡、水印、界面文字和新增字符。明确提供的固定道具参考图上原有品牌与印刷标记只允许原样保留，不得改写、增删或移位。',
+    'CLEAN-FRAME PRESENTATION: The photographic frame remains clean and text-free. Dialogue is audio only. Keep supplied prop markings unchanged.',
     storyboards.length > 1
       ? 'EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup. Every transition must be motivated by action, gaze, dialogue, object, shape, or sound. Preserve the 180-degree axis, eyelines, screen direction, match-on-action phase, and location geography. Vary framing scale with dramatic purpose; do not crossfade, morph, interpolate, repeat, or soften a hard cut unless an explicit transition is written.'
       : '',
@@ -587,7 +600,8 @@ function buildOfficialGuidePrompt(
       : []);
     if (hasContinuityReference && storyboardCastNames(storyboards[0]).includes(name)) ordinals.unshift(1);
     const pictures = [...new Set(ordinals)].map(ordinal => `<Picture ${ordinal}>`).join(', ');
-    return `<Subject ${index + 1}> is ${name} in ${pictures || 'the reference pictures'}.`;
+    const identity = containsHan(name) ? 'the declared character' : name;
+    return `<Subject ${index + 1}> is ${identity} in ${pictures || 'the reference pictures'}.`;
   });
   const pictureDefinitions = [
     ...(hasContinuityReference ? ['<Picture 1> is the opening continuity frame for [Shot 1].'] : []),
@@ -625,7 +639,11 @@ export function buildVideoSegmentPrompt(
 export function applyVideoDuplicateRepairPrompt(prompt: string, correction?: string): string {
   const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:CHARACTER CONTINUITY|VIDEO VISUAL) REPAIR:[^\n]*\n?/gm, '')).join('').trimEnd();
   if (!correction) return clean;
-  const directive = `VIDEO VISUAL REPAIR: ${correction.replace(/\s+/g, ' ').slice(0, 1200)} The <d> dialogue tags are audio-only instructions and must never become visible glyphs in any frame.`;
+  const compactCorrection = correction.replace(/\s+/g, ' ').slice(0, 1200);
+  const visualCorrection = containsHan(compactCorrection)
+    ? 'Regenerate the intended visual action while preserving exactly one instance of each declared subject.'
+    : compactCorrection;
+  const directive = `VIDEO VISUAL REPAIR: ${visualCorrection} Dialogue remains audio only.`;
   // The Director/H3 parser gives the official sections semantic weight. Put a
   // confirmed visual correction inside detailed_description, immediately
   // before the authored shots, instead of after non_diegetic_music where the
@@ -642,7 +660,8 @@ export function applySeriesVideoStyle(prompt: string, value?: ImageStyleReferenc
   const style = normalizeImageStyleReference(value);
   if (!style) return prompt;
   const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^SERIES LOOK:[^\n]*\n?/gm, '')).join('');
-  const direction = `SERIES LOOK: Retain the approved input frames' shared cultural art direction, palette, warm/cool balance, lens rendering, lighting character, highlight roll-off and material texture. ${String(style.description || '').replace(/\s+/g,' ').slice(0,800)} Adapt to the authored shot, time and practical light; keep each character's identity, costume, action and camera movement unchanged. No style-image person, pose or scenery is added.\n`;
+  const description = String(style.description || '').replace(/\s+/g,' ').slice(0,800);
+  const direction = `SERIES LOOK: Retain the approved input frames' shared cultural art direction, palette, warm/cool balance, lens rendering, lighting character, highlight roll-off and material texture. ${containsHan(description) ? '' : description} Adapt to the authored shot, time and practical light; keep each character's identity, costume, action and camera movement unchanged. No style-image person, pose or scenery is added.\n`;
   const index = clean.search(/^overall_soundscape:/m);
   return fitH3PromptBudget(index >= 0 ? `${clean.slice(0,index)}${direction}\n${clean.slice(index)}` : `${clean}\n${direction}`);
 }

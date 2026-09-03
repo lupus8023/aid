@@ -68,13 +68,15 @@ test('a multi-shot predecessor resolves only its own completed segment leader', 
   assert.equal(previousSegmentTailSource([{ ...owner, videoStatus: 'failed' }, previous, current], current), undefined);
 });
 
-test('preserves unchanged paid v33 storyboard-start clips but rejects legacy automatic continuity', () => {
+test('preserves unchanged paid v33 and v35 storyboard-start clips but rejects legacy automatic continuity', () => {
   const old = shot(1, { videoUrl: 'clip.mp4', videoStatus: 'completed', videoSegmentId: 'seg', videoSegmentStoryboardIds: ['scene-1'] });
-  old.videoGenerationSignature = videoSegmentGenerationSignature([old]).replace('h3-v34-', 'h3-v33-');
+  old.videoGenerationSignature = videoSegmentGenerationSignature([old]).replace(/^h3-v\d+-/, 'h3-v33-');
   assert.equal(isCompletedVideoSegment([old]), true);
   assert.equal(isCompletedVideoSegment([{ ...old, imageUrl: 'changed.jpg' }]), false);
+  const recent = { ...old, videoGenerationSignature: videoSegmentGenerationSignature([old]).replace(/^h3-v\d+-/, 'h3-v35-') };
+  assert.equal(isCompletedVideoSegment([recent]), true);
   const inherited = { ...old, continuousFromPrev: true };
-  inherited.videoGenerationSignature = videoSegmentGenerationSignature([inherited]).replace('h3-v34-', 'h3-v33-');
+  inherited.videoGenerationSignature = videoSegmentGenerationSignature([inherited]).replace(/^h3-v\d+-/, 'h3-v33-');
   assert.equal(hasLegacyAutomaticContinuity(inherited), true);
   assert.equal(isCompletedVideoSegment([inherited]), false);
   assert.equal(restoredStoryStep([inherited]), 5);

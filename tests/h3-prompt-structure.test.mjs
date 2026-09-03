@@ -51,8 +51,9 @@ test('writes Ref2VA prompts in the official six-section natural-language format'
   assert.match(prompt, /\[Shot 2] At 00:\d{2}\.\d{3}, make a clean hard cut/);
   assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S1\) begins speaking.*<d>\[Chinese] 线索就在这里。<\/d>/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /画面禁字.*禁止字幕/);
-  assert.match(prompt, /固定道具参考图上原有品牌与印刷标记只允许原样保留/);
+  assert.match(prompt, /CLEAN-FRAME PRESENTATION: The photographic frame remains clean and text-free/);
+  assert.match(prompt, /Keep supplied prop markings unchanged/);
+  assert.equal((prompt.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
   assert.match(prompt, /REFERENCE PRIORITY: Each declared picture is the composition authority for its own discrete shot/);
   assert.match(prompt, /EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup/);
   assert.match(prompt, /do not crossfade, morph, interpolate, repeat, or soften a hard cut/);
@@ -76,7 +77,7 @@ test('locks one storyboard as the exact I2VA first frame and limits allowed chan
   assert.match(prompt, /exact first frame at 00:00\.000, not loose style inspiration/);
   assert.match(prompt, /Only the explicitly described physical action, micro-expression, gaze, breathing, camera movement, and physically caused effects may change/);
   assert.match(prompt, /natural skin micro-texture and fine facial detail/);
-  assert.match(prompt, /No waxy or plastic skin, beauty-filter smoothing/);
+  assert.match(prompt, /Avoid waxy or plastic skin, beauty-filter smoothing/);
   assert.match(prompt, /From 00:00\.000 to 00:\d{2}\.\d{3}/);
   assert.doesNotMatch(prompt, /8K|HDR|ultra[- ]?high definition/i);
 });
@@ -102,7 +103,7 @@ test('treats a punctuation-only screenplay turn as a silent performance pause, n
   })], [], { duration: 10, language: 'zh', referenceAudioNames: ['裴行简'] });
   assert.deepEqual(dialogueTags(prompt), [{ language: 'Chinese', text: '也……买不到。主要是，还没开始卖。' }]);
   assert.doesNotMatch(prompt, /<d>\[English]|<d>\[Chinese] ……<\/d>/);
-  assert.match(prompt, /画面禁字.*禁止字幕/);
+  assert.match(prompt, /CLEAN-FRAME PRESENTATION: The photographic frame remains clean and text-free/);
 });
 
 test('retains later-shot ambience and binds Foley to its own shot across locations', () => {
@@ -152,7 +153,7 @@ test('locks generated speech to the project language', () => {
   })], [], { duration: 7, language: 'en' }), /项目对白语言为 English/);
 });
 
-test('keeps Chinese directing prose for Chinese H3 projects and exact Chinese dialogue', () => {
+test('keeps visual direction English for Chinese H3 projects and preserves exact Chinese dialogue', () => {
   const videoDirection = {
     action: 'Dr. Pan抬起面膜包装，再用食指点向印刷成分表。',
     camera: '固定中景同时容纳他的双手、包装和成分表。',
@@ -168,10 +169,12 @@ test('keeps Chinese directing prose for Chinese H3 projects and exact Chinese di
     videoDirection,
     speech: [{ speakerId: 'S01', character: 'Dr. Pan', exactLine: '这些成分可以给肌肤补充营养。', emotion: '专业而克制', delivery: '自然', volume: 'normal', lipSync: true, source: 'story_required' }],
   })], [], { duration: 8, language: 'zh', referenceAudioNames: ['Dr. Pan'] });
-  for (const value of Object.values(videoDirection)) assert.ok(chinese.includes(value), value);
+  for (const value of Object.values(videoDirection)) assert.ok(!chinese.includes(value), value);
+  assert.match(chinese, /Dr\. Pan raises a face-mask package and points to the printed ingredient panel/);
   assert.match(chinese, /<d>\[Chinese] 这些成分可以给肌肤补充营养。<\/d>/);
-  assert.match(chinese, /画面禁字.*禁止字幕/);
+  assert.match(chinese, /CLEAN-FRAME PRESENTATION: The photographic frame remains clean and text-free/);
   assert.doesNotMatch(chinese, /观众开始关注|闭嘴|mouth closes|final word/i);
+  assert.doesNotMatch(chinese.replace(/<d>[\s\S]*?<\/d>/g, ''), /[\u3400-\u9fff]/);
 
   const english = buildVideoSegmentPrompt([shot(1, {
     action: 'Lin raises the package and points to its label.', prompt: 'Unrelated still-image prompt.',
