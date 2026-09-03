@@ -68,6 +68,7 @@ test('one rejected MJ card does not stop other cards and scenes, and a restart b
   Object.assign(project, parseOutline(outlineFixture(), project));
   project.characters.forEach(c => { c.locked = false; c.voiceId = `voice-${c.id}`; c.voiceReferenceUrl = 'https://assets.test/voice.mp3'; });
   project.characters[0].imageTaskId = 'rejected-task';
+  project.objects = [{ id: 'o1', name: '铜镜', aliases: [], description: '椭圆青铜镜，背面莲纹。', imageUrl: '', referenceMode: 'auto' }];
   const saved = {fetch:globalThis.fetch, setTimeout:globalThis.setTimeout};
   const submissions=[],polls=[],stages=[];
   globalThis.setTimeout = (fn, delay, ...args) => saved.setTimeout(fn, delay === 3000 ? 0 : delay, ...args);
@@ -87,13 +88,50 @@ test('one rejected MJ card does not stop other cards and scenes, and a restart b
     assert.equal(project.characters[0].imageIssue.kind,'review');
     assert.ok(project.characters.slice(1).every(c=>c.locked && c.bibleUrl));
     assert.ok(project.locations.every(l=>l.imageUrl));
+    assert.ok(project.objects[0].imageUrl);
     const count=submissions.length;
-    assert.equal(count,project.characters.length-1+project.locations.length);
+    assert.equal(count,project.characters.length-1+project.locations.length+1);
+    assert.equal(submissions.filter(item=>item.type==='object').length,1);
     await assert.rejects(executeSeriesClaim(claim,new AbortController().signal,()=>{}),/1 项图像待处理/);
     assert.equal(submissions.length,count);
     assert.equal(polls.filter(id=>id==='rejected-task').length,2);
     assert.ok(stages.some(s=>s.includes('继续准备其余素材')));
   } finally { Object.assign(globalThis,saved); }
+});
+
+test('a targeted character-card job generates only that card', async () => {
+  const project = createSeries({ name: '单张角色卡', brief: 'test', episodeCount: 3 });
+  Object.assign(project, parseOutline(outlineFixture(), project));
+  project.objects = [{ id: 'o1', name: '铜镜', aliases: [], description: '椭圆青铜镜。', imageUrl: '', referenceMode: 'auto' }];
+  const target = project.characters[0];
+  const saved = { fetch: globalThis.fetch, setTimeout: globalThis.setTimeout };
+  const submissions = [];
+  globalThis.setTimeout = (fn, delay, ...args) => saved.setTimeout(fn, delay === 3000 ? 0 : delay, ...args);
+  globalThis.fetch = async (url, init) => {
+    if (url === '/api/companion/status') return Response.json({ ok: false });
+    const body = JSON.parse(init.body);
+    if (url === '/api/companion/series') return Response.json({ revision: body.project.revision + 1 });
+    if (url === '/api/generate-costume') { submissions.push(body); return Response.json({ taskId: 'target-card' }); }
+    if (url === '/api/check-image-status') return Response.json({ status: 'completed', imageUrl: 'https://assets.test/target-card.png' });
+    if (url === '/api/upload-image') return Response.json({ url: body.imageData });
+    throw new Error(`Unexpected ${url}`);
+  };
+  try {
+    await executeSeriesClaim({
+      project,
+      job: { id: 'targeted', kind: 'prepare', assetId: target.id, lease: 'fixture' },
+      settings: { imageModel: 'fixture-image' },
+    }, new AbortController().signal, () => {});
+    assert.equal(submissions.length, 1);
+    assert.equal(submissions[0].type, 'costume');
+    assert.equal(submissions[0].name, target.name);
+    assert.equal(target.bibleUrl, 'https://assets.test/target-card.png');
+    assert.ok(project.characters.slice(1).every(character => !character.bibleUrl));
+    assert.ok(project.locations.every(location => !location.imageUrl));
+    assert.equal(project.objects[0].imageUrl, '');
+  } finally {
+    Object.assign(globalThis, saved);
+  }
 });
 
 test('photographic preparation uses the reviewed single card, checkpoints submission identity, and skips unused sheets', async () => {

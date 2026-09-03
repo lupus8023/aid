@@ -70,8 +70,10 @@ export interface SeriesLocation extends SeriesImageAsset {
   imageTaskId?: string;
 }
 
-export interface SeriesObject extends ObjectItem {
+export interface SeriesObject extends ObjectItem, SeriesImageAsset {
   aliases: string[];
+  /** Missing on legacy records: o1/o2… are outline-generated, object-* are user-created. */
+  referenceMode?: "auto" | "upload";
 }
 
 export interface SeriesPromise {
@@ -172,6 +174,8 @@ export interface SeriesJob {
   id: string;
   seriesId: string;
   episodeId?: string;
+  /** A prepare job may target one character card without preparing every asset. */
+  assetId?: string;
   kind: SeriesJobKind;
   status: SeriesJobStatus;
   stage: string;

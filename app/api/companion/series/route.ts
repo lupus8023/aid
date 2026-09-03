@@ -13,6 +13,7 @@ import {
   parseScript,
   rescanSeriesObjectUsage,
   seriesId,
+  seriesObjectReferenceMode,
   text,
 } from "@/lib/series/domain";
 import {
@@ -98,19 +99,36 @@ export async function POST(request: NextRequest) {
             const description = text(body.patch?.description, 2000);
             const aliases = (Array.isArray(body.patch?.aliases) ? body.patch.aliases : String(body.patch?.aliases || '').split(/[，,、\n]/))
               .map((value: unknown) => text(value, 120)).filter(Boolean);
-            const imageUrl = text(body.patch?.imageUrl, 4000) || current?.imageUrl || '';
+            const currentMode = current ? seriesObjectReferenceMode(current) : 'upload';
+            const referenceMode = body.patch?.referenceMode === 'auto'
+              ? 'auto'
+              : body.patch?.referenceMode === 'upload'
+                ? 'upload'
+                : currentMode;
+            const hasImagePatch = Boolean(body.patch && Object.prototype.hasOwnProperty.call(body.patch, 'imageUrl'));
+            let imageUrl = hasImagePatch ? text(body.patch?.imageUrl, 4000) : current?.imageUrl || '';
+            const identityChanged = Boolean(current && (
+              name !== current.name ||
+              description !== current.description ||
+              referenceMode !== currentMode
+            ));
+            if (referenceMode === 'auto' && identityChanged && imageUrl === current?.imageUrl)
+              imageUrl = '';
             if (!name || !description) throw new Error('固定道具需要名称和可制作描述');
-            if (!imageUrl) throw new Error('固定道具必须上传指定参考图后才能保存');
-            let parsed: URL;
-            try { parsed = new URL(imageUrl); } catch { throw new Error('固定道具参考图地址无效'); }
-            if (parsed.protocol !== 'https:' || parsed.username || parsed.password)
-              throw new Error('固定道具参考图需要安全的HTTPS地址');
+            if (referenceMode === 'upload' && (!imageUrl || (current && currentMode !== 'upload' && !hasImagePatch)))
+              throw new Error('用户指定道具必须上传新的参考图后才能保存');
+            if (imageUrl) {
+              let parsed: URL;
+              try { parsed = new URL(imageUrl); } catch { throw new Error('固定道具参考图地址无效'); }
+              if (parsed.protocol !== 'https:' || parsed.username || parsed.password)
+                throw new Error('固定道具参考图需要安全的HTTPS地址');
+            }
             const candidateNames = [name, ...aliases].map(value => value.toLocaleLowerCase());
             const existingNames = project.objects.filter(object => object.id !== current?.id)
               .flatMap(object => [object.name, ...(object.aliases || [])]).map(value => value.toLocaleLowerCase());
             if (new Set(candidateNames).size !== candidateNames.length || candidateNames.some(value => existingNames.includes(value)))
               throw new Error('固定道具名称重复；请编辑已有道具');
-            const value = { id: current?.id || seriesId('object'), name, aliases, description, imageUrl };
+            const value = { id: current?.id || seriesId('object'), name, aliases, description, imageUrl, referenceMode };
             if (current) project.objects[project.objects.indexOf(current)] = value;
             else project.objects.push(value);
           }
@@ -317,10 +335,21 @@ export async function POST(request: NextRequest) {
             && imageModelRequiresApiKey(effectiveSettings.imageModel || 'seedream-5-0-pro')
             && !effectiveSettings.apiKey)
             throw new Error("当前图片模型需要 APIMart API Key；请先在设置中配置后再开始制作");
-          const blocker = seriesStageBlocker(project, kind);
+          const assetId = kind === 'prepare' ? text(body.assetId, 120) : '';
+          const targetCharacter = assetId
+            ? project.characters.find(character => character.id === assetId)
+            : undefined;
+          if (assetId && !targetCharacter)
+            throw new Error('要生成的角色不存在');
+          if (targetCharacter?.appearance === 'voice_only')
+            throw new Error('仅声音角色无需生成角色卡');
+          const blocker = assetId
+            ? project.bible ? '' : '请先完成整季总纲'
+            : seriesStageBlocker(project, kind);
           if (blocker) throw new Error(blocker);
           if (
             ["prepare", "produce"].includes(kind) &&
+            !assetId &&
             project.characters.some(
               (c) => c.speaking && (!c.voiceId || !c.voiceReferenceUrl),
             ) &&
@@ -358,6 +387,7 @@ export async function POST(request: NextRequest) {
                 (j) =>
                   j.seriesId === project.id &&
                   j.episodeId === episodeId &&
+                  j.assetId === (assetId || undefined) &&
                   j.kind === kind &&
                   ["queued", "running", "paused"].includes(j.status),
               )
@@ -367,6 +397,7 @@ export async function POST(request: NextRequest) {
               id: seriesId("job"),
               seriesId: project.id,
               episodeId,
+              assetId: assetId || undefined,
               kind,
               status: "queued",
               stage: "等待执行",
@@ -585,8 +616,15 @@ export async function POST(request: NextRequest) {
               throw new Error("整季编剧尚未完成，不能标记成功");
             if (job.kind === "script" && !episode?.script)
               throw new Error("镜头剧本尚未保存，不能标记成功");
-            if (job.kind === "prepare" && !seriesAssetsReady(owner))
-              throw new Error("角色形象、声音或场景尚未定稿，不能标记成功");
+            if (job.kind === "prepare") {
+              if (job.assetId) {
+                const character = owner.characters.find(item => item.id === job.assetId);
+                if (!character?.bibleUrl)
+                  throw new Error("角色卡尚未保存，不能标记成功");
+              } else if (!seriesAssetsReady(owner)) {
+                throw new Error("角色形象、声音、场景或道具尚未定稿，不能标记成功");
+              }
+            }
             if (
               job.kind === "produce" &&
               !episode?.deliveries.some(

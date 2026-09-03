@@ -2,6 +2,7 @@ import type {
   SeriesBible,
   SeriesCharacter,
   SeriesEpisode,
+  SeriesObject,
   SeriesProject,
   SeriesShot,
 } from "./types";
@@ -14,6 +15,14 @@ export function seriesId(prefix: string): string {
 }
 export function text(value: unknown, max = 12000): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
+}
+
+export function seriesObjectReferenceMode(
+  object: Pick<SeriesObject, "id" | "referenceMode">,
+): "auto" | "upload" {
+  if (object.referenceMode === "auto" || object.referenceMode === "upload")
+    return object.referenceMode;
+  return /^o\d+$/i.test(object.id || "") ? "auto" : "upload";
 }
 function list(value: unknown): string[] {
   return Array.isArray(value)
@@ -162,6 +171,7 @@ export function parseOutline(
     description: required(object.description, "固定道具描述"),
     aliases: list(object.aliases),
     imageUrl: "",
+    referenceMode: "auto",
   }));
   const objectNames = objects.flatMap(object => [object.name, ...object.aliases]).map(name => name.toLocaleLowerCase());
   if (new Set(objectNames).size !== objectNames.length)

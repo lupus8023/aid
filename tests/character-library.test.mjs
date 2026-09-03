@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  characterFromGeneratedSeries,
   characterFromDesignRecord,
   mergeCharacterHistory,
   parseStoredArray,
@@ -43,4 +44,29 @@ test('new designs upsert cleanly and malformed storage is ignored', () => {
   const history = upsertCharacterHistory([{ ...character, imageUrl: 'old.png' }], character);
   assert.equal(history.length, 1);
   assert.equal(history[0].imageUrl, design.conceptUrl);
+});
+
+test('a finished series character can be saved with its card and reusable voice', () => {
+  const record = characterFromGeneratedSeries('series-1', {
+    id: 'c1',
+    name: '武曌',
+    description: '绛红圆领袍，金线窄袖。',
+    imageUrl: 'https://assets.test/concept.png',
+    bibleUrl: 'https://assets.test/card.png',
+    voiceId: 'voice-1',
+    voiceProfile: '沉稳清晰',
+    voiceSource: 'auto',
+    voiceLocked: true,
+    voiceReferenceUrl: 'https://assets.test/voice.mp3',
+    gender: 'female',
+    ageGroup: 'adult',
+  });
+  assert.equal(record.imageUrl, 'https://assets.test/card.png');
+  assert.equal(record.bibleUrl, record.imageUrl);
+  assert.equal(record.voiceId, 'voice-1');
+  assert.equal(record.voiceReferenceUrl, 'https://assets.test/voice.mp3');
+  assert.equal(upsertCharacterHistory([], record)[0].sourceSeriesId, 'series-1');
+  assert.throws(() => characterFromGeneratedSeries('series-1', {
+    id: 'c2', name: '未定稿', description: '尚无图',
+  }), /尚未完成/);
 });

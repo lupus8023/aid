@@ -19,6 +19,14 @@ export interface CharacterDesignLibraryRecord {
   createdAt?: string;
 }
 
+export interface GeneratedSeriesCharacterRecord extends Character {
+  bibleUrl: string;
+  voiceReferenceUrl?: string;
+  sourceSeriesId: string;
+  sourceCharacterId: string;
+  savedAt: string;
+}
+
 function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -80,4 +88,43 @@ export function upsertCharacterHistory(history: unknown[], character: Character)
   const name = character.name.trim().toLocaleLowerCase();
   return [character, ...history.filter(isCharacter).filter(item => item.name.trim().toLocaleLowerCase() !== name)]
     .slice(0, MAX_CHARACTER_HISTORY);
+}
+
+export function characterFromGeneratedSeries(
+  sourceSeriesId: string,
+  character: {
+    id: string;
+    name: string;
+    description: string;
+    bibleUrl?: string;
+    imageUrl?: string;
+    voiceId?: string;
+    voiceProfile?: string;
+    voiceSource?: Character['voiceSource'];
+    voiceLocked?: boolean;
+    voiceReferenceUrl?: string;
+    gender?: Character['gender'];
+    ageGroup?: Character['ageGroup'];
+  },
+): GeneratedSeriesCharacterRecord {
+  const imageUrl = text(character.bibleUrl) || text(character.imageUrl);
+  if (!text(sourceSeriesId) || !text(character.id) || !text(character.name) || !imageUrl)
+    throw new Error('角色卡尚未完成，暂时不能加入角色库');
+  return {
+    id: `series-character-${text(sourceSeriesId)}-${text(character.id)}`,
+    name: text(character.name),
+    description: text(character.description),
+    imageUrl,
+    bibleUrl: imageUrl,
+    voiceId: text(character.voiceId) || undefined,
+    voiceProfile: text(character.voiceProfile) || undefined,
+    voiceSource: character.voiceSource,
+    voiceLocked: character.voiceLocked,
+    voiceReferenceUrl: text(character.voiceReferenceUrl) || undefined,
+    gender: character.gender,
+    ageGroup: character.ageGroup,
+    sourceSeriesId: text(sourceSeriesId),
+    sourceCharacterId: text(character.id),
+    savedAt: new Date().toISOString(),
+  };
 }

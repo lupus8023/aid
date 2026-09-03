@@ -34,8 +34,14 @@ import SeriesStyleReferenceEditor from '@/components/SeriesStyleReferenceEditor'
 import { useSettings } from "@/hooks/useSettings";
 import { readApiJson } from "@/lib/apiResponse";
 import { PRODUCTION_STYLE_PRESETS } from "@/lib/promptArchitecture";
+import {
+  CHARACTER_HISTORY_STORAGE_KEY,
+  characterFromGeneratedSeries,
+  parseStoredArray,
+  upsertCharacterHistory,
+} from "@/lib/characterLibrary";
 import { seriesRequest } from "@/lib/series/runner";
-import { episodeScreenplay, seriesShotObjectIds } from "@/lib/series/domain";
+import { episodeScreenplay, seriesObjectReferenceMode, seriesShotObjectIds } from "@/lib/series/domain";
 import { seriesStageBlocker } from "@/lib/series/readiness";
 import { partitionSeriesJobs } from '@/lib/series/jobHistory';
 import type {
@@ -364,12 +370,20 @@ function CharacterCard({
   onSave,
   onLibrary,
   onVoice,
+  onGenerate,
+  generationPending,
+  generationDisabled,
+  onAddToLibrary,
 }: {
   character: SeriesCharacter;
   disabled: boolean;
   onSave: (patch: Record<string, unknown>) => void;
   onLibrary: () => void;
   onVoice: () => void;
+  onGenerate: () => void;
+  generationPending: boolean;
+  generationDisabled: boolean;
+  onAddToLibrary: () => void;
 }) {
   const imageIssue = character.imageIssue || character.photographicAnchor?.imageIssue;
   return (
@@ -407,6 +421,27 @@ function CharacterCard({
           <p className="mt-3 text-xs text-[#c1afff]">
             由角色库「{character.casting.name}」出演 · 形象已复用
           </p>
+        )}
+        {character.appearance !== 'voice_only' && !character.bibleUrl && (
+          <button
+            type="button"
+            className={`${primary} mt-3 w-full`}
+            disabled={generationDisabled || generationPending}
+            onClick={onGenerate}
+          >
+            {generationPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            {generationPending ? '角色卡已在队列中' : '生成这张角色卡'}
+          </button>
+        )}
+        {character.bibleUrl && (
+          <button
+            type="button"
+            className={`${button} mt-3 w-full`}
+            onClick={onAddToLibrary}
+          >
+            <Library size={14} />
+            加入 / 更新角色库
+          </button>
         )}
         <button
           type="button"
@@ -512,9 +547,15 @@ function FixedObjectCard({
   disabled: boolean;
   disabledReason?: string;
   saving?: boolean;
-  onSave: (patch: { name: string; aliases: string; description: string }, file?: File) => void;
+  onSave: (patch: { name: string; aliases: string; description: string; referenceMode: 'auto' | 'upload' }, file?: File) => void;
   onDelete?: () => void;
 }) {
+  const [referenceMode, setReferenceMode] = useState<'auto' | 'upload'>(
+    object ? seriesObjectReferenceMode(object) : 'upload',
+  );
+  const mustUpload = referenceMode === 'upload' && (
+    !object?.imageUrl || (object && seriesObjectReferenceMode(object) === 'auto')
+  );
   return (
     <article className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]">
       {object?.imageUrl ? (
@@ -522,19 +563,28 @@ function FixedObjectCard({
       ) : (
         <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 bg-[#1d1e23]">
           <Package size={40} className="text-[#a78bfa]/30" />
-          <p className="text-xs text-[var(--text-secondary)]">上传指定图后锁定全剧外观</p>
+          <p className="text-xs text-[var(--text-secondary)]">
+            {referenceMode === 'auto' ? '参考图将在资产定稿时自动生成' : '上传指定图后锁定全剧外观'}
+          </p>
         </div>
       )}
       <form className="space-y-3 p-4" onSubmit={event => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
         const file = data.get('image');
-        onSave({ name: String(data.get('name') || ''), aliases: String(data.get('aliases') || ''), description: String(data.get('description') || '') }, file instanceof File && file.size ? file : undefined);
+        onSave({
+          name: String(data.get('name') || ''),
+          aliases: String(data.get('aliases') || ''),
+          description: String(data.get('description') || ''),
+          referenceMode,
+        }, file instanceof File && file.size ? file : undefined);
       }}>
         {object && (
-          <p className="flex items-center gap-2 text-xs text-emerald-300" role="status">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-            已锁定并用于全剧识别
+          <p className={`flex items-center gap-2 text-xs ${object.imageUrl ? 'text-emerald-300' : 'text-[#c1afff]'}`} role="status">
+            <span className={`h-1.5 w-1.5 rounded-full ${object.imageUrl ? 'bg-emerald-300' : 'bg-[#a78bfa]'}`} />
+            {object.imageUrl
+              ? `${seriesObjectReferenceMode(object) === 'auto' ? '自动参考' : '用户指定'} · 已锁定并用于全剧识别`
+              : '自动参考 · 等待生成'}
           </p>
         )}
         {object && (
@@ -558,9 +608,25 @@ function FixedObjectCard({
         <Labeled label="剧本别名（用逗号分隔）">
           <input className={field} name="aliases" defaultValue={(object?.aliases || []).join('，')} disabled={disabled} placeholder="例如：御赐木匣，面膜盒" />
         </Labeled>
-        <Labeled label={object?.imageUrl ? '替换指定图（不选则保留当前图）' : '指定参考图'}>
-          <input className={`${field} text-xs`} type="file" name="image" accept="image/png,image/jpeg,image/webp" required={!object?.imageUrl} disabled={disabled} />
+        <Labeled label="参考来源">
+          <select
+            className={field}
+            name="referenceMode"
+            value={referenceMode}
+            disabled={disabled}
+            onChange={event => setReferenceMode(event.target.value as 'auto' | 'upload')}
+          >
+            <option value="auto">自动生成参考图</option>
+            <option value="upload">我指定参考图</option>
+          </select>
         </Labeled>
+        {referenceMode === 'auto' ? (
+          <p className="text-xs leading-5 text-[var(--text-secondary)]">系统按上面的不可变细节生成一张独立道具参考图；修改设计后会重新生成。</p>
+        ) : (
+          <Labeled label={object?.imageUrl && seriesObjectReferenceMode(object) === 'upload' ? '替换指定图（不选则保留当前图）' : '指定参考图'}>
+            <input className={`${field} text-xs`} type="file" name="image" accept="image/png,image/jpeg,image/webp" required={mustUpload} disabled={disabled} />
+          </Labeled>
+        )}
         <div className="flex gap-2">
           <button className={`${button} flex-1`} disabled={disabled} aria-busy={saving || undefined}>
             {saving ? '正在上传并保存…' : object ? '保存并更新视觉断点' : disabledReason ? '当前不可添加' : '添加全剧固定道具'}
@@ -802,7 +868,7 @@ export default function SeriesPage() {
     } catch (err) { setError(err instanceof Error?err.message:'风格保存失败'); return false; }
     finally { setBusy(false); }
   };
-  const saveFixedObject = async (objectId: string | undefined, patch: { name: string; aliases: string; description: string }, file?: File) => {
+  const saveFixedObject = async (objectId: string | undefined, patch: { name: string; aliases: string; description: string; referenceMode: 'auto' | 'upload' }, file?: File) => {
     if (!project || base === undefined) {
       setObjectFeedback({ target:objectId || 'new', tone:'error', message:'尚未连接 Companion，固定道具未保存。' });
       return;
@@ -819,13 +885,25 @@ export default function SeriesPage() {
     setBusy(true); setError(''); setNotice('');
     setObjectFeedback({ target:objectId || 'new', tone:'saving', message:`正在上传并保存固定道具“${patch.name.trim()}”…` });
     try {
-      const status = await readApiJson<{seriesFixedObjects?:boolean}>(await fetch(`${base}/api/companion/status`), '无法检查固定道具支持');
+      const status = await readApiJson<{seriesFixedObjects?:boolean;seriesObjectAutoReferences?:boolean}>(await fetch(`${base}/api/companion/status`), '无法检查固定道具支持');
       if (!status.seriesFixedObjects) throw new Error('当前 Companion 尚不支持全剧固定道具，请更新后再保存');
-      let imageUrl = objectId ? (target.objects || []).find(object => object.id === objectId)?.imageUrl : undefined;
+      if (patch.referenceMode === 'auto' && !status.seriesObjectAutoReferences)
+        throw new Error('自动生成道具参考图需要更新 Companion 后再保存');
+      let imageUrl: string | undefined;
       if (file) {
         imageUrl = await uploadSeriesReference(base, file, '固定道具图');
       }
-      const result = await seriesRequest<{ project?: SeriesProject }>({ action:'upsert-object', seriesId:target.id, revision:target.revision, objectId, patch:{...patch,aliases:patch.aliases.split(/[，,、\n]/).map(value=>value.trim()).filter(Boolean),imageUrl} }, base);
+      const result = await seriesRequest<{ project?: SeriesProject }>({
+        action:'upsert-object',
+        seriesId:target.id,
+        revision:target.revision,
+        objectId,
+        patch:{
+          ...patch,
+          aliases:patch.aliases.split(/[，,、\n]/).map(value=>value.trim()).filter(Boolean),
+          ...(imageUrl ? { imageUrl } : {}),
+        },
+      }, base);
       if (result.project) {
         setSnapshot(current => ({
           ...current,
@@ -833,7 +911,9 @@ export default function SeriesPage() {
         }));
       }
       await refresh(base);
-      const message = `固定道具“${patch.name.trim()}”已锁定并显示在下方。后续分镜每次识别到它，都会优先使用这张指定图。`;
+      const message = patch.referenceMode === 'auto'
+        ? `固定道具“${patch.name.trim()}”已登记为自动参考；资产定稿时会生成并锁定参考图。`
+        : `固定道具“${patch.name.trim()}”已按用户指定图锁定。后续分镜识别到它时会复用这张图。`;
       setNotice(message);
       setObjectFeedback({ target:objectId || 'new', tone:'success', message });
     } catch (err) {
@@ -843,25 +923,48 @@ export default function SeriesPage() {
     }
     finally { setBusy(false); }
   };
-  const enqueue = async (kind: SeriesJobKind, episodeIds?: string[]) => {
+  const enqueue = async (kind: SeriesJobKind, episodeIds?: string[], assetId?: string) => {
     if (kind === "prepare") {
-      if (base === undefined || prepareBlocker) return;
+      if (base === undefined || (!assetId && prepareBlocker) || (assetId && (!connected || !project?.bible))) return;
       try {
         const response = await fetch(`${base}/api/companion/status`, {
           cache: "no-store", signal: AbortSignal.timeout(5000),
         });
-        const status = await readApiJson<{ seriesIndependentPreparation?: boolean }>(response, "无法检查定稿支持");
+        const status = await readApiJson<{
+          seriesIndependentPreparation?: boolean;
+          seriesCharacterCardJobs?: boolean;
+          seriesObjectAutoReferences?: boolean;
+        }>(response, "无法检查定稿支持");
         if (!status.seriesIndependentPreparation)
           throw new Error("独立角色场景定稿需要 Companion v0.1.105 或更新版本，请更新后重新连接。");
+        if (assetId && !status.seriesCharacterCardJobs)
+          throw new Error('单独生成角色卡需要更新 Companion 后重新连接。');
+        if (!assetId && (project?.objects || []).some(object => seriesObjectReferenceMode(object) === 'auto' && !object.imageUrl) && !status.seriesObjectAutoReferences)
+          throw new Error('自动生成道具参考图需要更新 Companion 后重新连接。');
       } catch (err) {
         setError(err instanceof Error ? err.message : "无法检查定稿支持");
         return;
       }
     }
     await action(
-      { action: "enqueue", kind, episodeIds, settings },
-      "已加入队列，系统将自动补齐所需步骤。",
+      { action: "enqueue", kind, episodeIds, assetId, settings },
+      assetId ? "角色卡已加入队列；不会重复生成其他角色、场景或声音。" : "已加入队列，系统将自动补齐所需步骤。",
     );
+  };
+  const saveCharacterToLibrary = (character: SeriesCharacter) => {
+    if (!project) return;
+    try {
+      const record = characterFromGeneratedSeries(project.id, character);
+      const history = upsertCharacterHistory(
+        parseStoredArray(localStorage.getItem(CHARACTER_HISTORY_STORAGE_KEY)),
+        record,
+      );
+      localStorage.setItem(CHARACTER_HISTORY_STORAGE_KEY, JSON.stringify(history));
+      setError('');
+      setNotice(`“${character.name}”已加入角色库，以后可在“从角色库选角”中一键复用。`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存到角色库失败');
+    }
   };
   const openCastLibrary = async (characterId: string) => {
     if (base === undefined || busy || editingLocked) return;
@@ -1565,6 +1668,14 @@ export default function SeriesPage() {
                           disabled={editingLocked || busy}
                           onLibrary={() => void openCastLibrary(c.id)}
                           onVoice={() => setVoiceCharacterId(c.id)}
+                          onGenerate={() => void enqueue('prepare', undefined, c.id)}
+                          generationPending={jobs.some(job =>
+                            job.kind === 'prepare' &&
+                            job.assetId === c.id &&
+                            ['queued', 'running', 'paused'].includes(job.status)
+                          )}
+                          generationDisabled={busy || !connected || !project.bible}
+                          onAddToLibrary={() => saveCharacterToLibrary(c)}
                           onSave={(patch) =>
                             void action(
                               {
@@ -1588,11 +1699,11 @@ export default function SeriesPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-sm">全剧固定道具</h3>
                         <span className="rounded-full bg-[#a78bfa]/10 px-2 py-0.5 text-[10px] text-[#c1afff]">
-                          已锁定 {(project.objects || []).length} 个
+                          已登记 {(project.objects || []).length} 个
                         </span>
                       </div>
                       <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
-                        只登记跨镜头、跨分集必须保持同一外观的关键道具。系统按正名识别它在剧本中的每次出现，并把这里的指定图作为不可变设计源；机位、光线和摆放可变，轮廓、比例、材质、结构与标记不可重画。
+                        只登记跨镜头、跨分集必须保持同一外观的关键道具。总纲识别出的道具默认自动生成参考图；品牌商品、指定包装或已有实物请选择“我指定参考图”。两种来源都会在定稿后作为不可变设计源，机位、光线和摆放可变，轮廓、比例、材质、结构与标记不可重画。
                       </p>
                       {objectFeedback && (
                         <p

@@ -3,7 +3,8 @@ import test from 'node:test';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createSeries, parseOutline, parseEpisodes, parseScript, invalidateFrom, episodeContext, buildEpisodeProject, rescanSeriesObjectUsage, seriesShotObjectIds } from '../lib/series/domain.ts';
+import { createSeries, parseOutline, parseEpisodes, parseScript, invalidateFrom, episodeContext, buildEpisodeProject, rescanSeriesObjectUsage, seriesObjectReferenceMode, seriesShotObjectIds } from '../lib/series/domain.ts';
+import { buildFixedObjectReferencePrompt } from '../lib/promptArchitecture.ts';
 import { seriesPrompt } from '../lib/series/prompts.ts';
 import { storyStorageKeys } from '../lib/series/storageScope.ts';
 import { buildApprovedSeriesPlan, reconcileSeriesProductionContract, validateSeriesProduction } from '../lib/series/productionContract.ts';
@@ -50,6 +51,21 @@ test('screenwriter receives the appearance classification for every episode char
   p.characters[1].appearance = 'voice_only';
   const context = episodeContext(p, p.episodes[0]);
   assert.deepEqual(context.characters.map(c => c.appearance), ['on_screen', 'voice_only']);
+});
+
+test('outline props are automatic while legacy user-created props remain uploads', () => {
+  const p = createSeries({ name: '道具来源', brief: '区分来源', episodeCount: 3 });
+  const raw = outlineFixture();
+  raw.objects = [{ name: '铜镜', aliases: ['妆镜'], description: '椭圆青铜镜，背面莲纹。' }];
+  const [object] = parseOutline(raw, p).objects;
+  assert.equal(object.referenceMode, 'auto');
+  assert.equal(seriesObjectReferenceMode({ id: 'o7' }), 'auto');
+  assert.equal(seriesObjectReferenceMode({ id: 'object-user-uuid' }), 'upload');
+  assert.equal(seriesObjectReferenceMode({ id: 'o7', referenceMode: 'upload' }), 'upload');
+  const prompt = buildFixedObjectReferencePrompt({ name: object.name, description: object.description, visualStyle: p.visualStyle });
+  assert.match(prompt, /exactly one complete object/i);
+  assert.match(prompt, /No people, hands/i);
+  assert.match(prompt, /never invent lettering/i);
 });
 
 test('a series fixed prop is identified in every matching shot and handed to Story with its exact reference', () => {

@@ -14,6 +14,7 @@ export function seriesPrompt(
     return `${base}
 只生成整季总纲、全季已知的角色与场景。不写所有分镜。设计能够反复产生新冲突的机制。阶段arcs必须从第1集连续覆盖到最后一集。所有重要谜团必须有具体答案、埋设集数与回收集数。角色别名不能与其他角色姓名/别名重复。旁白/电话声音也列入人物，但appearance按全季是否有可见形象判断：正常出镜、闪回、梦境、肖像、照片、录像、遗像中的人物都必须为on_screen并设计角色卡；死亡、暂时画外或录音出声不等于voice_only。只有全季始终不露面、不展示肖像的纯旁白或纯电话声音才可为voice_only，description必须明确“全程不出镜，无实体形象”或“No body is visible; disembodied voice only”，不得一边写可见外形/闪回肖像一边标仅声音。公共场景重用但场景状态可随剧情改变。
 格式：{"bible":{"logline":"一句话看点","theme":"主题","conflictEngine":"目标-阻力-代价-新后果的持续机制","rules":["不能违反的世界规则"],"ending":"最终真相与终局选择","arcs":[{"start":1,"end":3,"goal":"阶段目标","reversal":"改变局面的转折"}],"promises":[{"question":"观众期待解答的问题","plantedIn":1,"payoffIn":3,"answer":"具体答案，不用待定"}]},"characters":[{"name":"姓名","aliases":[],"role":"身份及阵营","description":"可直接用于制作的外形、体态、服装和色彩","want":"目标","secret":"秘密","arc":"全季人物变化","voiceBrief":"语言、音域、质感、语速、年龄感和表演方向","gender":"female|male|nonbinary|unknown","ageGroup":"child|young_adult|adult|senior","importance":"lead|supporting|guest","speaking":true,"appearance":"on_screen|voice_only"}],"locations":[{"name":"场景名","description":"空间布局、关键物件、光线、材质和连续性约束"}],"objects":[{"name":"跨集反复出现且外观必须一致的特殊道具正名","aliases":["剧本中可能使用的同义名称"],"description":"形状、尺寸比例、材质、颜色、结构、标记和不可变化的识别细节"}]}
+这里返回的 objects 是剧本自动识别的候选，系统会自动生成连续性参考图。用户以后另行上传的品牌商品、指定包装或已有实物图按用户指定来源处理，不能被自动重画。
 主角与主要配角应可在视觉和声音上区分。所有已知的发声配角在这里登记，避免分集新增无档案人物。`;
   if (stage === "episodes") {
     const start = project.episodes.length + 1,

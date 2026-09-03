@@ -1,4 +1,5 @@
 import type { SeriesJobKind, SeriesProject } from "./types";
+import { seriesObjectReferenceMode } from "./domain";
 
 // Shared by the page, queue and executor so production stages agree on prerequisites.
 export function seriesStageBlocker(project: SeriesProject | undefined, kind: SeriesJobKind): string {
@@ -8,8 +9,11 @@ export function seriesStageBlocker(project: SeriesProject | undefined, kind: Ser
   if (kind === "prepare") {
     if (!project.characters.length || !project.locations.length)
       return "请先生成总纲中的角色与场景清单";
-    if ((project.objects || []).some(object => !object.imageUrl))
-      return `请先为固定道具上传指定参考图：${(project.objects || []).filter(object => !object.imageUrl).map(object => object.name).join('、')}`;
+    const missingUploads = (project.objects || []).filter(
+      object => seriesObjectReferenceMode(object) === "upload" && !object.imageUrl,
+    );
+    if (missingUploads.length)
+      return `请先为用户指定道具上传参考图：${missingUploads.map(object => object.name).join('、')}`;
     return "";
   }
   if (project.episodes.length !== project.episodeCount || project.episodes.some(e => e.needsReview))

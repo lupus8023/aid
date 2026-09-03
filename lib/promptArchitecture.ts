@@ -181,6 +181,19 @@ export function buildCompactImageCaptureContract(style?: VisualStyle): string {
 CAPTURE COHERENCE: Vary camera height/distance, perspective, composition and occlusion by panel. Keep one style-specific imaging system with clear near/mid/far separation, motivated light falloff and material response. Use only medium-justified imperfections; no generic AI gloss.`;
 }
 
+export function buildFixedObjectReferencePrompt(input: {
+  name?: string;
+  description?: string;
+  visualStyle?: VisualStyle;
+}): string {
+  const preset = getProductionStylePreset(input.visualStyle);
+  return `Create one production continuity reference image for the fixed story prop "${clean(input.name)}".
+DESIGN: ${clean(input.description)}.
+VISUAL MEDIUM: ${preset.imageContract}.
+Show exactly one complete object in a clear three-quarter front view on a simple neutral seamless background. Keep the entire silhouette, scale cues, proportions, component layout, construction, material, finish, color, seams, closures, interfaces, intentional markings and wear readable. Use restrained studio lighting that reveals form without redesigning it. This image becomes the immutable design source for later shots.
+No people, hands, scenery, packaging variants, alternate views, contact sheet, diagram, title, caption, watermark or unrelated text. Preserve text or markings only when the design brief explicitly requires them; never invent lettering.`;
+}
+
 export function buildVideoStyleContract(style?: VisualStyle): string {
   const preset = getProductionStylePreset(style);
   return `LOOK:\n${preset.look}\n\nCAMERA SYSTEM:\n${preset.camera}\n\nPERFORMANCE & MOTION:\n${preset.performance}\n\nEDITING & RHYTHM:\n${preset.rhythm}\n\nSOUND TEXTURE:\n${preset.sound}`;

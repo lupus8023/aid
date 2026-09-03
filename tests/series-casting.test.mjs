@@ -159,3 +159,17 @@ test('preparation can finish with missing or outdated episodes, while script and
     }
   } finally { globalThis.fetch = previousFetch; }
 });
+
+test('automatic prop references are prepared by the queue while user-specified props require uploads', () => {
+  const project = fixture();
+  project.objects = [{
+    id: 'o1', name: '自动铜镜', aliases: [], description: '椭圆青铜镜，背面莲纹。', imageUrl: '', referenceMode: 'auto',
+  }];
+  assert.equal(seriesStageBlocker(project, 'prepare'), '');
+  project.objects.push({
+    id: 'object-user', name: '指定锦盒', aliases: [], description: '用户现有的品牌包装。', imageUrl: '', referenceMode: 'upload',
+  });
+  assert.match(seriesStageBlocker(project, 'prepare'), /用户指定道具.*指定锦盒/);
+  project.objects[1].imageUrl = 'https://assets.test/user-box.png';
+  assert.equal(seriesStageBlocker(project, 'prepare'), '');
+});

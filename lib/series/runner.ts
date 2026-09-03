@@ -2,7 +2,7 @@
 
 import { prepareSeriesImage, SeriesImagePreparationError, type SeriesImageAsset } from "./imagePreparation";
 import { ApiResponseError, readApiJson } from "@/lib/apiResponse";
-import { buildEpisodeProject, seriesShotObjectIds } from "./domain";
+import { buildEpisodeProject, seriesObjectReferenceMode, seriesShotObjectIds } from "./domain";
 import { copiedDialogueShotNumbers } from "./scriptRepair";
 import { repairEpisodeDialogue, synchronizeEpisodeDialogue } from "./productionDialogueRepair";
 import { storyStorageKeys } from "./storageScope";
@@ -195,19 +195,26 @@ export async function executeSeriesClaim(
   }
 
   const episode = project.episodes.find((e) => e.id === job.episodeId);
-  const blocker = seriesStageBlocker(project, job.kind);
+  const targetCharacter = job.kind === "prepare" && job.assetId
+    ? project.characters.find((character) => character.id === job.assetId)
+    : undefined;
+  if (job.assetId && !targetCharacter) throw new Error("要生成的角色不存在");
+  if (targetCharacter?.appearance === "voice_only") throw new Error("仅声音角色无需生成角色卡");
+  const blocker = targetCharacter
+    ? project.bible ? "" : "请先完成整季总纲"
+    : seriesStageBlocker(project, job.kind);
   if (blocker) throw new Error(blocker);
   if (job.kind === "prepare" || job.kind === "produce") {
-    const cast = project.characters.filter(
-      (c) => !episode || episode.characterIds.includes(c.id),
-    );
+    const cast = targetCharacter
+      ? [targetCharacter]
+      : project.characters.filter((c) => !episode || episode.characterIds.includes(c.id));
     const missingVoices: string[] = [];
     const missingImages: string[] = [];
     for (const character of cast) {
       if (character.locked &&
         (character.appearance === "voice_only" || character.bibleUrl) &&
         (!character.speaking || (character.voiceId && character.voiceReferenceUrl))) continue;
-      if (character.speaking && (!character.voiceId || !character.voiceReferenceUrl)) {
+      if (!targetCharacter && character.speaking && (!character.voiceId || !character.voiceReferenceUrl)) {
         try {
           const used = project.characters
             .filter((c) => c.id !== character.id && c.voiceId)
@@ -348,9 +355,9 @@ export async function executeSeriesClaim(
       character.locked = !character.speaking || Boolean(character.voiceId && character.voiceReferenceUrl);
       await save(character.locked ? `${character.name} 角色定稿 v${character.version}` : `${character.name} 形象已保存，声音待选择`);
     }
-    for (const location of project.locations.filter(
+    for (const location of (targetCharacter ? [] : project.locations.filter(
       (l) => !episode || episode.locationIds.includes(l.id),
-    )) {
+    ))) {
       if (location.imageUrl) continue;
       try {
         location.imageUrl = await image(
@@ -366,6 +373,28 @@ export async function executeSeriesClaim(
         if (signal.aborted || !(error instanceof SeriesImagePreparationError)) throw error;
         missingImages.push(location.name);
         await save(`${location.name} 图像待处理；继续准备其余素材`);
+      }
+    }
+    for (const object of (targetCharacter ? [] : (project.objects || []).filter(
+      (item) => seriesObjectReferenceMode(item) === "auto",
+    ))) {
+      if (object.imageUrl) continue;
+      try {
+        object.imageUrl = await image(
+          object,
+          {
+            type: "object",
+            name: object.name,
+            description: object.description,
+          },
+          `${object.name} 道具参考`,
+        );
+        object.imageIssue = undefined;
+        await save(`${object.name} 道具参考已保存`);
+      } catch (error) {
+        if (signal.aborted || !(error instanceof SeriesImagePreparationError)) throw error;
+        missingImages.push(object.name);
+        await save(`${object.name} 道具图像待处理；继续准备其余素材`);
       }
     }
     if (missingImages.length) throw new ApiResponseError(`其余可准备素材已保存；${missingImages.length} 项图像待处理：${missingImages.join('、')}。具体原因见“角色与场景”中的单项提示。审核拒绝不会自动重提，临时查询故障保留任务编号。${missingVoices.length ? `另有 ${missingVoices.length} 个角色待选声：${missingVoices.join('、')}。` : ''}`, 'IMAGE_PREPARATION_REQUIRED');

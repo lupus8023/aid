@@ -1,3 +1,9 @@
+## 0.1.173 - 2026-09-03
+
+- Add per-character card generation jobs that can be queued independently, plus one-click saving of completed series characters and their reusable voice metadata to the browser character library.
+- Distinguish outline-discovered props from user-specified props: automatic props receive isolated continuity reference images during preparation, while uploaded product or real-object references remain immutable user sources.
+- Restore the preparation action for legacy projects whose automatically discovered props do not yet have images, with backward-compatible source inference and checkpoint-safe image generation.
+
 ## 0.1.172 - 2026-09-03
 
 - Make incremental director-field repair prompts output English visual prose, matching H3 validation and preventing Chinese productions from looping after a contaminated or over-budget draft.
