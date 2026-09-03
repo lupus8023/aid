@@ -321,10 +321,14 @@ test('new director generation requires bounded motion briefs while legacy valida
   assert.match(p, /videoDirection/);
   assert.match(p, /主动作|可见状态/);
   assert.match(p, /合计≤720/);
+  assert.match(p, /description 与 characterCostume 使用中文/);
+  assert.match(p, /videoDirection 的 action\/camera\/detail\/ending 四个字段全部使用英文/);
+  assert.match(p, /"action": "Complete English visible-action sentence\."/);
+  assert.doesNotMatch(p, /"action": "中文因果动作"/);
+  assert.match(p, /中文对白中的概念、引号词、官职泛称或剧情总结不是实体正名/);
   const englishDialogueProject = buildDirectorPrompt({ storyPlan: { requirements: [], sequences: [] }, beats: [beat], batchNumber: 1, totalBatches: 1, characters: [], objects: [], language: 'en' });
   assert.match(englishDialogueProject, /项目语言 English 只约束 speech 中的逐字台词/);
-  assert.match(englishDialogueProject, /"action": "中文因果动作"/);
-  assert.doesNotMatch(englishDialogueProject, /videoDirection and characterCostume in ENGLISH/);
+  assert.match(englishDialogueProject, /"action": "Complete English visible-action sentence\."/);
   const source = readFileSync(new URL('../lib/pipeline/storyDirector.ts', import.meta.url), 'utf8');
   assert.match(source, /videoDirection: raw\?\.videoDirection/);
   assert.match(source, /videoDirectionSource = videoDirectionSourceKey/);

@@ -61,12 +61,15 @@ test('repairs Chinese speech contamination in small checkpointed chunks',()=>{
  const sixBeats=Array.from({length:6},(_,index)=>({...beats[0],index:index + 1}));
  const issues=directorFieldRepairs(invalid,sixBeats);
  assert.equal(issues.length,6);
- assert.deepEqual(selectDirectorFieldRepairChunk(issues).map(issue=>issue.path),issues.slice(0,4).map(issue=>issue.path));
- assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),undefined,'zh'),/complete concise English sentence/i);
+ assert.deepEqual(selectDirectorFieldRepairChunk(issues).map(issue=>issue.path),issues.slice(0,6).map(issue=>issue.path));
+ const prompt=buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),undefined,'zh');
+ assert.match(prompt,/complete concise English sentence/i);
+ assert.match(prompt,/registeredEntityNames/);
+ assert.match(prompt,/quoted Chinese words/);
  assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),new Error('不得截取原句前半段'),'zh'),/rewrite the sentence with different wording/i);
 });
 
-test('six contaminated action fields recover incrementally without regenerating valid storyboard data',async()=>{
+test('six contaminated action fields recover in one bounded patch without regenerating valid storyboard data',async()=>{
  const sixBeats=Array.from({length:6},(_,index)=>({...beats[0],index:index + 1}));
  const invalid=Array.from({length:6},(_,index)=>({
   index:index + 1,description:'Luna turns away from the table.',prompt:'Luna beside a table near the doorway.',marker:`keep-${index}`,
@@ -83,7 +86,7 @@ test('six contaminated action fields recover incrementally without regenerating 
    path:issue.path,value:`Character ${issue.index + 1} turns from the table and walks toward the doorway.`,
   }))},issues,true));
  }});
- assert.equal(calls,2);assert.equal(saves,2);
+ assert.equal(calls,1);assert.equal(saves,1);
  assert.deepEqual(repaired.map(shot=>shot.marker),invalid.map(shot=>shot.marker));
  assert.ok(repaired.every(shot=>/walks toward the doorway\.$/u.test(shot.videoDirection.action)));
 });
@@ -94,11 +97,27 @@ test('checkpoints valid repairs when a provider omits or corrupts sibling entrie
  const progress=applyDirectorFieldRepairProgress(invalid,{repairs:[
   {path:issues[0].path,value:'Luna turns away from the table and walks toward the doorway.'},
   {path:issues[1].path,value:'still invalid without punctuation'},
- ]},issues);
+ ]},issues,beats);
  assert.deepEqual(progress.applied,[issues[0].path]);
  assert.equal(progress.shots[0].videoDirection.action,'Luna turns away from the table and walks toward the doorway.');
  assert.equal(progress.shots[1].videoDirection.action,invalid[1].videoDirection.action);
  assert.ok(progress.rejected.includes(issues[1].path));
+});
+
+test('rejects repaired prose that still contains Chinese outside registered entity names',()=>{
+ const localBeats=[{...beats[0],characters:['萧贵妃'],objects:['铜镜']}];
+ const invalid=[{videoDirection:{...valid,action:'萧贵妃把“体面”放到铜镜旁。'}}];
+ const issues=directorFieldRepairs(invalid,localBeats);
+ const rejected=applyDirectorFieldRepairProgress(invalid,{repairs:[{
+  path:issues[0].path,value:'萧贵妃 places “体面” beside 铜镜.',
+ }]},issues,localBeats);
+ assert.deepEqual(rejected.applied,[]);
+ assert.deepEqual(rejected.rejected,[issues[0].path]);
+ const accepted=applyDirectorFieldRepairProgress(invalid,{repairs:[{
+  path:issues[0].path,value:'萧贵妃 places a folded note beside 铜镜 and withdraws her hand.',
+ }]},issues,localBeats);
+ assert.deepEqual(accepted.applied,[issues[0].path]);
+ assert.equal(accepted.shots[0].videoDirection.action,'萧贵妃 places a folded note beside 铜镜 and withdraws her hand.');
 });
 
 test('one overflowing field does not force rewriting valid camera geometry when its repair frees enough budget',()=>{

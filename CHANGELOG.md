@@ -1,3 +1,9 @@
+## 0.1.176 - 2026-09-03
+
+- Remove the contradictory director instructions that told Chinese projects to write `videoDirection` in both Chinese and English; all examples, output fields and preflight rules now consistently require English visual prose while preserving only registered Chinese character and object names.
+- Strengthen retained-draft repair with an explicit registered-name whitelist and semantic validation before checkpointing, so quoted dialogue concepts or other Chinese text cannot be accepted as a successful patch.
+- Repair up to six contaminated fields in one bounded request while preserving every valid storyboard field and the existing retry ceiling.
+
 ## 0.1.175 - 2026-09-03
 
 - Reconcile each 18-shot screenplay against the finalized character and fixed-prop registry before storyboard production: safely restore valid speaking cast, repair all ungrounded prop references in one bounded pass, and normalize shot count without changing or reordering dialogue.
