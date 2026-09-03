@@ -1,3 +1,9 @@
+## 0.1.181 - 2026-09-03
+
+- Rebuild native H3 generation prompts around the official six-section structure: visual direction stays English, only exact Chinese dialogue remains inside `<d>[Chinese]`, and clean-frame, series-look, repair, and film-ending instructions now live before the authored shot prose instead of trailing the final dialogue.
+- Prevent voice-reference calibration speech from leaking into the opening: mark every bound audio input as timbre-only without copying its original signal, remove rigid per-line dialogue onset timestamps, and keep the pre-dialogue sound bed explicitly non-vocal.
+- Preserve the approved screenplay's complete action, visible detail, camera path, ending position, dialogue order, and wording in the H3 prompt. The prompt contract advances to `h3-v38`, so older affected video cache entries are regenerated without adding subtitle or audio QC passes.
+
 ## 0.1.180 - 2026-09-03
 
 - Remove the arbitrary 90–150 second delivery gate. Series films now retain their actual screenplay and exported-timeline duration, whether shorter or longer than two minutes.

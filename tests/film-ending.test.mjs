@@ -23,19 +23,19 @@ test('only final shot gets the one-second no-speech interval, with exact dialogu
     const prompt = buildVideoSegmentPrompt([shot], [], {
       duration: 6, language: 'en', isFilmEnding: isFilmEndingSegment(shots, [shot]),
     });
-    assert.equal(prompt.includes('FILM ENDING:'), shot.id === 'shot-18');
+    assert.equal(prompt.includes('At the end of the complete film,'), shot.id === 'shot-18');
     assert.equal((prompt.match(/<d>\[English] We are home\.<\/d>/g) || []).length, 1);
     if (shot.id === 'shot-18') {
-      assert.match(prompt, /Only the final shot, 00:05\.000–00:06\.000, has no dialogue or narration/);
-      assert.match(prompt, /retain planned ambience and music, or intentional silence/);
+      assert.match(prompt, /only the final shot's 00:05\.000–00:06\.000 interval contains no dialogue or narration/);
+      assert.match(prompt, /accompanied by the planned ambience and music or by intentional silence/);
       assert.ok(prompt.length <= 7000);
     }
   }
   const grouped = buildVideoSegmentPrompt(shots.slice(15), [], { duration: 15, isFilmEnding: true });
-  assert.equal((grouped.match(/FILM ENDING:/g) || []).length, 1);
-  assert.match(grouped, /Only the final shot, 00:14\.000–00:15\.000/);
+  assert.equal((grouped.match(/At the end of the complete film,/g) || []).length, 1);
+  assert.match(grouped, /only the final shot's 00:14\.000–00:15\.000/);
   const firstLast = buildVideoSegmentPrompt([shots[17]], [], { duration: 6, firstFrameUrl: 'opening', isFilmEnding: true });
-  assert.match(firstLast, /FILM ENDING:/);
+  assert.match(firstLast, /At the end of the complete film,/);
 });
 
 test('saved prompt overrides refresh the ending interval without duplicating it or altering dialogue', () => {
@@ -43,8 +43,8 @@ test('saved prompt overrides refresh the ending interval without duplicating it 
   const once = applyFilmEndingPrompt(original, 6, true);
   assert.equal(applyFilmEndingPrompt(once, 6, true), once);
   const twice = applyFilmEndingPrompt(once, 8, true);
-  assert.equal((twice.match(/FILM ENDING:/g) || []).length, 1);
+  assert.equal((twice.match(/At the end of the complete film,/g) || []).length, 1);
   assert.match(twice, /00:07\.000–00:08\.000/);
-  assert.doesNotMatch(applyFilmEndingPrompt(twice, 8, false), /FILM ENDING:/);
+  assert.doesNotMatch(applyFilmEndingPrompt(twice, 8, false), /At the end of the complete film,/);
   assert.ok(twice.includes('<d>[English] We are home.</d>'));
 });

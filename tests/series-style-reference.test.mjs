@@ -75,11 +75,11 @@ test('episode production snapshot retains its series style',()=>{
 test('video style is stable across retries and preserves dialogue and final-only quiet ending',()=>{
   const board={id:'s18',sceneNumber:18,characters:['Aster'],prompt:'Aster lowers a letter.',description:'Aster lowers a letter.',durationHint:6,speech:[{character:'Aster',exactLine:'We are home.'}]};
   const prompt=buildVideoSegmentPrompt([board],[],{styleReference:style,duration:6,isFilmEnding:true});
-  assert.match(prompt,/SERIES LOOK:/);
+  assert.match(prompt,/Use the approved series look:/);
   assert.match(prompt,/Warm highlights, blue-green ambient fill/);
   assert.match(prompt,/<d>\[English] We are home\.<\/d>|<d>\[Chinese] We are home\.<\/d>/);
-  assert.match(prompt,/Only the final shot, 00:05\.000–00:06\.000/);
+  assert.match(prompt,/only the final shot's 00:05\.000–00:06\.000/);
   const twice=applySeriesVideoStyle(prompt,style);
-  assert.equal((twice.match(/SERIES LOOK:/g)||[]).length,1);
+  assert.equal((twice.match(/Use the approved series look:/g)||[]).length,1);
   assert.ok(twice.length<=7000);
 });

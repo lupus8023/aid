@@ -34,7 +34,7 @@ function fitH3PromptBudget(prompt: string): string {
   // budget, leaving room for the shot actions, expressions and exact dialogue.
   fitted = fitted.replace(
     /retention_analysis:\n[\s\S]*?\n\ndetailed_description:/i,
-    'retention_analysis:\nPreserve declared identities, wardrobes, settings and bound audio timbres. Picture composition anchors each shot opening; the authored camera path controls its evolution.\n\ndetailed_description:',
+    'retention_analysis:\nPreserve declared identities, wardrobes and settings. Picture composition anchors each shot opening; the authored camera path controls its evolution. Use bound audio only as voice-timbre reference without copying its original signal.\n\ndetailed_description:',
   );
   fitted = fitted
     .split(/(<d>[\s\S]*?<\/d>)/gi)
@@ -46,9 +46,18 @@ function fitH3PromptBudget(prompt: string): string {
   if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
 
   fitted = fitted.replace(
-    /EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup\.[\s\S]*?(?=\n(?:SCRIPT DIALOGUE LOCK:|\[Shot 1\]))/i,
-    'EDITORIAL GRAMMAR: Use motivated hard cuts; preserve axis, eyelines, screen direction, action phase and geography; no crossfades, morphs, interpolation or repeats.\n',
+    /Treat every picture as a separate photographed setup\.[\s\S]*?(?=\n(?:The complete vocal track|\[Shot 1\]))/i,
+    'Use motivated hard cuts; preserve axis, eyelines, screen direction, action phase and geography; no crossfades, morphs, interpolation or repeats.\n',
   );
+  if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
+
+  // Keep every authored shot field intact. If a dense segment still exceeds
+  // the transport ceiling, compact only the repeated global photography rules.
+  fitted = fitted
+    .replace(/^REFERENCE PRIORITY[^\n]*$/gm, 'Reference pictures control identity, wardrobe, objects, setting, light and each shot opening; only authored action and camera movement change them.')
+    .replace(/^The target video uses natural live-action cinematography[^\n]*$/gm, 'Use natural live-action cinematography, practical light, optical depth and normal-speed movement.')
+    .replace(/^Maintain photographic material reality:[^\n]*$/gm, 'Keep photographic skin, hair, fabric, contact shadows and optical depth physically plausible; preserve faces, hands, costumes and cast count.')
+    .replace(/^CAPTURE MODE:[^\n]*$/gm, 'Execute the authored camera path with the blocking; preserve screen direction and let each reaction follow its scripted cause.');
   if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
 
   throw new Error(`H3 提示词压缩后仍有 ${fitted.length} 字符，超过 ${H3_PROMPT_MAX_CHARACTERS} 字符上限；该片段的逐字台词或演员任务过多，请拆分片段`);
@@ -412,7 +421,7 @@ function officialH3Soundscape(storyboards: Storyboard[]): string {
     foley: plan.foley.filter(value => !containsHan(String(value || ''))),
   }));
   if (englishCues.every(plan => !plan.environment.length && !plan.foley.length && plan.backgroundHuman !== 'indistinct_nonverbal')) {
-    return 'Natural location ambience stays clearly audible beneath dialogue and through pauses, steady within each setting. Respect intentional silence.';
+    return 'A steady, non-vocal ambience matching the visible location fills the shot. Restrained Foley follows only visible physical actions.';
   }
   // A segment can cross locations. Flattening all plans and taking the first
   // four sounds erased later shots' ambience and played early Foley everywhere.
@@ -427,7 +436,7 @@ function officialH3Soundscape(storyboards: Storyboard[]): string {
     ].filter(Boolean).join(' ');
   });
   return [
-    'Keep specified ambience clearly audible beneath dialogue; retain it through speech pauses. Respect intentional silence. Keep the bed steady across same-location cuts and change it with the location. Foley follows visible actions.',
+    'Keep the sound bed non-vocal and steady within each location, changing it only when the setting changes. Foley follows only its visible physical cause. Respect intentional silence.',
     ...shots,
   ].join('\n');
 }
@@ -473,7 +482,7 @@ function buildOfficialGuidePrompt(
   const useSubjectLabels = !isFirstLastMode;
   const exactLines = timedSpeech.map(line => line.exactLine);
 
-  const dialogueByShot = new Map<number, string[]>();
+  const dialogueByShot = new Map<number, Array<{ character: string; sentence: string }>>();
   for (const line of timedSpeech) {
     const subject = subjectId.get(line.character);
     const audio = audioId.get(line.character);
@@ -495,10 +504,17 @@ function buildOfficialGuidePrompt(
     // individual text misclassified punctuation-only pauses and mixed brand
     // names; the tag controls spoken audio, never visible captions.
     const tagged = `<d>[${options.language === 'en' ? 'English' : 'Chinese'}] ${line.exactLine}</d>`;
-    const sentence = `At ${h3Timestamp(line.start)}, ${speaker} begins speaking${voiceReference}${voiceProfile} ${officialDialogueDelivery(line)}: ${tagged}`;
-    const lines = dialogueByShot.get(line.storyboardIndex) || [];
-    lines.push(sentence);
-    dialogueByShot.set(line.storyboardIndex, lines);
+    const existing = dialogueByShot.get(line.storyboardIndex) || [];
+    const previousSpeaker = existing.at(-1)?.character;
+    const turn = existing.length === 0
+      ? 'During the authored action'
+      : previousSpeaker === line.character
+        ? 'Then'
+        : 'In direct response';
+    const verb = existing.length === 0 ? 'speaks' : previousSpeaker === line.character ? 'continues' : 'replies';
+    const sentence = `${turn}, ${speaker} ${verb}${voiceReference}${voiceProfile} ${officialDialogueDelivery(line)}: ${tagged}`;
+    existing.push({ character: line.character, sentence });
+    dialogueByShot.set(line.storyboardIndex, existing);
   }
 
   const shotParagraphs = storyboards.map((storyboard, index) => {
@@ -535,7 +551,7 @@ function buildOfficialGuidePrompt(
     // sometimes gave H3 two competing acting instructions for the same beat.
     const expression = directed || performance ? '' : officialVisibleExpression(storyboard);
     const camera = directed ? bind(directed.camera) : officialH3CameraSentence(storyboard, index);
-    const dialogue = (dialogueByShot.get(index) || []).join(' ');
+    const dialogue = (dialogueByShot.get(index) || []).map(turn => turn.sentence).join(' ');
     let opening: string;
     if (index === 0 && isFirstLastMode) {
       opening = '[Shot 1] The shot begins from <Picture 1>.';
@@ -552,7 +568,7 @@ function buildOfficialGuidePrompt(
       : '';
     return [
       opening,
-      directed ? `From ${h3Timestamp(range.start)} to ${h3Timestamp(range.end)}:` : castSentence,
+      castSentence,
       /[.!?。！？]$/.test(action) ? action : `${action}.`,
       directed?.detail ? bind(directed.detail) : '',
       performance,
@@ -578,14 +594,14 @@ function buildOfficialGuidePrompt(
     officialMaterialReality(first.visualStyle),
     buildVideoCapturePresetContract(first.capturePreset),
     storyboards.length > 1
-      ? 'EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup. Every transition must be motivated by action, gaze, dialogue, object, shape, or sound. Preserve the 180-degree axis, eyelines, screen direction, match-on-action phase, and location geography. Vary framing scale with dramatic purpose; do not crossfade, morph, interpolate, repeat, or soften a hard cut unless an explicit transition is written.'
+      ? 'Treat every picture as a separate photographed setup. Motivate every transition with action, gaze, dialogue, object, shape, or sound. Preserve the 180-degree axis, eyelines, screen direction, match-on-action phase, and location geography. Vary framing scale with dramatic purpose; do not crossfade, morph, interpolate, repeat, or soften a hard cut unless the screenplay specifies it.'
       : '',
     timedSpeech.length
-      ? 'SCRIPT DIALOGUE LOCK: <d> is authoritative soundtrack speech. Synthesize and lip-sync every word exactly in order; never paraphrase, shorten, translate, add, repeat, or substitute it.'
+      ? 'The complete vocal track consists only of the ordered <d> blocks below. Perform and lip-sync every written word exactly once, in order and in its tagged language, using the described speaker and story beat. Before the first <d> cue, use only the specified non-vocal location sound.'
       : '',
+    timedSpeech.length ? H3_DIALOGUE_NO_SUBTITLE_POLICY : NO_SUBTITLE_POLICY,
     englishVisualOverride,
     ...shotParagraphs,
-    timedSpeech.length ? H3_DIALOGUE_NO_SUBTITLE_POLICY : NO_SUBTITLE_POLICY,
   ].filter(Boolean).join('\n');
   const soundscape = officialH3Soundscape(storyboards);
   const music = officialH3Music(storyboards);
@@ -621,7 +637,7 @@ function buildOfficialGuidePrompt(
       .filter(Boolean).join(', ')}): fully_preserved - identity and wardrobe remain consistent.`),
     ...(hasContinuityReference ? ['<Picture 1> ([Shot 1] opening frame): fully_preserved - its composition anchors the opening.'] : []),
     ...storyboards.map((_, index) => `<Picture ${storyboardPictureOrdinal(index)}> ([Shot ${index + 1}] composition): opening anchor - subject placement and viewpoint establish the start; identity, setting and lighting persist as the authored movement unfolds.`),
-    ...referenceAudioNames.map((name, index) => `<Audio ${index + 1}>: reference - its voice timbre guides ${subjectId.get(name) ? `<Subject ${subjectId.get(name)}>` : name}${speakerId.get(name) ? ` (S${speakerId.get(name)})` : ''}.`),
+    ...referenceAudioNames.map((name, index) => `<Audio ${index + 1}>: reference - its voice timbre guides ${subjectId.get(name) ? `<Subject ${subjectId.get(name)}>` : name} without copying the original audio signal.`),
   ];
   const prompt = `subject_definitions:\n${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}\n\nsummary:\n${summary}\n\nretention_analysis:\n${retention.join('\n')}\n\ndetailed_description:\n${detailed}\n\noverall_soundscape:\n${soundscape}\n\nnon_diegetic_music:\n${music}`;
   return fitH3PromptBudget(prompt);
@@ -638,13 +654,13 @@ export function buildVideoSegmentPrompt(
 
 /** Preserve repair direction even when the editor has a saved complete prompt override. */
 export function applyVideoDuplicateRepairPrompt(prompt: string, correction?: string): string {
-  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:CHARACTER CONTINUITY|VIDEO VISUAL) REPAIR:[^\n]*\n?/gm, '')).join('').trimEnd();
+  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:(?:CHARACTER CONTINUITY|VIDEO VISUAL) REPAIR:|For this regeneration, correct the confirmed visual anomaly:)[^\n]*\n?/gm, '')).join('').trimEnd();
   if (!correction) return clean;
   const compactCorrection = correction.replace(/\s+/g, ' ').slice(0, 1200);
   const visualCorrection = containsHan(compactCorrection)
     ? 'Regenerate the intended visual action while preserving exactly one instance of each declared subject.'
     : compactCorrection;
-  const directive = `VIDEO VISUAL REPAIR: ${visualCorrection} Dialogue remains audio only.`;
+  const directive = `For this regeneration, correct the confirmed visual anomaly: ${visualCorrection} The ordered <d> blocks remain soundtrack audio only.`;
   // The Director/H3 parser gives the official sections semantic weight. Put a
   // confirmed visual correction inside detailed_description, immediately
   // before the authored shots, instead of after non_diegetic_music where the
@@ -660,23 +676,27 @@ export function applyVideoDuplicateRepairPrompt(prompt: string, correction?: str
 export function applySeriesVideoStyle(prompt: string, value?: ImageStyleReference): string {
   const style = normalizeImageStyleReference(value);
   if (!style) return prompt;
-  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^SERIES LOOK:[^\n]*\n?/gm, '')).join('');
+  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:SERIES LOOK:|Use the approved series look:)[^\n]*\n?/gm, '')).join('');
   const description = String(style.description || '').replace(/\s+/g,' ').slice(0,800);
-  const direction = `SERIES LOOK: Retain the approved input frames' shared cultural art direction, palette, warm/cool balance, lens rendering, lighting character, highlight roll-off and material texture. ${containsHan(description) ? '' : description} Adapt to the authored shot, time and practical light; keep each character's identity, costume, action and camera movement unchanged. No style-image person, pose or scenery is added.\n`;
-  const index = clean.search(/^overall_soundscape:/m);
-  return fitH3PromptBudget(index >= 0 ? `${clean.slice(0,index)}${direction}\n${clean.slice(index)}` : `${clean}\n${direction}`);
+  const direction = `Use the approved series look: retain the input frames' shared cultural art direction, palette, warm/cool balance, lens rendering, lighting character, highlight roll-off and material texture. ${containsHan(description) ? '' : description} Adapt it to the authored shot, time and practical light while leaving each character's identity, costume, action and camera movement unchanged; the style reference contributes no person, pose, object, or scenery.\n`;
+  const marker = 'detailed_description:\n';
+  const index = clean.indexOf(marker);
+  return fitH3PromptBudget(index >= 0
+    ? `${clean.slice(0, index + marker.length)}${direction}${clean.slice(index + marker.length)}`
+    : `${clean}\n${direction}`);
 }
 
 /** Also applied to saved prompt overrides; dialogue remains byte-for-byte intact. */
 export function applyFilmEndingPrompt(prompt: string, duration: number, isFilmEnding: boolean): string {
   const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi)
-    .map(part => /^<d>/i.test(part) ? part : part.replace(/^FILM ENDING:[^\n]*(?:\n\n?|$)/gm, ''))
+    .map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:FILM ENDING:|At the end of the complete film,)[^\n]*(?:\n\n?|$)/gm, ''))
     .join('');
   if (!isFilmEnding) return clean;
-  const ending = `FILM ENDING: Only the final shot, ${h3Timestamp(Math.max(0, duration - FILM_ENDING_SECONDS))}–${h3Timestamp(duration)}, has no dialogue or narration. The authored picture continues naturally, without a freeze or added black frames; retain planned ambience and music, or intentional silence.`;
-  const musicIndex = clean.search(/^non_diegetic_music:/m);
-  return fitH3PromptBudget(musicIndex >= 0
-    ? `${clean.slice(0, musicIndex)}${ending}\n\n${clean.slice(musicIndex)}`
+  const ending = `At the end of the complete film, only the final shot's ${h3Timestamp(Math.max(0, duration - FILM_ENDING_SECONDS))}–${h3Timestamp(duration)} interval contains no dialogue or narration. The authored picture continues naturally without a freeze or added black frames, accompanied by the planned ambience and music or by intentional silence.`;
+  const marker = 'detailed_description:\n';
+  const markerIndex = clean.indexOf(marker);
+  return fitH3PromptBudget(markerIndex >= 0
+    ? `${clean.slice(0, markerIndex + marker.length)}${ending}\n${clean.slice(markerIndex + marker.length)}`
     : `${clean}\n${ending}`);
 }
 

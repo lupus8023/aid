@@ -49,16 +49,22 @@ test('writes Ref2VA prompts in the official six-section natural-language format'
   assert.doesNotMatch(prompt, /timeline_json|aid_h3_timeline|audio_event_lock|shot_contracts|dialogue_events|first_word_at|final_word_complete_by/);
   assert.match(prompt, /\[Shot 1] The shot follows <Picture 1> as its composition reference/);
   assert.match(prompt, /\[Shot 2] At 00:\d{2}\.\d{3}, make a clean hard cut/);
-  assert.match(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S1\) begins speaking.*<d>\[Chinese] 线索就在这里。<\/d>/);
+  assert.match(prompt, /During the authored action, <Subject 1> \(S1\) speaks.*<d>\[Chinese] 线索就在这里。<\/d>/);
+  assert.doesNotMatch(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S1\) (?:begins speaking|speaks)/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /CLEAN-FRAME PRESENTATION: Keep <d> audio-only/);
-  assert.match(prompt, /No visible subtitles, captions, dialogue glyphs, phonetic text, or romanization/);
-  assert.equal((prompt.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
+  assert.match(prompt, /Every <d> block is soundtrack audio only/);
+  assert.match(prompt, /no added subtitles, captions, dialogue glyphs, phonetic text, romanization/);
+  assert.equal((prompt.match(/Every <d> block is soundtrack audio only/g) || []).length, 1);
+  const detailed = prompt.split('detailed_description:')[1].split('overall_soundscape:')[0];
+  assert.ok(detailed.indexOf('Every <d> block is soundtrack audio only') < detailed.indexOf('[Shot 1]'));
   assert.match(prompt, /REFERENCE PRIORITY: Each declared picture is the composition authority for its own discrete shot/);
-  assert.match(prompt, /EDITORIAL GRAMMAR: Treat every picture as a separate photographed setup/);
+  assert.match(prompt, /Treat every picture as a separate photographed setup/);
   assert.match(prompt, /do not crossfade, morph, interpolate, repeat, or soften a hard cut/);
   assert.match(prompt, /natural skin micro-texture and fine facial detail/);
-  assert.match(prompt, /SCRIPT DIALOGUE LOCK: <d> is authoritative soundtrack speech/);
+  assert.match(prompt, /The complete vocal track consists only of the ordered <d> blocks below/);
+  assert.match(prompt, /Before the first <d> cue, use only the specified non-vocal location sound/);
+  assert.match(prompt, /<Audio 1>: reference - its voice timbre guides <Subject 1> without copying the original audio signal/);
+  assert.doesNotMatch(prompt.split('retention_analysis:')[1].split('detailed_description:')[0], /\(S\d+\)/);
   assert.match(prompt, /From 00:\d{2}\.\d{3} to 00:\d{2}\.\d{3}/);
   assert.doesNotMatch(prompt, /闭嘴|嘴巴闭合|说完最后一个字|mouth closes|final word|says once/i);
   assert.match(prompt, /non_diegetic_music:\s+N\/A/);
@@ -89,7 +95,7 @@ test('keeps silent clips free of dialogue and quarantines refreshed-prompt speec
   });
   assert.match(prompt, /Camera pushes in/);
   assert.doesNotMatch(prompt, /临时加一句|Mei whispers|<d>/);
-  assert.match(prompt, /overall_soundscape:\s+Natural location ambience stays clearly audible beneath dialogue and through pauses/);
+  assert.match(prompt, /overall_soundscape:\s+A steady, non-vocal ambience matching the visible location/);
 });
 
 test('treats a punctuation-only screenplay turn as a silent performance pause, not English speech', () => {
@@ -103,7 +109,7 @@ test('treats a punctuation-only screenplay turn as a silent performance pause, n
   })], [], { duration: 10, language: 'zh', referenceAudioNames: ['裴行简'] });
   assert.deepEqual(dialogueTags(prompt), [{ language: 'Chinese', text: '也……买不到。主要是，还没开始卖。' }]);
   assert.doesNotMatch(prompt, /<d>\[English]|<d>\[Chinese] ……<\/d>/);
-  assert.match(prompt, /CLEAN-FRAME PRESENTATION: Keep <d> audio-only/);
+  assert.match(prompt, /Every <d> block is soundtrack audio only/);
 });
 
 test('retains later-shot ambience and binds Foley to its own shot across locations', () => {
@@ -125,8 +131,8 @@ test('retains later-shot ambience and binds Foley to its own shot across locatio
     assert.doesNotMatch(scope, new RegExp(`(?:location|object)-(?!${i})[1-4]`));
     assert.equal(scope.includes('wordless murmur'), i === 2);
   }
-  assert.match(soundscape, /retain it through speech pauses/);
-  assert.match(soundscape, /same-location cuts and change it with the location/);
+  assert.match(soundscape, /sound bed non-vocal and steady within each location/);
+  assert.match(soundscape, /changing it only when the setting changes/);
   assert.match(prompt, /non_diegetic_music:\s+N\/A/);
   assert.ok(prompt.length <= 7000);
 });
@@ -172,7 +178,7 @@ test('keeps visual direction English for Chinese H3 projects and preserves exact
   for (const value of Object.values(videoDirection)) assert.ok(!chinese.includes(value), value);
   assert.match(chinese, /Dr\. Pan raises a face-mask package and points to the printed ingredient panel/);
   assert.match(chinese, /<d>\[Chinese] 这些成分可以给肌肤补充营养。<\/d>/);
-  assert.match(chinese, /Keep <d> audio-only/);
+  assert.match(chinese, /Every <d> block is soundtrack audio only/);
   assert.doesNotMatch(chinese, /观众开始关注|闭嘴|mouth closes|final word/i);
   assert.doesNotMatch(chinese.replace(/<d>[\s\S]*?<\/d>/g, ''), /[\u3400-\u9fff]/);
 
@@ -190,8 +196,8 @@ test('binds sequential speakers to stable subjects and audio references', () => 
   ], [], { duration: 12, referenceAudioNames: ['Lin', 'Mei'] });
   assert.match(prompt, /<Audio 1> is the voice-timbre reference for <Subject 1> \(S1\)/);
   assert.match(prompt, /<Audio 2> is the voice-timbre reference for <Subject 2> \(S2\)/);
-  assert.match(prompt, /<Subject 1> \(S1\) begins speaking using the voice timbre referenced from <Audio 1>/);
-  assert.match(prompt, /<Subject 2> \(S2\) begins speaking using the voice timbre referenced from <Audio 2>/);
+  assert.match(prompt, /<Subject 1> \(S1\) speaks using the voice timbre referenced from <Audio 1>/);
+  assert.match(prompt, /<Subject 2> \(S2\) speaks using the voice timbre referenced from <Audio 2>/);
   assert.match(prompt, /cut on the conversational turn.*shot\/reverse-shot response/);
   assert.match(prompt, /preserve the shared eyeline, 180-degree axis, screen direction, and listener timing/);
   assert.ok(prompt.indexOf('你看见了吗？') < prompt.indexOf('就在门后。'));

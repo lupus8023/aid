@@ -29,7 +29,8 @@ test('motion brief survives Chinese source without becoming the still frame or a
   const p = buildVideoSegmentPrompt([input], [], { duration: 8, language: 'zh' });
   for (const text of Object.values(d)) assert.ok(p.includes(text), text);
   assert.doesNotMatch(p, /holds a sealed envelope|one weighted action peak|facial tension change once|00:01\.760/);
-  assert.match(p, /From 00:00\.000 to 00:08\.000/);
+  assert.doesNotMatch(p, /From 00:00\.000 to 00:08\.000/);
+  assert.match(p, /\[Shot 1] The shot follows <Picture 1> as its composition reference/);
   assert.ok(p.length <= H3_PROMPT_MAX_CHARACTERS);
 });
 
@@ -105,7 +106,7 @@ test('four dense briefs retain every action, camera, detail, ending and exact di
   }));
   const p = buildVideoSegmentPrompt(shots, [], { duration: 15, firstFrameUrl: 'continuity', referenceAudioNames: ['Lin', 'Mei'], language: 'zh', isFilmEnding: true });
   assert.ok(p.length <= 7000, `got ${p.length}`);
-  assert.match(p, /FILM ENDING:/);
+  assert.match(p, /At the end of the complete film, only the final shot's/);
   for (const s of shots) for (const value of Object.values(s.videoDirection)) assert.ok(p.includes(value), value);
   for (const line of ['跟着我，不要回头。', '出口就在前面。']) assert.equal(p.split(line).length - 1, 1);
 });
