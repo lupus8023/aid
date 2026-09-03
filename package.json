@@ -1,6 +1,6 @@
 {
   "name": "aid",
-  "version": "0.1.185",
+  "version": "0.1.186",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -46,7 +46,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:image-upload": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/image-upload.test.mjs tests/generated-image-persistence.test.mjs",
+    "test:image-upload": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/image-upload.test.mjs tests/generated-image-persistence.test.mjs tests/story-image-request.test.mjs tests/api-response.test.mjs",
     "test:pipeline-recovery": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types --experimental-loader ./tests/ts-alias-loader.mjs --test tests/pipeline-recovery.test.mjs"
   },
   "dependencies": {

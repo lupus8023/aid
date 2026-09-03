@@ -1,3 +1,9 @@
+## 0.1.186 - 2026-09-04
+
+- Fix Story grid creation and single-shot recovery being rejected before reaching the image provider: submit only necessary shot metadata and image URLs, without retained original base64 files, unrelated costumes, or previous video data.
+- Upload browser-local references separately through signed storage uploads, reuse successful uploads across batches, and preserve reference ordering, authored prompts, approved assets, and recoverable paid task IDs. Local pages retain the existing multipart upload relay.
+- Stop automatic retries for HTTP 413 and explicit file-size rejections; oversized metadata is detected before generation submission. This is a web-only release; Companion 0.1.184 does not need an update.
+
 ## 0.1.185 - 2026-09-04
 
 - Remove the remaining hard-coded 18-shot summary and legacy project-count labels from series actions, progress cards, and current/historical job titles. Script tabs, shot totals, and ready badges now show the actual saved episode length.

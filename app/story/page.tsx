@@ -23,7 +23,8 @@ import { useSettings } from '@/hooks/useSettings';
 import { comfyUIApiUrl, companionVersionAtLeast, downloadComfyUIVideo, fetchStoryApi, imageApiUrl, isComfyUIClientTask, localComfyUISettings, SEGMENT_VIDEO_COMPANION_MIN_VERSION, videoStatusResponseError } from '@/lib/comfyuiClient';
 import { getImageModelCapabilities, imageModelRequiresApiKey, isGptImage2Model, isMidjourneyImageModel, resolveStoryboardGridImageModel } from '@/lib/imageModels';
 import { Grid2X2 } from 'lucide-react';
-import { readApiJson } from '@/lib/apiResponse';
+import { isRequestTooLargeError, readApiJson } from '@/lib/apiResponse';
+import { createStoryImageRequestPreparer } from '@/lib/storyImageRequest';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { canResumeStoryPlan } from '@/lib/pipeline/resumePlan';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
@@ -296,6 +297,7 @@ export default function StoryPage() {
   const videoRecoveryRef = useRef(new Set<string>());
   const activeVideoPollsRef = useRef(new Map<string, Promise<void>>());
   const gridRecoveryRef = useRef(new Set<string>());
+  const prepareImageRequestRef = useRef(createStoryImageRequestPreparer());
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
 
@@ -1467,25 +1469,27 @@ export default function StoryPage() {
             // Reattach to the paid task. A provider refusal is preserved for review.
             let taskId = safetyAttempt === 0 && options.resumeTaskId && batch.length <= gridCapacity ? options.resumeTaskId : '';
             if (!taskId) {
+              const requestBody = await prepareImageRequestRef.current({
+                storyboard: gridStoryboard,
+                characters: groupCharacters,
+                objects: groupObjects,
+                aspectRatio,
+                imageModel: gridImageModel,
+                apiKey: activeSettings.apiKey,
+                costumeImages: costumeImagesRef.current,
+                sceneImage: sceneImagesRef.current[0] || '',
+                referenceImages: refImages,
+                referenceImageLabels: refLabels,
+                visualStyle,
+                capturePreset: capturePresetRef.current,
+                comfyui: localComfyUISettings(activeSettings.comfyui),
+                styleReference: styleReferenceRef.current, midjourneyStyle: resolveMidjourneyStyleSetting(activeSettings), midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings),
+              });
+              if (generationProjectId !== projectIdRef.current || (autoRunLockRef.current && autoAbortRef.current)) throw new Error('制作已暂停或项目已切换，未提交新的四宫格任务');
               const res = await fetch(imageApiUrl('/api/generate', activeSettings.comfyui, gridImageModel), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  storyboard: gridStoryboard,
-                  characters: groupCharacters,
-                  objects: groupObjects,
-                  aspectRatio,
-                  imageModel: gridImageModel,
-                  apiKey: activeSettings.apiKey,
-                  costumeImages: costumeImagesRef.current,
-                  sceneImage: sceneImagesRef.current[0] || '',
-                  referenceImages: refImages,
-                  referenceImageLabels: refLabels,
-                  visualStyle,
-                  capturePreset: capturePresetRef.current,
-                  comfyui: localComfyUISettings(activeSettings.comfyui),
-                  styleReference: styleReferenceRef.current, midjourneyStyle: resolveMidjourneyStyleSetting(activeSettings), midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings),
-                })
+                body: requestBody,
               });
               ({ taskId } = await readApiJson<{ taskId: string }>(res, '四宫格任务创建失败'));
               updateGridStoryboards(items => items.map(sb =>
@@ -1582,6 +1586,13 @@ export default function StoryPage() {
           } : sb));
           const range = `${group[0]?.sceneNumber ?? '?'}–${group[group.length - 1]?.sceneNumber ?? '?'}`;
           failedBatches.push(`${range}: ${extractImageTaskError(error)}`);
+          // A deterministic size rejection must not submit every remaining
+          // batch with the same oversized state or enter the auto-retry loop.
+          if (isRequestTooLargeError(error)) {
+            if (options.throwOnError) throw error;
+            alert(failedBatches.join('\n'));
+            return;
+          }
         }
       }
       // A single failed APIMart batch must never prevent later batches from
@@ -1631,10 +1642,12 @@ export default function StoryPage() {
           const latest = storyboardsRef.current.find(item => item.id === storyboard.id) || storyboard;
           let taskId = safetyAttempt === 0 && latest.imageTaskMode === 'single' ? latest.taskId : undefined;
           if (!taskId) {
+            const requestBody = await prepareImageRequestRef.current({ storyboard: { ...storyboard, prompt, capturePreset: capturePresetRef.current }, characters: effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters), objects: objectsRef.current, aspectRatio: projectAspectRatioRef.current, imageModel: activeSettings.imageModel, apiKey: activeSettings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle, capturePreset: capturePresetRef.current, comfyui: localComfyUISettings(activeSettings.comfyui), styleReference: styleReferenceRef.current, midjourneyStyle: resolveMidjourneyStyleSetting(activeSettings), midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings) });
+            if (generationProjectId !== projectIdRef.current || (autoRunLockRef.current && autoAbortRef.current)) throw new Error('制作已暂停或项目已切换，未提交新的分镜任务');
             const response = await fetch(imageApiUrl('/api/generate', activeSettings.comfyui, activeSettings.imageModel), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ storyboard: { ...storyboard, prompt, capturePreset: capturePresetRef.current }, characters: effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters), objects: objectsRef.current, aspectRatio: projectAspectRatioRef.current, imageModel: activeSettings.imageModel, apiKey: activeSettings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle, capturePreset: capturePresetRef.current, comfyui: localComfyUISettings(activeSettings.comfyui), styleReference: styleReferenceRef.current, midjourneyStyle: resolveMidjourneyStyleSetting(activeSettings), midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings) })
+              body: requestBody,
             });
             const data = await readApiJson<{ taskId: string }>(response, '启动单张分镜生成失败');
             taskId = data.taskId;
@@ -2368,7 +2381,7 @@ export default function StoryPage() {
             await waitBeforeRetry(15_000);
             continue;
           }
-          if (isImageSafetyRejection(error)) throw error;
+          if (isImageSafetyRejection(error) || isRequestTooLargeError(error)) throw error;
           const transient = isTransientAutoProductionError(error);
           if (transient) transientFailureCount += 1;
           else failureCount += 1;

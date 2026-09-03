@@ -1,6 +1,15 @@
 export class ApiResponseError extends Error {
   code?: string;
-  constructor(message: string, code?: string) { super(message); this.code = code; }
+  status?: number;
+  constructor(message: string, code?: string, status?: number) { super(message); this.code = code; this.status = status; }
+}
+
+export function isRequestTooLargeError(error: unknown): boolean {
+  if (error instanceof ApiResponseError && (error.status === 413 || error.code === 'REQUEST_TOO_LARGE')) return true;
+  // Grid failures can be aggregated into a plain Error; keep this detectable
+  // after that boundary and when restoring older saved error messages.
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /HTTP\s*413\b|请求数据过大|payload too large|request entity too large|request body too large/i.test(message);
 }
 
 function looksLikeHtml(body: string, contentType: string): boolean {
@@ -20,6 +29,11 @@ function statusHint(status: number): string {
  */
 export async function readApiJson<T>(response: Response, context: string, options: { taskStatus?: boolean } = {}): Promise<T> {
   const body = await response.text();
+  // Gateways may return HTML, plain text, JSON or an empty body for 413.
+  // Classify it before parsing; retrying unchanged bytes cannot repair it.
+  if (response.status === 413) {
+    throw new ApiResponseError(`${context}：请求数据过大，服务器拒绝接收；请先将参考图单独上传后再提交，不会自动重试此请求`, 'REQUEST_TOO_LARGE', 413);
+  }
   const contentType = String(response.headers.get('content-type') || '').toLowerCase();
   let data: any;
 
@@ -50,7 +64,7 @@ export async function readApiJson<T>(response: Response, context: string, option
       : typeof data?.message === 'string'
         ? data.message
         : statusHint(response.status);
-    throw new ApiResponseError(`${context}：${message}`, data?.code);
+    throw new ApiResponseError(`${context}：${message}`, data?.code, response.status);
   }
 
   // Streaming responses have already committed HTTP 200 before the long task

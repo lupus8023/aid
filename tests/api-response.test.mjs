@@ -1,7 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { readApiJson } from '../lib/apiResponse.ts';
+import { ApiResponseError, isRequestTooLargeError, readApiJson } from '../lib/apiResponse.ts';
+
+test('413 is terminal regardless of gateway response body format', async () => {
+  for (const [body, contentType] of [
+    ['', 'application/json'], ['<html>too large</html>', 'text/html'],
+    ['Request Entity Too Large', 'text/plain'], [JSON.stringify({ error: 'Too big' }), 'application/json'],
+  ]) {
+    await assert.rejects(readApiJson(new Response(body, { status: 413, headers: { 'Content-Type': contentType } }), '四宫格任务创建失败'), error => {
+      assert.ok(error instanceof ApiResponseError);
+      assert.equal(error.status, 413);
+      assert.equal(isRequestTooLargeError(error), true);
+      assert.match(error.message, /不会自动重试/);
+      assert.equal(isRequestTooLargeError(new Error(`批次 1–4：${error.message}`)), true);
+      return true;
+    });
+  }
+  assert.equal(isRequestTooLargeError(new Error('HTTP 503 temporarily unavailable')), false);
+  assert.equal(isRequestTooLargeError(new Error('task_413abcdef is pending')), false);
+});
 
 test('reads the final JSON data event from a keep-alive screenplay stream', async () => {
   const response = new Response(': connected\n\n: keep-alive\n\ndata: {"storyPlan":{"title":"Film"}}\n\n', {
