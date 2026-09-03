@@ -119,10 +119,11 @@ export interface Storyboard {
   characters: string[]; // 角色名称列表
   objects?: string[]; // 物体名称列表
   imageUrl?: string;
-  gridSourceUrl?: string; // 高分辨率九宫格母图；用于恢复或重新拆分
+  gridSourceUrl?: string; // 高分辨率四宫格母图；用于恢复或重新拆分
   status: 'pending' | 'generating' | 'completed' | 'failed';
   taskId?: string; // APIMart 任务 ID
-  imageTaskMode?: 'grid' | 'single'; // 断点恢复时区分九宫格母图与单张补图任务
+  imageTaskMode?: 'grid' | 'single'; // 断点恢复时区分四宫格母图与单张补图任务
+  imageGridSize?: 2 | 3; // 新任务固定 2×2；3×3 仅用于恢复升级前已付费的旧母图
   imageCandidateUrls?: string[]; // Unused MJ candidates; inspect before paying for another task
   imagePromptOverride?: string; // 内容安全自动修订后的生图专用提示词，不改写原始分镜
   imageFailureReason?: string; // 最近一次生图失败或自动修订原因

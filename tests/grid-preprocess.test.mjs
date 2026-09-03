@@ -4,10 +4,10 @@ import { readFile } from 'node:fs/promises';
 
 import { buildCloudinaryGridCellUrls, cloudinaryGridDimensions, cloudinaryGridInfoUrl } from '../lib/gridCloudinary.ts';
 
-test('derives nine native-detail cells with a compact delivery cap', () => {
+test('derives four native-detail cells with a compact delivery cap', () => {
   const cells = buildCloudinaryGridCellUrls('https://res.cloudinary.com/demo/image/upload/grid.jpg', 4096, 2304);
-  assert.equal(cells.length, 9);
-  assert.equal(new Set(cells).size, 9);
+  assert.equal(cells.length, 4);
+  assert.equal(new Set(cells).size, 4);
   cells.forEach(url => {
     assert.match(url, /c_crop/);
     assert.match(url, /c_limit,w_1600,h_1600/);

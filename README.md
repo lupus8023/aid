@@ -54,7 +54,7 @@
 - **Real-time Progress**: Live status updates during image and video generation
 - **Batch Processing**: Generate multiple storyboard scenes simultaneously
 - **Project Management**: Save, load, and export your projects with ease
-- **Series Studio**: Create anything from a one-episode short to a full season, generate character cards individually, reuse finished cast through the character library, separate automatic prop references from user-specified product images, and download each episode separately. A manually added prop is written back into episode stories and then detailed shots; formed screenplays retain every original field while allowing only a minimal authorized prop insertion. Story production validates the project's actual shot count rather than a universal 18-shot constant. See [连续剧制片说明](docs/series-studio.md).
+- **Series Studio**: Create anything from a one-episode short to a full season, generate character cards individually, reuse finished cast through the character library, separate automatic prop references from user-specified product images, and download each episode separately. New story shot-count presets use multiples of four and each four shots share one 2×2 storyboard reference sheet; formed screenplays retain their original count and fields. See [连续剧制片说明](docs/series-studio.md).
 
 ---
 
@@ -127,7 +127,7 @@ CLOUDINARY_API_SECRET=your_cloudinary_secret
 
 `pandais.beauty` 上的 ComfyUI 通道默认通过本机 aid companion 使用 SSH，不把私钥交给 Netlify。先在 aid 项目目录运行 `npm run companion`，保持 `http://127.0.0.1:3018` 可用；网页会把 ComfyUI 的测试、提交和轮询请求发给这个本地服务，由它使用 `~/.ssh`、ssh-agent 和持久控制连接完成 SSH/SFTP。长剧本规划、AI 扩写、MiniMax H3 视频以及 Z-Image-Turbo 图片任务都可通过 Companion 执行；APIMart 图片模型仍走 Netlify。companion 只允许 `pandais.beauty` 与本机 origin 跨域访问。
 
-全局图片模型可选择 `ComfyUI · Z-Image-Turbo（本地）`。该分支使用官方 BF16 文生图工作流，支持 Story 九宫格、单分镜、角色草稿、定妆图和场景参考图；官方基础工作流不接受参考图编辑，因此图生图与严格身份参考请切换 APIMart 图片模型。
+全局图片模型可选择 `ComfyUI · Z-Image-Turbo（本地）`。该分支使用官方 BF16 文生图工作流，支持 Story 四宫格、单分镜、角色草稿、定妆图和场景参考图；官方基础工作流不接受参考图编辑，因此图生图与严格身份参考请切换 APIMart 图片模型。
 
 ### fal MiniMax H3 Max（可选）
 

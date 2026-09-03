@@ -22,7 +22,7 @@ import { useProject } from '@/hooks/useProject';
 import { useSettings } from '@/hooks/useSettings';
 import { comfyUIApiUrl, companionVersionAtLeast, downloadComfyUIVideo, fetchStoryApi, imageApiUrl, isComfyUIClientTask, localComfyUISettings, SEGMENT_VIDEO_COMPANION_MIN_VERSION, videoStatusResponseError } from '@/lib/comfyuiClient';
 import { getImageModelCapabilities, imageModelRequiresApiKey, isGptImage2Model, isMidjourneyImageModel, resolveStoryboardGridImageModel } from '@/lib/imageModels';
-import { Grid3x3 } from 'lucide-react';
+import { Grid2X2 } from 'lucide-react';
 import { readApiJson } from '@/lib/apiResponse';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { canResumeStoryPlan } from '@/lib/pipeline/resumePlan';
@@ -660,10 +660,23 @@ export default function StoryPage() {
         });
       }
       void recoverProjectVideos(savedStoryboards, savedProject.id!);
-      // A refresh used to strand a paid 3×3 task in "generating" forever.
-      // Resume polling a batch when all its shots share the same saved task id.
-      for (let index = 0; index < savedStoryboards.length; index += 9) {
-        const group = savedStoryboards.slice(index, index + 9);
+      // A refresh used to strand a paid grid task in "generating" forever.
+      // New tasks are 2×2. A missing size marker identifies a pre-upgrade 3×3
+      // task, which must retain its original nine-shot crop boundary.
+      const recoveryGroups: Array<{ group: Storyboard[]; gridSize: 2 | 3 }> = [];
+      const seenRecoveryStarts = new Set<string>();
+      savedStoryboards.forEach((item, index) => {
+        if (item.imageTaskMode === 'single' || hasUsableStoryboardImage(item)) return;
+        if (item.status !== 'generating' && !item.taskId) return;
+        const gridSize: 2 | 3 = item.imageGridSize === 2 ? 2 : 3;
+        const capacity = gridSize * gridSize;
+        const start = Math.floor(index / capacity) * capacity;
+        const key = `${gridSize}:${start}`;
+        if (seenRecoveryStarts.has(key)) return;
+        seenRecoveryStarts.add(key);
+        recoveryGroups.push({ group: savedStoryboards.slice(start, start + capacity), gridSize });
+      });
+      for (const { group, gridSize } of recoveryGroups) {
         const gridRecoveryGroup = group.filter(item => item.imageTaskMode !== 'single');
         const recoveryPlan = planInterruptedGridRecovery(gridRecoveryGroup);
         // Completed mixed grid/single-image batches are authoritative. Never
@@ -675,6 +688,9 @@ export default function StoryPage() {
             const next = current.map(item => groupIds.has(item.id) ? {
               ...item,
               status: 'failed' as const,
+              taskId: undefined,
+              imageTaskMode: undefined,
+              imageGridSize: undefined,
               imageFailureReason: recoveryPlan.reason,
             } : item);
             storyboardsRef.current = next;
@@ -714,16 +730,19 @@ export default function StoryPage() {
                   || data.status === 'running'
                   || data.status === 'queued';
                 if (!recoverable) throw new Error(extractImageTaskError(data) || `任务状态 ${data.status || 'unknown'}`);
-                void handleGenerateGrid(group, { resumeTaskId: taskId });
+                void handleGenerateGrid(group, { resumeTaskId: taskId, gridSize });
               } catch (error) {
-                console.warn(`九宫格任务 ${taskId} 已失效，允许重新生成:`, error);
+                console.warn(`四宫格任务 ${taskId} 已失效，允许重新生成:`, error);
                 if (savedProject.id !== projectIdRef.current) return;
-                const groupIds = new Set(group.map(item => item.id));
+                const groupIds = new Set(group.filter(item => !hasUsableStoryboardImage(item)).map(item => item.id));
                 const recoveryFailureReason = `刷新后恢复任务失败：${extractImageTaskError(error)}；已解除锁定，请重新生成本批`;
                 setStoryboards(current => {
                   const next = current.map(item => groupIds.has(item.id) ? {
                     ...item,
                     status: 'failed' as const,
+                    taskId: undefined,
+                    imageTaskMode: undefined,
+                    imageGridSize: undefined,
                     imageFailureReason: recoveryFailureReason,
                   } : item);
                   storyboardsRef.current = next;
@@ -1260,8 +1279,8 @@ export default function StoryPage() {
     }
   };
 
-  // Step4: batch generate via 3x3 grid
-  const handleGenerateGrid = async (batch: Storyboard[], options: { throwOnError?: boolean; resumeTaskId?: string } = {}) => {
+  // Step4: batch generate via 2x2 grid
+  const handleGenerateGrid = async (batch: Storyboard[], options: { throwOnError?: boolean; resumeTaskId?: string; gridSize?: 2 | 3 } = {}) => {
     const activeSettings = settingsRef.current;
     if (isMidjourneyImageModel(activeSettings.imageModel)) {
       setIsGeneratingGrid(true);
@@ -1295,16 +1314,18 @@ export default function StoryPage() {
     };
     setIsGeneratingGrid(true);
     const failedBatches: string[] = [];
-    // Process in groups of 9
+    // Process in groups of 4
     try {
-      for (const group of chunkGridBatch(batch)) {
+      const gridSize = options.gridSize || 2;
+      const gridCapacity = gridSize * gridSize;
+      for (const group of chunkGridBatch(batch, gridCapacity)) {
         updateGridStoryboards(items => items.map(sb =>
           group.some(g => g.id === sb.id) ? { ...sb, status: 'generating' } : sb
         ));
         try {
         // Midjourney establishes the project's cinematic master frame. Nano
-        // Banana 2 then turns that MJ anchor into a strict, splittable 3x3
-        // contact sheet. Sending nine independent MJ jobs here produces nine
+        // Banana 2 then turns that MJ anchor into a strict, splittable 2x2
+        // contact sheet. Sending independent MJ jobs here produces separate
         // portrait-like candidates instead of one coherent storyboard batch.
         const gridImageModel = resolveStoryboardGridImageModel(activeSettings.imageModel);
         // Grid generation must consider the cast from every panel, not only the
@@ -1444,7 +1465,7 @@ export default function StoryPage() {
 
           try {
             // Reattach to the paid task. A provider refusal is preserved for review.
-            let taskId = safetyAttempt === 0 && options.resumeTaskId && batch.length <= 9 ? options.resumeTaskId : '';
+            let taskId = safetyAttempt === 0 && options.resumeTaskId && batch.length <= gridCapacity ? options.resumeTaskId : '';
             if (!taskId) {
               const res = await fetch(imageApiUrl('/api/generate', activeSettings.comfyui, gridImageModel), {
                 method: 'POST',
@@ -1466,9 +1487,9 @@ export default function StoryPage() {
                   styleReference: styleReferenceRef.current, midjourneyStyle: resolveMidjourneyStyleSetting(activeSettings), midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings),
                 })
               });
-              ({ taskId } = await readApiJson<{ taskId: string }>(res, '九宫格任务创建失败'));
+              ({ taskId } = await readApiJson<{ taskId: string }>(res, '四宫格任务创建失败'));
               updateGridStoryboards(items => items.map(sb =>
-                group.some(g => g.id === sb.id) ? { ...sb, taskId, imageTaskMode: 'grid' as const } : sb
+                group.some(g => g.id === sb.id) ? { ...sb, taskId, imageTaskMode: 'grid' as const, imageGridSize: gridSize } : sb
               ));
               // The remote task is already billable at this point. Persist its
               // id immediately so a refresh can reattach instead of purchasing
@@ -1476,12 +1497,12 @@ export default function StoryPage() {
               persistCurrentProject();
             }
 
-            // 4K nine-panel jobs regularly need more than 4.5 minutes during
+            // 4K four-panel jobs can still need several minutes during
             // provider congestion. Keep polling for nine minutes so the UI
             // does not report a false timeout while the paid task is healthy.
             for (let j = 0; j < 180; j++) {
               await new Promise(r => setTimeout(r, 3000));
-              if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
+              if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的四宫格任务已停止回写');
               const statusRes = await fetch(imageApiUrl('/api/check-image-status', activeSettings.comfyui, taskId), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1489,7 +1510,7 @@ export default function StoryPage() {
               });
               if (!statusRes.ok) continue;
               const statusData = await statusRes.json();
-              if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的九宫格任务已停止回写');
+              if (generationProjectId !== projectIdRef.current) throw new Error('项目已切换，旧项目的四宫格任务已停止回写');
               if (statusData.status === 'completed' && statusData.imageUrl) {
                 gridUrl = await persistLocalGeneratedImage(statusData.imageUrl, activeSettings.comfyui);
                 break;
@@ -1510,11 +1531,11 @@ export default function StoryPage() {
         const splitResponse = await fetch('/api/split-grid', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageUrl: gridUrl })
+          body: JSON.stringify({ imageUrl: gridUrl, gridSize })
         });
-        const { cells: uploadedCells, gridUrl: persistedGridUrl } = await readApiJson<{ cells: string[]; gridUrl: string }>(splitResponse, '九宫格拆分失败');
+        const { cells: uploadedCells, gridUrl: persistedGridUrl } = await readApiJson<{ cells: string[]; gridUrl: string }>(splitResponse, '四宫格拆分失败');
         if (!Array.isArray(uploadedCells) || uploadedCells.length < group.length) {
-          throw new Error(`九宫格拆分数量不足：需要 ${group.length}，实际 ${uploadedCells?.length || 0}`);
+          throw new Error(`四宫格拆分数量不足：需要 ${group.length}，实际 ${uploadedCells?.length || 0}`);
         }
         updateGridStoryboards(items => group.reduce((current, groupStoryboard, idx) => {
           const previous = current.find(item => item.id === groupStoryboard.id);
@@ -1556,6 +1577,7 @@ export default function StoryPage() {
             status: !contentRejected && !terminalTaskFailure && sb.taskId ? 'generating' : 'failed',
             taskId: terminalTaskFailure ? undefined : sb.taskId,
             imageTaskMode: terminalTaskFailure ? undefined : sb.imageTaskMode,
+            imageGridSize: terminalTaskFailure ? undefined : sb.imageGridSize,
             imageFailureReason: extractImageTaskError(error),
           } : sb));
           const range = `${group[0]?.sceneNumber ?? '?'}–${group[group.length - 1]?.sceneNumber ?? '?'}`;
@@ -1565,7 +1587,7 @@ export default function StoryPage() {
       // A single failed APIMart batch must never prevent later batches from
       // being submitted. Report once after the whole queue has been attempted.
       if (failedBatches.length > 0) {
-        const summary = `以下九宫格批次生成失败：\n${failedBatches.join('\n')}`;
+        const summary = `以下四宫格批次生成失败：\n${failedBatches.join('\n')}`;
         if (options.throwOnError) throw new Error(summary);
         alert(summary);
       }
@@ -2425,19 +2447,20 @@ export default function StoryPage() {
       if (autoAbortRef.current) return;
 
       setCurrentStep(4);
-      await retryUntilCompleted(isMidjourneyImageModel(settingsRef.current.imageModel) ? 'MJ 逐镜生成与角色核验' : '九宫格生成分镜图', async () => {
+      await retryUntilCompleted(isMidjourneyImageModel(settingsRef.current.imageModel) ? 'MJ 逐镜生成与角色核验' : '四宫格生成分镜图', async () => {
         const { chunkGridBatch } = await import('@/lib/gridSplitter');
         const normalized = storyboardsRef.current.map(normalizeStoryboardImageArtifact);
         if (normalized.some((item, index) => item !== storyboardsRef.current[index])) {
           commitStoryboards(() => normalized);
           persistCurrentProject(normalized);
         }
-        // Keep the director's original nine-shot batch boundaries. Filtering
+        // Keep the director's original four-shot batch boundaries. Filtering
         // failed cards first would shift panel indexes and can assign a crop to
         // the wrong scene on retry.
         for (const group of chunkGridBatch(storyboardsRef.current)) {
           const plan = planAutoImageBatch(group, settingsRef.current.imageModel);
           if (plan.kind === 'skip') continue;
+          if (plan.kind === 'await-legacy-grid') throw new AwaitingMediaTaskError(plan.taskId);
           if (plan.kind === 'resume-grid') {
             await handleGenerateGrid(group, { throwOnError: true, resumeTaskId: plan.taskId });
             continue;
@@ -2588,10 +2611,10 @@ export default function StoryPage() {
       // A resumed batch can have every paid segment marked completed while its
       // ephemeral blob URL is absent from the new page. Step 6 only exports
       // leaders with a readable videoUrl, so entering it immediately used to
-      // produce a plausible but truncated film (for example 9 of 18 clips).
+      // produce a plausible but truncated film (for example 4 of 16 clips).
       // Rehydrate every authoritative segment from IndexedDB or its existing
       // task before rendering the editor. This never submits a new video task.
-      setAutoStage('恢复全部18段视频用于合成');
+      setAutoStage('恢复全部视频片段用于合成');
       let exportStoryboards = storyboardsRef.current;
       for (const planned of videoGroups) {
         const current = refreshPlannedVideoSegment(exportStoryboards, planned);
@@ -2802,7 +2825,7 @@ export default function StoryPage() {
                     onClick={() => setIsCanvasMode(true)}
                     className="flex items-center gap-2 px-3 py-2 text-xs font-mono bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] rounded transition-colors"
                   >
-                    <Grid3x3 size={14} />
+                    <Grid2X2 size={14} />
                     无限画布
                   </button>
                 )}

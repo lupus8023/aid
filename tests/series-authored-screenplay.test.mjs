@@ -14,7 +14,7 @@ const authoredBrief = `镜1 时长：3秒
 
 景别：双人近景 动作：林知夏伸出手指点住照片里的手表，陈叔慌忙移开视线。 运镜：先拍指尖与手表，再推到陈叔躲闪的眼睛。 氛围：疑问收紧。 AI生图提示词：旧照片与手指特写，背景中的陈叔移开视线，写实电影摄影。 台词：林知夏：“告诉我真相。”`;
 
-test('recognizes a formed screenplay and keeps its shot count instead of expanding to 18', () => {
+test('recognizes a formed screenplay and keeps its shot count instead of expanding to the default 16', () => {
   const authored = parseAuthoredScreenplay(authoredBrief, 'zh');
   assert.equal(authored?.shots.length, 2);
   assert.equal(authored?.shots[0].action, '林知夏抬手一甩，旧照片啪地落进显影盘，陈叔的表情瞬间僵住。');

@@ -275,7 +275,7 @@ export default function SettingsModal({
             {isMidjourneyImageModel(localSettings.imageModel) && (
               <div className="mt-3 space-y-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)]/55 p-3">
                 <p className="text-xs leading-5 text-[var(--accent-yellow)]">
-                  MJ 分镜逐张生成，不使用九宫格或切换其他模型。有参考图时使用 V8.2 编辑接口，固定本镜人物与服装，并逐镜核验、局部重试；仍不能保证像素级一致。
+                  MJ 分镜逐张生成，不使用四宫格或切换其他模型。有参考图时使用 V8.2 编辑接口，固定本镜人物与服装，并逐镜核验、局部重试；仍不能保证像素级一致。
                 </p>
                 <label className="block text-xs text-[var(--text-secondary)]">
                   风格参考图（sref）

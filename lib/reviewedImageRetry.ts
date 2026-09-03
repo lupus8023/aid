@@ -13,6 +13,7 @@ export function prepareReviewedImageRetry(board: Storyboard, review: string): St
     status: 'pending',
     taskId: undefined,
     imageTaskMode: undefined,
+    imageGridSize: undefined,
     imageFailureReason: undefined,
     imagePromptOverride: prompt.includes(adultClarification) ? prompt : `${adultClarification}\n${prompt}`,
     imageRetryCount: (board.imageRetryCount || 0) + 1,

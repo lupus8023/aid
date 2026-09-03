@@ -6,7 +6,7 @@
 - Split, merge, and both boundary-shift actions update the segment count and duration immediately.
 - The inspector clearly exposes included shots, duration, continuity, dialogue count, clean-frame state, preprocessing state, and the primary generation action.
 - The bottom strip is navigation-only and remains compact.
-- Canvas now reads left-to-right as story → 3×3 batches → storyboard frames → grouped H3 segments → final timeline.
+- Canvas now reads left-to-right as story → 2×2 batches → storyboard frames → grouped H3 segments → final timeline.
 - Browser console contained no application errors during the segment split/merge checks.
 - `npm run build` completed successfully with TypeScript validation.
 

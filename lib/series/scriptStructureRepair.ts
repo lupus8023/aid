@@ -55,7 +55,7 @@ export function seriesScriptAssetFingerprint(project: SeriesProject, episode: Se
 }
 
 export class ScriptShotCountError extends Error {
-  constructor(public actual: number, public expected = 18) {
+  constructor(public actual: number, public expected = 16) {
     super(`单集剧本返回${actual}镜，必须自动归并或拆分为${expected}镜`);
     this.name = 'ScriptShotCountError';
   }

@@ -65,7 +65,7 @@ export function createSeries(input: Partial<SeriesProject>): SeriesProject {
     genre: text(input.genre) || "悬疑",
     sourceMode: authored ? "authored_screenplay" : undefined,
     episodeCount: authored ? 1 : count,
-    shotCount: authored?.shots.length || 18,
+    shotCount: authored?.shots.length || 16,
     durationSeconds: authored?.durationSeconds || 120,
     language,
     aspectRatio: input.aspectRatio === "1:1" ? "1:1" : input.aspectRatio === "16:9" ? "16:9" : "9:16",

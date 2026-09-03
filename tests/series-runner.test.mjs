@@ -42,8 +42,8 @@ test('script runner records the asset-authoritative reverse repair before finali
     assert.equal(project.episodes[0].scriptAssetRepairs.length, 1);
     assert.equal(project.episodes[0].scriptAssetRepairs[0].changes[0].kind, 'speaker_added');
     assert.ok(stages.some(stage => /按最终角色与道具反向修正 1 处/.test(stage)));
-    assert.ok(stages.some(stage => /按最终角色与道具复核18镜剧本/.test(stage)));
-    assert.match(stages.at(-1), /18镜已定稿/);
+    assert.ok(stages.some(stage => /按最终角色与道具复核16镜剧本/.test(stage)));
+    assert.match(stages.at(-1), /16镜已定稿/);
   } finally {
     globalThis.fetch = previousFetch;
   }
@@ -86,7 +86,7 @@ test('production runner reuses locked shared assets, saves checkpoints and uploa
       const production = JSON.parse(storage.get(keys.current));
       assert.ok(production.characters.every(c => c.voiceLocked && c.voiceSource === 'auto'));
       assert.equal(JSON.parse(storage.get(keys.settings)).comfyui.useLocalCompanion, false);
-      assert.equal(JSON.parse(storage.get(keys.contract)).shotCount, 18);
+      assert.equal(JSON.parse(storage.get(keys.contract)).shotCount, 16);
       const send = data => { const event = new Event('message'); Object.assign(event, { origin: events.location.origin, source: frame.contentWindow, data: { type: 'aid-story-batch', runId: params.get('batchRunId'), ...data } }); events.dispatchEvent(event); };
       queueMicrotask(() => {
         send({ event: 'checkpoint', project: production });

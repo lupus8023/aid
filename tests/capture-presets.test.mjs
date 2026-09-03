@@ -81,7 +81,7 @@ test('MJ world master and Nano grid both receive the project capture mode', () =
   });
   assert.match(master, /CAPTURE MODE \(authoritative\): Authentic live-television candid capture/i);
 
-  const grid = buildGridPrompt('Shanghai shopping street', 'Nana identity', Array(9).fill('Nana browses a shop window'), '16:9', ['Nana'], undefined, 'cinematic-natural', 'broadcast-candid');
+  const grid = buildGridPrompt('Shanghai shopping street', 'Nana identity', Array(4).fill('Nana browses a shop window'), '16:9', ['Nana'], undefined, 'cinematic-natural', 'broadcast-candid');
   assert.match(grid, /CAPTURE MODE FOR EVERY PANEL/);
   assert.match(grid, /live-TV candid coverage/i);
 });

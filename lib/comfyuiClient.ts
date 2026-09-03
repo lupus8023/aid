@@ -2,7 +2,7 @@ import type { AppSettings } from '@/types';
 import { isComfyUIZImageTurbo } from './imageModels';
 
 export const DEFAULT_COMFYUI_COMPANION_URL = 'http://127.0.0.1:3018';
-// Story generation runs inside the packaged Companion so long 27–81 shot jobs
+// Story generation runs inside the packaged Companion so long 28–80 shot jobs
 // are not cut off by the hosting gateway. Keep this gate aligned with the
 // screenplay schema: older builds silently drop newer narrative fields.
 export const STORY_COMPANION_MIN_VERSION = [0, 1, 89] as const;

@@ -106,10 +106,10 @@ test('long-story prompts separate spine allocation from bounded beat-map output'
     characters: [{ name: 'A', description: 'adult investigator' }],
     objects: [],
     language: 'en',
-    targetShotCount: 18,
+    targetShotCount: 16,
   };
   const spinePrompt = buildStorySpinePrompt(shared);
-  assert.match(spinePrompt, /shotCount.*18|合计必须严格等于 18/s);
+  assert.match(spinePrompt, /shotCount.*16|合计必须严格等于 16/s);
   assert.doesNotMatch(spinePrompt, /"beatMap"\s*:/);
 
   const mapPrompt = buildStorySequenceMapPrompt({

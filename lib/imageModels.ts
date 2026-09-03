@@ -41,7 +41,7 @@ export function storyboardImageMode(model: string): 'single' | 'grid' {
 }
 
 export function resolveStoryboardGridImageModel(model: string): string {
-  if (isMidjourneyImageModel(model)) throw new Error('MJ 分镜必须逐镜生成，不能生成九宫格或自动切换生图模型');
+  if (isMidjourneyImageModel(model)) throw new Error('MJ 分镜必须逐镜生成，不能生成四宫格或自动切换生图模型');
   return model;
 }
 

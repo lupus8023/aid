@@ -2,7 +2,7 @@ export function buildCloudinaryGridCellUrls(
   secureUrl: string,
   width: number,
   height: number,
-  gridSize: 2 | 3 = 3,
+  gridSize: 2 | 3 = 2,
 ): string[] {
   if (!secureUrl.includes('/upload/')) throw new Error('Invalid Cloudinary delivery URL');
   if (!Number.isFinite(width) || !Number.isFinite(height) || width < gridSize || height < gridSize) {
@@ -21,7 +21,8 @@ export function buildCloudinaryGridCellUrls(
       const x = column * cellWidth + inset;
       const y = row * cellHeight + inset;
       // Crop from the persisted high-resolution mother, then cap only the
-      // delivered derivative. A native 4K grid yields ~1.3K-wide 16:9 cells,
+      // delivered derivative. A native 4K 2x2 grid preserves substantially
+      // more per-shot detail than the previous 3x3 contact sheet,
       // while q_auto:good keeps each reference compact for browser/Companion.
       const transform = `c_crop,x_${x},y_${y},w_${cropWidth},h_${cropHeight}/c_limit,w_1600,h_1600/q_auto:good,f_auto`;
       urls.push(secureUrl.replace('/upload/', `/upload/${transform}/`));

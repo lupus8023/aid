@@ -17,5 +17,5 @@ export function episodeFixtures() {
   return { episodes: stories.map((s, i) => ({ number: i + 1, title: s[0], synopsis: s[1], opening: s[2], goal: s[3], conflict: s[4], choice: s[5], resolution: s[6], hook: s[7], hookType: s[8], nextOpening: s[9], plants: s[10], paysOff: s[11], stateChanges: s[12], characterIds: ['c1', 'c2'], locationIds: ['l1'], knowledgeChanges: [{ characterId: 'c1', learns: s[6] }] })) };
 }
 export function shotFixture() {
-  return { shots: Array.from({ length: 18 }, (_, i) => ({ number: i + 1, seconds: i < 12 ? 7 : 6, locationId: 'l1', characterIds: ['c1'], visual: i === 17 ? '特写，照片中的男人转身。' : '近景，显影盘中的照片逐渐清晰。', action: i === 17 ? '知夏认出陈叔，手停在半空。' : '知夏用镊子缓缓夹起照片，仔细观察。', dialogue: i === 4 ? [{ characterId: 'c1', text: '这块表，我见过。', emotion: '克制的疑惑' }] : [], sound: '台灯低鸣，街上远处的雨声。', purpose: i === 17 ? '兑现辨认目标，留下陈叔身份悬念。' : '积累异常线索与人物反应。' })) };
+  return { shots: Array.from({ length: 16 }, (_, i) => ({ number: i + 1, seconds: i < 8 ? 8 : 7, locationId: 'l1', characterIds: ['c1'], visual: i === 15 ? '特写，照片中的男人转身。' : '近景，显影盘中的照片逐渐清晰。', action: i === 15 ? '知夏认出陈叔，手停在半空。' : '知夏用镊子缓缓夹起照片，仔细观察。', dialogue: i === 4 ? [{ characterId: 'c1', text: '这块表，我见过。', emotion: '克制的疑惑' }] : [], sound: '台灯低鸣，街上远处的雨声。', purpose: i === 15 ? '兑现辨认目标，留下陈叔身份悬念。' : '积累异常线索与人物反应。' })) };
 }

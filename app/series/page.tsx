@@ -1164,7 +1164,7 @@ export default function SeriesPage() {
     if (project && episode.script && episode.scriptAssetFingerprint !== seriesScriptAssetFingerprint(project, episode))
       return { label: '剧本待资产复核', color: 'text-amber-200' };
     return {
-      label: episode.script ? `${project?.shotCount || 18}镜就绪` : "故事就绪",
+      label: episode.script ? `${project?.shotCount || 16}镜就绪` : "故事就绪",
       color: "text-[var(--text-secondary)]",
     };
   };

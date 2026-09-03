@@ -29,7 +29,7 @@ export function prepareImageCastRepair(board: Storyboard, check: ImageCastCheck,
   const cast = visibleImageCast(board, characters);
   return {
     ...board, characters: storyboardVisualCastNames(board, characters.filter(c => c.appearance !== 'voice_only').map(c => c.name)),
-    imageUrl: undefined, gridSourceUrl: undefined, taskId: undefined, imageTaskMode: undefined, imageCandidateUrls: undefined,
+    imageUrl: undefined, gridSourceUrl: undefined, taskId: undefined, imageTaskMode: undefined, imageGridSize: undefined, imageCandidateUrls: undefined,
     imagePromptOverride: undefined, imageRetryCount: 0, status: 'pending',
     imageFailureReason: `视觉身份一致性自动修复：${check.issues.join('；')}`,
     imageCastRepairAttempts: attempts + 1,

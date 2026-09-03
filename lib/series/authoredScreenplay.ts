@@ -59,7 +59,7 @@ function speechSeconds(lines: string[], language: 'zh' | 'en'): number {
 /**
  * Recognize a pasted, already-directed screenplay. The high threshold is
  * deliberate: an ordinary story that merely mentions “镜头” must continue to
- * use the normal 18-shot adaptation workflow.
+ * use the normal four-multiple adaptation workflow.
  */
 export function parseAuthoredScreenplay(
   brief: unknown,

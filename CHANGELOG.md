@@ -1,3 +1,9 @@
+## 0.1.184 - 2026-09-04
+
+- Replace Story's nine-panel reference generation with native 2×2 four-panel sheets. Prompt layout, batching, server-side crop geometry, canvas previews, progress labels, error text, and split requests now all use four shots per batch.
+- Replace the 9/18-based shot selector with every multiple of four from 4 through 80 and make 16 shots the new ordinary-story and generated-series default. Authored screenplays still retain their exact original shot count, with a partial final four-panel batch when needed.
+- Preserve paid work across the upgrade: every new grid task stores its 2×2 geometry, while interrupted pre-upgrade 3×3 tasks are recognized and recovered with their original nine-cell crop instead of being resubmitted or mis-split.
+
 ## 0.1.183 - 2026-09-03
 
 - Let every missing character card, scene reference, and automatic prop reference be generated independently from its own card. A recoverable task ID is resumed; an explicit manual retry may start one fresh paid attempt only when the previous submission cannot be resumed.

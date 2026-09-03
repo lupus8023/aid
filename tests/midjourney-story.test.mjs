@@ -13,7 +13,8 @@ test('MJ queues missing individual shots even for empty or legacy grid batches, 
   assert.equal(plan.kind, 'generate-missing');
   assert.deepEqual(plan.storyboardIds, ['s0','s1','s3','s4','s5','s6','s7','s8']);
   assert.equal(group[2].imageUrl, 'keep.png');
-  assert.equal(planAutoImageBatch(group, 'seedream-5-0-pro').kind, 'resume-grid');
+  assert.equal(planAutoImageBatch(group, 'seedream-5-0-pro').kind, 'await-legacy-grid');
+  assert.equal(planAutoImageBatch(group.slice(0, 4).map(s => ({ ...s, imageGridSize: 2 })), 'seedream-5-0-pro').kind, 'resume-grid');
   assert.equal(planAutoImageBatch(group.map(s => ({ ...s, imageUrl: 'keep.png' })), 'midjourney').kind, 'skip');
 });
 

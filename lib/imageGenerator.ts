@@ -34,8 +34,8 @@ export async function generateStoryboardImage(
   const selectedImageModel = imageModel || 'seedream-5-0-pro';
   const photographicGpt = isGptImage2Model(selectedImageModel) && usesPhotographicReferences(visualStyle);
   if (isMidjourneyImageModel(selectedImageModel)) {
-    if (/UNIQUE STORYBOARD BATCH:|3x3 storyboard contact sheet/i.test(storyboard.prompt) || preUploadedReferences?.length) {
-      throw new Error('MJ 分镜必须逐镜生成，不接受九宫格任务');
+    if (/UNIQUE STORYBOARD BATCH:|(?:2x2|3x3) storyboard contact sheet/i.test(storyboard.prompt) || preUploadedReferences?.length) {
+      throw new Error('MJ 分镜必须逐镜生成，不接受四宫格任务');
     }
     const shot = midjourneyShotInput(storyboard, characters, objects, globalCostumeImages, storyboard.sceneImageOverride || globalSceneImage);
     return createProviderImageTask(shot.prompt, shot.imageUrls, apiKey, selectedImageModel, aspectRatio, undefined, comfyui, {
@@ -66,7 +66,7 @@ export async function generateStoryboardImage(
   console.log('- Matched scene objects:', sceneObjects.map(o => o.name));
   console.log('- Pre-uploaded references:', preUploadedReferences?.length || 0);
 
-  // 如果提供了预上传的参考图（用于九宫格生成），直接使用
+  // 如果提供了预上传的参考图（用于四宫格生成），直接使用
   if (preUploadedReferences && preUploadedReferences.length > 0) {
     console.log('Using pre-uploaded references for grid generation');
     const effectiveReferences = preUploadedReferences.slice(0, maxReferenceImages);
@@ -112,7 +112,7 @@ export async function generateStoryboardImage(
 
     // Grid-specific scene content must lead the request. If APIMart's practical
     // prompt limit is reached, the generic style/reference tail may be trimmed,
-    // but the nine distinct panels and batch identity must always survive.
+    // but the four distinct panels and batch identity must always survive.
     const isStructuredGridPrompt = cleanPrompt.includes('UNIQUE STORYBOARD BATCH:')
       && cleanPrompt.includes('GRID STYLE BIBLE (authoritative');
     const supplementalObjectRules = objectsWithoutRef.map(obj =>
@@ -174,8 +174,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       apiKey,
       selectedImageModel,
       aspectRatio,
-      // A 2K mother contact sheet leaves each of the nine cells at roughly
-      // 650×360. Generate the grid at 4K, then the split route stores a
+      // Generate the 2x2 mother grid at 4K, then the split route stores a
       // compressed mother and serves compact native-detail cells to H3.
       '4K',
       comfyui,

@@ -68,7 +68,7 @@ test('GPT image submission retains cast, every reference role and final constrai
 });
 
 test('structured GPT grids deliver photographic treatment without losing panels or reference order', async () => {
-  const panelText = Array.from({ length: 9 }, (_, i) => `Panel ${i + 1}: preserve shot-${i + 1}-sentinel at its authored camera distance.`).join('\n');
+  const panelText = Array.from({ length: 4 }, (_, i) => `Panel ${i + 1}: preserve shot-${i + 1}-sentinel at its authored camera distance.`).join('\n');
   const prompt = `UNIQUE STORYBOARD BATCH: test-1\nGRID STYLE BIBLE (authoritative): keep every panel.\n${panelText}`;
   const board = { id: 'grid', sceneNumber: 1, characters: ['Luna'], objects: [], prompt };
   const references = ['https://example.com/identity.png', 'https://example.com/location.png'];
@@ -83,7 +83,7 @@ test('structured GPT grids deliver photographic treatment without losing panels 
     for (const style of ['cinematic-natural', 'anime']) {
       await generateStoryboardImage(board, [{ name: 'Luna', description: 'The approved character' }], 'test-only', [], '9:16', 'gpt-image-2', {}, undefined, references, labels, style);
       assert.ok(submitted.prompt.startsWith(prompt));
-      for (let i = 1; i <= 9; i++) assert.ok(submitted.prompt.includes(`shot-${i}-sentinel`));
+      for (let i = 1; i <= 4; i++) assert.ok(submitted.prompt.includes(`shot-${i}-sentinel`));
       assert.deepEqual(submitted.image_urls, references);
       if (style === 'anime') assert.doesNotMatch(submitted.prompt, /PHOTOGRAPHIC SURFACE AND OPTICS/);
       else {

@@ -89,7 +89,7 @@ export interface StoryStructureMilestone {
 
 export interface StoryPlan {
   id: string;
-  targetShotCount?: number; // 用户在剧本第一步选择的目标镜头数（9 的倍数，最大 81）
+  targetShotCount?: number; // 用户在剧本第一步选择的目标镜头数（4 的倍数，最大 80）
   targetDurationSeconds?: number; // 按制作规格估算的目标片长
   estimatedDurationSeconds?: number; // beats.durationHint 累加得到的实际预估片长
   sourceBrief?: string; // original user input, retained as the source of truth across stages

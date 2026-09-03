@@ -350,19 +350,19 @@ test('script repair lists all overlong dialogue and preserves shot timing, speak
   const p = fixture(); p.language = 'en';
   p.episodes = parseEpisodes(episodeFixtures(), p, 1, 3);
   const raw = shotFixture();
-  for (const i of [3, 6, 17]) raw.shots[i].dialogue = [{ characterId: 'c1', text: Array(22).fill('word').join(' '), emotion: 'worried' }];
+  for (const i of [3, 6, 15]) raw.shots[i].dialogue = [{ characterId: 'c1', text: Array(22).fill('word').join(' '), emotion: 'worried' }];
   let draft = JSON.stringify(raw), calls = 0;
   const result = await generateSeriesStage('script', p, p.episodes[0].id, {
     read: async () => draft, save: async value => { draft = value; }, chat: async prompt => {
       calls++;
-      for (const i of [3, 6, 17]) assert.ok(prompt.includes(`shots[${i}].dialogue[0].text`));
-      return JSON.stringify({ repairs: [3, 6, 17].map(i => ({ path: `shots[${i}].dialogue[0].text`, value: 'I need to know the truth.' })) });
+      for (const i of [3, 6, 15]) assert.ok(prompt.includes(`shots[${i}].dialogue[0].text`));
+      return JSON.stringify({ repairs: [3, 6, 15].map(i => ({ path: `shots[${i}].dialogue[0].text`, value: 'I need to know the truth.' })) });
     },
   });
   assert.equal(calls, 1);
-  assert.equal(result.script.length, 18);
+  assert.equal(result.script.length, 16);
   const expected = structuredClone(raw);
-  for (const i of [3, 6, 17]) expected.shots[i].dialogue[0].text = 'I need to know the truth.';
+  for (const i of [3, 6, 15]) expected.shots[i].dialogue[0].text = 'I need to know the truth.';
   assert.deepEqual(JSON.parse(draft), expected);
   await generateSeriesStage('script', p, p.episodes[0].id, { read: async () => draft, chat: async () => assert.fail('cached script must be reused') });
 });
@@ -425,24 +425,24 @@ test('shot-count normalization preserves every dialogue turn and fixed-prop clue
   p.episodes = parseEpisodes(episodeFixtures(), p, 1, 3);
   const valid = shotFixture();
   const raw = structuredClone(valid);
-  raw.shots.push({ ...structuredClone(raw.shots[17]), number: 19, seconds: 2, dialogue: [] });
+  raw.shots.push({ ...structuredClone(raw.shots[15]), number: 17, seconds: 2, dialogue: [] });
   let draft = JSON.stringify(raw), calls = 0;
   const result = await generateSeriesStage('script', p, p.episodes[0].id, {
     read: async () => draft,
     save: async value => { draft = value; },
     chat: async prompt => {
       calls++;
-      assert.match(prompt, /现有19镜/);
+      assert.match(prompt, /现有17镜/);
       return JSON.stringify(valid);
     },
   });
   assert.equal(calls, 1);
-  assert.equal(result.script.length, 18);
+  assert.equal(result.script.length, 16);
   assert.equal(result.scriptAssetRepairs[0].kind, 'shot_count_normalized');
   assert.deepEqual(result.script.flatMap(shot => shot.dialogue), valid.shots.flatMap(shot => shot.dialogue));
 });
 
-test('dialogue repair rejects unsafe patches and cannot bypass timing or 18-shot validation', async () => {
+test('dialogue repair rejects unsafe patches and cannot bypass timing or 16-shot validation', async () => {
   const { shotFixture } = await import('./fixtures/series.mjs');
   const { checkScriptDialogue, ScriptDialogueError, applyDialogueRepairs } = await import('../lib/series/scriptRepair.ts');
   const { parseScript } = await import('../lib/series/domain.ts');
@@ -452,11 +452,11 @@ test('dialogue repair rejects unsafe patches and cannot bypass timing or 18-shot
   raw.shots[0].characterIds = ['c1', 'c2'];
   let issues;
   assert.throws(() => checkScriptDialogue(raw.shots, 'en'), error => { issues = error.issues; return error instanceof ScriptDialogueError; });
-  assert.equal(issues.length, 2); assert.ok(issues.reduce((n, i) => n + i.maxUnits, 0) <= 14);
+  assert.equal(issues.length, 2); assert.ok(issues.reduce((n, i) => n + i.maxUnits, 0) <= 17);
   assert.throws(() => applyDialogueRepairs(raw, { repairs: [{ path: 'shots[0].seconds', value: '15' }, { path: issues[1].path, value: 'Fine.' }] }, issues), /仅可缩短/);
   const unchanged = applyDialogueRepairs(raw, { shots: raw.shots }, issues);
   assert.throws(() => parseScript(unchanged, p, p.episodes[0]), /台词超时/);
-  assert.throws(() => parseScript({ shots: raw.shots.slice(1) }, p, p.episodes[0]), /18镜/);
+  assert.throws(() => parseScript({ shots: raw.shots.slice(1) }, p, p.episodes[0]), /16镜/);
   let saves = 0, calls = 0;
   await assert.rejects(generateSeriesStage('script', p, p.episodes[0].id, {
     read: async () => JSON.stringify(raw), save: async () => { saves++; }, chat: async () => { calls++; return '{"repairs":[]}'; },
@@ -466,8 +466,8 @@ test('dialogue repair rejects unsafe patches and cannot bypass timing or 18-shot
 
 test('series binds exact structured dialogue before directing without reparsing role labels or losing lines', async () => {
   const { bindSeriesPlan, validateSeriesProduction } = await import('../lib/series/productionContract.ts');
-  const shots = Array.from({ length: 18 }, (_, i) => ({ number: i + 1, seconds: i < 12 ? 7 : 6, characters: ['A', 'B'], action: `approved action ${i}`, visual: `approved visual ${i}`, purpose: `purpose ${i}`, dialogue: i === 0 ? [{ character: 'A', text: 'The name stays outside my words.', emotion: 'calm' }, { character: 'B', text: 'Both lines stay.', emotion: 'firm' }] : [] }));
-  const contract = { shotCount: 18, voices: { A: 'fixed-a', B: 'fixed-b' }, shots, dialogue: shots.flatMap(s => s.dialogue) };
+  const shots = Array.from({ length: 16 }, (_, i) => ({ number: i + 1, seconds: i < 8 ? 8 : 7, characters: ['A', 'B'], action: `approved action ${i}`, visual: `approved visual ${i}`, purpose: `purpose ${i}`, dialogue: i === 0 ? [{ character: 'A', text: 'The name stays outside my words.', emotion: 'calm' }, { character: 'B', text: 'Both lines stay.', emotion: 'firm' }] : [] }));
+  const contract = { shotCount: 16, voices: { A: 'fixed-a', B: 'fixed-b' }, shots, dialogue: shots.flatMap(s => s.dialogue) };
   const plan = { sequences: [{ beats: shots.map(s => ({ index: s.number, sourceShotRefs: [s.number], action: 'paraphrased action', durationHint: 10, characters: ['A'], speech: [{ character: 'A', exactLine: 'A：“wrong text”', voiceId: 'wrong' }], performance: [], dialogueTurns: [], cause: 'preserved causal direction' })) }] };
   const bound = bindSeriesPlan(contract, plan), beats = bound.sequences.flatMap(s => s.beats);
   validateSeriesProduction(contract, beats);

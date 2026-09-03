@@ -172,7 +172,7 @@ test('rejects a fixed-prop id that is not grounded by its registered name or ali
 test('approved series dialogue goes straight to direction, retaining A-B-A exchanges, silence and sound', () => {
   const p = fixture(), cast = p.characters.map(c => ({ ...c, voiceId: `voice-${c.id}` }));
   const names = new Map(cast.map(c => [c.id, c.name]));
-  const contract = { shotCount: 18, story: { ...p.episodes[0], theme: p.bible.theme, logline: p.episodes[0].synopsis }, voices: Object.fromEntries(cast.map(c => [c.name, c.voiceId])), shots: p.episodes[0].script.map(s => ({
+  const contract = { shotCount: 16, story: { ...p.episodes[0], theme: p.bible.theme, logline: p.episodes[0].synopsis }, voices: Object.fromEntries(cast.map(c => [c.name, c.voiceId])), shots: p.episodes[0].script.map(s => ({
     number: s.number, seconds: s.seconds, action: s.action, visual: s.visual, purpose: s.purpose, locationId: s.locationId, sceneStyle: 'Reef hall', sound: s.sound,
     characters: [names.get('c1'), names.get('c2')], dialogue: s.dialogue.map(d => ({ ...d, character: names.get(d.characterId) })),
   })) };
@@ -180,7 +180,7 @@ test('approved series dialogue goes straight to direction, retaining A-B-A excha
   contract.dialogue = contract.shots.flatMap(s => s.dialogue.map(({ character, text }) => ({ character, text })));
   const original = structuredClone(contract);
   const plan = buildApprovedSeriesPlan(contract, 'Approved screenplay', cast), beats = plan.sequences.flatMap(s => s.beats);
-  assert.equal(beats.length, 18); assert.equal(plan.estimatedDurationSeconds, 120);
+  assert.equal(beats.length, 16); assert.equal(plan.estimatedDurationSeconds, 120);
   assert.deepEqual(beats[3].speech.map(s => [s.character, s.exactLine]), contract.shots[3].dialogue.map(s => [s.character, s.text]));
   assert.equal(beats[0].speech.length, 0);
   assert.deepEqual(beats[3].audioPlan.environment, [contract.shots[3].sound]);
@@ -190,13 +190,13 @@ test('approved series dialogue goes straight to direction, retaining A-B-A excha
   const brokenPlan = structuredClone(plan); brokenPlan.seriesEpisode.goal = '';
   assert.match(auditStoryDelivery(brokenPlan, boards).errors.join(' '), /分集缺少/);
   const variablePlan = structuredClone(plan);
-  variablePlan.targetShotCount = 9;
+  variablePlan.targetShotCount = 8;
   variablePlan.sequences = variablePlan.sequences.map(sequence => ({
     ...sequence,
-    beats: sequence.beats.filter(beat => beat.index <= 9),
+    beats: sequence.beats.filter(beat => beat.index <= 8),
   })).filter(sequence => sequence.beats.length);
-  const variableBoards = boards.slice(0, 9);
-  assert.doesNotMatch(auditStoryDelivery(variablePlan, variableBoards).errors.join(' '), /分集缺少完整|18镜/);
+  const variableBoards = boards.slice(0, 8);
+  assert.doesNotMatch(auditStoryDelivery(variablePlan, variableBoards).errors.join(' '), /分集缺少完整|16镜/);
   const ordinaryPlan = { ...plan, seriesEpisode: undefined };
   assert.match(auditStoryDelivery(ordinaryPlan, boards).errors.join(' '), /七个叙事里程碑/);
   const invalid = structuredClone(contract); invalid.shots[0].number = 2;
@@ -207,7 +207,7 @@ test('approved series dialogue goes straight to direction, retaining A-B-A excha
 
 test('saved series contracts automatically follow the current registered voice and restore an omitted speaking cast member', () => {
   const contract = {
-    shotCount: 18, voices: { ' 知夏 ': 'old-voice' }, dialogue: [{ character: '知夏', text: '原句。' }],
+    shotCount: 16, voices: { ' 知夏 ': 'old-voice' }, dialogue: [{ character: '知夏', text: '原句。' }],
     shots: [{ number: 1, seconds: 6, characters: [], action: '动作', visual: '画面', purpose: '目的', dialogue: [{ character: ' 知夏 ', text: '原句。', emotion: '平静' }] }],
   };
   const repaired = reconcileSeriesProductionContract(contract, [{ name: '知夏', voiceId: 'current-voice' }]);
@@ -224,7 +224,7 @@ test('approved series accepts four short alternating turns that reuse two H3 voi
   const cast = p.characters;
   const names = new Map(cast.map(character => [character.id, character.name]));
   const contract = {
-    shotCount: 18,
+    shotCount: 16,
     story: { title: '短对答', theme: p.bible.theme, logline: '测试', opening: '开场', goal: '目标', conflict: '冲突', choice: '选择', resolution: '结果', hook: '钩子' },
     voices: Object.fromEntries(cast.map(character => [character.name, character.voiceId])),
     shots: p.episodes[0].script.map(shot => ({ number: shot.number, seconds: shot.seconds, action: shot.action, visual: shot.visual, purpose: shot.purpose, locationId: shot.locationId, characters: shot.characterIds.map(id => names.get(id)), dialogue: [] })),
@@ -246,7 +246,7 @@ test('series screenplay enforces count, timing, canonical speakers and payoff pr
   assert.equal(p.episodes[0].script.reduce((n, s) => n + s.seconds, 0), 120);
   const invalid = shotFixture(); invalid.shots[0].dialogue = [{ characterId: 'stranger', text: '台词', emotion: '' }];
   assert.throws(() => parseScript(invalid, p, p.episodes[0]), /未登记/);
-  assert.throws(() => parseScript({ shots: invalid.shots.slice(1) }, p, p.episodes[0]), /18镜/);
+  assert.throws(() => parseScript({ shots: invalid.shots.slice(1) }, p, p.episodes[0]), /16镜/);
   const longLine = shotFixture(); longLine.shots[0].dialogue = [{ characterId: 'c1', text: '很长的台词。'.repeat(30), emotion: '' }];
   assert.throws(() => parseScript(longLine, p, p.episodes[0]), /超时/);
   const missedPayoff = episodeFixtures(); missedPayoff.episodes[1].paysOff = [];
@@ -281,7 +281,7 @@ test('automatically selected and locked voices survive later Story casting witho
   assert.throws(() => buildEpisodeProject(p, p.episodes[0]), /尚未定稿/);
   p.characters.forEach((c, i) => { c.locked = true; c.voiceId = `voice-${i}`; c.voiceSource = 'auto'; c.bibleUrl = `https://example.test/${i}.png`; });
   const production = buildEpisodeProject(p, p.episodes[0]);
-  assert.equal(production.targetShotCount, 18);
+  assert.equal(production.targetShotCount, 16);
   assert.ok(production.characters.every(c => c.voiceLocked));
   assert.match(production.storyContent, /必须逐字保留/);
 });
@@ -293,8 +293,8 @@ test('series keys never overwrite ordinary projects, settings or other episodes'
 });
 
 test('director cannot change approved episode dialogue or add a speaker before media generation', () => {
-  const contract = { shotCount: 18, voices: { 知夏: 'licensed-a' }, dialogue: [{ character: '知夏', text: '这块表，我见过。' }] };
-  const boards = Array.from({ length: 18 }, () => ({ speech: [] }));
+  const contract = { shotCount: 16, voices: { 知夏: 'licensed-a' }, dialogue: [{ character: '知夏', text: '这块表，我见过。' }] };
+  const boards = Array.from({ length: 16 }, () => ({ speech: [] }));
   boards[4].speech = [{ character: '知夏', voiceId: 'licensed-a', exactLine: '这块表，我见过。' }];
   validateSeriesProduction(contract, boards);
   boards[4].speech[0].exactLine = '这块表我没见过。';

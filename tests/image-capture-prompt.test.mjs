@@ -103,8 +103,8 @@ test('grid prompts preserve structural line breaks at the provider boundary', as
   assert.doesNotMatch(source, /replace\(\/\[\\x00-\\x1F\\x7F\]\/g, ''\)/);
 });
 
-test('grid prompt preserves all nine unique shot identities under the provider budget', () => {
-  const shots = Array.from({ length: 9 }, (_, index) => (
+test('grid prompt preserves all four unique shot identities under the provider budget', () => {
+  const shots = Array.from({ length: 4 }, (_, index) => (
     `UNIQUE_OPTICS_${index + 1}: subject action; camera ${index + 1}m away at a distinct height; asymmetric foreground occlusion; eyes on the focus plane; side light incidence ${index + 1}; finite highlight roll-off. CAST[1]: HERO; each exactly once.`
   ));
   const prompt = buildGridPrompt(
@@ -113,7 +113,7 @@ test('grid prompt preserves all nine unique shot identities under the provider b
     shots,
     '16:9',
     ['HERO character identity reference'],
-    Array.from({ length: 9 }, (_, index) => index + 1),
+    Array.from({ length: 4 }, (_, index) => index + 1),
     'cinematic-natural',
   );
   assert.doesNotMatch(prompt, /Panel\s+1\s*\(/i);
@@ -122,14 +122,14 @@ test('grid prompt preserves all nine unique shot identities under the provider b
 
   assert.ok(prompt.length <= 3500, `grid prompt was ${prompt.length} characters`);
   assert.match(prompt, /GRID STYLE BIBLE/);
-  assert.match(prompt, /bottom-right frame, depict UNIQUE_OPTICS_9/i);
-  for (let index = 1; index <= 9; index += 1) {
+  assert.match(prompt, /bottom-right frame, depict UNIQUE_OPTICS_4/i);
+  for (let index = 1; index <= 4; index += 1) {
     assert.match(prompt, new RegExp(`UNIQUE_OPTICS_${index}`));
   }
 });
 
-test('observational grid contracts preserve all nine shots within their expanded safe budget', () => {
-  const shots = Array.from({ length: 9 }, (_, index) => (
+test('observational grid contracts preserve all four shots within their expanded safe budget', () => {
+  const shots = Array.from({ length: 4 }, (_, index) => (
     `CANDID_PHASE_${index + 1}: Nana continues a distinct ordinary task phase near the shop window; off-center physical action and foreground depth. CAST[1]: Nana; each exactly once.`
   ));
   const prompt = buildGridPrompt(
@@ -142,7 +142,7 @@ test('observational grid contracts preserve all nine shots within their expanded
     'cinematic-natural',
     'broadcast-candid',
   );
-  for (let index = 1; index <= 9; index += 1) assert.match(prompt, new RegExp(`CANDID_PHASE_${index}\\b`));
+  for (let index = 1; index <= 4; index += 1) assert.match(prompt, new RegExp(`CANDID_PHASE_${index}\\b`));
   assert.match(prompt, /plausible motion blur/i);
   assert.match(prompt, /broadcast compression/i);
   assert.ok(prompt.length <= 3700, `observational grid prompt was ${prompt.length} characters`);
@@ -197,11 +197,11 @@ test('GPT Image 2 treats a referenced product as an immutable design without ban
   assert.doesNotMatch(prompt, /No .*logo.*other readable text/i);
 });
 
-test('storyboard grids lock mapped object references across all nine panels', () => {
+test('storyboard grids lock mapped object references across all four panels', () => {
   const prompt = buildGridPrompt(
     'A working skincare laboratory',
     'Dr. Pan in a white coat',
-    Array.from({ length: 9 }, (_, index) => `Dr. Pan handles the blue serum bottle in shot ${index + 1}. Only Dr. Pan appears.`),
+    Array.from({ length: 4 }, (_, index) => `Dr. Pan handles the blue serum bottle in shot ${index + 1}. Only Dr. Pan appears.`),
     '16:9',
     ['CHARACTER IDENTITY: Dr. Pan', 'OBJECT IDENTITY: blue serum bottle — frosted glass and silver pump'],
   );
@@ -210,7 +210,7 @@ test('storyboard grids lock mapped object references across all nine panels', ()
   assert.match(prompt, /never redesign, deform, substitute or add\/remove parts/i);
   assert.match(prompt, /existing label\/logo unchanged/i);
   assert.doesNotMatch(prompt, /No .*logos.*readable text/i);
-  for (let index = 1; index <= 9; index += 1) assert.match(prompt, new RegExp(`shot ${index}\\b`, 'i'));
+  for (let index = 1; index <= 4; index += 1) assert.match(prompt, new RegExp(`shot ${index}\\b`, 'i'));
   assert.ok(prompt.length <= 3900, `object-aware grid prompt was ${prompt.length} characters`);
 });
 
@@ -227,22 +227,22 @@ test('GPT Image 2 keeps explicit non-photographic media instead of forcing photo
 
 test('long named ensemble grids retain every panel, complete cast and reference mapping', () => {
   const names = ['Luna Tideborne', 'Victoria Tideborne', 'Professor Silt'];
-  const refs = names.map(name => `CHARACTER IDENTITY: ${name}`).concat(['CHARACTER IDENTITY: Tilda Trashfin', 'CHARACTER IDENTITY: Rill', 'ENVIRONMENT: shots 1,2,3,4,5,6,9', 'ENVIRONMENT: shots 7,8']);
-  const prompt = buildGridPrompt('Multiple underwater palace locations', names.join(', '), Array.from({ length: 9 }, (_, i) =>
+  const refs = names.map(name => `CHARACTER IDENTITY: ${name}`).concat(['CHARACTER IDENTITY: Tilda Trashfin', 'CHARACTER IDENTITY: Rill', 'ENVIRONMENT: shots 1,2', 'ENVIRONMENT: shots 3,4']);
+  const prompt = buildGridPrompt('Multiple underwater palace locations', names.join(', '), Array.from({ length: 4 }, (_, i) =>
     `${names[0]}(${'detailed costume identity '.repeat(10)}) performs ACTION_${i + 1} as ${names[1]} watches. ${'Long camera staging and atmosphere. '.repeat(20)} Only ${names.join(', ')} appear in this frame, one instance of each.`), '9:16', refs);
-  const panels = prompt.split(/In the (?:top-left|top-center|top-right|middle-left|center|middle-right|bottom-left|bottom-center|bottom-right) frame, depict /).slice(1);
-  assert.equal(panels.length, 9);
+  const panels = prompt.split(/In the (?:top-left|top-right|bottom-left|bottom-right) frame, depict /).slice(1);
+  assert.equal(panels.length, 4);
   panels.forEach((panel, i) => {
     assert.ok(panel.includes(`ACTION_${i + 1}`));
     assert.ok(panel.includes(`CAST: ${names.join(', ')}; each exactly once.`));
   });
   refs.forEach((ref, i) => assert.ok(prompt.includes(`#${i + 1}=${ref}`)));
-  assert.match(prompt, /3x3.*9:16/);
+  assert.match(prompt, /2x2.*9:16/);
   assert.ok(prompt.length <= 3500);
 });
 
 test('over-capacity grids fail before payment instead of losing later panels', async () => {
   const { GridPromptCapacityError } = await import('../lib/gridSplitter.ts');
   const names = Array.from({ length: 40 }, (_, i) => `Character with a very long identity ${i}`).join(', ');
-  assert.throws(() => buildGridPrompt('', '', Array(9).fill(`A group reacts. Only ${names} appear in this frame, one instance of each.`), '9:16'), GridPromptCapacityError);
+  assert.throws(() => buildGridPrompt('', '', Array(4).fill(`A group reacts. Only ${names} appear in this frame, one instance of each.`), '9:16'), GridPromptCapacityError);
 });

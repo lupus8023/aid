@@ -146,7 +146,7 @@ function isCharacterBrief(source: string): boolean {
  * reference bookkeeping and repeated negative instructions.
  */
 function inferTaskMode(source: string): MidjourneyTaskMode {
-  if (/^UNIQUE STORYBOARD BATCH:|^(?:create\s+)?(?:a\s+|one\s+)?3x3 storyboard contact sheet/im.test(source)) return 'grid';
+  if (/^UNIQUE STORYBOARD BATCH:|^(?:create\s+)?(?:a\s+|one\s+)?(?:2x2|3x3) storyboard contact sheet/im.test(source)) return 'grid';
   if (isCharacterBrief(source)) return 'character-sheet';
   return 'single';
 }
@@ -172,7 +172,7 @@ export function buildMidjourneyPrompt(input: string, options: MidjourneyPromptOp
     .replace(/--(?:profile|p|ar|aspect|v|version|q|quality|stylize|s|chaos|c|weird|w|seed|iw|cref|cw|sref|sw|oref|ow|dref|dw|stop|repeat|r|niji|style)\s+[^\s]+/gi, '');
   const objectLock = referencedObjectDirection(source);
   const taskMode = options.taskMode || inferTaskMode(source);
-  if (taskMode === 'grid' || /^UNIQUE STORYBOARD BATCH:/im.test(source)) throw new Error('MJ 不再生成分镜九宫格，请逐镜生成');
+  if (taskMode === 'grid' || /^UNIQUE STORYBOARD BATCH:/im.test(source)) throw new Error('MJ 不生成分镜四宫格，请逐镜生成');
   let visual = '';
 
   if (taskMode === 'character-sheet' && isCharacterBrief(source)) {

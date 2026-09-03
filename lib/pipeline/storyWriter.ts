@@ -718,7 +718,7 @@ export function normalizeStoryOutline(
   // early is costly and does not improve the authored beat map. The final
   // beat is already authoritative, so lock resolution to it.
   resolution.shotIndex = targetShotCount;
-  if (targetShotCount >= 18 && climax.shotIndex >= resolution.shotIndex) {
+  if (targetShotCount >= 8 && climax.shotIndex >= resolution.shotIndex) {
     climax.shotIndex = targetShotCount - 1;
     const crisis = orderedMilestones.find(item => item.name === 'crisis_choice')!;
     if (crisis.shotIndex > climax.shotIndex) crisis.shotIndex = Math.max(1, climax.shotIndex - 1);

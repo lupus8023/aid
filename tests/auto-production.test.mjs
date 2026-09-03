@@ -59,11 +59,19 @@ test('treats an existing image as completed even when its stale UI status disagr
 
 test('reattaches a partially delivered grid to its paid task before regenerating', () => {
   const group = [
-    shot(1, { imageUrl: 'https://example.com/1.webp', status: 'completed', taskId: 'grid-1' }),
-    shot(2, { status: 'generating', taskId: 'grid-1' }),
-    shot(3, { status: 'failed', taskId: 'grid-1' }),
+    shot(1, { imageUrl: 'https://example.com/1.webp', status: 'completed', taskId: 'grid-1', imageGridSize: 2 }),
+    shot(2, { status: 'generating', taskId: 'grid-1', imageGridSize: 2 }),
+    shot(3, { status: 'failed', taskId: 'grid-1', imageGridSize: 2 }),
   ];
   assert.deepEqual(planAutoImageBatch(group), { kind: 'resume-grid', taskId: 'grid-1' });
+});
+
+test('leaves a paid pre-upgrade 3x3 task to the legacy recovery path', () => {
+  const group = [
+    shot(1, { status: 'generating', taskId: 'legacy-grid' }),
+    shot(2, { status: 'generating', taskId: 'legacy-grid' }),
+  ];
+  assert.deepEqual(planAutoImageBatch(group), { kind: 'await-legacy-grid', taskId: 'legacy-grid' });
 });
 
 test('does not mistake an interrupted single-image repair for a grid task', () => {

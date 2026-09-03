@@ -219,7 +219,7 @@ ${sourceAdaptationMap.length ? `编号原稿压缩合同（权威）：原稿镜
     "audienceExit": "离场时观众新增或修正的理解",
     "entryState": "人物/关系/道具/情绪入场状态",
     "exitState": "本场结束状态，供下一场继承",
-    "shotCount": 9,
+    "shotCount": 4,
     "beatMap": [{
       "index": 1,
       "sourceShotRefs": [1],

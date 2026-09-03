@@ -26,7 +26,7 @@ async function compressMotherGrid(sourceBuffer: Buffer): Promise<Buffer> {
 export async function POST(request: NextRequest) {
   try {
     const { imageUrl, gridSize: requestedGridSize } = await request.json();
-    const gridSize: 2 | 3 = Number(requestedGridSize) === 2 ? 2 : 3;
+    const gridSize: 2 | 3 = Number(requestedGridSize) === 3 ? 3 : 2;
     if (typeof imageUrl !== 'string' || !/^https:\/\//i.test(imageUrl)) {
       return NextResponse.json({ error: 'A valid HTTPS grid image URL is required' }, { status: 400 });
     }

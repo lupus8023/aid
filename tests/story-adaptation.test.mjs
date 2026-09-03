@@ -40,30 +40,30 @@ test('normalizes unsupported shot counts and keeps English output explicit', () 
 });
 
 test('accepts an adapted screenplay only when it is directly convertible to the video JSON contract', () => {
-  const script = Array.from({ length: 9 }, (_, offset) => {
+  const script = Array.from({ length: 8 }, (_, offset) => {
     const index = offset + 1;
     const dialogue = index === 1
       ? '台词：仙仙：“我会在天黑前把五色石带回来。”'
       : '台词：无';
     return `镜头 ${String(index).padStart(2, '0')}｜场次/地点｜可见动作 ${index}｜${dialogue}`;
   }).join('\n');
-  assert.deepEqual(validateAdaptedStoryScript(script, 9), {
+  assert.deepEqual(validateAdaptedStoryScript(script, 8), {
     valid: true,
     errors: [],
-    shotCount: 9,
+    shotCount: 8,
   });
 });
 
 test('rejects overloaded dialogue before the screenplay reaches structured story generation', () => {
   const longLine = 'I have carried every gate since dawn and I will not leave this chamber while the whole city still believes only my hands can hold back the sea and guide every family safely home tonight.';
-  const script = Array.from({ length: 9 }, (_, offset) => {
+  const script = Array.from({ length: 8 }, (_, offset) => {
     const index = offset + 1;
     const dialogue = index === 1
       ? `dialogue: Lanxi: “${longLine}” A-Luo: “Then you have made the whole city depend on your fear.”`
       : 'dialogue: NONE';
     return `SHOT ${String(index).padStart(2, '0')} | sequence/location | visible action ${index} | ${dialogue}`;
   }).join('\n');
-  const validation = validateAdaptedStoryScript(script, 9);
+  const validation = validateAdaptedStoryScript(script, 8);
   assert.equal(validation.valid, false);
   assert.match(validation.errors.join('\n'), /超过 H3 15 秒/);
   assert.match(buildStoryAdaptationCorrection(validation.errors), /重新输出完整改编稿/);
@@ -74,9 +74,9 @@ test('rejects overloaded dialogue before the screenplay reaches structured story
 test('rejects skipped shot numbers, excessive turns and spoken directing instructions', () => {
   const script = [
     '镜头 01｜场次/地点｜动作｜台词：A：“先短暂停顿，再以坚定语气说” B：“回应。” C：“继续。” D：“结束。”',
-    ...Array.from({ length: 8 }, (_, offset) => `镜头 ${String(offset + 3).padStart(2, '0')}｜场次/地点｜动作｜台词：无`),
+    ...Array.from({ length: 7 }, (_, offset) => `镜头 ${String(offset + 3).padStart(2, '0')}｜场次/地点｜动作｜台词：无`),
   ].join('\n');
-  const validation = validateAdaptedStoryScript(script, 9);
+  const validation = validateAdaptedStoryScript(script, 8);
   assert.equal(validation.valid, false);
   assert.match(validation.errors.join('\n'), /必须连续编号为 2/);
   assert.match(validation.errors.join('\n'), /最多绑定 3 人/);
@@ -86,9 +86,9 @@ test('rejects skipped shot numbers, excessive turns and spoken directing instruc
 test('rejects repeated same-speaker onsets and asks for one merged long line', () => {
   const script = [
     '镜头 01｜场次/地点｜动作｜台词：A：“我先说明第一件事。” A：“再补充第二件事。”',
-    ...Array.from({ length: 8 }, (_, offset) => `镜头 ${String(offset + 2).padStart(2, '0')}｜场次/地点｜动作｜台词：无`),
+    ...Array.from({ length: 7 }, (_, offset) => `镜头 ${String(offset + 2).padStart(2, '0')}｜场次/地点｜动作｜台词：无`),
   ].join('\n');
-  const validation = validateAdaptedStoryScript(script, 9);
+  const validation = validateAdaptedStoryScript(script, 8);
   assert.equal(validation.valid, false);
   assert.match(validation.errors.join('\n'), /每个人物每个片段只能有一段连续台词/);
   assert.match(buildStoryAdaptationCorrection(validation.errors), /合并成长台词/);

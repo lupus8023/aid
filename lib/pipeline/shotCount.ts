@@ -1,6 +1,6 @@
-export const SHOT_COUNT_OPTIONS = [9, 18, 27, 36, 45, 54, 63, 72, 81] as const;
-export const DEFAULT_TARGET_SHOT_COUNT = 18;
-export const MAX_TARGET_SHOT_COUNT = 81;
+export const SHOT_COUNT_OPTIONS = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80] as const;
+export const DEFAULT_TARGET_SHOT_COUNT = 16;
+export const MAX_TARGET_SHOT_COUNT = 80;
 export const ESTIMATED_SECONDS_PER_SHOT = 5;
 
 export function normalizeTargetShotCount(value: unknown): number {

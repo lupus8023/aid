@@ -136,6 +136,7 @@ export function applyCapturePreset(storyboard: Storyboard, value?: CapturePreset
     imageUrl: undefined,
     gridSourceUrl: undefined,
     imageTaskMode: undefined,
+    imageGridSize: undefined,
     imagePromptOverride: undefined,
     imageFailureReason: undefined,
     imageRetryCount: undefined,

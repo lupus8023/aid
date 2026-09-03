@@ -132,11 +132,11 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-[var(--text-primary)]">目标镜头数</p>
-            <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">剧本会先按这个数量分配情节与场次，再逐镜撰写。</p>
+            <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">镜头数按 4 的倍数预设；剧本先分配情节与场次，再按每 4 镜一批制作四宫格参考图。</p>
           </div>
           <p className="font-mono text-xs text-[var(--accent-blue)]">预计片长 ≈ {estimatedDuration}</p>
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-9">
+        <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-5 lg:grid-cols-10">
           {SHOT_COUNT_OPTIONS.map((count) => (
             <button
               key={count}
@@ -154,8 +154,8 @@ export default function Step1({ storyContent, onStoryLoad, onNext, onBack, isLoa
           ))}
         </div>
         <p className="mt-2 text-[11px] leading-5 text-[var(--text-secondary)]">
-          按平均每镜约 5 秒估算，实际片长会根据台词、动作和情绪停顿微调。
-          {targetShotCount >= 45 ? ' 长篇剧本生成时间与模型消耗会明显增加。' : ''}
+          四宫格末批不足 4 镜时会自动补版，拆分后只保留实际镜头。片长按平均每镜约 5 秒估算，并根据台词、动作和情绪停顿微调。
+          {targetShotCount >= 44 ? ' 长篇剧本生成时间与模型消耗会明显增加。' : ''}
         </p>
       </section>
 

@@ -174,7 +174,7 @@ LIGHT AND MATERIAL: Use motivated key or practical light with a clear direction,
 QUALITY GUARD: Use only imperfections justified by the selected capture/rendering medium. Do not stack random lens defects, use synthetic HDR, beauty retouching, uniform fill light, mixed media, or generic "cinematic" gloss.`;
 }
 
-// 九宫格有更严格的提示词长度限制：保留成像因果的骨架，把逐镜差异留给 panel prompt。
+// 四宫格有更严格的提示词长度限制：保留成像因果的骨架，把逐镜差异留给 panel prompt。
 export function buildCompactImageCaptureContract(style?: VisualStyle): string {
   const preset = getProductionStylePreset(style);
   return `GRID STYLE BIBLE (authoritative — apply to every panel): ${preset.gridImageDirection}

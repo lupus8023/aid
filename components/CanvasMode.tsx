@@ -97,7 +97,7 @@ function StoryNode({ data, selected }: NodeProps<CanvasNodeData>) {
         <span className="grid h-10 w-10 place-items-center rounded-[10px] bg-[var(--workspace-accent)]/12 text-[var(--workspace-accent)]"><BookOpenText size={18} /></span>
         <div><p className="font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--workspace-accent)]">Master prompt</p><h3 className="mt-1 text-sm font-semibold text-white">整体 Prompt</h3></div>
       </header>
-      <div className="p-4"><p className="line-clamp-9 whitespace-pre-wrap text-xs leading-5 text-[var(--text-secondary)]">{data.storyText || '当前项目没有保存最初的整体 Prompt。'}</p><div className="mt-4 flex items-center justify-between border-t border-[var(--border-color)] pt-3 text-[11px] text-[var(--text-muted)]"><span>{data.sceneCount} 个镜头</span><span>每 9 镜头一批</span></div></div>
+      <div className="p-4"><p className="line-clamp-9 whitespace-pre-wrap text-xs leading-5 text-[var(--text-secondary)]">{data.storyText || '当前项目没有保存最初的整体 Prompt。'}</p><div className="mt-4 flex items-center justify-between border-t border-[var(--border-color)] pt-3 text-[11px] text-[var(--text-muted)]"><span>{data.sceneCount} 个镜头</span><span>每 4 镜头一批</span></div></div>
     </article>
   );
 }
@@ -110,10 +110,10 @@ function GridNode({ data, selected }: NodeProps<CanvasNodeData>) {
     <article className={`w-[270px] rounded-[14px] border bg-[var(--bg-secondary)] p-4 shadow-[0_20px_55px_-35px_#000] ${selected ? 'border-[#f0b95d] ring-1 ring-[#f0b95d]/25' : 'border-[var(--border-color)]'}`}>
       <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[#f0b95d]" />
       <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[#f0b95d]" />
-      <div className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-[#f0b95d]/12 text-[#f0b95d]">{generating ? <Loader2 size={18} className="animate-spin" /> : <Grid2X2Plus size={18} />}</span><div><p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#f0b95d]">Batch {String(data.batchNumber).padStart(2, '0')}</p><h3 className="mt-1 text-sm font-semibold text-white">{data.singleShotMode ? 'MJ 逐镜生成' : '九宫格生成'}</h3></div></div>
+      <div className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-[#f0b95d]/12 text-[#f0b95d]">{generating ? <Loader2 size={18} className="animate-spin" /> : <Grid2X2Plus size={18} />}</span><div><p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#f0b95d]">Batch {String(data.batchNumber).padStart(2, '0')}</p><h3 className="mt-1 text-sm font-semibold text-white">{data.singleShotMode ? 'MJ 逐镜生成' : '四宫格生成'}</h3></div></div>
       <p className="mt-3 text-[11px] leading-5 text-[var(--text-muted)]">本批 {data.sceneCount} 个镜头；{data.singleShotMode ? '独立出图，固定参考并核验人物一致性。' : '生成完成后自动拆分并回填各分镜。'}</p>
-      <div className="mt-3 grid grid-cols-3 gap-1 rounded-[9px] border border-white/5 bg-black/25 p-1.5">
-        {Array.from({ length: 9 }).map((_, index) => <div key={index} className="aspect-video overflow-hidden rounded-[3px] bg-white/5">{imageUrls[index] && <img src={imageUrls[index]} alt={`第 ${index + 1} 格`} className="h-full w-full object-cover" />}</div>)}
+      <div className="mt-3 grid grid-cols-2 gap-1 rounded-[9px] border border-white/5 bg-black/25 p-1.5">
+        {Array.from({ length: 4 }).map((_, index) => <div key={index} className="aspect-video overflow-hidden rounded-[3px] bg-white/5">{imageUrls[index] && <img src={imageUrls[index]} alt={`第 ${index + 1} 格`} className="h-full w-full object-cover" />}</div>)}
       </div>
       <div className="mt-3 flex items-center gap-2 text-[10px] text-[var(--text-secondary)]"><StateDot status={data.status} />{completed ? `${data.singleShotMode ? '已生成' : '已拆分'} ${data.completedCount}/${data.sceneCount}` : generating ? `生成中 ${data.completedCount}/${data.sceneCount}` : data.completedCount ? `已生成 ${data.completedCount}/${data.sceneCount}` : `等待生成 0/${data.sceneCount}`}</div>
       <button type="button" disabled={generating} onClick={(event) => { event.stopPropagation(); data.onGenerateGrid?.(); }} className="nodrag mt-3 flex min-h-10 w-full items-center justify-center gap-2 rounded-[9px] bg-[#f0b95d] px-3 text-xs font-semibold text-[#17130b] disabled:opacity-60">{generating ? <Loader2 size={14} className="animate-spin" /> : completed ? <RefreshCw size={14} /> : <Sparkles size={14} />}{data.singleShotMode ? (generating ? '逐镜生成中' : '逐镜补齐本批') : generating ? '生成并拆分中' : completed ? '重新生成本批' : '生成并自动拆分'}</button>
@@ -127,7 +127,7 @@ function SceneNode({ data, selected }: NodeProps<CanvasNodeData>) {
     <article className={`w-[300px] overflow-hidden rounded-[14px] border bg-[var(--bg-secondary)] shadow-[0_20px_55px_-35px_#000] ${selected ? 'border-[var(--workspace-accent)] ring-1 ring-[var(--workspace-accent)]/25' : 'border-[var(--border-color)]'}`}>
       <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[var(--workspace-accent)]" />
       <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-[var(--bg-primary)] !bg-[var(--workspace-accent)]" />
-      <div className="relative aspect-video bg-black/35">{data.imageUrl ? <img src={data.imageUrl} alt={`分镜 ${data.sceneNumber}`} className="h-full w-full object-contain" /> : <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--text-muted)]">{generating ? <Loader2 size={27} className="animate-spin text-[var(--workspace-accent)]" /> : <ImageIcon size={27} />}<span className="text-[11px]">{generating ? '等待九宫格拆分' : '尚无分镜图'}</span></div>}<span className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/70 px-2 py-1 font-mono text-[9px] text-white">SHOT · {String(data.sceneNumber).padStart(2, '0')}</span></div>
+      <div className="relative aspect-video bg-black/35">{data.imageUrl ? <img src={data.imageUrl} alt={`分镜 ${data.sceneNumber}`} className="h-full w-full object-contain" /> : <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--text-muted)]">{generating ? <Loader2 size={27} className="animate-spin text-[var(--workspace-accent)]" /> : <ImageIcon size={27} />}<span className="text-[11px]">{generating ? '等待四宫格拆分' : '尚无分镜图'}</span></div>}<span className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/70 px-2 py-1 font-mono text-[9px] text-white">SHOT · {String(data.sceneNumber).padStart(2, '0')}</span></div>
       <div className="p-3"><p className="line-clamp-2 min-h-10 text-[11px] leading-5 text-[var(--text-secondary)]">{data.prompt}</p><button type="button" disabled={generating} onClick={(event) => { event.stopPropagation(); data.onGenerateImage?.(); }} className="nodrag mt-3 flex min-h-9 w-full items-center justify-center gap-2 rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 text-xs text-white disabled:opacity-50">{data.imageUrl ? <RefreshCw size={13} /> : <Sparkles size={13} />}{data.imageUrl ? '单独重新生成' : '单独生成分镜'}</button></div>
     </article>
   );
@@ -177,12 +177,12 @@ function CanvasModeContent({ storyContent, storyboards, videoSegmentPlan, onExit
   const [editPrompt, setEditPrompt] = useState('');
   const [editVideoPrompt, setEditVideoPrompt] = useState('');
   const [previewVideo, setPreviewVideo] = useState<string | null>(null);
-  const [notice, setNotice] = useState(singleShotMode ? '整体故事 → MJ逐镜生成与核验 → H3片段 → 最终时间线。' : '按流程从左向右：整体故事 → 九宫格 → 独立分镜 → H3 片段 → 最终时间线。');
+  const [notice, setNotice] = useState(singleShotMode ? '整体故事 → MJ逐镜生成与核验 → H3片段 → 最终时间线。' : '按流程从左向右：整体故事 → 四宫格 → 独立分镜 → H3 片段 → 最终时间线。');
   const previousPositions = useRef(new Map<string, { x: number; y: number }>());
 
   const batches = useMemo(() => {
     const result: Storyboard[][] = [];
-    for (let index = 0; index < storyboards.length; index += 9) result.push(storyboards.slice(index, index + 9));
+    for (let index = 0; index < storyboards.length; index += 4) result.push(storyboards.slice(index, index + 4));
     return result;
   }, [storyboards]);
   const segments = useMemo(
@@ -196,7 +196,7 @@ function CanvasModeContent({ storyContent, storyboards, videoSegmentPlan, onExit
 
   const generateGridBatch = useCallback((batch: Storyboard[], batchNumber: number) => {
     setSelectedNodeId(`grid:${batchNumber}`);
-    setNotice(singleShotMode ? `正在逐镜生成第 ${batchNumber} 批 ${batch.length} 张分镜。` : `正在生成第 ${batchNumber} 批九宫格，完成后会自动拆成 ${batch.length} 张分镜。`);
+    setNotice(singleShotMode ? `正在逐镜生成第 ${batchNumber} 批 ${batch.length} 张分镜。` : `正在生成第 ${batchNumber} 批四宫格，完成后会自动拆成 ${batch.length} 张分镜。`);
     void onGenerateGrid?.(batch);
   }, [onGenerateGrid, singleShotMode]);
 
@@ -237,7 +237,7 @@ function CanvasModeContent({ storyContent, storyboards, videoSegmentPlan, onExit
       const batchHeight = Math.max(430, Math.ceil(batch.length / 3) * 245 + 120);
       const batchCenterY = batchY + Math.max(70, batchHeight / 2 - 130);
 
-      nextNodes.push({ id: gridId, type: 'gridNode', position: positionFor(gridId, { x: 470, y: batchCenterY }), data: { kind: 'grid', singleShotMode, title: `第 ${batchNumber} 批 · ${singleShotMode ? 'MJ逐镜' : '九宫格'}`, batchNumber, sceneCount: batch.length, completedCount, imageUrls: batch.map(item => item.imageUrl || ''), status: batchStatus, onGenerateGrid: () => generateGridBatch(batch, batchNumber) } });
+      nextNodes.push({ id: gridId, type: 'gridNode', position: positionFor(gridId, { x: 470, y: batchCenterY }), data: { kind: 'grid', singleShotMode, title: `第 ${batchNumber} 批 · ${singleShotMode ? 'MJ逐镜' : '四宫格'}`, batchNumber, sceneCount: batch.length, completedCount, imageUrls: batch.map(item => item.imageUrl || ''), status: batchStatus, onGenerateGrid: () => generateGridBatch(batch, batchNumber) } });
       nextEdges.push({ id: `${storyId}->${gridId}`, source: storyId, target: gridId, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } });
 
       batch.forEach((storyboard, shotIndex) => {

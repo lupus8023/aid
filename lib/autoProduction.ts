@@ -50,6 +50,7 @@ export function normalizeStoryboardImageArtifact(storyboard: Storyboard): Storyb
 
 export type AutoImageBatchPlan =
   | { kind: 'skip' }
+  | { kind: 'await-legacy-grid'; taskId: string }
   | { kind: 'resume-grid'; taskId: string }
   | { kind: 'generate-grid' }
   | { kind: 'generate-missing'; storyboardIds: string[] };
@@ -82,7 +83,7 @@ export function planAutoVideoBatches(groups: Storyboard[][], maxConcurrency = 2)
 }
 
 /**
- * Resume the paid nine-panel task whenever the unfinished cards still point
+ * Resume the paid four-panel task whenever the unfinished cards still point
  * to one durable task id. Otherwise a fully missing batch gets one fresh grid,
  * while a partially completed batch repairs only its missing cards so already
  * delivered storyboards are never purchased or replaced again.
@@ -96,6 +97,12 @@ export function planAutoImageBatch(group: Storyboard[], model = ''): AutoImageBa
     .filter(storyboard => storyboard.imageTaskMode !== 'single')
     .map(storyboard => storyboard.taskId)
     .filter((taskId): taskId is string => Boolean(taskId)))];
+  // Persisted grid tasks created before the four-panel release have no size
+  // marker and must be recovered by the startup 3x3 compatibility path. A
+  // four-shot auto-production slice must never crop or resubmit that paid job.
+  if (recoverableTaskIds.length === 1 && missing.some(storyboard => storyboard.imageTaskMode !== 'single' && storyboard.imageGridSize !== 2)) {
+    return { kind: 'await-legacy-grid', taskId: recoverableTaskIds[0] };
+  }
   if (recoverableTaskIds.length === 1) return { kind: 'resume-grid', taskId: recoverableTaskIds[0] };
   if (missing.length === group.length) return { kind: 'generate-grid' };
   return { kind: 'generate-missing', storyboardIds: missing.map(storyboard => storyboard.id) };
