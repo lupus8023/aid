@@ -51,7 +51,7 @@ export default function Step4({ storyboards, onBack, onNext, onGenerateImage, on
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {storyboards.map((sb) => {
           const aspectClass = sb.aspectRatio === '9:16' ? 'aspect-[9/16]' : sb.aspectRatio === '1:1' ? 'aspect-square' : 'aspect-video';
           return (

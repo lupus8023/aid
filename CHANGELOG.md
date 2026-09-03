@@ -1,3 +1,7 @@
+## 0.1.187 - 2026-09-04
+
+- Show Story's image-generation storyboard cards four per row on desktop, with two columns on tablets and one on phones. Preserve image aspect ratios, generation behavior, and existing assets. Web-only layout release; no Companion update is required.
+
 ## 0.1.186 - 2026-09-04
 
 - Fix Story grid creation and single-shot recovery being rejected before reaching the image provider: submit only necessary shot metadata and image URLs, without retained original base64 files, unrelated costumes, or previous video data.

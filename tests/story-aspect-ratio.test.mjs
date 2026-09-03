@@ -52,3 +52,9 @@ test('Story UI locks the selected project ratio into image and video requests', 
   assert.match(pageSource, /aspectRatio: projectAspectRatioRef\.current/);
   assert.doesNotMatch(pageSource, /aspectRatio: leader\.aspectRatio \|\| settings\.aspectRatio/);
 });
+
+test('Story image review shows four cards per desktop row and keeps small-screen layouts', async () => {
+  const source = await readFile(new URL('../components/Step4.tsx', import.meta.url), 'utf8');
+  assert.match(source, /className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"/);
+  assert.doesNotMatch(source, /lg:grid-cols-3/);
+});
