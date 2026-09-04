@@ -38,14 +38,20 @@ function findFirstJsonValue(text: string): any | undefined {
       if (char !== ']' && char !== '}') continue;
 
       const expectedOpening = char === ']' ? '[' : '{';
-      if (stack[stack.length - 1] !== expectedOpening) break;
+      if (stack[stack.length - 1] !== expectedOpening) return undefined;
       stack.pop();
       if (stack.length) continue;
 
       const parsed = tryParseJson(text.slice(start, end + 1));
       if (parsed !== undefined) return parsed;
+      // Skip the entire invalid container, never reinterpret one of its
+      // children as the requested document.
+      start = end;
       break;
     }
+    // An unfinished outer object/array owns everything after its opening.
+    // Searching inside it used to turn a truncated {shots:[...]} into shot 1.
+    if (stack.length) return undefined;
   }
   return undefined;
 }

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { assertProviderAccepted, chatInputContent, extractProviderText, ProviderModelRefusalError, providerPayloadSummary } from './pipeline/providerPayload';
 import type { ApiMartChatResponse, ApiMartImageTaskResponse, ApiMartImageStatusResponse, ApiMartVideoStatusResponse } from '@/types';
 import { providerHttpsAgent } from './publicDns';
 import { isRequestDefinitelyNotSent, ProviderRequestNotSentError } from './providerConnection';
@@ -20,7 +21,6 @@ import {
   type MidjourneyReferenceOptions,
 } from './midjourney';
 import type { CapturePreset, VisualStyle } from '@/types';
-import { chatInputContent } from './pipeline/providerPayload';
 
 const APIMART_BASE_URL = 'https://api.apimart.ai/v1';
 let preferSystemNetworkStack = false;
@@ -82,13 +82,15 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
       if (jsonMatch) rawData = JSON.parse(jsonMatch[0]);
     }
 
-    const content = rawData?.choices?.[0]?.message?.content;
+    assertProviderAccepted(rawData);
+    const content = extractProviderText(rawData);
     if (!content) {
-      throw new Error(`Unexpected API response format: ${JSON.stringify(rawData)}`);
+      throw new Error(`Unexpected API response format: ${providerPayloadSummary(rawData)}`);
     }
     console.log(`Chat API response received: model=${model}, contentLength=${content.length}`);
     return content;
   } catch (error: any) {
+    if (error instanceof ProviderModelRefusalError) throw error;
     const summary = apimartErrorSummary(error);
     // Never log the Axios error/config object: it contains the Authorization
     // header and full prompt body. Keep operational diagnostics credential-free.

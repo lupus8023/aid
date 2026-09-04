@@ -247,14 +247,14 @@ export function areContiguousStoryboards(storyboards: Storyboard[]): boolean {
   return storyboards.every((storyboard, index) => index === 0 || storyboard.sceneNumber === storyboards[index - 1].sceneNumber + 1);
 }
 
-export function validateVideoSegment(storyboards: Storyboard[], language?: 'zh' | 'en'): string | undefined {
+export function validateVideoSegment(storyboards: Storyboard[], language?: 'zh' | 'en', options: { requireVoiceBindings?: boolean } = {}): string | undefined {
   if (!storyboards.length) return '请至少选择一个分镜';
   if (storyboards.length > MAX_H3_STORYBOARDS_PER_SEGMENT) return `一个 H3 片段最多选择 ${MAX_H3_STORYBOARDS_PER_SEGMENT} 个分镜`;
   if (!areContiguousStoryboards(storyboards)) return '同一视频片段只能选择连续分镜';
   if (storyboards.some(storyboard => !storyboard.imageUrl)) return '所选分镜必须先完成分镜图';
   const speechError = validateSpeechContract(storyboards);
   if (speechError) return speechError;
-  const voiceError = validateVoiceBindings(storyboards);
+  const voiceError = options.requireVoiceBindings === false ? undefined : validateVoiceBindings(storyboards);
   if (voiceError) return voiceError;
   const languageError = validateSpeechLanguage(storyboards, language);
   if (languageError) return languageError;
@@ -474,7 +474,9 @@ export function isValidVideoSegmentPlan(
     const materialized = materializeSegmentStoryboards(group, segment);
     return group.length === segment.storyboardIds.length
       && estimateVideoSegmentSeconds(materialized) <= MAX_H3_SEGMENT_SECONDS
-      && !validateVideoSegment(materialized, language);
+      // Casting is checked immediately before generation. A missing/stale
+      // voice must not discard a user's manual cuts or edited dialogue.
+      && !validateVideoSegment(materialized, language, { requireVoiceBindings: false });
   });
 }
 
@@ -497,7 +499,7 @@ export function normalizeVideoSegmentPlan(
     && legacyGroups.length > 0
     && legacyIds.join('|') === storyboardSignature(storyboards)
     && new Set(legacyIds).size === storyboards.length
-    && legacyGroups.every(group => group.length && !validateVideoSegment(group, language));
+    && legacyGroups.every(group => group.length && !validateVideoSegment(group, language, { requireVoiceBindings: false }));
   return createVideoSegmentPlan(
     storyboards,
     canReuseLegacyBoundaries ? legacyGroups : suggestVideoSegments(storyboards),

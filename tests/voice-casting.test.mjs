@@ -5,6 +5,60 @@ import { castCharacterVoice, castStoryVoices, fishAutoVoiceCandidates, lockStory
 import { validateVoiceBindings } from '../lib/speechAudioContract.ts';
 import { fishS2ControlledText } from '../lib/fishSpeechControl.ts';
 import { effectiveStoryCast } from '../lib/storyCast.ts';
+import { characterAliasValues, characterIdentityIndex, withoutCharacterValues } from '../lib/characterIdentity.ts';
+import { recoverSeriesStoryAliases } from '../lib/series/storyCastRecovery.ts';
+import { reconcileSeriesProductionContract } from '../lib/series/productionContract.ts';
+
+test('registered 贵妃 alias reuses 沈贵妃 casting in both boards and stale segment speech', () => {
+  const actor = { id: 'c1', name: '唐朝贵妃', aliases: ['贵妃', '娘娘', '沈贵妃'],
+    voiceId: 'library-voice', voiceLocked: true, imageUrl: 'existing-card.png' };
+  const cast = effectiveStoryCast([actor], [{ name: '贵妃', voiceId: '' }]);
+  assert.equal(cast.length, 1);
+  const original = { characters: ['贵妃'], speech: [{ character: '贵妃', speakerId: 'S1', exactLine: '你先试。', voiceId: '' }] };
+  const [bound] = lockStoryboardVoiceIds([original], cast);
+  assert.equal(bound.speech[0].voiceId, 'library-voice');
+  assert.equal(validateVoiceBindings([bound]), undefined);
+  assert.deepEqual(bound.speech[0], { ...original.speech[0], voiceId: 'library-voice' });
+  assert.equal(original.speech[0].voiceId, '');
+  const [segment] = lockStoryboardVoiceIds([{ ...original, id: 'segment', speech: original.speech.map(line => ({ ...line, voiceId: 'old-voice' })) }], cast);
+  assert.equal(segment.speech[0].voiceId, 'library-voice');
+  const refs = characterAliasValues({ 沈贵妃: 'existing-reference.mp3' }, cast);
+  assert.equal(refs.贵妃, 'existing-reference.mp3');
+  assert.equal(refs.唐朝贵妃, 'existing-reference.mp3');
+  assert.deepEqual(withoutCharacterValues(refs, '贵妃', cast), {});
+});
+
+test('similar names and ambiguous aliases never borrow another actor voice', () => {
+  const cast = [{ name: '沈贵妃', aliases: ['贵妃'], voiceId: 'a' }, { name: '李贵妃', aliases: ['贵妃'], voiceId: 'b' }];
+  assert.equal(characterIdentityIndex(cast).resolve('贵妃'), undefined);
+  assert.equal(characterIdentityIndex([{ name: '沈贵妃' }]).resolve('贵妃'), undefined);
+  const [board] = lockStoryboardVoiceIds([{ speech: [{ character: '贵妃', voiceId: 'stale' }] }], cast);
+  assert.equal(board.speech[0].voiceId, undefined);
+  assert.equal(characterAliasValues({ 沈贵妃: 'a.mp3', 李贵妃: 'b.mp3' }, cast).贵妃, undefined);
+  assert.equal(characterIdentityIndex([...cast, { name: '贵妃', voiceId: 'exact' }]).resolve('贵妃').voiceId, 'exact');
+});
+
+test('series contract canonicalizes registered speaker aliases without touching spoken words', () => {
+  const contract = { shotCount: 1, voices: { 贵妃: 'old' }, dialogue: [{ character: '贵妃', text: '沈贵妃，你先试。' }],
+    shots: [{ characters: ['贵妃'], dialogue: [{ character: '贵妃', text: '沈贵妃，你先试。' }] }] };
+  const repaired = reconcileSeriesProductionContract(contract, [{ name: '唐朝贵妃', aliases: ['贵妃', '沈贵妃'], voiceId: 'locked' }]);
+  assert.deepEqual(repaired.voices, { 唐朝贵妃: 'locked' });
+  assert.deepEqual(repaired.shots[0].characters, ['唐朝贵妃']);
+  assert.equal(repaired.dialogue[0].text, '沈贵妃，你先试。');
+  assert.equal(contract.dialogue[0].character, '贵妃');
+});
+
+test('legacy series Story recovers aliases only from its owner and stable ID without changing assets', () => {
+  const snapshot = [{ id: 'c1', name: '唐朝贵妃', voiceId: 'user-selected', imageUrl: 'saved.png' }];
+  const series = { id: 'series-a', episodes: [{ id: 'ep-1', version: 1 }], characters: [
+    { id: 'c1', name: '唐朝贵妃', aliases: ['贵妃', '娘娘'], casting: { name: '沈贵妃' }, voiceId: 'different', imageUrl: 'new.png' },
+  ] };
+  const [recovered] = recoverSeriesStoryAliases('series-a-ep-1-v1', snapshot, [series]);
+  assert.deepEqual(recovered, { ...snapshot[0], aliases: ['贵妃', '娘娘', '沈贵妃'] });
+  assert.equal(recoverSeriesStoryAliases('series-other-ep-1-v1', snapshot, [series]), snapshot);
+  assert.equal(snapshot[0].aliases, undefined);
+  assert.equal(recoverSeriesStoryAliases('series-a-ep-1-v1', [recovered], [series])[0], recovered);
+});
 
 test('screenplay-discovered supporting roles receive one reusable character-card identity', () => {
   const cast = effectiveStoryCast([{

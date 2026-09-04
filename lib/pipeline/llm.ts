@@ -2,7 +2,7 @@ import axios from 'axios';
 import { chatCompletion } from '@/lib/apimart';
 import { providerHttpsAgent } from '@/lib/publicDns';
 import { scriptProviderOrder, type ScriptProvider } from './scriptProvider';
-import { chatInputContent, responsesInput, isProviderContentRejection, extractProviderText, isResponsesPreferredModel, providerPayloadSummary } from './providerPayload';
+import { assertProviderAccepted, chatInputContent, responsesInput, isProviderContentRejection, extractProviderText, isResponsesPreferredModel, providerPayloadSummary } from './providerPayload';
 
 export { scriptProviderOrder } from './scriptProvider';
 export type { ScriptProvider } from './scriptProvider';
@@ -48,6 +48,7 @@ async function requestDmxText(
     if (data?.error) {
       throw new Error(`DMXAPI 错误：${data.error?.message || data.error?.code || '未知上游错误'}`);
     }
+    assertProviderAccepted(data);
     const content = extractProviderText(data);
     if (!content) {
       const finishReason = data?.choices?.[0]?.finish_reason;
@@ -91,7 +92,7 @@ async function dmxChatCompletion(prompt: string, apiKey: string, model: string, 
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         failures.push(`${endpoint}: ${message}`);
-        if (isProviderContentRejection(error)) break;
+        if (isProviderContentRejection(error)) throw error;
         // A timeout means the model did not finish this payload in time. Sending
         // the same oversized request through the alternate OpenAI transport only
         // doubles the wait; transport fallback remains useful for shape/endpoint
@@ -133,7 +134,7 @@ export async function chatOnce(
       const label = candidate === 'dmx' ? 'DMXAPI' : 'APIMart';
       console.error(`[story-llm] ${label} failed:`, message);
       errors.push(`${label}：${message}`);
-      if (isProviderContentRejection(error)) break;
+      if (isProviderContentRejection(error)) throw error;
     }
   }
 

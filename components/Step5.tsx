@@ -31,6 +31,7 @@ import { storyboardAudioPlan, storyboardSpeech, storyboardSpeechWarnings } from 
 import { storyAspectClass, storyAspectRatioFromDimensions, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { formatProductionElapsed, productionElapsedMs } from '@/lib/productionTiming';
 import { hasLegacyAutomaticContinuity, previousSegmentTailSource } from '@/lib/videoContinuity';
+import { lockStoryboardVoiceIds } from '@/lib/voiceCasting';
 
 interface Step5Props {
   storyboards: Storyboard[];
@@ -76,6 +77,7 @@ function StatusLabel({ status }: { status: SegmentStatus }) {
 
 export default function Step5({
   storyboards,
+  characters,
   videoModel,
   videoProvider = 'apimart',
   voiceReferences = {},
@@ -126,7 +128,9 @@ export default function Step5({
   // Resolved groups are materialized from the segment plan. Each ordered
   // dialogue event is anchored once to its visual start beat; all other beats
   // remain visual references and cannot revive legacy per-shot dialogue.
-  const groups = plannedGroups;
+  // Segment plans keep their own speech snapshots. Rebind materialized groups
+  // to the current approved cast before displaying validation or submitting.
+  const groups = plannedGroups.map(group => lockStoryboardVoiceIds(group, characters));
   const safeActiveIndex = Math.min(Math.max(0, activeIndex), Math.max(0, groups.length - 1));
   const activeGroup = groups[safeActiveIndex] || [];
   const activeLeader = activeGroup[0];

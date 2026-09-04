@@ -1,5 +1,6 @@
 import type { Character } from '@/types';
 import type { PlannedCharacter } from '@/lib/pipeline/types';
+import { characterIdentityIndex } from './characterIdentity';
 
 export function plannedCharacterCardDescription(character: PlannedCharacter): string {
   return [
@@ -23,12 +24,13 @@ export function effectiveStoryCast(
   uploadedCharacters: Character[],
   plannedCharacters: PlannedCharacter[] = [],
 ): Character[] {
-  const uploadedNames = new Set(uploadedCharacters.map(character => character.name));
+  const uploadedNames = characterIdentityIndex(uploadedCharacters);
   const generated = plannedCharacters
     .filter(character => character.name && !uploadedNames.has(character.name))
     .map((character): Character => ({
       id: `story-plan:${character.name}`,
       name: character.name,
+      aliases: character.aliases,
       description: plannedCharacterCardDescription(character),
       imageUrl: '',
       gender: character.gender,
@@ -36,6 +38,7 @@ export function effectiveStoryCast(
       voiceId: character.voiceId,
       voiceProfile: character.voiceProfile,
       voiceSource: character.voiceSource,
+      voiceLocked: character.voiceLocked,
     }));
   return [...uploadedCharacters, ...generated];
 }

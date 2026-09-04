@@ -49,6 +49,7 @@ function cleanCharacter(char: Character): Character {
   return {
     id: char.id,
     name: char.name,
+    aliases: char.aliases,
     description: char.description,
     imageUrl: char.imageUrl || '',
     voiceId: char.voiceId,

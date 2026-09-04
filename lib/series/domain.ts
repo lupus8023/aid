@@ -623,6 +623,7 @@ export function buildEpisodeProject(
     name: `${project.name}-第${String(episode.number).padStart(2, "0")}集-${episode.title}`,
     characters: characters.map((c) => ({
       ...c,
+      aliases: [...new Set([...(c.aliases || []), c.casting?.name].filter((name): name is string => Boolean(name)))],
       voiceLocked: true,
       imageUrl: c.bibleUrl || c.imageUrl,
     })),

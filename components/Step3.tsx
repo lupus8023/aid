@@ -5,6 +5,7 @@ import { Storyboard, Character, ObjectItem, type VoiceAgeGroup, type VoiceGender
 import type { PlannedCharacter, StoryPlan } from '@/lib/pipeline/types';
 import { Loader2, RefreshCw, ZoomIn, X, Mic, MicOff, RotateCcw } from 'lucide-react';
 import { effectiveStoryCast } from '@/lib/storyCast';
+import { characterIdentityIndex } from '@/lib/characterIdentity';
 
 export type VoiceCastPatch = Partial<Pick<PlannedCharacter, 'gender' | 'ageGroup' | 'voiceId' | 'voiceProfile' | 'voiceSource'>>;
 
@@ -79,20 +80,10 @@ export default function Step3({ storyPlan, storyboards, characters, objects, cos
   const getObject = (name: string) => objects.find(o => o.name === name);
   const plannedByName = new Map((storyPlan?.characters || []).map(character => [character.name, character]));
   const referenceCast = effectiveStoryCast(characters, storyPlan?.characters);
-  const voiceCast = [
-    ...(storyPlan?.characters || []),
-    ...characters.filter(character => !plannedByName.has(character.name)).map(character => ({
-      name: character.name,
-      role: '上传角色',
-      want: '', obstacle: '', arc: '', subtext: '',
-      gender: character.gender,
-      ageGroup: character.ageGroup,
-      voiceId: character.voiceId,
-      voiceProfile: character.voiceProfile,
-      voiceSource: character.voiceSource,
-    })),
-  ];
-  const speakingNames = new Set(storyboards.flatMap(storyboard => (storyboard.speech || []).map(line => line.character)));
+  const identities = characterIdentityIndex(referenceCast);
+  const voiceCast = referenceCast.map(character => ({ ...character, role: plannedByName.get(character.name)?.role || '上传角色' }));
+  const speakingNames = new Set(storyboards.flatMap(storyboard => (storyboard.speech || [])
+    .map(line => identities.resolve(line.character)?.name || line.character)));
   const unresolvedSpeakingVoices = voiceCast.filter(character => speakingNames.has(character.name)
     && (!character.voiceId || !character.gender || character.gender === 'unknown'));
 

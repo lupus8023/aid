@@ -5,6 +5,7 @@ import type { Character, NarrativeState, ObjectItem, StoryAudioPlan, Storyboard,
 
 export interface PlannedCharacter {
   name: string; // 绑定上传角色，或绑定用户原始剧本中明确命名的文字角色
+  aliases?: string[];
   role?: string; // 剧情身份；同时帮助声音选角，不参与可朗读台词
   gender?: VoiceGender;
   ageGroup?: VoiceAgeGroup;

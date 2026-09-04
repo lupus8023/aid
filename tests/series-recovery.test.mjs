@@ -10,7 +10,10 @@ import { createSeries, parseOutline } from '../lib/series/domain.ts';
 import { executeSeriesClaim } from '../lib/series/runner.ts';
 import { findSeriesVoices } from '../lib/series/voices.ts';
 import { parseEpisodes } from '../lib/series/domain.ts';
-import { outlineFixture, episodeFixtures } from './fixtures/series.mjs';
+import { outlineFixture, episodeFixtures, shotFixture } from './fixtures/series.mjs';
+import { extractJson } from '../lib/pipeline/json.ts';
+import { appendScriptContinuation, completeScriptPrefix, parseScriptOutput, ScriptModelRefusalError } from '../lib/series/scriptOutput.ts';
+import { ProviderModelRefusalError } from '../lib/pipeline/providerPayload.ts';
 
 const input = { voiceId: 'chosen-voice', fishAudioKey: 'private-fixture-key', language: 'zh', strictVoice: true };
 function fixture() {
@@ -18,6 +21,103 @@ function fixture() {
   Object.assign(p, parseOutline(outlineFixture(), p));
   return p;
 }
+
+function scriptFixture() {
+  const project = fixture();
+  project.episodes = parseEpisodes(episodeFixtures(), project, 1, 3);
+  return project;
+}
+
+test('truncated screenplay cannot be mistaken for its first shot or inner dialogue', () => {
+  const raw = '{"shots":[{"number":1,"dialogue":[{"text":"keep {braces}"}]},{"number":2,"visual":"cut';
+  assert.throws(() => extractJson(raw), /No valid JSON/);
+  assert.deepEqual(completeScriptPrefix(raw), [{ number: 1, dialogue: [{ text: 'keep {braces}' }] }]);
+  assert.throws(() => parseScriptOutput(raw), error => error.code === 'SCRIPT_OUTPUT_INCOMPLETE');
+});
+
+test('a truncated script resumes only missing shots, preserving every complete shot', async () => {
+  const project = scriptFixture(), good = shotFixture();
+  let cached = JSON.stringify({ shots: good.shots.slice(0, 15) }).slice(0, -2) + ',{"number":16,"visual":"cut';
+  let calls = 0;
+  const result = await generateSeriesStage('script', project, project.episodes[0].id, {
+    read: async () => cached, save: async raw => { cached = raw; },
+    chat: async prompt => {
+      calls++;
+      assert.match(prompt, /只补齐第 16–16 镜/);
+      return JSON.stringify({ shots: good.shots.slice(15) });
+    },
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.script.length, 16);
+  assert.deepEqual(JSON.parse(cached), good);
+});
+
+test('missing outer JSON closers recover locally without a model request', async () => {
+  const project = scriptFixture(), raw = JSON.stringify(shotFixture());
+  let cached = raw.slice(0, -2);
+  const result = await generateSeriesStage('script', project, project.episodes[0].id, {
+    read: async () => cached, save: async value => { cached = value; },
+    chat: async () => { throw new Error('must not purchase regeneration'); },
+  });
+  assert.equal(result.script.length, 16);
+  assert.equal(cached, raw);
+});
+
+test('refusal after partial output reports the real cause and stops retries including after restart', async () => {
+  const project = scriptFixture();
+  const raw = JSON.stringify({ shots: shotFixture().shots.slice(0, 15) }).slice(0, -2)
+    + ',{"number":16,"visual":"cut\nI\'m sorry, but I cannot assist with that request.';
+  let cached, calls = 0;
+  const deps = { chat: async () => { calls++; return raw; }, read: async () => cached, save: async value => { cached = value; } };
+  for (let run = 0; run < 2; run++) await assert.rejects(generateSeriesStage('script', project, project.episodes[0].id, deps), ScriptModelRefusalError);
+  assert.equal(calls, 1);
+  assert.equal(cached, raw);
+  assert.deepEqual(parseScriptOutput(JSON.stringify({ shots: [{ dialogue: "I'm sorry, but I cannot assist with that request." }] })).shots.length, 1);
+});
+
+test('structured provider refusal retains its partial original and never falls into generic repair', async () => {
+  const project = scriptFixture();
+  let cached, calls = 0;
+  const deps = { chat: async () => { calls++; throw new ProviderModelRefusalError('{"shots":[', 'provider refusal'); },
+    read: async () => cached, save: async value => { cached = value; } };
+  for (let run = 0; run < 2; run++) await assert.rejects(generateSeriesStage('script', project, project.episodes[0].id, deps), ScriptModelRefusalError);
+  assert.equal(calls, 1);
+  assert.equal(JSON.parse(cached).partialText, '{"shots":[');
+});
+
+test('structured refusals never fall back to another transport or text provider', async () => {
+  const axios = (await import('axios')).default;
+  const { chatOnce } = await import('../lib/pipeline/llm.ts');
+  const originalPost = axios.post;
+  try {
+    for (const provider of ['auto', 'apimart']) {
+      let calls = 0;
+      axios.post = async () => {
+        calls++;
+        return { status: 200, headers: { 'content-type': 'application/json' },
+          data: { choices: [{ finish_reason: 'content_filter', message: { content: '{"shots":[', refusal: 'Cannot continue' } }] } };
+      };
+      await assert.rejects(chatOnce('fixture', { provider, apiKey: 'fixture', dmxApiKey: 'fixture', model: 'gpt-5' }), ProviderModelRefusalError);
+      assert.equal(calls, 1);
+    }
+  } finally { axios.post = originalPost; }
+});
+
+test('bad continuation cannot overwrite completed shots and incremental continuation remains resumable', async () => {
+  const good = shotFixture(), prefix = good.shots.slice(0, 14);
+  const partial = appendScriptContinuation(prefix, JSON.stringify({ shots: good.shots.slice(14, 15) }), 16);
+  assert.equal(partial._aidIncompleteScript, true);
+  assert.deepEqual(appendScriptContinuation(partial.shots, JSON.stringify({ shots: good.shots.slice(15) }), 16), good);
+  assert.throws(() => appendScriptContinuation(prefix, JSON.stringify({ shots: [{ ...good.shots[0], visual: 'changed' }, ...good.shots.slice(1)] }), 16), /改动了已保留/);
+  const project = scriptFixture();
+  const raw = JSON.stringify({ shots: prefix }).slice(0, -2) + ',{"number":15';
+  let cached = raw, calls = 0;
+  await assert.rejects(generateSeriesStage('script', project, project.episodes[0].id, {
+    read: async () => cached, save: async value => { cached = value; },
+    chat: async () => { calls++; return '{"shots":[{"number":16}]}'; },
+  }), /编号不连续/);
+  assert.equal(calls, 3); assert.equal(cached, raw);
+});
 
 test('voice storage is checked before synthesis; failed upload is resumed across restart without a second purchase', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'aid-voice-recovery-'));

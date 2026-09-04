@@ -2,6 +2,7 @@ import type { Storyboard } from "@/types";
 import type { StoryPlan, Beat, Sequence, WriterCharacter } from '@/lib/pipeline/types';
 import { MAX_H3_REFERENCE_SPEAKERS, MAX_H3_SPEECH_TURNS, validateSpeechContract } from '@/lib/speechAudioContract';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
+import { characterIdentityIndex, type NamedCharacter } from '@/lib/characterIdentity';
 
 export interface SeriesProductionContract {
   shotCount: number;
@@ -21,17 +22,16 @@ export interface SeriesProductionContract {
 
 export function reconcileSeriesProductionContract(
   source: SeriesProductionContract,
-  characters: Array<Pick<WriterCharacter, 'name' | 'voiceId'>>,
+  characters: Array<NamedCharacter & Pick<WriterCharacter, 'voiceId'>>,
 ): SeriesProductionContract {
   const contract = structuredClone(source);
-  const key = (value: unknown) => String(value || '').trim().toLocaleLowerCase();
-  const cast = new Map(characters.filter(character => key(character.name)).map(character => [key(character.name), character]));
-  const canonicalName = (value: unknown) => cast.get(key(value))?.name || String(value || '').trim();
+  const cast = characterIdentityIndex(characters);
+  const canonicalName = (value: string) => cast.resolve(value)?.name || String(value || '').trim();
 
   const voices: Record<string, string | undefined> = {};
   for (const [rawName, savedVoice] of Object.entries(contract.voices || {})) {
     const name = canonicalName(rawName);
-    const currentVoice = cast.get(key(rawName))?.voiceId;
+    const currentVoice = cast.resolve(rawName)?.voiceId;
     voices[name] = String(currentVoice || '').trim() || savedVoice;
   }
   // A character may have been assigned a voice after the episode contract was
@@ -46,7 +46,7 @@ export function reconcileSeriesProductionContract(
     const dialogue = (shot.dialogue || []).map(line => ({ ...line, character: canonicalName(line.character) }));
     const names = (shot.characters || []).map(canonicalName);
     for (const line of dialogue) {
-      if (cast.has(key(line.character)) && !names.includes(line.character)) names.push(line.character);
+      if (cast.resolve(line.character) && !names.includes(line.character)) names.push(line.character);
     }
     return { ...shot, characters: [...new Set(names.filter(Boolean))], dialogue };
   });

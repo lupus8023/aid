@@ -3,7 +3,29 @@ export function chatInputContent(prompt: string, imageUrls: string[] = []) {
 }
 
 export function isProviderContentRejection(error: unknown): boolean {
-  return /content policy violation|content safety system|image processing blocked|content_filter|content moderation|safety policy|未通过(?:内容)?审核|审核不通过|审核拒绝|内容违规/i.test(error instanceof Error ? error.message : String(error));
+  return error instanceof ProviderModelRefusalError || /content policy violation|content safety system|image processing blocked|content_filter|content moderation|safety policy|未通过(?:内容)?审核|审核不通过|审核拒绝|内容违规/i.test(error instanceof Error ? error.message : String(error));
+}
+
+export class ProviderModelRefusalError extends Error {
+  readonly code = 'MODEL_CONTENT_REJECTED';
+  constructor(readonly partialText: string, readonly refusal: string) {
+    super('文本模型拒绝继续输出，已停止自动重提');
+  }
+}
+
+/** Refusal metadata wins even when the provider also supplies partial text. */
+export function assertProviderAccepted(payload: unknown): void {
+  if (!payload || typeof payload !== 'object') return;
+  const data = payload as Record<string, any>;
+  const choice = data.choices?.[0];
+  const parts = [...(Array.isArray(choice?.message?.content) ? choice.message.content : []),
+    ...(Array.isArray(data.output) ? data.output.flatMap((item: any) => item?.content || []) : [])];
+  const refusal = choice?.message?.refusal || parts.find((item: any) => item?.type === 'refusal')?.refusal;
+  if (refusal || parts.some((item: any) => item?.type === 'refusal') || choice?.finish_reason === 'content_filter'
+    || data.incomplete_details?.reason === 'content_filter') {
+    throw new ProviderModelRefusalError(extractProviderText(data), String(refusal || 'content_filter'));
+  }
+  for (const key of ['data', 'result', 'response']) if (data[key] && data[key] !== payload) assertProviderAccepted(data[key]);
 }
 
 export function responsesInput(prompt: string, imageUrls: string[] = []) {

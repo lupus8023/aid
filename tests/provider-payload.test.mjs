@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { extractProviderText, isResponsesPreferredModel, providerPayloadSummary } from '../lib/pipeline/providerPayload.ts';
+import { assertProviderAccepted, extractProviderText, isProviderContentRejection, isResponsesPreferredModel, ProviderModelRefusalError, providerPayloadSummary } from '../lib/pipeline/providerPayload.ts';
+
+test('provider refusal metadata takes precedence over partially generated text', () => {
+  for (const payload of [
+    { choices: [{ finish_reason: 'content_filter', message: { content: '{"shots":[' } }] },
+    { choices: [{ message: { content: '{"shots":[', refusal: 'Cannot continue' } }] },
+    { result: { output: [{ type: 'message', content: [{ type: 'output_text', text: '{"shots":[' }, { type: 'refusal', refusal: 'Cannot continue' }] }] } },
+  ]) assert.throws(() => assertProviderAccepted(payload), error =>
+    error instanceof ProviderModelRefusalError && error.partialText === '{"shots":[' && isProviderContentRejection(error));
+  assert.doesNotThrow(() => assertProviderAccepted({ choices: [{ finish_reason: 'length', message: { content: '{"shots":[' } }] }));
+});
 
 test('extracts standard and array Chat Completions content', () => {
   assert.equal(extractProviderText({ choices: [{ message: { content: '{"ok":true}' } }] }), '{"ok":true}');
@@ -39,4 +49,3 @@ test('reports only safe response structure and routes GPT-5 models to Responses 
   assert.equal(isResponsesPreferredModel('gpt-5-mini'), true);
   assert.equal(isResponsesPreferredModel('gpt-4o'), false);
 });
-

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { lockStoryboardVoiceIds } from '../lib/voiceCasting.ts';
 
 import {
   allocateSegmentTimeline,
@@ -40,6 +41,20 @@ const shot = (sceneNumber, extra = {}) => ({
   sequenceId: 'seq-1',
   locationId: 'loc-1',
   ...extra,
+});
+
+test('manual segment materialization rebinds stale alias speech without changing the edit plan', () => {
+  const boards = [shot(1, { characters: ['贵妃'], speech: [{ character: '贵妃', speakerId: 'S1', exactLine: '你先试。', voiceId: 'old', source: 'story_required' }] })];
+  const plan = createVideoSegmentPlan(boards, [boards], 'manual');
+  plan.segments[0].speech[0].voiceId = undefined;
+  const before = structuredClone(plan);
+  const rawGroups = resolveVideoSegmentGroups(boards, plan, 'zh');
+  assert.match(validateVideoSegment(rawGroups[0], 'zh'), /尚未锁定音色/);
+  const rebound = rawGroups.map(group => lockStoryboardVoiceIds(group, [{ name: '唐朝贵妃', aliases: ['贵妃', '沈贵妃'], voiceId: 'library-locked', voiceLocked: true }]));
+  assert.equal(validateVideoSegment(rebound[0], 'zh'), undefined);
+  assert.equal(rebound[0][0].speech[0].exactLine, '你先试。');
+  assert.equal(rebound[0][0].speech[0].voiceId, 'library-locked');
+  assert.deepEqual(plan, before);
 });
 
 test('shared/empty location metadata and legacy continuity never opt into tail-frame replacement', () => {

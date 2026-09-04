@@ -1,9 +1,11 @@
 import type { VoiceAgeGroup, VoiceGender } from '@/types';
+import { characterIdentityIndex } from './characterIdentity';
 
 export type VoiceSource = 'user' | 'auto';
 
 export interface VoiceCastInput {
   name: string;
+  aliases?: string[];
   description?: string;
   voiceId?: string;
   voiceProfile?: string;
@@ -249,19 +251,19 @@ export function castStoryVoices<T extends VoiceCastInput>(
 export function lockStoryboardVoiceIds<T extends {
   speech?: Array<{ character: string; voiceId?: string }>;
 }>(storyboards: T[], characters: VoiceCastInput[]): T[] {
-  const voiceByName = new Map(characters.map(character => [character.name.trim().toLocaleLowerCase(), character.voiceId]));
-  const lockedNames = new Set(characters.filter(character => character.voiceLocked).map(character => character.name.trim().toLocaleLowerCase()));
+  const identities = characterIdentityIndex(characters);
   return storyboards.map(storyboard => ({
     ...storyboard,
     speech: storyboard.speech?.map(line => {
-      const nameKey = line.character.trim().toLocaleLowerCase();
+      const character = identities.resolve(line.character);
       return {
         ...line,
         // The project cast is authoritative. An explicit but unresolved cast
         // member also clears a legacy per-line id; otherwise an old wrong-
         // gender voice could survive behind a UI row marked "待确认".
-        voiceId: lockedNames.has(nameKey) ? voiceByName.get(nameKey) : voiceByName.has(nameKey)
-          ? normalizeFishVoiceId(voiceByName.get(nameKey))
+        voiceId: character?.voiceLocked ? character.voiceId : character
+          ? normalizeFishVoiceId(character.voiceId)
+          : identities.has(line.character) ? undefined
           : normalizeFishVoiceId(line.voiceId),
       };
     }),

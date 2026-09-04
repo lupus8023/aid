@@ -6,6 +6,7 @@ import { buildEpisodeProject, seriesEpisodeObjectIds, seriesObjectReferenceMode,
 import { copiedDialogueShotNumbers } from "./scriptRepair";
 import { repairEpisodeDialogue, synchronizeEpisodeDialogue } from "./productionDialogueRepair";
 import { seriesScriptAssetFingerprint } from './scriptStructureRepair';
+import { recoverSeriesStoryAliases } from './storyCastRecovery';
 import { storyStorageKeys } from "./storageScope";
 import { ensurePhotographicAnchor } from './photographicAnchor';
 import { seriesAssetsReady, seriesStageBlocker } from "./readiness";
@@ -513,6 +514,7 @@ export async function executeSeriesClaim(
   if (episode.deliveries.some((d) => d.episodeVersion === episode.version))
     return;
   episode.production ||= buildEpisodeProject(project, episode);
+  episode.production.characters = recoverSeriesStoryAliases(episode.production.id!, episode.production.characters, [project]);
   await save(`第${episode.number}集进入Story制作`);
   const productionId = episode.production.id!;
   const keys = storyStorageKeys(productionId);

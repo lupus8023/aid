@@ -57,6 +57,8 @@ import { bindSeriesPlan, buildApprovedSeriesPlan, reconcileSeriesProductionContr
 import { visibleImageCast, type ImageCastCharacter } from '@/lib/series/imageCastContract';
 import { AwaitingMediaTaskError, autoProductionLockName, autoRetryDelayMs, hasUsableStoryboardImage, imagePollingTimeoutError, isTransientAutoProductionError, normalizeStoryboardImageArtifact, planAutoImageBatch, planAutoVideoBatches } from '@/lib/autoProduction';
 import { effectiveStoryCast } from '@/lib/storyCast';
+import { characterAliasValues, characterIdentityIndex, withoutCharacterValues } from '@/lib/characterIdentity';
+import { recoverSeriesStoryAliases } from '@/lib/series/storyCastRecovery';
 import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '@/lib/midjourney';
 import { applyCapturePreset, DEFAULT_CAPTURE_PRESET, normalizeCapturePreset } from '@/lib/capturePresets';
 import { completeProductionTiming, formatProductionElapsed, normalizeProductionTiming, pauseProductionTiming, productionElapsedMs, startProductionTiming } from '@/lib/productionTiming';
@@ -559,6 +561,40 @@ export default function StoryPage() {
     });
   };
 
+  const currentCastVoiceReferences = () => characterAliasValues(voiceReferencesRef.current,
+    effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters));
+
+  const recoverSavedCastAliases = async (storyId: string) => {
+    if (!storyId?.startsWith('series-')) return;
+    try {
+      const response = await fetch(comfyUIApiUrl('/api/companion/series', settingsRef.current.comfyui), {
+        cache: 'no-store', signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) return;
+      const snapshot = await response.json();
+      if (projectIdRef.current !== storyId || !Array.isArray(snapshot.projects)) return;
+      const current = charactersRef.current;
+      const recovered = recoverSeriesStoryAliases(storyId, current, snapshot.projects);
+      if (!recovered.some((character, index) => character !== current[index])) return;
+      charactersRef.current = recovered;
+      setCharacters(recovered);
+      const voiceCast = effectiveStoryCast(recovered, storyPlanRef.current?.characters);
+      const boards = lockStoryboardVoiceIds(storyboardsRef.current, voiceCast);
+      storyboardsRef.current = boards;
+      setStoryboards(boards);
+      const plan = videoSegmentPlanRef.current;
+      if (plan) {
+        const rebound = { ...plan, segments: lockStoryboardVoiceIds(plan.segments, voiceCast) };
+        videoSegmentPlanRef.current = rebound;
+        setVideoSegmentPlan(rebound);
+      }
+      // Normal autosave persists this metadata. Do not save an old captured
+      // screenplay here: the user may have edited it while the GET was pending.
+    } catch {
+      // Offline standalone Story remains usable; no voice is guessed.
+    }
+  };
+
   useEffect(() => {
     if (!batchRunId || !autoStage) return;
     postBatchEvent({
@@ -635,10 +671,7 @@ export default function StoryPage() {
       const savedProductionTiming = normalizeProductionTiming(savedProject.productionTiming);
       productionTimingRef.current = savedProductionTiming;
       setProductionTiming(savedProductionTiming);
-      const savedEffectiveVoiceCast = [
-        ...savedCharacters,
-        ...(savedStoryPlan?.characters || []).filter(planned => !savedCharacters.some(character => character.name === planned.name)),
-      ];
+      const savedEffectiveVoiceCast = effectiveStoryCast(savedCharacters, savedStoryPlan?.characters);
       const normalizedStoryboards = lockStoryboardVoiceIds<Storyboard>((savedProject.storyboards || []).map(item => normalizeStoryboardImageArtifact({
         ...item,
         aspectRatio: savedAspectRatio,
@@ -781,6 +814,7 @@ export default function StoryPage() {
       }
       if (savedProject.storyboards?.length > 0) setCurrentStep(restoredStoryStep(savedStoryboards, savedVideoSegmentPlan));
       else if (savedProject.storyContent && savedProject.characters?.length > 0) setCurrentStep(2);
+      void recoverSavedCastAliases(savedProject.id!);
     }
   }, [loadProject]);
 
@@ -842,8 +876,8 @@ export default function StoryPage() {
     if (!uploaded && !planned) return;
 
     const base = {
-      ...uploaded,
       ...planned,
+      ...uploaded,
       name: characterName,
       description: uploaded?.description || [planned?.role, planned?.voiceProfile].filter(Boolean).join('；'),
     };
@@ -878,23 +912,14 @@ export default function StoryPage() {
     storyPlanRef.current = nextPlan;
     setStoryPlan(nextPlan);
 
-    const effectiveCast = [
-      ...nextCharacters,
-      ...(nextPlan?.characters || []).filter(character => !nextCharacters.some(uploadedCharacter => uploadedCharacter.name === character.name)),
-    ];
+    const effectiveCast = effectiveStoryCast(nextCharacters, nextPlan?.characters);
     const nextStoryboards = lockStoryboardVoiceIds(storyboardsRef.current, effectiveCast);
     storyboardsRef.current = nextStoryboards;
     setStoryboards(nextStoryboards);
     const currentVideoPlan = videoSegmentPlanRef.current;
     const nextVideoPlan = currentVideoPlan ? {
       ...currentVideoPlan,
-      segments: currentVideoPlan.segments.map(segment => ({
-        ...segment,
-        speech: segment.speech.map(line => line.character === characterName ? {
-          ...line,
-          voiceId: resolved.voiceId || undefined,
-        } : line),
-      })),
+      segments: lockStoryboardVoiceIds(currentVideoPlan.segments, effectiveCast),
       updatedAt: new Date().toISOString(),
     } : undefined;
     videoSegmentPlanRef.current = nextVideoPlan;
@@ -902,9 +927,8 @@ export default function StoryPage() {
 
     const previousVoiceId = uploaded?.voiceId || planned?.voiceId;
     let nextVoiceReferences = voiceReferencesRef.current;
-    if (previousVoiceId !== resolved.voiceId && nextVoiceReferences?.[characterName]) {
-      nextVoiceReferences = { ...nextVoiceReferences };
-      delete nextVoiceReferences[characterName];
+    if (previousVoiceId !== resolved.voiceId) {
+      nextVoiceReferences = withoutCharacterValues(nextVoiceReferences, characterName, effectiveCast);
       voiceReferencesRef.current = nextVoiceReferences;
       setVoiceReferences(nextVoiceReferences);
     }
@@ -988,10 +1012,7 @@ export default function StoryPage() {
         const importedProductionTiming = normalizeProductionTiming(data.productionTiming);
         productionTimingRef.current = importedProductionTiming;
         setProductionTiming(importedProductionTiming);
-        const importedEffectiveVoiceCast = [
-          ...importedCharacters,
-          ...(importedStoryPlan?.characters || []).filter(planned => !importedCharacters.some(character => character.name === planned.name)),
-        ];
+        const importedEffectiveVoiceCast = effectiveStoryCast(importedCharacters, importedStoryPlan?.characters);
         const importedStoryboards = lockStoryboardVoiceIds<Storyboard>((data.storyboards || []).map((item: Storyboard) => ({ ...item, aspectRatio: importedAspectRatio, capturePreset: normalizeCapturePreset(item.capturePreset || data.capturePreset) })), importedEffectiveVoiceCast);
         storyboardsRef.current = importedStoryboards;
         setStoryboards(importedStoryboards);
@@ -1034,6 +1055,7 @@ export default function StoryPage() {
         if (data.storyboards?.length > 0) setCurrentStep(4);
         else if (data.storyContent && data.characters?.length > 0) setCurrentStep(2);
         else setCurrentStep(1);
+        void recoverSavedCastAliases(importedProjectId);
         alert('Project loaded!');
       } catch {
         alert('Failed to load project file');
@@ -1161,7 +1183,7 @@ export default function StoryPage() {
     const voiceLockedCharacters = castStoryVoices(characters, language);
     charactersRef.current = voiceLockedCharacters;
     setCharacters(voiceLockedCharacters);
-    const writerCharacters = voiceLockedCharacters.map(({ name, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }) => ({ name, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }));
+    const writerCharacters = voiceLockedCharacters.map(({ name, aliases, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }) => ({ name, aliases, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }));
     const writerObjects = objects.map(({ name, description }) => ({ name, description }));
     const activeSettings = settingsRef.current;
     const savedSeriesContract = storyStorageKeys().isolated ? localStorage.getItem(storyStorageKeys().contract) : null;
@@ -1231,12 +1253,7 @@ export default function StoryPage() {
     // The StoryPlan also contains automatically discovered speaking roles.
     // Reapply its authoritative voice map at the client boundary so an older
     // director response can never reach H3 with a missing/default voice.
-    const effectiveVoiceCast = [
-      ...voiceLockedCharacters,
-      ...(storyPlan.characters || []).filter(planned => (
-        !voiceLockedCharacters.some(character => character.name === planned.name)
-      )),
-    ];
+    const effectiveVoiceCast = effectiveStoryCast(voiceLockedCharacters, storyPlan.characters);
     const approvedShots = storyStorageKeys().isolated
       ? approvedSeriesContract?.shots
       : undefined;
@@ -1842,8 +1859,8 @@ export default function StoryPage() {
       return;
     }
     const generationProjectId = projectIdRef.current;
-    const character = charactersRef.current.find(c => c.name === characterName)
-      || storyPlanRef.current?.characters.find(c => c.name === characterName);
+    const voiceCast = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters);
+    const character = characterIdentityIndex(voiceCast).resolve(characterName);
     if (!character) return;
     setVoiceGenerating(prev => ({ ...prev, [characterName]: true }));
     try {
@@ -1860,7 +1877,7 @@ export default function StoryPage() {
       if (!res.ok) throw new Error((await res.json()).error || 'Failed');
       const { url } = await res.json();
       if (generationProjectId !== projectIdRef.current) return;
-      const nextVoiceReferences = { ...(voiceReferencesRef.current || {}), [characterName]: url };
+      const nextVoiceReferences = characterAliasValues({ ...(voiceReferencesRef.current || {}), [character.name]: url }, voiceCast);
       voiceReferencesRef.current = nextVoiceReferences;
       setVoiceReferences(nextVoiceReferences);
       persistCurrentProject();
@@ -1877,20 +1894,21 @@ export default function StoryPage() {
     const generationProjectId = projectIdRef.current;
     const segmentIds = (requestedSegment?.length ? requestedSegment : [storyboard]).map(item => item.id);
     const requestedById = new Map((requestedSegment || []).map(item => [item.id, item]));
-    const segmentStoryboards = storyboardsRef.current
+    const voiceCast = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters);
+    const segmentStoryboards = lockStoryboardVoiceIds(storyboardsRef.current
       .filter(item => segmentIds.includes(item.id))
       .sort((a, b) => a.sceneNumber - b.sceneNumber)
-      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), imageUrl: item.imageUrl, visualStyle, capturePreset: capturePresetRef.current }));
+      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), imageUrl: item.imageUrl, visualStyle, capturePreset: capturePresetRef.current })), voiceCast);
     const leader = segmentStoryboards[0];
     const hasFirstFrame = Boolean(leader && previousSegmentTailSource(storyboardsRef.current, leader));
     const videoProvider = settingsRef.current.videoProvider || 'apimart';
     const referenceAudioNames = videoProvider === 'fal' ? [] : [...new Set(segmentStoryboards
       .flatMap(item => storyboardSpeech(item).map(line => line.character)))]
-      .filter(name => Boolean(name && voiceReferencesRef.current?.[name]))
+      .filter(name => Boolean(name && currentCastVoiceReferences()[name]))
       .slice(0, 3);
-    const voiceProfiles = Object.fromEntries(effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters)
+    const voiceProfiles = characterAliasValues(Object.fromEntries(voiceCast
       .filter(character => character.voiceProfile)
-      .map(character => [character.name, character.voiceProfile!]));
+      .map(character => [character.name, character.voiceProfile!])), voiceCast);
     setStoryboards(prev => prev.map(sb => sb.id === storyboard.id ? { ...sb, videoPrompt: 'generating...' } : sb));
     try {
       const response = await fetch(videoProvider === 'comfyui'
@@ -1946,10 +1964,10 @@ export default function StoryPage() {
     const currentShots = storyboardsRef.current;
     const requestedIds = (requestedSegment?.length ? requestedSegment : [storyboard]).map(item => item.id);
     const requestedById = new Map((requestedSegment || []).map(item => [item.id, item]));
-    const segment = currentShots
+    const segment = lockStoryboardVoiceIds(currentShots
       .filter(item => requestedIds.includes(item.id))
       .sort((a, b) => a.sceneNumber - b.sceneNumber)
-      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), imageUrl: item.imageUrl }));
+      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), imageUrl: item.imageUrl })), effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters));
     const validationError = validateVideoSegment(segment, projectLanguageRef.current);
     if (validationError) {
       failBeforeSubmission(validationError);
@@ -2076,29 +2094,30 @@ export default function StoryPage() {
       // that fails after the user clicks it.
       if (videoProvider === 'comfyui') {
         for (const character of speakingCharacters) {
-          if (!voiceReferencesRef.current?.[character]) {
+          if (!currentCastVoiceReferences()[character]) {
             await handleGenerateVoiceReference(character, { throwOnError: true });
           }
         }
       }
       const missingVoiceReference = videoProvider === 'comfyui'
-        ? speakingCharacters.find(character => !voiceReferencesRef.current?.[character])
+        ? speakingCharacters.find(character => !currentCastVoiceReferences()[character])
         : undefined;
       if (missingVoiceReference) {
         throw new Error(`角色“${missingVoiceReference}”尚未生成全片音色参考；请先在第 3 步锁定一次 Fish Audio 音色`);
       }
       const portableVoiceEntries = videoProvider === 'comfyui'
         ? await Promise.all(speakingCharacters.map(async character => {
-            const source = voiceReferencesRef.current?.[character];
+            const source = currentCastVoiceReferences()[character];
             return source
               ? [character, await makePortableMediaSource(source, `${character} 声音参考`, true)] as const
               : undefined;
           }))
         : [];
       const portableVoiceReferences = Object.fromEntries(portableVoiceEntries.filter((entry): entry is readonly [string, string] => Boolean(entry)));
-      const voiceProfiles = Object.fromEntries(effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters)
+      const voiceCast = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters);
+      const voiceProfiles = characterAliasValues(Object.fromEntries(voiceCast
         .filter(character => character.voiceProfile)
-        .map(character => [character.name, character.voiceProfile!]));
+        .map(character => [character.name, character.voiceProfile!])), voiceCast);
       const storyboardForRequest = {
         ...portableSegment[0],
         continuousFromPrev: shouldContinuePreviousSegment,
@@ -2437,23 +2456,19 @@ export default function StoryPage() {
           if (sceneImagesRef.current.length === 0) throw new Error('任务结束但没有返回场景图');
         });
       }
-      const effectiveVoiceCast = [
-        ...charactersRef.current,
-        ...(storyPlanRef.current?.characters || []).filter(planned => (
-          !charactersRef.current.some(character => character.name === planned.name)
-        )),
-      ];
+      const effectiveVoiceCast = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters);
+      const identities = characterIdentityIndex(effectiveVoiceCast);
       for (const character of effectiveVoiceCast) {
         if (autoAbortRef.current) return;
-        const speaks = storyboardsRef.current.some(storyboard => storyboardSpeech(storyboard).some(line => line.character === character.name));
+        const speaks = storyboardsRef.current.some(storyboard => storyboardSpeech(storyboard).some(line => identities.resolve(line.character) === character));
         const autoVideoProvider = settingsRef.current.videoProvider || 'apimart';
         if (speaks && autoVideoProvider !== 'fal' && !character.voiceId) {
           throw new Error(`${character.name} 有台词但尚未确认性别与 Fish Audio 音色；请在第 3 步“全片音色选角”中确认`);
         }
-        if (speaks && autoVideoProvider !== 'fal' && settingsRef.current.fishAudioKey && !voiceReferencesRef.current?.[character.name]) {
+        if (speaks && autoVideoProvider !== 'fal' && settingsRef.current.fishAudioKey && !currentCastVoiceReferences()[character.name]) {
           await retryUntilCompleted(`生成 ${character.name} 音色参考`, async () => {
             await handleGenerateVoiceReference(character.name, { throwOnError: true });
-            if (!voiceReferencesRef.current?.[character.name]) throw new Error('任务结束但没有返回音色参考');
+            if (!currentCastVoiceReferences()[character.name]) throw new Error('任务结束但没有返回音色参考');
           });
         }
       }
@@ -2496,13 +2511,14 @@ export default function StoryPage() {
       setCurrentStep(5);
       const videoProvider = settingsRef.current.videoProvider || 'apimart';
       const isH3SegmentProvider = videoProvider === 'comfyui' || videoProvider === 'fal';
-      const videoGroups = isH3SegmentProvider
+      const videoGroups = (isH3SegmentProvider
         ? resolveVideoSegmentGroups(
             storyboardsRef.current.filter(item => item.imageUrl),
             videoSegmentPlanRef.current,
             projectLanguageRef.current,
           )
-        : storyboardsRef.current.filter(item => item.imageUrl).map(item => [item]);
+        : storyboardsRef.current.filter(item => item.imageUrl).map(item => [item]))
+        .map(group => lockStoryboardVoiceIds(group, effectiveVoiceCast));
       const deliveryAudit = auditStoryDelivery(storyPlanRef.current, storyboardsRef.current, videoGroups);
       if (deliveryAudit.errors.length) {
         throw new Error(`视频分段前故事交付校验失败：${deliveryAudit.errors.slice(0, 4).join('；')}`);
@@ -2904,10 +2920,14 @@ export default function StoryPage() {
                 onGenerateCostume={handleGenerateCostume}
                 onClearCostumeImage={(name) => setCostumeImages(prev => { const n = { ...prev }; delete n[name]; return n; })}
                 onClearSceneImage={(idx) => setSceneImages(prev => prev.filter((_, i) => i !== idx))}
-                voiceReferences={voiceReferences || {}}
+                voiceReferences={characterAliasValues(voiceReferences, effectiveStoryCast(characters, storyPlan?.characters))}
                 voiceGenerating={voiceGenerating}
                 onGenerateVoiceReference={handleGenerateVoiceReference}
-                onClearVoiceReference={(name) => setVoiceReferences(prev => { const n = { ...(prev || {}) }; delete n[name]; return n; })}
+                onClearVoiceReference={(name) => {
+                  const next = withoutCharacterValues(voiceReferencesRef.current, name, effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters));
+                  voiceReferencesRef.current = next;
+                  setVoiceReferences(next);
+                }}
                 onVoiceCastChange={handleVoiceCastChange}
               />
             )}
@@ -2927,12 +2947,12 @@ export default function StoryPage() {
             {currentStep === 5 && (
               <Step5
                 storyboards={storyboards}
-                characters={characters}
+                characters={effectiveStoryCast(characters, storyPlan?.characters)}
                 videoModel={settings.videoModel}
                 videoProvider={settings.videoProvider || 'apimart'}
                 aspectRatio={projectAspectRatio}
                 language={projectLanguage}
-                voiceReferences={voiceReferences || {}}
+                voiceReferences={characterAliasValues(voiceReferences, effectiveStoryCast(characters, storyPlan?.characters))}
                 videoSegmentPlan={videoSegmentPlan}
                 productionTiming={productionTiming}
                 onVideoSegmentPlanChange={handleVideoSegmentPlanChange}

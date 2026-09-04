@@ -1,3 +1,10 @@
+## 0.1.188 - 2026-09-04
+
+- Resolve registered character aliases and library casting names to the approved Story voice, including older series snapshots and stale segment-level speech. Reuse existing voice references without guessing identities, changing spoken words, or resynthesizing audio.
+- Preserve manual cuts and edited dialogue when a voice binding is temporarily missing; validate the current binding before generation instead of discarding the editing plan.
+- Stop treating nested objects in truncated screenplay JSON as complete scripts. Restore missing outer delimiters locally or continue only missing shots while preserving complete shots. Report explicit model refusals accurately, retain the draft, and stop automatic transport/provider fallback and repair retries.
+- This release updates both the website and Companion. Existing project data and media remain intact.
+
 ## 0.1.187 - 2026-09-04
 
 - Show Story's image-generation storyboard cards four per row on desktop, with two columns on tablets and one on phones. Preserve image aspect ratios, generation behavior, and existing assets. Web-only layout release; no Companion update is required.

@@ -14,6 +14,7 @@ export interface ProjectProductionTiming {
 export interface Character {
   id: string;
   name: string;
+  aliases?: string[]; // 已登记的剧情称呼／所选角色库名称，不能按相似名字猜测
   description: string; // 角色外观描述
   imageUrl: string;
   imageBase64?: string; // base64 格式的图片，用于 API 调用
