@@ -8,7 +8,8 @@ import { buildImageCaptureContract, getProductionStylePreset } from '@/lib/promp
 import { structuredRetryCorrection } from './storyWriter';
 import { buildDirectorCaptureContract } from '@/lib/capturePresets';
 import { videoDirectionWritingContract, validateVideoDirection, videoDirectionSourceKey } from '@/lib/videoDirection';
-import { applyDirectorFieldRepairProgress, buildDirectorFieldRepairPrompt, directorFieldRepairs, selectDirectorFieldRepairChunk } from './directorRepair';
+import { applyDirectorFieldRepairProgress, buildDirectorFieldRepairPrompt, DirectorFieldRepairError, directorFieldRepairs, selectDirectorFieldRepairChunk } from './directorRepair';
+import { isProviderContentRejection } from './providerPayload';
 import { usesPhotographicReferences } from '@/lib/gptImageReferences';
 import { buildGptImage2PhotographicContract } from '@/lib/gptImagePrompt';
 import { storyboardVisualCastNames } from '@/lib/series/imageCastContract';
@@ -382,6 +383,7 @@ export async function directStoryboard(input: {
 }): Promise<Storyboard[]> {
   const { storyPlan: submittedPlan, characters, objects, apiKey, aspectRatio, language = 'zh', visualStyle, capturePreset, scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
   const storyPlan = canonicalizeStoryIdentities(submittedPlan, characters);
+  const registeredEntityNames = [...characters.map(character => character.name), ...objects.map(object => object.name)];
   // The motion brief is additional output, so keep each response bounded.
   const batches = buildDirectorBatches(storyPlan, 6);
   const allBeats = storyPlan.sequences.flatMap(sequence => sequence.beats);
@@ -414,11 +416,13 @@ export async function directStoryboard(input: {
       capturePreset,
     });
     let batchShots: any[] | undefined;
+    let repairFeedback: DirectorFieldRepairError | undefined;
     const maxAttempts = 8;
     try {
       batchShots = await recoverGeneration({
         draft: generationDraft('story-director', [prompt, scriptProvider, scriptModel, apiKey, dmxApiKey]),
         attempts: maxAttempts,
+        shouldRetry: error => !isProviderContentRejection(error),
         generate: async (previous, lastError, attempt) => {
         if (attempt > 1) {
           await new Promise(resolve => setTimeout(resolve, Math.min(10_000, attempt === 2 ? 1_500 : attempt * 2_000)));
@@ -430,17 +434,21 @@ export async function directStoryboard(input: {
         if (previous) {
           try { retained = normalizeDirectorShots(extractJson(previous), beats.length); } catch {}
         }
-        const allRepairs = retained ? directorFieldRepairs(retained, beats) : [];
-        const repairs = selectDirectorFieldRepairChunk(allRepairs);
+        const allRepairs = retained ? directorFieldRepairs(retained, beats, registeredEntityNames) : [];
+        const repairs = selectDirectorFieldRepairChunk(allRepairs, lastError instanceof DirectorFieldRepairError ? 1 : 6);
         if (retained && repairs.length) {
           console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, repairing ${repairs.length}/${allRepairs.length} invalid motion fields`);
-          const reply = await chatOnce(buildDirectorFieldRepairPrompt(retained, beats, repairs, lastError, language), {
+          const reply = await chatOnce(buildDirectorFieldRepairPrompt(retained, beats, repairs, lastError instanceof DirectorFieldRepairError ? lastError : repairFeedback || lastError, language, registeredEntityNames), {
             apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel,
             maxOutputTokens: 2_000,
             timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000,
           });
-          const progress = applyDirectorFieldRepairProgress(retained, extractJson(reply), repairs, beats);
-          if (!progress.applied.length) throw new Error(`导演局部修稿没有返回可用字段：${progress.rejected.join('、')}`);
+          let patch: any;
+          try { patch = extractJson(reply); }
+          catch { throw new DirectorFieldRepairError(repairs.map(issue => ({ path: issue.path, reason: '响应没有可解析的 JSON；只返回指定字段的字符串值' }))); }
+          const progress = applyDirectorFieldRepairProgress(retained, patch, repairs, beats, registeredEntityNames);
+          repairFeedback = progress.failures.length ? new DirectorFieldRepairError(progress.failures) : undefined;
+          if (!progress.applied.length) throw new DirectorFieldRepairError(progress.failures);
           console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, checkpointed ${progress.applied.length} repaired motion fields`);
           return JSON.stringify(progress.shots);
         }
@@ -468,7 +476,7 @@ export async function directStoryboard(input: {
           beats,
           directorResponseShape(extracted),
           language,
-          [...characters.map(character => character.name), ...objects.map(object => object.name)],
+          registeredEntityNames,
           true,
         );
         return parsed.map((shot, index) => ({

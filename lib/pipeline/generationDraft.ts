@@ -29,6 +29,7 @@ export async function recoverGeneration<T>(input: {
   parse: (raw: string) => T;
   generate: (previous: string | undefined, error: unknown, attempt: number) => Promise<string>;
   attempts: number;
+  shouldRetry?: (error: unknown) => boolean;
 }): Promise<T> {
   let raw = await input.draft.read();
   let lastError: unknown;
@@ -40,7 +41,11 @@ export async function recoverGeneration<T>(input: {
     // Transport failures do not replace a retained draft with an error page.
     try {
       raw = await input.generate(raw, lastError, attempt);
-    } catch (error) { lastError = error; continue; }
+    } catch (error) {
+      if (input.shouldRetry?.(error) === false) throw error;
+      lastError = error;
+      continue;
+    }
     await input.draft.save(raw);
     try { return input.parse(raw); }
     catch (error) { lastError = error; }

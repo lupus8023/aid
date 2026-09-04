@@ -1,3 +1,9 @@
+## 0.1.191 - 2026-09-04
+
+- Use the same registered character and prop names in Story director field repair and final validation. Silent registered background characters no longer trigger repeated false English-language failures.
+- Fill missing motion fields without rewriting valid storyboard data. Normalize equivalent JSON patch envelopes, report concrete rejection reasons and candidates to the model, and switch stalled multi-field repairs to one field at a time.
+- Preserve authored action, exact dialogue and successful draft checkpoints. Explicit provider refusals stop automatic repair; unchanged over-budget replies no longer count as progress. Release the fix to both the website and local Companion.
+
 ## 0.1.190 - 2026-09-04
 
 - Remove the additional final-segment ASR gate and its automatic paid regeneration loop from Story and Series production. A completed clip proceeds to assembly regardless of Fish ASR availability or a previous audit result.
