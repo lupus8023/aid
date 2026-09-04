@@ -110,7 +110,10 @@ export function buildGridPrompt(
   const references = (referenceImageLabels || []).map((label, i) => `#${i + 1}=${label.split(' — ')[0]}`).join('; ');
   const prefix = [
     `UNIQUE STORYBOARD BATCH: ${sourceShots.map((_, i) => sceneNumbers?.[i] ?? i + 1).join('-')}`,
-    `Generate one 2x2 sheet of four finished film stills, each ${orientation} (${aspectRatio}), left-to-right then top-to-bottom. Four equal cells; no borders, gaps or template layout.`,
+    // The canvas and each quadrant share an aspect ratio. Explicit geometry
+    // prevents "four stills" becoming a vertical strip that cannot be cut 2x2.
+    `LAYOUT: one 2x2 sheet on a ${aspectRatio} canvas: exactly two columns and two rows. Each cell is a complete ${orientation} (${aspectRatio}) film still, half the canvas width and half its height.`,
+    'Top row: top-left and top-right side by side. Bottom row: bottom-left and bottom-right side by side. Image boundaries meet at x=50%, y=50%, with no drawn borders, gaps or margins. One shot/instant per cell; no scene spans cells. Never one column of four stacked frames, one row of four frames, or panels inside a cell. Reference layouts must not override this arrangement.',
     buildCompactImageCaptureContract(visualStyle).split('\nCAPTURE COHERENCE:')[0],
     buildGridCapturePresetContract(capturePreset),
     isGptImage2Model(imageModel) && usesPhotographicReferences(visualStyle)

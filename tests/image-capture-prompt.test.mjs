@@ -128,6 +128,32 @@ test('grid prompt preserves all four unique shot identities under the provider b
   }
 });
 
+test('grid layout fixes two rows and two columns with a complete same-aspect still in each quadrant', () => {
+  const positions = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+  for (const ratio of ['9:16', '16:9', '1:1']) {
+    for (const count of [1, 3, 4]) {
+      const shots = Array.from({ length: count }, (_, index) => `AUTHORED_ACTION_${index + 1}: the queen lifts the mask.`);
+      const prompt = buildGridPrompt('palace', 'queen', shots, ratio);
+      assert.match(prompt, /exactly two columns and two rows/i);
+      assert.ok(prompt.includes(`2x2 sheet on a ${ratio} canvas`));
+      assert.ok(prompt.includes(`(${ratio}) film still, half the canvas width and half its height`));
+      assert.match(prompt, /Top row: top-left and top-right side by side/);
+      assert.match(prompt, /Bottom row: bottom-left and bottom-right side by side/);
+      assert.match(prompt, /x=50%, y=50%/);
+      assert.match(prompt, /Never one column of four stacked frames, one row of four frames, or panels inside a cell/);
+      assert.match(prompt, /One shot\/instant per cell; no scene spans cells/);
+      assert.match(prompt, /Reference layouts must not override this arrangement/);
+      assert.doesNotMatch(prompt, /no borders, gaps or template layout/);
+      positions.forEach((position, index) => {
+        const sourceIndex = Math.min(index + 1, count);
+        assert.ok(prompt.includes(`In the ${position} frame, depict AUTHORED_ACTION_${sourceIndex}:`));
+      });
+      assert.equal((prompt.match(/frame, depict /g) || []).length, 4);
+      assert.ok(prompt.length <= 3500);
+    }
+  }
+});
+
 test('observational grid contracts preserve all four shots within their expanded safe budget', () => {
   const shots = Array.from({ length: 4 }, (_, index) => (
     `CANDID_PHASE_${index + 1}: Nana continues a distinct ordinary task phase near the shop window; off-center physical action and foreground depth. CAST[1]: Nana; each exactly once.`

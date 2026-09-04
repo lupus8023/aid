@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import axios from 'axios';
 import { generateStoryboardImage } from '../lib/imageGenerator.ts';
+import { buildGridPrompt } from '../lib/gridSplitter.ts';
 
 test('silent tagged companions each receive their identity reference in a five-role GPT shot', async () => {
   const original = axios.post; let submitted;
@@ -93,6 +94,43 @@ test('structured GPT grids deliver photographic treatment without losing panels 
     }
     await generateStoryboardImage(board, [], 'test-only', [], '9:16', 'seedream-5-0-pro', {}, undefined, references, labels, 'cinematic-natural');
     assert.equal(submitted.prompt, prompt);
+  } finally {
+    axios.post = originalPost;
+  }
+});
+
+test('real four-cell prompts reach the provider intact even with no uploaded references', async () => {
+  const originalPost = axios.post;
+  const submissions = [];
+  axios.post = async (_url, body) => {
+    submissions.push(body);
+    return { data: { data: [{ task_id: 'two-by-two-layout' }] } };
+  };
+  try {
+    for (const model of ['seedream-5-0-pro', 'gpt-image-2', 'gemini-3.1-flash-image-preview']) {
+      for (const ratio of ['9:16', '16:9', '1:1']) {
+        for (const references of [undefined, [], ['https://example.com/queen.png', 'https://example.com/mask.png']]) {
+          const labels = references?.length ? ['CHARACTER IDENTITY: queen', 'OBJECT IDENTITY: mask'] : [];
+          const prompt = buildGridPrompt('palace', 'queen', Array.from({ length: 4 }, (_, index) =>
+            `ACTION_${index + 1}: queen lifts the mask. Only queen appears in this frame, one instance of each.`), ratio, labels, [5, 6, 7, 8], 'cinematic-natural', undefined, model);
+          const before = submissions.length;
+          const task = await generateStoryboardImage({ id: 'grid', sceneNumber: 5, characters: ['queen'], objects: [], prompt },
+            [{ name: 'queen', description: 'Approved queen identity' }], 'test-only', [], ratio, model, {}, undefined, references, labels, 'cinematic-natural');
+          assert.equal(task, 'two-by-two-layout');
+          assert.equal(submissions.length, before + 1, 'submit once; no new QC or regeneration calls');
+          const submitted = submissions.at(-1);
+          assert.ok(submitted.prompt.startsWith(prompt), `${model}/${ratio}/${references?.length ?? 'undefined'} must keep the grid prompt first`);
+          if (model !== 'gpt-image-2') assert.equal(submitted.prompt, prompt);
+          assert.match(submitted.prompt, /exactly two columns and two rows/);
+          for (let index = 1; index <= 4; index++) assert.ok(submitted.prompt.includes(`ACTION_${index}:`));
+          assert.doesNotMatch(submitted.prompt, /EXACT CAST \(1 total\)|NAMED CAST \(1\)|IMAGE GOAL:/, 'do not append a single-shot wrapper');
+          assert.deepEqual(submitted.image_urls || [], references || []);
+          assert.equal(submitted.size, ratio);
+          assert.equal(submitted.resolution.toUpperCase(), model === 'seedream-5-0-pro' ? '2K' : '4K');
+          assert.equal(submitted.n, 1);
+        }
+      }
+    }
   } finally {
     axios.post = originalPost;
   }

@@ -66,10 +66,14 @@ export async function generateStoryboardImage(
   console.log('- Matched scene objects:', sceneObjects.map(o => o.name));
   console.log('- Pre-uploaded references:', preUploadedReferences?.length || 0);
 
-  // 如果提供了预上传的参考图（用于四宫格生成），直接使用
-  if (preUploadedReferences && preUploadedReferences.length > 0) {
-    console.log('Using pre-uploaded references for grid generation');
-    const effectiveReferences = preUploadedReferences.slice(0, maxReferenceImages);
+  // A structured grid is still a grid without references. Sending it through
+  // the single-shot compiler adds conflicting instructions and loses the grid
+  // resolution override (4K where supported by the provider).
+  const isStructuredGridPrompt = storyboard.prompt.includes('UNIQUE STORYBOARD BATCH:')
+    && storyboard.prompt.includes('GRID STYLE BIBLE (authoritative');
+  if (isStructuredGridPrompt || (preUploadedReferences && preUploadedReferences.length > 0)) {
+    console.log('Using grid prompt with supplied references, if any');
+    const effectiveReferences = (preUploadedReferences || []).slice(0, maxReferenceImages);
     const effectiveReferenceLabels = preUploadedReferenceLabels.slice(0, effectiveReferences.length);
 
     const cleanPrompt = storyboard.prompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1');
@@ -113,8 +117,6 @@ export async function generateStoryboardImage(
     // Grid-specific scene content must lead the request. If APIMart's practical
     // prompt limit is reached, the generic style/reference tail may be trimmed,
     // but the four distinct panels and batch identity must always survive.
-    const isStructuredGridPrompt = cleanPrompt.includes('UNIQUE STORYBOARD BATCH:')
-      && cleanPrompt.includes('GRID STYLE BIBLE (authoritative');
     const supplementalObjectRules = objectsWithoutRef.map(obj =>
       `Unmapped object "${obj.name}": ${obj.description}. Keep its design identical wherever requested.`
     );

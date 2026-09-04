@@ -1,3 +1,9 @@
+## 0.1.193 - 2026-09-04
+
+- Explicitly direct Story contact sheets as two columns by two rows, with one complete same-aspect film still in each quadrant. Remove ambiguous template-layout wording and disallow vertical strips, nested panels, and scenes spanning cells.
+- Keep structured grid requests on the grid submission path even without reference images, preserving all four shot instructions and the grid resolution override within provider capabilities. Leave single-shot generation and 2×2 cutting unchanged.
+- Update the website, packaged Companion and local installation. Preserve existing projects and images; no extra image QC or automatic paid regeneration is added. Previously mislaid sheets must be regenerated manually after updating.
+
 ## 0.1.192 - 2026-09-04
 
 - Match source-script roles to selected character cards before Story writing. Adapt names, identities and forms of address to the selected cast without rewriting authored action, plot, timing or unrelated dialogue; reuse the selected cards and locked voices.
