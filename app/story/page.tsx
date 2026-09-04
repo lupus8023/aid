@@ -31,7 +31,7 @@ import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, 
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
 import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedPlannedVideoSegment, normalizeVideoSegmentPlan, refreshPlannedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { filmEndingDuration, isFilmEndingSegment } from '@/lib/filmEnding';
-import { FILM_ENDING_ASR_SKIPPED_WARNING, FILM_ENDING_WARNING, MAX_ENDING_REPAIRS, filmEndingDisposition, prepareFilmEndingRepair, type FilmEndingAudit } from '@/lib/filmEndingAudit';
+import { retainFilmEndingForDelivery } from '@/lib/filmEndingAudit';
 import { videoSubtitleRemovalSourceTaskId } from '@/lib/videoDuplicateAudit';
 import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
@@ -2573,61 +2573,10 @@ export default function StoryPage() {
         };
         await retryUntilCompleted(groupLabel, completeGroup);
         if (videoProvider === 'comfyui' && isFilmEndingSegment(storyboardsRef.current, group)) {
-          // H3 already verifies the supplied dialogue while generating the clip. Fish ASR is
-          // an additional timing audit for the requested quiet tail, so its absence must not
-          // turn a completed H3 episode into a failed production or buy another video take.
-          if (!settingsRef.current.fishAudioKey?.trim()) {
-            const current = refreshPlannedVideoSegment(storyboardsRef.current, group);
-            commitStoryboards(items => items.map(b => b.id === current[0].id ? {
-              ...b, videoEndingWarning: FILM_ENDING_ASR_SKIPPED_WARNING,
-            } : b));
-            persistCurrentProject();
-            return;
-          }
-          for (let round = 0; round <= MAX_ENDING_REPAIRS; round++) {
-            if (autoAbortRef.current) return;
-            let audit: FilmEndingAudit | undefined;
-            await retryUntilCompleted('核验整片末镜最后一秒', async () => {
-              const current = refreshPlannedVideoSegment(storyboardsRef.current, group);
-              const leader = current[0];
-              if (!leader.videoTaskId) throw new Error('末镜尚未返回可核验的视频任务');
-              if (leader.videoEndingAudit?.taskId === leader.videoTaskId) { audit = leader.videoEndingAudit; return; }
-              const cached = leader.videoCacheKey ? await cachedVideoObjectUrl(leader.videoCacheKey) : undefined;
-              const source = cached || leader.videoSourceUrl || leader.videoUrl
-                || await downloadComfyUIVideo(leader.videoTaskId, settingsRef.current.comfyui, { smoothAudioTail: true });
-              const ownsUrl = Boolean(cached || (!leader.videoSourceUrl && !leader.videoUrl));
-              try {
-                const media = await fetch(source);
-                if (!media.ok) throw new Error('末镜视频读取失败；保留任务后重试');
-                const form = new FormData();
-                form.append('video', await media.blob(), 'ending.mp4');
-                form.append('taskId', leader.videoTaskId);
-                form.append('expected', current.flatMap(b => storyboardSpeech(b)).map(line => line.exactLine).join(' '));
-                form.append('fishAudioKey', settingsRef.current.fishAudioKey || '');
-                const response = await fetchStoryApi('/api/series/audit-video-ending', { method: 'POST', body: form }, settingsRef.current.comfyui);
-                const result = await readApiJson<{ audit: FilmEndingAudit }>(response, '末镜核验失败');
-                if (!result.audit || result.audit.taskId !== leader.videoTaskId || typeof result.audit.passed !== 'boolean') throw new Error('末镜核验未返回当前任务结果');
-                audit = result.audit;
-                commitStoryboards(items => items.map(b => b.id === leader.id ? { ...b, videoEndingAudit: result.audit } : b));
-                persistCurrentProject();
-              } finally { if (ownsUrl && source.startsWith('blob:')) URL.revokeObjectURL(source); }
-            });
-            if (!audit) throw new Error('末镜核验未完成');
-            const current = refreshPlannedVideoSegment(storyboardsRef.current, group);
-            const disposition = filmEndingDisposition(audit);
-            if (disposition !== 'repair-dialogue') {
-              commitStoryboards(items => items.map(b => b.id === current[0].id ? {
-                ...b, videoEndingWarning: disposition === 'warning' ? FILM_ENDING_WARNING : undefined,
-              } : b));
-              persistCurrentProject();
-              break;
-            }
-            const repaired = prepareFilmEndingRepair(storyboardsRef.current, current, audit);
-            storyboardsRef.current = repaired;
-            setStoryboards(repaired);
-            persistCurrentProject();
-            await retryUntilCompleted('自动修复末镜无配音结尾', completeGroup);
-          }
+          // Ending direction belongs in the generation prompt, not a second ASR gate.
+          // Resume paid clips unchanged, including checkpoints with a failed old audit.
+          commitStoryboards(items => retainFilmEndingForDelivery(items, group));
+          persistCurrentProject();
         }
       };
 

@@ -2,17 +2,17 @@ import type { Storyboard } from '@/types';
 import { FILM_ENDING_SECONDS, isFilmEndingSegment } from './filmEnding';
 
 export type FilmEndingAudit = NonNullable<Storyboard['videoEndingAudit']>;
-export const MAX_ENDING_REPAIRS = 2;
 const words = (s: string) => s.normalize('NFKC').toLowerCase().replace(/’/g, "'").match(/[a-z]+(?:'[a-z]+)?|[\u4e00-\u9fff]/g) || [];
 
-/** The requested quiet tail is best-effort; it must not buy repeated takes or block a whole season. */
-export function filmEndingDisposition(audit: FilmEndingAudit): 'passed' | 'warning' | 'repair-dialogue' {
-  if (audit.passed) return 'passed';
-  return audit.dialogueMatch >= 0.8 ? 'warning' : 'repair-dialogue';
-}
+export const FILM_ENDING_ASR_SKIPPED_WARNING = '自动成片已跳过额外末镜 ASR 转写核验；保留原视频继续合成，不据此重复生成。结尾要求仍由生成提示词约束。';
 
-export const FILM_ENDING_WARNING = '末镜台词转写匹配，但结尾未留足一秒无配音画面；保留完整台词与自然动作，不再为此重复生成。';
-export const FILM_ENDING_ASR_SKIPPED_WARNING = 'H3 已按末镜规则生成并完成内置台词校验；当前未配置 Fish Audio 转写，已跳过额外的末尾 ASR 复核。原视频已保留，不重复生成。';
+/** Informational only: never invalidate a paid clip or relabel an old audit as passed. */
+export function retainFilmEndingForDelivery(all: Storyboard[], group: Storyboard[]): Storyboard[] {
+  if (!isFilmEndingSegment(all, group)) return all;
+  const leader = all.find(b => b.id === group[0]?.id);
+  if (!leader || leader.videoStatus !== 'completed' || leader.videoEndingWarning === FILM_ENDING_ASR_SKIPPED_WARNING) return all;
+  return all.map(b => b.id === leader.id ? { ...b, videoEndingWarning: FILM_ENDING_ASR_SKIPPED_WARNING } : b);
+}
 
 function matchDialogue(expected: string, actual: string): number {
   const x = words(expected), y = words(actual);
@@ -38,7 +38,7 @@ export function evaluateFilmEnding(
   }
   const lastSpeechEnd = Math.max(0, ...speech.map(s => Number(s.end)));
   const dialogueMatch = matchDialogue(expected, transcript);
-  // This is an ASR screening gate, not a claim of perfect transcription or listening QA.
+  // Explicit diagnostics only; automatic production does not call ASR or gate delivery on it.
   const dialoguePresent = dialogueMatch >= 0.8;
   const quietEnding = lastSpeechEnd <= duration - FILM_ENDING_SECONDS - 0.1;
   const passed = dialoguePresent && quietEnding;
@@ -46,34 +46,4 @@ export function evaluateFilmEnding(
     reason: !dialoguePresent ? '末镜转写与完整台词不匹配'
       : !quietEnding ? '末镜最后一秒仍包含可识别台词'
         : '末镜台词转写匹配，末尾至少一秒未识别到讲话（含时间戳余量）' };
-}
-
-/** Only a completed, audited final segment may spend the persisted repair budget. */
-export function prepareFilmEndingRepair(all: Storyboard[], group: Storyboard[], audit: FilmEndingAudit): Storyboard[] {
-  if (!isFilmEndingSegment(all, group) || audit.passed) throw new Error('只可修复已确认未通过的整片末镜');
-  if (filmEndingDisposition(audit) === 'warning') throw new Error('末镜仅留白不足，记录提示而不重生成');
-  const leader = group[0];
-  if (!leader?.videoTaskId || leader.videoTaskId !== audit.taskId || leader.videoStatus !== 'completed') throw new Error('末镜核验对应的视频任务已改变');
-  const attempts = leader.videoEndingRepairAttempts || 0;
-  const duration = Math.min(15, Math.ceil(Math.max(audit.duration, leader.videoDuration || 0) + 2));
-  if (attempts >= MAX_ENDING_REPAIRS || duration <= Math.max(leader.videoDuration || 0, audit.duration)) {
-    throw new Error('末镜台词仍未通过核验，已达到自动修复上限；所有台词和原视频已保留');
-  }
-  const ids = new Set(group.map(b => b.id));
-  return all.map(b => !ids.has(b.id) ? b : {
-    ...b,
-    videoUrl: undefined, videoSourceUrl: undefined, videoTaskId: undefined,
-    videoCacheKey: undefined, videoCacheStatus: undefined, videoCachedAt: undefined,
-    videoStatus: 'pending', videoGenerationSignature: undefined,
-    videoSegmentId: undefined, videoSegmentStoryboardIds: undefined,
-    videoEndingAudit: undefined, videoEndingWarning: undefined,
-    ...(b.id === leader.id ? {
-      videoEndingRepairAttempts: attempts + 1,
-      videoEndingMinimumDuration: duration,
-      videoEndingHistory: [...(leader.videoEndingHistory || []), {
-        taskId: audit.taskId, videoSourceUrl: leader.videoSourceUrl,
-        videoCacheKey: leader.videoCacheKey, duration: audit.duration, reason: audit.reason,
-      }],
-    } : {}),
-  });
 }

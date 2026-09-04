@@ -1,3 +1,9 @@
+## 0.1.190 - 2026-09-04
+
+- Remove the additional final-segment ASR gate and its automatic paid regeneration loop from Story and Series production. A completed clip proceeds to assembly regardless of Fish ASR availability or a previous audit result.
+- Preserve paid task IDs, video sources, cache keys, generation signatures and existing diagnostic history on checkpoint retry. Show an explicit skipped-audit notice without claiming verification passed.
+- Retain authored dialogue, H3 ending directions and duration headroom, plus complete-segment recovery and media-integrity protections during export. Update both the website and local Companion.
+
 ## 0.1.189 - 2026-09-04
 
 - Carry registered character aliases and casting names through the character library, screenplay, saved Story plans, and direction. Normalize structured identities and H3 speaker IDs without changing quoted dialogue, authored action, or ambiguous roles.
