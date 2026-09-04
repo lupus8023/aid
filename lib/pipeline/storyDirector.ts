@@ -12,6 +12,7 @@ import { applyDirectorFieldRepairProgress, buildDirectorFieldRepairPrompt, direc
 import { usesPhotographicReferences } from '@/lib/gptImageReferences';
 import { buildGptImage2PhotographicContract } from '@/lib/gptImagePrompt';
 import { storyboardVisualCastNames } from '@/lib/series/imageCastContract';
+import { canonicalizeStoryIdentities, storyIdentityContract } from './storyIdentity';
 
 // 导演阶段：把编剧产出的 StoryPlan 可视化成分镜（Storyboard[]）。
 // 关键点：镜头数量/顺序/台词/时长/转场/连续关系【忠实于 StoryPlan】，只补画面/视频提示词与定妆。
@@ -88,6 +89,7 @@ export function buildDirectorPrompt(input: {
 
 📋 可用角色：
 ${characterDetails}
+${storyIdentityContract(characters)}
 📦 已上传物体：
 ${objectDetails}
 
@@ -378,7 +380,8 @@ export async function directStoryboard(input: {
   scriptModel?: string;
   dmxApiKey?: string;
 }): Promise<Storyboard[]> {
-  const { storyPlan, characters, objects, apiKey, aspectRatio, language = 'zh', visualStyle, capturePreset, scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
+  const { storyPlan: submittedPlan, characters, objects, apiKey, aspectRatio, language = 'zh', visualStyle, capturePreset, scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
+  const storyPlan = canonicalizeStoryIdentities(submittedPlan, characters);
   // The motion brief is additional output, so keep each response bounded.
   const batches = buildDirectorBatches(storyPlan, 6);
   const allBeats = storyPlan.sequences.flatMap(sequence => sequence.beats);

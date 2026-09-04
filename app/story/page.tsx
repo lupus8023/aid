@@ -59,6 +59,7 @@ import { AwaitingMediaTaskError, autoProductionLockName, autoRetryDelayMs, hasUs
 import { effectiveStoryCast } from '@/lib/storyCast';
 import { characterAliasValues, characterIdentityIndex, withoutCharacterValues } from '@/lib/characterIdentity';
 import { recoverSeriesStoryAliases } from '@/lib/series/storyCastRecovery';
+import { canonicalizeStoryIdentities } from '@/lib/pipeline/storyIdentity';
 import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '@/lib/midjourney';
 import { applyCapturePreset, DEFAULT_CAPTURE_PRESET, normalizeCapturePreset } from '@/lib/capturePresets';
 import { completeProductionTiming, formatProductionElapsed, normalizeProductionTiming, pauseProductionTiming, productionElapsedMs, startProductionTiming } from '@/lib/productionTiming';
@@ -631,10 +632,10 @@ export default function StoryPage() {
       projectIdRef.current = savedProject.id!;
       const savedLanguageForVoice = savedProject.language === 'en' ? 'en' : 'zh';
       const savedCharacters = castStoryVoices((savedProject.characters || []) as Character[], savedLanguageForVoice);
-      const savedStoryPlan = savedProject.storyPlan ? {
+      const savedStoryPlan = savedProject.storyPlan ? canonicalizeStoryIdentities({
         ...savedProject.storyPlan,
         characters: castStoryVoices(savedProject.storyPlan.characters || [], savedLanguageForVoice),
-      } : undefined;
+      }, savedCharacters) : undefined;
       const savedObjects = savedProject.objects || [];
       const savedCostumeImages = savedProject.costumeImages || {};
       const savedSceneImages = savedProject.sceneImages || [];
@@ -990,10 +991,10 @@ export default function StoryPage() {
         const importedLanguage = data.language === 'en' || data.language === 'zh'
           ? data.language
           : (settingsRef.current.language === 'en' ? 'en' : 'zh');
-        const importedStoryPlan: StoryPlan | undefined = data.storyPlan ? {
+        const importedStoryPlan: StoryPlan | undefined = data.storyPlan ? canonicalizeStoryIdentities({
           ...data.storyPlan,
           characters: castStoryVoices(data.storyPlan.characters || [], importedLanguage),
-        } : undefined;
+        }, importedCharacters) : undefined;
         projectLanguageLockedRef.current = Boolean(data.language);
         projectLanguageRef.current = importedLanguage;
         setProjectLanguage(importedLanguage);
@@ -1201,6 +1202,11 @@ export default function StoryPage() {
       localStorage.setItem(storyStorageKeys().contract, JSON.stringify(approvedSeriesContract));
     }
     let storyPlan = storyPlanRef.current;
+    if (storyPlan) {
+      storyPlan = canonicalizeStoryIdentities(storyPlan, writerCharacters);
+      storyPlanRef.current = storyPlan;
+      setStoryPlan(storyPlan);
+    }
     if (!resume || !canResumeStoryPlan(storyPlan, planningSynopsis, targetShotCount, writerCharacters) || (approvedSeriesContract?.shots && !storyPlan?.seriesEpisode)) {
       let generatedPlan: StoryPlan;
       if (approvedSeriesContract?.shots) {

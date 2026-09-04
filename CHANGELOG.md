@@ -1,3 +1,10 @@
+## 0.1.189 - 2026-09-04
+
+- Carry registered character aliases and casting names through the character library, screenplay, saved Story plans, and direction. Normalize structured identities and H3 speaker IDs without changing quoted dialogue, authored action, or ambiguous roles.
+- Retain complete multiline source shots and their action/camera details. Preserve authored A–B–A exchanges instead of applying generated-dialogue restrictions or splitting one actor into multiple characters; repeated timed H3 sections remain phases of the same shot.
+- Recover a partial series screenplay with an unexplained refusal tail through at most one missing-shot continuation. Persist the original, response metadata, and an exclusive recovery marker across Companion restarts; explicit provider refusals still stop immediately without transport/provider fallback.
+- Website and local Companion update; no extra media QC or paid generation is added by the release.
+
 ## 0.1.188 - 2026-09-04
 
 - Resolve registered character aliases and library casting names to the approved Story voice, including older series snapshots and stale segment-level speech. Reuse existing voice references without guessing identities, changing spoken words, or resynthesizing audio.

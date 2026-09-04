@@ -8,6 +8,9 @@ import type { NarrativeState, StoryAudioPlan, Storyboard, StoryClipType, StoryDi
 import { MAX_H3_SPEECH_TURNS, generatedSpeakerMatchesVisibleAction, isDirectingInstructionDialogue, sanitizeGeneratedSpeechText, speechSeconds } from '@/lib/speechAudioContract';
 import { castStoryVoices, resolveGeneratedStoryIdentity } from '@/lib/voiceCasting';
 import type { VoiceAgeGroup, VoiceGender } from '@/types';
+import { characterIdentityIndex } from '@/lib/characterIdentity';
+import { canonicalizeStoryIdentities } from './storyIdentity';
+import { sourceDialogueSections, sourceShotBlocks, sourceShotVisualFields } from './sourceScreenplay';
 
 const TRANSITIONS: Beat['transition'][] = ['cut', 'dissolve', 'fade', 'wipe'];
 const REQUIREMENT_CATEGORIES: StoryRequirement['category'][] = ['plot', 'character', 'setting', 'tone', 'format', 'pacing', 'dialogue', 'visual', 'avoid', 'other'];
@@ -25,7 +28,8 @@ function escapeRegExp(value: string): string {
 
 function explicitDialogueSpeakers(synopsis: string): Array<{ name: string; count: number }> {
   const counts = new Map<string, number>();
-  const dialogueLines = String(synopsis || '').split(/\r?\n/).filter(line => /(?:dialogue|台词)\s*[:：]/iu.test(line));
+  const blocks = sourceShotBlocks(synopsis);
+  const dialogueLines = (blocks.length ? blocks.map(shot => shot.text) : [synopsis]).flatMap(sourceDialogueSections);
   const speakerPattern = /([A-Za-z][A-Za-z'’.\-]*(?:\s+[A-Za-z][A-Za-z'’.\-]*){0,4}|[\p{Script=Han}]{1,8})\s*[:：]\s*[“"']/gu;
   for (const line of dialogueLines) {
     for (const match of line.matchAll(speakerPattern)) {
@@ -45,15 +49,26 @@ export function expandStoryCharacters(
   language: 'zh' | 'en' = 'zh',
 ): { characters: WriterCharacter[]; canonicalSynopsis: string; aliases: Record<string, string> } {
   const speakers = explicitDialogueSpeakers(synopsis);
-  const aliases: Record<string, string> = {};
-  const uploadedByName = new Map(uploadedCharacters.map(character => [character.name.toLocaleLowerCase(), character]));
-  const remaining = speakers.filter(speaker => !uploadedByName.has(speaker.name.toLocaleLowerCase()));
+  const aliases: Record<string, string> = Object.create(null);
+  const identities = characterIdentityIndex(uploadedCharacters);
+  for (const character of uploadedCharacters) {
+    for (const alias of character.aliases || []) {
+      if (identities.resolve(alias) === character) aliases[alias] = character.name;
+    }
+  }
+  for (const speaker of speakers) {
+    const character = identities.resolve(speaker.name);
+    if (character) aliases[speaker.name] = character.name;
+    else if (identities.has(speaker.name)) throw new Error(`剧本称呼“${speaker.name}”对应多个已登记角色，请明确选角关系`);
+  }
+  const remaining = speakers.filter(speaker => !identities.has(speaker.name));
 
   // Detailed scripts often name the sole uploaded protagonist in prose while
   // its character card uses a translated role label. In that one-card case,
   // the most frequent speaking identity is the deterministic protagonist
   // alias; supporting roles remain separate text-defined identities.
-  if (uploadedCharacters.length === 1 && remaining.length) {
+  if (uploadedCharacters.length === 1 && remaining.length
+    && !uploadedCharacters[0].aliases?.length && !speakers.some(speaker => identities.has(speaker.name))) {
     aliases[remaining[0].name] = uploadedCharacters[0].name;
   }
 
@@ -64,7 +79,7 @@ export function expandStoryCharacters(
     // e.g. `“Princess Lanxi…”` into `“Princess 人鱼公主…”`; the later exact-line
     // guard correctly rejected that mutated quote, silently deleting the
     // corresponding speech line from the finished storyboard.
-    const aliasPattern = new RegExp(`\\b${escapeRegExp(alias)}\\b`, 'giu');
+    const aliasPattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(alias)}(?![\\p{L}\\p{N}_])`, 'giu');
     canonicalSynopsis = canonicalSynopsis
       .split(/([“"][^”"]*[”"])/gu)
       .map((part, index) => index % 2 === 1 ? part : part.replace(aliasPattern, canonical))
@@ -79,7 +94,10 @@ export function expandStoryCharacters(
     }));
 
   return {
-    characters: castStoryVoices([...uploadedCharacters, ...textDefinedCharacters], language),
+    characters: castStoryVoices([...uploadedCharacters.map(character => ({
+      ...character,
+      aliases: [...new Set([...(character.aliases || []), ...Object.keys(aliases).filter(alias => aliases[alias] === character.name && alias !== character.name)])],
+    })), ...textDefinedCharacters], language),
     canonicalSynopsis,
     aliases,
   };
@@ -161,12 +179,9 @@ export function parseSourceDialogueByShot(
 ): Map<number, Array<{ character: string; text: string }>> {
   const result = new Map<number, Array<{ character: string; text: string }>>();
   const speakerPattern = /([A-Za-z][A-Za-z'’.-]*(?:\s+[A-Za-z][A-Za-z'’.-]*){0,4}|[\p{Script=Han}]{1,12})\s*[:：]\s*[“"]([^”"]+)[”"]/gu;
-  for (const sourceLine of String(synopsis || '').split(/\r?\n/)) {
-    const shotMatch = sourceLine.match(/(?:SHOT|镜头)\s*0*(\d+)\b/iu);
-    const dialogueMarker = sourceLine.match(/(?:dialogue|台词)\s*[:：]/iu);
-    if (!shotMatch || !dialogueMarker) continue;
-    const shotIndex = Number(shotMatch[1]);
-    const dialogueText = sourceLine.slice((dialogueMarker.index || 0) + dialogueMarker[0].length);
+  for (const shot of sourceShotBlocks(synopsis)) {
+    const shotIndex = shot.index;
+    const dialogueText = sourceDialogueSections(shot.text).join('\n');
     const lines: Array<{ character: string; text: string }> = [];
     for (const match of dialogueText.matchAll(speakerPattern)) {
       const character = String(match[1] || '').trim();
@@ -187,10 +202,9 @@ export function applySourceDialogueAuthority(
 ): StoryOutline {
   const sourceDialogue = parseSourceDialogueByShot(synopsis, allowedCharacters);
   const targetBeatCount = outline.sequences.reduce((total, sequence) => total + sequence.beatMap.length, 0);
-  const sourceShotIndexes = [...String(synopsis || '').matchAll(/(?:SHOT|镜头)\s*0*(\d+)\b/giu)]
-    .map(match => Number(match[1]))
-    .filter(Number.isFinite);
+  const sourceShotIndexes = sourceShotBlocks(synopsis).map(shot => shot.index);
   const sourceShotCount = sourceShotIndexes.length ? Math.max(...sourceShotIndexes) : targetBeatCount;
+  const sourceVisuals = new Map(sourceShotBlocks(synopsis).map(shot => [shot.index, sourceShotVisualFields(shot.text)]));
   const adaptationByTarget = new Map(
     buildSourceShotAdaptationMap(synopsis, targetBeatCount).map(group => [group.targetIndex, group] as const),
   );
@@ -203,6 +217,8 @@ export function applySourceDialogueAuthority(
       if (sourceShotCount === targetBeatCount) {
         lines = sourceDialogue.get(beat.index);
         beat.sourceShotRefs = [beat.index];
+        const authoredAction = sourceVisuals.get(beat.index)?.action;
+        if (authoredAction) beat.actionGoal = authoredAction;
       } else if (adaptationByTarget.size) {
         const group = adaptationByTarget.get(beat.index);
         beat.sourceShotRefs = group?.sourceShotRefs || [];
@@ -524,19 +540,16 @@ export function normalizeStoryOutline(
   targetShotCount: number,
   allowedCharacters: string[] = [],
   characterAliases: Record<string, string> = {},
+  sourceBrief = '',
 ): StoryOutline {
   raw = unwrapStoryOutline(raw);
+  const authoredLines = new Set([...parseSourceDialogueByShot(sourceBrief, allowedCharacters).values()].flat()
+    .map(line => `${line.character}\u0000${line.text}`));
   const canonicalSpeaker = (value: unknown): string => {
     const submitted = asString(value).trim();
     const exact = allowedCharacters.find(name => name.toLocaleLowerCase() === submitted.toLocaleLowerCase());
     if (exact) return exact;
-    const alias = Object.entries(characterAliases).find(([candidate]) => {
-      const normalized = submitted.toLocaleLowerCase();
-      const key = candidate.toLocaleLowerCase();
-      return normalized === key
-        || normalized.endsWith(` ${key}`)
-        || (key.length >= 3 && new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(key)}(?:$|[^a-z0-9])`, 'iu').test(normalized));
-    });
+    const alias = Object.entries(characterAliases).find(([candidate]) => candidate.toLocaleLowerCase() === submitted.toLocaleLowerCase());
     return alias?.[1] || submitted;
   };
   let nextIndex = 0;
@@ -574,6 +587,7 @@ export function normalizeStoryOutline(
           }
           const repeatedTurnSpeaker = dialogueTurns.find((turn, turnIndex) => (
             dialogueTurns.slice(0, turnIndex).some(previous => previous.speaker === turn.speaker)
+            && !authoredLines.has(`${turn.speaker}\u0000${turn.exactLine || (requiredDialogueLines[turnIndex]?.character === turn.speaker ? requiredDialogueLines[turnIndex].text : '')}`)
           ));
           if (repeatedTurnSpeaker) {
             throw new Error(`镜头 ${nextIndex + 1} 的角色“${repeatedTurnSpeaker.speaker}”规划了多段台词；同一人物必须合并为一个连续长台词 turn`);
@@ -1237,7 +1251,7 @@ export async function generateStoryPlan(input: {
   const spine = await requestStructuredJson<Record<string, any>>({
     prompt: spinePrompt,
     label: '故事脊柱',
-    validate: raw => normalizeStorySpine(raw, targetShotCount),
+    validate: raw => normalizeStorySpine(canonicalizeStoryIdentities(raw, characters), targetShotCount),
     apiKey,
     dmxApiKey,
     provider: scriptProvider,
@@ -1275,7 +1289,7 @@ export async function generateStoryPlan(input: {
       const chunk = await requestStructuredJson<any[]>({
         prompt: mapPrompt,
         label: `镜头地图 ${chunkStart}-${chunkStart + chunkSize - 1}`,
-        validate: raw => validateStorySequenceMap(raw, chunkStart, chunkSize, allowedCharacterNames),
+        validate: raw => validateStorySequenceMap(canonicalizeStoryIdentities(raw, characters), chunkStart, chunkSize, allowedCharacterNames),
         apiKey,
         dmxApiKey,
         provider: scriptProvider,
@@ -1296,6 +1310,7 @@ export async function generateStoryPlan(input: {
     targetShotCount,
     allowedCharacterNames,
     expanded.aliases,
+    synopsis,
   );
   outline = applySourceDialogueAuthority(outline, synopsis, allowedCharacterNames);
   const missingDialogue = missingSourceDialogueLines(outline, synopsis, allowedCharacterNames);
@@ -1316,7 +1331,7 @@ export async function generateStoryPlan(input: {
     outline = await requestStructuredJson<StoryOutline>({
       prompt: dialoguePrompt,
       label: '全片台词稿',
-      validate: raw => applyStoryDialogueManuscript(outline, raw, characters.map(character => character.name)),
+      validate: raw => applyStoryDialogueManuscript(outline, canonicalizeStoryIdentities(raw, characters), characters.map(character => character.name)),
       apiKey,
       dmxApiKey,
       provider: scriptProvider,
@@ -1358,6 +1373,7 @@ export async function generateStoryPlan(input: {
   }), language);
 
   const batches = buildStoryBeatBatches(outline);
+  const sourceVisuals = new Map(sourceShotBlocks(synopsis).map(shot => [shot.index, sourceShotVisualFields(shot.text)]));
   const detailedBySequence = new Map<string, any[]>();
   const roadmap = outline.sequences.flatMap(sequence => sequence.beatMap);
   let previousBoundary: Record<string, unknown> | undefined;
@@ -1382,12 +1398,17 @@ export async function generateStoryPlan(input: {
       prompt,
       label: `详细剧本 ${firstIndex}–${lastIndex}`,
       validate: raw => {
-        const batchBeats = rawBatchBeats(raw);
+        const batchBeats = rawBatchBeats(canonicalizeStoryIdentities(raw, characters));
         if (batchBeats.length !== batch.beatMap.length) {
           throw new Error(`返回 ${batchBeats.length} 镜，要求 ${batch.beatMap.length} 镜`);
         }
         batchBeats.forEach((beat, index) => {
           const authority = batch.beatMap[index];
+          if (authority.sourceShotRefs.length === 1) {
+            const visual = sourceVisuals.get(authority.sourceShotRefs[0]);
+            if (visual?.shotSize) beat.shotSize = visual.shotSize;
+            if (visual?.cameraMove) beat.cameraMove = visual.cameraMove;
+          }
           const required = {
             action: asString(beat?.action, authority.actionGoal),
             cause: asString(beat?.cause, authority.cause),
@@ -1664,6 +1685,9 @@ export async function generateStoryPlan(input: {
     Object.fromEntries(characters.map(character => [character.name, character.voiceLocked])),
   );
   const actualShotCount = storyPlanBeatCount(plan);
+  plan.characters = plan.characters.map(character => ({
+    ...character, aliases: characters.find(registered => registered.name === character.name)?.aliases,
+  }));
   if (actualShotCount !== targetShotCount) {
     throw new Error(`剧本模型返回了 ${actualShotCount} 个镜头，但制作规格要求 ${targetShotCount} 个；请重试生成`);
   }

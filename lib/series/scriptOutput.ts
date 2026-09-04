@@ -1,22 +1,28 @@
 import { extractJson } from '@/lib/pipeline/json';
+import { providerReportedRefusal, safeProviderDetail, type ProviderResponseMetadata } from '@/lib/pipeline/providerPayload';
 
 export class ScriptModelRefusalError extends Error {
   readonly code = 'MODEL_CONTENT_REJECTED';
-  constructor() {
-    super('文本模型在剧本输出中拒绝继续，未返回完整剧本；原稿已保留，不会自动重提。请检查模型提示的拒绝原因及输入内容后再处理');
+  constructor(reason = '') {
+    super(`供应商明确拒绝继续输出剧本${reason ? `：${safeProviderDetail(reason)}` : ''}；原稿已保留，不会自动重提。请根据供应商原因检查输入内容`);
   }
+}
+
+export class ScriptRecoveryStoppedError extends Error {
+  readonly code = 'SCRIPT_RECOVERY_STOPPED';
 }
 
 export class IncompleteScriptOutputError extends Error {
   readonly code = 'SCRIPT_OUTPUT_INCOMPLETE';
-  constructor(readonly shots: Record<string, unknown>[]) {
-    super(`剧本 JSON 未完整返回，已保留 ${shots.length} 个完整镜头，需要补齐剩余内容`);
+  constructor(readonly shots: Record<string, unknown>[], readonly reason = '输出不完整') {
+    super(`剧本 JSON 未完整返回（${reason}），已保留 ${shots.length} 个完整镜头，需要补齐剩余内容`);
   }
 }
 
 // Refusal prose must be outside a valid JSON document; an actor saying these
 // words in a valid screenplay is ordinary dialogue, not a provider refusal.
-function hasRefusalTail(text: string): boolean {
+export function hasRefusalTail(text: string): boolean {
+  text = text.trim().replace(/\n?```\s*$/, '').trim();
   return /(?:^|\n)\s*(?:(?:I['’]m|I am) sorry[,，]?\s*(?:but\s*)?)I (?:cannot|can['’]t|am unable to) (?:assist|help|comply|continue)[^\n]*[.!]?\s*$/i.test(text)
     || /(?:^|\n)\s*(?:抱歉|对不起)[，,。\s]*(?:但)?我(?:无法|不能)(?:帮助|协助|继续|满足|提供)[^\n]*\s*$/.test(text);
 }
@@ -65,16 +71,19 @@ export function completeScriptPrefix(text: string): Record<string, unknown>[] {
   return shots;
 }
 
-export function parseScriptOutput(text: string): any {
+export function parseScriptOutput(text: string, metadata?: ProviderResponseMetadata): any {
+  if (providerReportedRefusal(metadata)) throw new ScriptModelRefusalError(metadata?.refusal || metadata?.incompleteReason || metadata?.finishReason);
   let raw: any;
   try { raw = extractJson(text); }
   catch (error) {
-    if (hasRefusalTail(text)) throw new ScriptModelRefusalError();
     const prefix = completeScriptPrefix(text);
-    if (prefix.length) throw new IncompleteScriptOutputError(prefix);
+    if (prefix.length) throw new IncompleteScriptOutputError(prefix, hasRefusalTail(text)
+      ? '正文末尾含拒绝文字，但没有供应商明确拒绝标记'
+      : metadata?.finishReason === 'length' || metadata?.incompleteReason === 'max_output_tokens' ? '达到输出上限' : '原因未明');
+    if (hasRefusalTail(text)) throw new ScriptRecoveryStoppedError('模型返回拒绝文字，且没有可保留的完整镜头；原稿已保留，无法自动补镜，请检查原始输入');
     throw error;
   }
-  if (raw?._aidModelRefusal === true) throw new ScriptModelRefusalError();
+  if (raw?._aidModelRefusal === true) throw new ScriptModelRefusalError(raw.refusal);
   if (raw?._aidIncompleteScript === true && Array.isArray(raw.shots))
     throw new IncompleteScriptOutputError(raw.shots);
   return raw;

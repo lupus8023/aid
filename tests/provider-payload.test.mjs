@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { assertProviderAccepted, extractProviderText, isProviderContentRejection, isResponsesPreferredModel, ProviderModelRefusalError, providerPayloadSummary } from '../lib/pipeline/providerPayload.ts';
+import { assertProviderAccepted, extractProviderText, isProviderContentRejection, isResponsesPreferredModel, ProviderModelRefusalError, providerPayloadSummary, providerResponseMetadata } from '../lib/pipeline/providerPayload.ts';
+
+test('stop metadata distinguishes output limit from explicit refusal without retaining sensitive payloads', () => {
+  const metadata = providerResponseMetadata({ result: { model: 'model-1', status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' },
+    output: [{ type: 'message', content: [{ type: 'output_text', text: 'PRIVATE STORY' }] }], usage: { input_tokens: 12000, output_tokens: 7000 },
+    authorization: 'SECRET KEY', input: 'PRIVATE INPUT' } }, { provider: 'dmx', endpoint: 'responses' });
+  assert.equal(metadata.incompleteReason, 'max_output_tokens');
+  assert.equal(metadata.refused, false); assert.equal(metadata.outputTokens, 7000);
+  assert.equal(metadata.provider, 'dmx'); assert.equal(metadata.model, 'model-1');
+  assert.doesNotMatch(JSON.stringify(metadata), /PRIVATE|SECRET/);
+  assert.equal(providerResponseMetadata({ choices: [{ finish_reason: 'length', message: { content: 'partial' } }] }).finishReason, 'length');
+});
 
 test('provider refusal metadata takes precedence over partially generated text', () => {
   for (const payload of [

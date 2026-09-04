@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { assertProviderAccepted, chatInputContent, extractProviderText, ProviderModelRefusalError, providerPayloadSummary } from './pipeline/providerPayload';
+import { assertProviderAccepted, chatInputContent, extractProviderText, ProviderModelRefusalError, providerPayloadSummary, providerResponseMetadata, type ProviderTextResult } from './pipeline/providerPayload';
 import type { ApiMartChatResponse, ApiMartImageTaskResponse, ApiMartImageStatusResponse, ApiMartVideoStatusResponse } from '@/types';
 import { providerHttpsAgent } from './publicDns';
 import { isRequestDefinitelyNotSent, ProviderRequestNotSentError } from './providerConnection';
@@ -42,6 +42,10 @@ export function apimartErrorSummary(error: any): { code?: string; status?: numbe
 
 // 聊天 API - 用于分析故事
 export async function chatCompletion(prompt: string, apiKey: string, model: string = 'gpt-4o', timeoutMs = 120000, maxTokens = 16000, imageUrls: string[] = []): Promise<string> {
+  return (await chatCompletionResult(prompt, apiKey, model, timeoutMs, maxTokens, imageUrls)).text;
+}
+
+export async function chatCompletionResult(prompt: string, apiKey: string, model = 'gpt-4o', timeoutMs = 120000, maxTokens = 16000, imageUrls: string[] = [], singleAttempt = false): Promise<ProviderTextResult> {
   try {
     const body = {
       model,
@@ -65,7 +69,7 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
       const connectionFailure = !error?.response && /ECONNRESET|ENOTFOUND|EAI_AGAIN|ERR_TLS_CERT_ALTNAME_INVALID|secure TLS connection|Hostname\/IP does not match/i.test(
         `${error?.code || ''} ${error?.message || ''}`,
       );
-      if (!httpsAgent || !connectionFailure) throw error;
+      if (singleAttempt || !httpsAgent || !connectionFailure) throw error;
       preferSystemNetworkStack = true;
       console.warn('[apimart] public-DNS transport failed before response; retrying through the system network stack');
       response = await axios.post<ApiMartChatResponse>(
@@ -82,15 +86,17 @@ export async function chatCompletion(prompt: string, apiKey: string, model: stri
       if (jsonMatch) rawData = JSON.parse(jsonMatch[0]);
     }
 
-    assertProviderAccepted(rawData);
+    const metadata = providerResponseMetadata(rawData, { provider: 'apimart', endpoint: 'chat/completions', model, maxOutputTokens: maxTokens });
+    assertProviderAccepted(rawData, metadata);
     const content = extractProviderText(rawData);
     if (!content) {
       throw new Error(`Unexpected API response format: ${providerPayloadSummary(rawData)}`);
     }
     console.log(`Chat API response received: model=${model}, contentLength=${content.length}`);
-    return content;
+    return { text: content, metadata };
   } catch (error: any) {
     if (error instanceof ProviderModelRefusalError) throw error;
+    if (error?.response?.data) assertProviderAccepted(error.response.data, { provider: 'apimart', endpoint: 'chat/completions', model, maxOutputTokens: maxTokens, status: String(error.response.status) });
     const summary = apimartErrorSummary(error);
     // Never log the Axios error/config object: it contains the Authorization
     // header and full prompt body. Keep operational diagnostics credential-free.

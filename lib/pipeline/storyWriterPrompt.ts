@@ -1,5 +1,9 @@
 import type { WriterCharacter, WriterObject } from './types';
 import { normalizeTargetShotCount, targetDurationSeconds } from './shotCount';
+import { storyIdentityContract } from './storyIdentity';
+import { sourceShotBlocks } from './sourceScreenplay';
+
+const AUTHORED_ACTION_CONTRACT = '原稿已写明的景别、动作顺序、表情、运镜和逐字台词是执行依据，不是灵感素材。按 sourceShotRefs 逐项整理到 action、performance、shotSize、cameraMove、speech；只补缺省项，不把具体动作概括成剧情摘要。H3 的 15 秒限制只用于分段执行，不能借此删改原动作或台词；同一人物的多轮原对白保留顺序，不得拆出第二个人物来规避限制。';
 
 const AUDIO_PLAN_WRITING_CONTRACT = `
 - 仅整部成片的最后一镜：最后一句对白/旁白完整结束后保留至少1秒自然延续的画面，环境声或配乐可继续，也尊重剧情静默。把这1秒算入末镜时长；不截尾字、不加台词、不以黑帧或定格凑时长。此片尾要求不应用于中间镜头或每个生成片段。
@@ -18,20 +22,13 @@ export function buildSourceShotAdaptationMap(synopsis: string, targetShotCount: 
   const sequences: Array<{ id: string; shots: Array<{ index: number; line: string }> }> = [];
   let current = { id: 'source-sequence-1', shots: [] as Array<{ index: number; line: string }> };
   sequences.push(current);
-  for (const rawLine of String(synopsis || '').split(/\r?\n/)) {
-    const heading = rawLine.match(/^\s*#{2,}\s*(?:SEQUENCE|场次)\s*([^\n]*)/iu);
-    if (heading) {
+  for (const shot of sourceShotBlocks(synopsis)) {
+    if (current.id !== shot.sequence) {
       if (current.shots.length) {
-        current = { id: heading[1]?.trim() || `source-sequence-${sequences.length + 1}`, shots: [] };
-        sequences.push(current);
-      } else {
-        current.id = heading[1]?.trim() || current.id;
-      }
-      continue;
+        current = { id: shot.sequence, shots: [] }; sequences.push(current);
+      } else current.id = shot.sequence;
     }
-    const shot = rawLine.match(/(?:SHOT|镜头)\s*0*(\d+)\b/iu);
-    if (!shot) continue;
-    current.shots.push({ index: Number(shot[1]), line: rawLine.trim() });
+    current.shots.push({ index: shot.index, line: shot.text.trim() });
   }
   const populated = sequences.filter(sequence => sequence.shots.length);
   const sourceShotCount = populated.reduce((total, sequence) => total + sequence.shots.length, 0);
@@ -150,6 +147,8 @@ ${synopsis}
 
 可用角色（含已上传角色与用户原文明确命名的文字角色；characters 只能使用这些精确名称）：
 ${characterDetails}
+${storyIdentityContract(characters)}
+${AUTHORED_ACTION_CONTRACT}
 
 已上传物体（objects 只能使用这些精确名称）：
 ${objectDetails}
@@ -167,7 +166,7 @@ ${sourceAdaptationMap.length ? `编号原稿压缩合同（权威）：原稿镜
 - dialoguePurpose 规划台词的叙事功能：question、answer、reveal、conceal、challenge、refusal、decision、promise、callback、payoff 或 visual_only。不要把“台词克制”误解为默认禁言；当私人目标、关系变化、选择、承诺或回收无法仅靠画面准确表达时，必须规划有效台词。
 - 用 dialogueUnitId 把跨镜的提问/回答、挑战/拒绝、承诺/回收绑定为同一连续对白单元；dialogueContext 写清这句台词承接的事实以及说完后听者必须改变的认知/关系。不能把一个完整交流拆成互不相干的口号。
 - 非 visual_only 镜头必须先写 dialogueTurns，再由执行编剧写逐字台词。每个 turn 锁定 speaker、function、contentGoal、respondsTo：contentGoal 要写清该角色必须传递的新事实/立场/选择，不能只写“表达担心”“说一句鼓励”或孤立感叹。需要问答、挑战/回应、揭示/反应时，在同镜或同一 dialogueUnitId 的连续镜头安排完整轮次，不能只留下提问或半句。
-- 同一人物在一个 beat 里只能有一个 dialogueTurn；同一 dialogueUnitId 的连续 beat 若可能被合并为一个 H3 片段，也不得让同一人物二次起声。把该人物要说的多个信息点合并成一个完整 contentGoal；禁止 A→A 分段和 A→B→A 返回结构。
+- 自行创作对白时，同一人物在一个 beat 里只设计一个 dialogueTurn；同一片段的信息点合成完整 contentGoal。用户已写好的 A→B→A 对答不适用此限制，逐条填写 exactLine 并保留说话人和原顺序，由下游分段执行，不能因此新增人物或合并改写原话。
 - dialogueObligation 为 required 时必须生成台词，不得在详细剧本阶段静默降为 visual_only；optional 才允许在动作已经完全表达信息时删除；visual 表示明确无对白。
 - 对白要形成跨镜呼应：问题必须得到回答或故意延迟；承诺/谎言/关键词必须在后面产生变化或回收。台词不能复述画面动作，也不能是脱离上下文的口号。
 - montageRole 决定剪辑语义：setup、development、escalation、parallel、contrast、decision、consequence、bridge、payoff、resolution。并置必须产生新的理解，不是旅游式画面罗列。
@@ -282,6 +281,8 @@ ${synopsis}
 
 可用角色（名称必须逐字使用）：
 ${characterDetails}
+${storyIdentityContract(characters)}
+${AUTHORED_ACTION_CONTRACT}
 
 已上传物体：
 ${objectDetails}
@@ -387,6 +388,8 @@ ${outputLanguage}
 ${synopsis}
 
 可用角色：${characters.map(character => character.name).join('、')}
+${storyIdentityContract(characters)}
+${AUTHORED_ACTION_CONTRACT}
 可用物体：${objects.map(object => object.name).join('、') || '无'}
 
 全片脊柱：
@@ -403,7 +406,7 @@ ${sourceAdaptationMap.length ? `编号原稿压缩合同（逐项权威，不得
 - actionGoal 只写一个能直接拍到的动作或局面变化；cause 必须承接上一镜 consequence，consequence 必须推动下一镜。
 - 每镜产生一个 informationGain 和一个 emotionalTurn；不能只是重复景色或情绪。
 - dialoguePurpose 只用 question、answer、reveal、conceal、challenge、refusal、decision、promise、callback、payoff、visual_only。
-- 非 visual_only 必须绑定可用角色 requiredSpeaker，并给出 dialogueTurns 的 speaker、function、contentGoal、respondsTo；同一人物在一个 beat 只能出现一次。
+- 非 visual_only 必须绑定可用角色 requiredSpeaker，并给出 dialogueTurns 的 speaker、function、contentGoal、respondsTo；自行创作时同一人物在一个 beat 只出现一次，用户已有对答则逐条填写 exactLine，保留其原顺序和同一人物身份。
 - 用户原文明确台词逐字放入 requiredDialogueLines，并同步写入 dialogueTurns；不得改写、换角色或遗漏。自行创作的台词此阶段只规划 contentGoal，不写 exactLine。
 - editBridge 写实际动作、视线、物体或声音如何交给下一镜，以及观众由此新增的理解。全片第 ${targetShotCount} 镜必须以“terminal image:”开头。
 - 字段保持精炼，每个字符串只写一件事。禁止摄影参数、声音设计、prompt、旁白和逐镜状态 JSON。
@@ -608,6 +611,8 @@ ${JSON.stringify(nextRoadmap.slice(0, 2), null, 2)}
 
 允许角色：
 ${characters.map(character => `- ${character.name}: ${character.description}`).join('\n')}
+${storyIdentityContract(characters)}
+${AUTHORED_ACTION_CONTRACT}
 允许物体：
 ${objects.length ? objects.map(object => `- ${object.name}: ${object.description}`).join('\n') : 'None'}
 
@@ -628,7 +633,7 @@ ${objects.length ? objects.map(object => `- ${object.name}: ${object.description
 - 台词必须承接上下文：用 storyFunction 标明 question/answer/reveal/refusal/decision/promise/callback/payoff；用 respondsTo 指向它回应的前一句信息或伏笔。不得写重复画面、孤立口号、通用感叹或没有对象的短句。
 - beatMap.dialogueTurns 是全片台词稿锁定的逐条合同：speech 条数、说话者顺序和 storyFunction 必须逐项一致；exactLine 必须逐字等于 dialogueTurns.exactLine，不能改写、缩短或重新创作。contentGoal、respondsTo、meaningEvidence、subtext 和 listenerResult 都要原样保留为非朗读元数据。
 - beatMap.dialogueUnitId、dialogueObligation、dialogueContext 是权威对白契约，逐项沿用。required 必须写 speech，不能因为动作可见而降为 visual_only；同一 dialogueUnitId 的问答/承诺/回收必须语义相接，听者的 listenerState 要写出听后发生的具体变化。
-- 先把相邻 beat 看成待装入同一个 H3 片段的视觉参考，再安排片段级台词。一段允许多个不同人物依次说话，但每个人物只能对应一个连续 speech 条目；同一人物原本分散在多个 beat 的 story_required 信息点必须在首个发声 beat 合并成一段较长、自然、完整的 exactLine，后续 beat 的 speech=[]，禁止 A→A 分段和 A→B→A 返回说话。用户锁定的 requiredDialogueLines 仍逐字保留，若同一人物有多条则按原顺序无缝合并为一个发声块；总台词时长加首尾留白必须装入片段时长。不要为了凑数量写台词。
+- 自行创作时，先按 H3 片段组织有序台词，再分配相邻 beat 的视觉参考；每人一个连续 speech 条目，避免零碎重复起声。用户锁定的 requiredDialogueLines 必须逐条、逐字、按原说话顺序保留，尤其不能把 A→B→A 改为 A→A→B，不能把两次 A 拆成两个角色；下游负责在真实时长内安排连续播放或拆成相邻生成片段。不要为了凑数量写台词。
 - 只有 dialogueObligation=optional 且没有 requiredLine 时，若本镜信息已经能靠动作完整、无歧义地交付，才可将 dialoguePurpose 明确改成 visual_only 并保持 speech=[]；dialogueObligation=required 或 requiredLine 非空时绝不能降级，也不能把一个角色的原话转嫁给另一个角色。
 - beatMap.requiredDialogueLines 非空时，speech 必须逐条、逐字、按顺序等于该数组；requiredLine/requiredSpeaker 是首句兼容字段。绝不能漏句、串角色、合并旁白或把临时人物的话转嫁给主角。
 - 自行创作 story_required 台词时，说话者必须在 characters 中以已上传精确名称出现；action 还要用当前输出语言清楚表现该可见角色正在开口。不要因为英文叙述使用自然称呼而改写 characters / speech.character 中的精确库名称。
@@ -719,7 +724,7 @@ export function buildStoryPlanPrompt(input: {
 - 台词必须有潜台词（subtext）：嘴上说的 ≠ 心里想的，不直说。
 - 台词必须有叙事功能：能由动作清楚表达的内容不用重复说；但目标、关系、选择、承诺、谎言与回收若仅靠画面会含混，必须写必要台词。speech=[] 只代表这一镜确实适合纯视觉叙事，不能把“克制”执行成全片禁言。
 - 不得为了“电影感”添加旁白、画外音、路人说话、感叹词、笑声、哼唱或无来源的人声。用户给出的指定台词必须逐字保留，不改写、不扩写。
-- 视频片段是对白骨架，beat 只是片段内部的画面参考。预计会连续装入同一个 15 秒 H3 片段的 1–3 个相邻 beat，必须先共同确定一组有序台词事件，再分配画面动作；不得先给每个 beat 各写一句、最后再拼接。同一片段允许 A→B、A→B→C 等多人对白，但每个人物只能有一个连续发声块，禁止 A→A 分段或 A→B→A 再次起声。
+- 自行创作时，以视频片段组织对白，再给相邻 beat 分配画面动作；每人一个完整发声块，避免零碎起声。用户已写好的对答保留所有原句、说话人和顺序，同一人物多次开口仍是同一个身份，下游按时长分段执行。
 - speech 是全片唯一权威台词源。一个片段中同一人物的多个信息点必须在第一个发声 beat 合并成一段较长、自然、完整的 speech；后续 beat 只用动作、反应、景别和走位承接该连续声音，speech=[]。speaker 必须在当前 characters 中；exactLine 只能包含角色真正说出口的逐字内容，绝不能填写“无人说话”“无其他角色在场”“其他角色沉默/闭嘴/无声反应”“先短暂停顿，再以坚定语气说”等导演或表演指令。情绪和说话方式写入 emotion/delivery，其他角色状态写进 action 或 state；不要用 silenceBefore 在同一人物的句子中间制造空档。
 - audioPlan 是唯一权威声音源。backgroundHuman 默认 none；只有剧情明确需要人群存在感时才可用 indistinct_nonverbal，且绝不能产生可辨识词语。环境、拟音、音乐必须分层，未要求音乐时 music 写 none。
 ${AUDIO_PLAN_WRITING_CONTRACT}
@@ -738,6 +743,8 @@ ${langInstruction}
 
 📋 可用角色（含有参考角色与用户原文明确命名的文字角色）
 ${characterDetails}
+${storyIdentityContract(characters)}
+${AUTHORED_ACTION_CONTRACT}
 
 ✅ 允许的角色名称: ${characterNames}
 
@@ -765,7 +772,7 @@ ${synopsis}
 - 每镜只承担一个主动作弧：进入动作→加速/施力→明确触点或决定→0.25–0.6 秒可读结果。速度变化来自物理加速度和阻力，不得把整段动作默认写成匀速慢动作。
 - 相邻镜头的动作、景别与能量要形成长短交替；关键信息落定后给短呼吸，但普通动作不能用无意义停顿拖时长。除非剧情明确要求时间主观化，否则禁止 slow motion、长时间悬停和空镜漂移。
 - 每个镜尾必须留下一个可被下一镜接住的具体交棒：身体/道具运动方向、视线、前景遮挡、焦点变化、可见结果或由动作产生的声音。一个接缝只用一种交棒逻辑。
-- 按叙事需要分配纯视觉镜与对白镜，不预设“大多数必须无台词”。有台词的 beat 每个人物只能有一段连续长台词；不同人物按顺序交接，不能同时说，也不能让同一人物在另一个人物之后再次开口。只允许当前 characters 中的已命名角色说话，禁止重复上一镜台词或添加临时说话者。
+- 按叙事需要分配纯视觉镜与对白镜，不预设“大多数必须无台词”。自行创作时，每人一段完整台词，不同人物有序交接；用户原稿的轮流对答按原句和顺序执行。只允许当前 characters 中的已命名角色说话，不能复制上一镜台词或添加临时说话者。
 - 景别要多样（远景建场 → 中景 → 近景/特写），相邻镜头景别要有变化。
 - 宁可按「动作链」合理分配，也不要一个镜头堆多个动作；同时不得超出或少于 ${targetShots} 镜。
 
@@ -822,7 +829,7 @@ ${synopsis}
           "consequence": "选择/动作产生的可见结果",
           "characterChange": "本镜头前后角色认知或情绪变化",
           "nextCause": "推动下一镜头的直接原因",
-          "speech": [ { "character": "角色名；同一人物在本 beat 只能出现一次", "exactLine": "只填写该人物一次连续说完的完整台词，可适当写长，不含导演指令", "emotion": "克制的具体情绪", "delivery": "自然语速与重音，不安排句中长停顿", "volume": "whisper|soft|normal|raised", "lipSync": true, "source": "user_exact|story_required" } ],
+          "speech": [ { "character": "角色正名；原稿同一人物多次开口仍使用同一身份", "exactLine": "只填写完整逐字台词，不含导演指令", "emotion": "克制的具体情绪", "delivery": "自然语速与重音，不安排句中长停顿", "volume": "whisper|soft|normal|raised", "lipSync": true, "source": "user_exact|story_required" } ],
           "audioPlan": { "backgroundHuman": "none|indistinct_nonverbal", "environment": ["明确环境声"], "foley": ["由可见动作触发的拟音"], "music": "none 或用户明确要求的音乐", "silenceBefore": 0.8, "silenceAfter": 0.8 },
           "stateBefore": { "characters": "人物位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "仅写画面可见的人物距离、朝向、视线轴和银幕侧；不得写观众理解、接受、疑问或剧情评价", "emotion": "情绪状态" },
           "stateAfter": { "characters": "人物位置/状态", "objects": "道具状态", "environment": "环境状态", "relationships": "仅写画面可见的人物距离、朝向、视线轴和银幕侧；不得写观众理解、接受、疑问或剧情评价", "emotion": "情绪状态" },

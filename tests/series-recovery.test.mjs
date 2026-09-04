@@ -12,8 +12,9 @@ import { findSeriesVoices } from '../lib/series/voices.ts';
 import { parseEpisodes } from '../lib/series/domain.ts';
 import { outlineFixture, episodeFixtures, shotFixture } from './fixtures/series.mjs';
 import { extractJson } from '../lib/pipeline/json.ts';
-import { appendScriptContinuation, completeScriptPrefix, parseScriptOutput, ScriptModelRefusalError } from '../lib/series/scriptOutput.ts';
+import { appendScriptContinuation, completeScriptPrefix, parseScriptOutput, ScriptModelRefusalError, ScriptRecoveryStoppedError } from '../lib/series/scriptOutput.ts';
 import { ProviderModelRefusalError } from '../lib/pipeline/providerPayload.ts';
+import { createSeriesGenerationCache } from '../lib/series/generationCache.ts';
 
 const input = { voiceId: 'chosen-voice', fishAudioKey: 'private-fixture-key', language: 'zh', strictVoice: true };
 function fixture() {
@@ -63,16 +64,102 @@ test('missing outer JSON closers recover locally without a model request', async
   assert.equal(cached, raw);
 });
 
-test('refusal after partial output reports the real cause and stops retries including after restart', async () => {
-  const project = scriptFixture();
+test('legacy partial draft with unexplained refusal prose receives exactly one missing-shot continuation', async () => {
+  const project = scriptFixture(), good = shotFixture();
   const raw = JSON.stringify({ shots: shotFixture().shots.slice(0, 15) }).slice(0, -2)
     + ',{"number":16,"visual":"cut\nI\'m sorry, but I cannot assist with that request.';
-  let cached, calls = 0;
-  const deps = { chat: async () => { calls++; return raw; }, read: async () => cached, save: async value => { cached = value; } };
-  for (let run = 0; run < 2; run++) await assert.rejects(generateSeriesStage('script', project, project.episodes[0].id, deps), ScriptModelRefusalError);
+  let cached = raw, calls = 0, state;
+  const deps = { chat: async (prompt, options) => {
+    calls++;
+    assert.match(prompt, /只补齐第 16–16 镜/);
+    assert.doesNotMatch(prompt, /I cannot assist|修稿任务|原始编剧任务/);
+    assert.equal(options.singleAttempt, true);
+    return { text: JSON.stringify({ shots: good.shots.slice(15) }), metadata: { provider: 'dmx', model: 'fixture-model', finishReason: 'stop', outputTokens: 250 } };
+  }, read: async () => cached, save: async value => { cached = value; }, readState: async () => state,
+  saveState: async value => { state = structuredClone(value); } };
+  for (let run = 0; run < 2; run++) assert.equal((await generateSeriesStage('script', project, project.episodes[0].id, deps)).script.length, 16);
   assert.equal(calls, 1);
-  assert.equal(cached, raw);
+  assert.deepEqual(JSON.parse(cached), good);
+  assert.equal(state.recovery.originalDraft, raw);
+  assert.equal(state.recovery.status, 'completed');
+  assert.equal(state.responses[0].metadata.finishReason, 'stop');
   assert.deepEqual(parseScriptOutput(JSON.stringify({ shots: [{ dialogue: "I'm sorry, but I cannot assist with that request." }] })).shots.length, 1);
+});
+
+test('partial legacy drafts persist one-shot recovery across restart even after another partial response', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'aid-script-recovery-'));
+  const key = 'a'.repeat(64), project = scriptFixture(), raw = JSON.stringify({ shots: shotFixture().shots.slice(0, 15) }).slice(0, -2)
+    + ',{"number":16,"visual":"cut\nI\'m sorry, but I cannot assist with that request.';
+  let calls = 0;
+  try {
+    const cache = createSeriesGenerationCache(root, key);
+    await cache.save(raw);
+    for (let run = 0; run < 2; run++) await assert.rejects(generateSeriesStage('script', project, project.episodes[0].id, {
+      ...createSeriesGenerationCache(root, key), chat: async () => {
+        calls++; return { text: '{"shots":[{"number":16,"visual":"cut', metadata: { provider: 'dmx', finishReason: 'length', outputTokens: 7000 } };
+      },
+    }), ScriptRecoveryStoppedError);
+    assert.equal(calls, 1); assert.equal(await cache.read(), raw);
+    const state = await cache.readState();
+    assert.equal(state.recovery.status, 'failed');
+    assert.equal(state.recovery.response, '{"shots":[{"number":16,"visual":"cut');
+    assert.equal(state.responses[0].metadata.finishReason, 'length');
+    assert.equal(state.responses[0].metadata.outputTokens, 7000);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('durable recovery claim prevents duplicate requests from concurrent callers and unknown-outcome restarts', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'aid-script-claim-'));
+  const key = 'b'.repeat(64), project = scriptFixture(), good = shotFixture();
+  const raw = JSON.stringify({ shots: good.shots.slice(0, 15) }).slice(0, -2) + ',{"number":16';
+  let calls = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let markEntered;
+  const entered = new Promise(resolve => { markEntered = resolve; });
+  try {
+    const cache = createSeriesGenerationCache(root, key);
+    await cache.save(raw);
+    const first = generateSeriesStage('script', project, project.episodes[0].id, { ...cache, chat: async () => {
+      calls++; markEntered(); await gate; return JSON.stringify({ shots: good.shots.slice(15) });
+    } });
+    await entered;
+    await assert.rejects(generateSeriesStage('script', project, project.episodes[0].id, {
+      ...createSeriesGenerationCache(root, key), chat: async () => { throw new Error('duplicate'); },
+    }), /已尝试一次/);
+    release(); await first;
+    assert.equal(calls, 1);
+    assert.deepEqual(JSON.parse(await cache.read()), good);
+    const secondCache = createSeriesGenerationCache(root, 'c'.repeat(64));
+    await secondCache.save(raw);
+    // Simulate a process dying after the atomic claim but before metadata save.
+    assert.equal(await secondCache.claimRecovery(), true);
+    await assert.rejects(generateSeriesStage('script', project, project.episodes[0].id, {
+      ...createSeriesGenerationCache(root, 'c'.repeat(64)), chat: async () => { throw new Error('duplicate after crash'); },
+    }), /已尝试一次/);
+  } finally { release?.(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('explicit refusal beats recoverable prefix and remains terminal with provider diagnostics', async () => {
+  const project = scriptFixture(), raw = JSON.stringify({ shots: shotFixture().shots.slice(0, 15) }).slice(0, -2);
+  assert.throws(() => parseScriptOutput(raw, { finishReason: 'content_filter' }), ScriptModelRefusalError);
+  let cached = raw, state, calls = 0;
+  const deps = { read: async () => cached, save: async value => { cached = value; }, readState: async () => state,
+    saveState: async value => { state = structuredClone(value); }, chat: async () => {
+      calls++; throw new ProviderModelRefusalError('partial', 'Explicit provider reason', { provider: 'dmx', finishReason: 'content_filter', refused: true });
+    } };
+  for (let run = 0; run < 2; run++) await assert.rejects(generateSeriesStage('script', project, project.episodes[0].id, deps), /Explicit provider reason/);
+  assert.equal(calls, 1); assert.equal(cached, raw);
+  assert.equal(state.responses[0].metadata.finishReason, 'content_filter');
+  assert.equal(state.refusal, 'Explicit provider reason');
+});
+
+test('no complete shots means no speculative regeneration and valid JSON dialogue is never classified as a refusal', async () => {
+  const project = scriptFixture(), raw = "I'm sorry, but I cannot assist with that request.";
+  await assert.rejects(generateSeriesStage('script', project, project.episodes[0].id, {
+    read: async () => raw, chat: async () => { throw new Error('must not regenerate'); },
+  }), /没有可保留的完整镜头/);
+  const valid = { shots: [{ number: 1, dialogue: [{ text: raw }] }] };
+  assert.deepEqual(parseScriptOutput(JSON.stringify(valid)), valid);
 });
 
 test('structured provider refusal retains its partial original and never falls into generic repair', async () => {
@@ -103,6 +190,32 @@ test('structured refusals never fall back to another transport or text provider'
   } finally { axios.post = originalPost; }
 });
 
+test('one-shot recovery never buys a transport/provider retry and preserves successful stop metadata', async () => {
+  const axios = (await import('axios')).default;
+  const { chatOnceResult } = await import('../lib/pipeline/llm.ts');
+  const originalPost = axios.post;
+  try {
+    for (const provider of ['auto', 'apimart']) {
+      let calls = 0;
+      axios.post = async () => { calls++; throw Object.assign(new Error('connection reset after submit'), { code: 'ECONNRESET' }); };
+      await assert.rejects(chatOnceResult('fixture', { provider, apiKey: 'fixture', dmxApiKey: 'fixture', model: 'gpt-5', singleAttempt: true }));
+      assert.equal(calls, 1);
+      axios.post = async () => ({ status: 200, headers: { 'content-type': 'application/json' }, data: {
+        choices: [{ finish_reason: 'length', message: { content: '{"shots":[' } }], usage: { prompt_tokens: 20, completion_tokens: 7000 },
+      } });
+      const result = await chatOnceResult('fixture', { provider, apiKey: 'fixture', dmxApiKey: 'fixture', maxOutputTokens: 7000 });
+      assert.equal(result.text, '{"shots":[');
+      assert.equal(result.metadata.finishReason, 'length');
+      assert.equal(result.metadata.outputTokens, 7000);
+      assert.equal(result.metadata.maxOutputTokens, 7000);
+    }
+    axios.post = async () => ({ status: 400, headers: {}, data: { error: { code: 'content_filter', message: 'Blocked by content moderation' } } });
+    await assert.rejects(chatOnceResult('fixture', { provider: 'dmx', dmxApiKey: 'fixture' }), ProviderModelRefusalError);
+    axios.post = async () => { throw { response: { status: 400, data: { error: { code: 'content_filter', message: 'Blocked by content moderation' } } } }; };
+    await assert.rejects(chatOnceResult('fixture', { provider: 'apimart', apiKey: 'fixture' }), ProviderModelRefusalError);
+  } finally { axios.post = originalPost; }
+});
+
 test('bad continuation cannot overwrite completed shots and incremental continuation remains resumable', async () => {
   const good = shotFixture(), prefix = good.shots.slice(0, 14);
   const partial = appendScriptContinuation(prefix, JSON.stringify({ shots: good.shots.slice(14, 15) }), 16);
@@ -116,7 +229,7 @@ test('bad continuation cannot overwrite completed shots and incremental continua
     read: async () => cached, save: async value => { cached = value; },
     chat: async () => { calls++; return '{"shots":[{"number":16}]}'; },
   }), /编号不连续/);
-  assert.equal(calls, 3); assert.equal(cached, raw);
+  assert.equal(calls, 1); assert.equal(cached, raw);
 });
 
 test('voice storage is checked before synthesis; failed upload is resumed across restart without a second purchase', async () => {

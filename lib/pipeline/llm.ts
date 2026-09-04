@@ -1,8 +1,8 @@
 import axios from 'axios';
-import { chatCompletion } from '@/lib/apimart';
+import { chatCompletionResult } from '@/lib/apimart';
 import { providerHttpsAgent } from '@/lib/publicDns';
 import { scriptProviderOrder, type ScriptProvider } from './scriptProvider';
-import { assertProviderAccepted, chatInputContent, responsesInput, isProviderContentRejection, extractProviderText, isResponsesPreferredModel, providerPayloadSummary } from './providerPayload';
+import { assertProviderAccepted, chatInputContent, responsesInput, isProviderContentRejection, extractProviderText, isResponsesPreferredModel, providerPayloadSummary, providerResponseMetadata, type ProviderTextResult } from './providerPayload';
 
 export { scriptProviderOrder } from './scriptProvider';
 export type { ScriptProvider } from './scriptProvider';
@@ -19,6 +19,7 @@ function parseProviderPayload(payload: any, status: number, contentType: string,
         : `${provider} 返回了无效 JSON（HTTP ${status}）`);
     }
   }
+  assertProviderAccepted(data, { provider, status: String(status) });
   if (status < 200 || status >= 300) {
     const message = data?.error?.message || data?.error || data?.message || `HTTP ${status}`;
     throw new Error(`${provider} 错误：${message}`);
@@ -31,7 +32,7 @@ async function requestDmxText(
   body: Record<string, unknown>,
   apiKey: string,
   timeoutMs: number,
-): Promise<string> {
+): Promise<ProviderTextResult> {
   const response = await axios.post(`https://www.dmxapi.cn/v1/${endpoint}`, body, {
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       httpsAgent: providerHttpsAgent(),
@@ -48,7 +49,8 @@ async function requestDmxText(
     if (data?.error) {
       throw new Error(`DMXAPI 错误：${data.error?.message || data.error?.code || '未知上游错误'}`);
     }
-    assertProviderAccepted(data);
+    const metadata = providerResponseMetadata(data, { provider: 'dmx', endpoint, model: String(body.model || ''), maxOutputTokens: Number(body.max_output_tokens || body.max_completion_tokens || body.max_tokens) });
+    assertProviderAccepted(data, metadata);
     const content = extractProviderText(data);
     if (!content) {
       const finishReason = data?.choices?.[0]?.finish_reason;
@@ -59,10 +61,10 @@ async function requestDmxText(
           : '响应中没有可用的最终文本';
       throw new Error(`${detail}（${endpoint}；结构 ${providerPayloadSummary(data)}）`);
     }
-    return content;
+    return { text: content, metadata };
 }
 
-async function dmxChatCompletion(prompt: string, apiKey: string, model: string, timeoutMs: number, maxOutputTokens: number, imageUrls: string[] = []): Promise<string> {
+async function dmxChatCompletion(prompt: string, apiKey: string, model: string, timeoutMs: number, maxOutputTokens: number, imageUrls: string[] = [], singleAttempt = false): Promise<ProviderTextResult> {
   try {
     const preferResponses = isResponsesPreferredModel(model);
     const transports: Array<'chat/completions' | 'responses'> = preferResponses
@@ -92,7 +94,7 @@ async function dmxChatCompletion(prompt: string, apiKey: string, model: string, 
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         failures.push(`${endpoint}: ${message}`);
-        if (isProviderContentRejection(error)) throw error;
+        if (singleAttempt || isProviderContentRejection(error)) throw error;
         // A timeout means the model did not finish this payload in time. Sending
         // the same oversized request through the alternate OpenAI transport only
         // doubles the wait; transport fallback remains useful for shape/endpoint
@@ -108,10 +110,16 @@ async function dmxChatCompletion(prompt: string, apiKey: string, model: string, 
   }
 }
 
-export async function chatOnce(
+interface ChatOptions { apiKey?: string; dmxApiKey?: string; provider?: ScriptProvider; model?: string; maxOutputTokens?: number; timeoutMs?: number; imageUrls?: string[]; singleAttempt?: boolean }
+
+export async function chatOnce(prompt: string, opts: ChatOptions): Promise<string> {
+  return (await chatOnceResult(prompt, opts)).text;
+}
+
+export async function chatOnceResult(
   prompt: string,
-  opts: { apiKey?: string; dmxApiKey?: string; provider?: ScriptProvider; model?: string; maxOutputTokens?: number; timeoutMs?: number; imageUrls?: string[] },
-): Promise<string> {
+  opts: ChatOptions,
+): Promise<ProviderTextResult> {
   const { apiKey = '', dmxApiKey = '', provider = 'auto', model = 'gpt-4o', maxOutputTokens = 24_000 } = opts;
   if (provider === 'dmx' && !dmxApiKey) throw new Error('剧本 API 选择了 DMX，但尚未配置 DMXAPI Key');
   if (provider === 'apimart' && !apiKey) throw new Error('剧本 API 选择了 APIMart，但尚未配置 APIMart API Key');
@@ -127,14 +135,14 @@ export async function chatOnce(
 
   for (const candidate of order) {
     try {
-      if (candidate === 'dmx') return await dmxChatCompletion(prompt, dmxApiKey, model, providerTimeout, maxOutputTokens, opts.imageUrls);
-      return await chatCompletion(prompt, apiKey, model, providerTimeout, maxOutputTokens, opts.imageUrls);
+      if (candidate === 'dmx') return await dmxChatCompletion(prompt, dmxApiKey, model, providerTimeout, maxOutputTokens, opts.imageUrls, opts.singleAttempt);
+      return await chatCompletionResult(prompt, apiKey, model, providerTimeout, maxOutputTokens, opts.imageUrls, opts.singleAttempt);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const label = candidate === 'dmx' ? 'DMXAPI' : 'APIMart';
       console.error(`[story-llm] ${label} failed:`, message);
       errors.push(`${label}：${message}`);
-      if (isProviderContentRejection(error)) throw error;
+      if (opts.singleAttempt || isProviderContentRejection(error)) throw error;
     }
   }
 

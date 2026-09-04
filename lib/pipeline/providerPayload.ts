@@ -8,24 +8,68 @@ export function isProviderContentRejection(error: unknown): boolean {
 
 export class ProviderModelRefusalError extends Error {
   readonly code = 'MODEL_CONTENT_REJECTED';
-  constructor(readonly partialText: string, readonly refusal: string) {
+  constructor(readonly partialText: string, readonly refusal: string, readonly metadata?: ProviderResponseMetadata) {
     super('文本模型拒绝继续输出，已停止自动重提');
   }
 }
 
-/** Refusal metadata wins even when the provider also supplies partial text. */
-export function assertProviderAccepted(payload: unknown): void {
-  if (!payload || typeof payload !== 'object') return;
+export interface ProviderResponseMetadata {
+  provider?: string;
+  endpoint?: string;
+  model?: string;
+  finishReason?: string;
+  status?: string;
+  incompleteReason?: string;
+  refused?: boolean;
+  refusal?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  maxOutputTokens?: number;
+}
+export interface ProviderTextResult { text: string; metadata: ProviderResponseMetadata }
+
+export function safeProviderDetail(value: unknown): string {
+  return typeof value === 'string' ? value.replace(/Bearer\s+[^\s]+/gi, 'Bearer [REDACTED]')
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}/g, '[REDACTED]').replace(/[\r\n\t]+/g, ' ').slice(0, 500) : '';
+}
+
+/** Persist only stop diagnostics, never headers, reasoning, input or credentials. */
+export function providerResponseMetadata(payload: unknown, context: ProviderResponseMetadata = {}): ProviderResponseMetadata {
+  if (!payload || typeof payload !== 'object') return context;
   const data = payload as Record<string, any>;
+  if (!data.choices && !data.output && !data.output_text) {
+    for (const key of ['data', 'result', 'response']) if (data[key] && typeof data[key] === 'object')
+      return providerResponseMetadata(data[key], context);
+  }
   const choice = data.choices?.[0];
   const parts = [...(Array.isArray(choice?.message?.content) ? choice.message.content : []),
-    ...(Array.isArray(data.output) ? data.output.flatMap((item: any) => item?.content || []) : [])];
-  const refusal = choice?.message?.refusal || parts.find((item: any) => item?.type === 'refusal')?.refusal;
-  if (refusal || parts.some((item: any) => item?.type === 'refusal') || choice?.finish_reason === 'content_filter'
-    || data.incomplete_details?.reason === 'content_filter') {
-    throw new ProviderModelRefusalError(extractProviderText(data), String(refusal || 'content_filter'));
-  }
-  for (const key of ['data', 'result', 'response']) if (data[key] && data[key] !== payload) assertProviderAccepted(data[key]);
+    ...(Array.isArray(data.output) ? data.output.flatMap((item: any) => Array.isArray(item?.content) ? item.content : []) : [])];
+  const explicitError = data.error && isProviderContentRejection([data.error.code, data.error.type, data.error.message].filter(value => typeof value === 'string').join(' '));
+  const refusal = choice?.message?.refusal || parts.find((item: any) => item?.type === 'refusal')?.refusal
+    || (explicitError ? data.error.message || data.error.code || data.error.type : undefined);
+  const refused = Boolean(refusal || parts.some((item: any) => item?.type === 'refusal')
+    || choice?.finish_reason === 'content_filter' || data.incomplete_details?.reason === 'content_filter');
+  const tokens = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+  return { ...context,
+    model: safeProviderDetail(data.model) || context.model,
+    finishReason: safeProviderDetail(choice?.finish_reason) || undefined,
+    status: safeProviderDetail(data.status) || undefined,
+    incompleteReason: safeProviderDetail(data.incomplete_details?.reason) || undefined,
+    refused, refusal: refused ? safeProviderDetail(refusal) || 'content_filter' : undefined,
+    inputTokens: tokens(data.usage?.prompt_tokens ?? data.usage?.input_tokens),
+    outputTokens: tokens(data.usage?.completion_tokens ?? data.usage?.output_tokens),
+  };
+}
+
+export function providerReportedRefusal(metadata?: ProviderResponseMetadata): boolean {
+  return Boolean(metadata?.refused || metadata?.refusal || metadata?.finishReason === 'content_filter' || metadata?.incompleteReason === 'content_filter');
+}
+
+/** Refusal metadata wins even when the provider also supplies partial text. */
+export function assertProviderAccepted(payload: unknown, context?: ProviderResponseMetadata): void {
+  const metadata = providerResponseMetadata(payload, context);
+  if (providerReportedRefusal(metadata))
+    throw new ProviderModelRefusalError(extractProviderText(payload), metadata.refusal || 'content_filter', metadata);
 }
 
 export function responsesInput(prompt: string, imageUrls: string[] = []) {

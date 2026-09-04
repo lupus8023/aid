@@ -95,6 +95,8 @@ export function characterFromGeneratedSeries(
   character: {
     id: string;
     name: string;
+    aliases?: string[];
+    casting?: { name?: string };
     description: string;
     bibleUrl?: string;
     imageUrl?: string;
@@ -113,6 +115,7 @@ export function characterFromGeneratedSeries(
   return {
     id: `series-character-${text(sourceSeriesId)}-${text(character.id)}`,
     name: text(character.name),
+    aliases: [...new Set([...(character.aliases || []), character.casting?.name].map(text).filter(alias => alias && alias !== text(character.name)))],
     description: text(character.description),
     imageUrl,
     bibleUrl: imageUrl,

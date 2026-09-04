@@ -54,6 +54,7 @@
 - **Real-time Progress**: Live status updates during image and video generation
 - **Batch Processing**: Generate multiple storyboard scenes simultaneously
 - **Project Management**: Save, load, and export your projects with ease
+- **Screenplay Fidelity**: Registered aliases and casting names share one character identity. Multiline authored shots retain their actions, camera instructions, and exact ordered dialogue during H3 preparation; partial series drafts receive at most one persisted missing-shot recovery in Companion, while explicit provider refusals remain stopped.
 - **Series Studio**: Create anything from a one-episode short to a full season, generate character cards individually, reuse finished cast through the character library, separate automatic prop references from user-specified product images, and download each episode separately. New story shot-count presets use multiples of four and each four shots share one 2×2 storyboard reference sheet; formed screenplays retain their original count and fields. See [连续剧制片说明](docs/series-studio.md).
 
 ---

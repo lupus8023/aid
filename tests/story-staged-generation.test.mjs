@@ -395,6 +395,17 @@ SHOT 23 | reef | dialogue: Lanxi: “Do I matter?” Old Sea Turtle: “You matt
   ]);
 });
 
+test('authored A-B-A exchange keeps the same character instead of failing the generated-turn limit', () => {
+  const sequence = outlineSequence('seq-1', 1, 4);
+  const lines = [{ character: '沈贵妃', text: '有何感觉？' }, { character: '裴大人', text: '凉。' }, { character: '沈贵妃', text: '然后呢？' }];
+  sequence.beatMap[0].requiredDialogueLines = lines;
+  sequence.beatMap[0].dialogueTurns = lines.map(line => ({ speaker: line.character, exactLine: line.text, function: 'answer', contentGoal: line.text, respondsTo: '' }));
+  const source = '镜1\n台词：沈贵妃：“有何感觉？” 裴大人：“凉。” 沈贵妃：“然后呢？”';
+  const outline = normalizeStoryOutline(outlineDocument([sequence]), 4, ['沈贵妃', '裴大人'], {}, source);
+  assert.deepEqual(outline.sequences[0].beatMap[0].dialogueTurns.map(turn => turn.speaker), ['沈贵妃', '裴大人', '沈贵妃']);
+  assert.throws(() => normalizeStoryOutline(outlineDocument([sequence]), 4, ['沈贵妃', '裴大人']), /规划了多段台词/);
+});
+
 test('screenplay batches stay small enough for complete JSON and never cross a sequence boundary', () => {
   const outline = normalizeStoryOutline(outlineDocument([
     outlineSequence('seq-1', 1, 12), outlineSequence('seq-2', 13, 6),
@@ -463,9 +474,10 @@ test('outline and screenplay prompts keep story architecture separate from visua
   assert.match(batchPrompt, /不生成摄影内容/);
   assert.doesNotMatch(batchPrompt, /UNRELATED_FULL_SOURCE_MARKER/);
   assert.match(batchPrompt, /严格输出 9 个 beats/);
-  assert.match(batchPrompt, /先把相邻 beat 看成待装入同一个 H3 片段的视觉参考/);
-  assert.match(batchPrompt, /一段允许多个不同人物依次说话/);
-  assert.match(batchPrompt, /每个人物只能对应一个连续 speech 条目/);
+  assert.match(batchPrompt, /自行创作时，先按 H3 片段组织有序台词/);
+  assert.match(batchPrompt, /用户锁定的 requiredDialogueLines 必须逐条、逐字、按原说话顺序保留/);
+  assert.match(batchPrompt, /每人一个连续 speech 条目/);
+  assert.match(batchPrompt, /不能把 A→B→A 改为 A→A→B/);
   assert.match(batchPrompt, /requiredDialogueLines/);
   assert.match(batchPrompt, /进入动作→加速\/施力→明确触点或决定→0\.25–0\.6 秒可读结果/);
   assert.match(batchPrompt, /每个镜尾必须留下一个可被下一镜接住的具体交棒/);
