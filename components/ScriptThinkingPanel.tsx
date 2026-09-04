@@ -8,10 +8,10 @@ export type ScriptGenerationPhase = 'idle' | 'planning' | 'directing' | 'validat
 const PHASES = [
   {
     id: 'planning' as const,
-    label: '正在构思故事',
+    label: '正在适配人物与构思故事',
     kicker: 'STORY ARCHITECTURE',
     icon: BrainCircuit,
-    messages: ['梳理人物欲望、阻碍与代价', '寻找转折、高潮选择和情绪落点', '建立前后相扣的因果链与观众悬念'],
+    messages: ['先匹配指定人物，适配原稿身份与称谓', '保留原稿动作与剧情，梳理人物目标', '建立前后相扣的因果链与观众悬念'],
   },
   {
     id: 'directing' as const,
@@ -117,7 +117,7 @@ export default function ScriptThinkingPanel({ phase, targetShotCount }: ScriptTh
             <p key={`${phase}-${messageIndex}`} className="text-xs leading-5 text-[var(--text-secondary)] motion-safe:animate-pulse">{message}</p>
           </div>
 
-          <p className="mt-3 text-[10px] leading-4 text-[var(--text-muted)]">系统正在完成真实的两阶段创作与校验。镜头越多、人物关系越复杂，构思时间会相应增加，请保持本页打开。</p>
+          <p className="mt-3 text-[10px] leading-4 text-[var(--text-muted)]">先完成选角与身份适配，再编剧和生成导演分镜。已有动作与普通台词保留；人物对应不明确时会提示，请保持本页打开。</p>
         </div>
       </div>
     </section>

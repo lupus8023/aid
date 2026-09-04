@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { generationDraft, recoverGeneration } from '../lib/pipeline/generationDraft.ts';
 import { canResumeStoryPlan } from '../lib/pipeline/resumePlan.ts';
+import { storyCastKey } from '../lib/pipeline/storyCastAdaptation.ts';
 
 test('retains a failed batch, repairs it after restart and reuses a validated result without a provider call', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'aid-pipeline-draft-'));
@@ -42,8 +43,13 @@ test('transport failures retain the original and honor the retry bound', async (
 test('automatic resume reuses only an unchanged source, shot count and voice cast', () => {
   const plan = { sourceBrief: 'approved script', characters: [{ name: 'A', voiceId: 'fixed' }], sequences: [{ beats: [{ index: 1 }, { index: 2 }] }] };
   const cast = [{ name: 'A', voiceId: 'fixed' }];
+  assert.equal(canResumeStoryPlan(plan, 'approved script', 2, cast), false, 'legacy ordinary plans must first adapt their cast');
+  assert.equal(canResumeStoryPlan({ ...plan, seriesEpisode: { seriesId: 'series', episodeId: 'ep-1' } }, 'approved script', 2, cast), true, 'approved series contracts are not recast');
+  plan.castAdaptation = { castKey: storyCastKey(cast) };
   assert.equal(canResumeStoryPlan(plan, 'approved script', 2, cast), true);
   assert.equal(canResumeStoryPlan(plan, 'edited script', 2, cast), false);
   assert.equal(canResumeStoryPlan(plan, 'approved script', 3, cast), false);
   assert.equal(canResumeStoryPlan(plan, 'approved script', 2, [{ name: 'A', voiceId: 'new' }]), false);
+  assert.equal(canResumeStoryPlan(plan, 'approved script', 2, [{ ...cast[0], description: 'different story identity' }]), false);
+  assert.equal(canResumeStoryPlan(plan, 'approved script', 2, [{ ...cast[0], id: 'replacement-card' }]), false);
 });

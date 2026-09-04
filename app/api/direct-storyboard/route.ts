@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { directStoryboard } from '@/lib/pipeline/storyDirector';
 import { streamingJsonResponse } from '@/lib/streamingJsonResponse';
+import { adaptedStoryCharacters, storyCastKey } from '@/lib/pipeline/storyCastAdaptation';
 
 export const maxDuration = 300;
 
@@ -21,7 +22,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'apiKey or dmxApiKey is required' }, { status: 400 });
     }
 
-    const directorCharacters = [...(characters || [])];
+    const directorCharacters = storyPlan.castAdaptation?.castKey === storyCastKey(characters)
+      ? adaptedStoryCharacters(characters, storyPlan.castAdaptation) : [...characters];
     for (const planned of storyPlan.characters || []) {
       if (!planned?.name || directorCharacters.some(character => character.name === planned.name)) continue;
       directorCharacters.push({

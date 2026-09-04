@@ -114,6 +114,8 @@ export default function Step2({ characters, objects, onCharactersChange, onObjec
         <ObjectUpload onObjectsChange={onObjectsChange} />
       </div>
 
+      <p className="text-xs leading-5 text-[var(--text-secondary)]">生成 Story 剧本前，会先匹配原稿人物与已选角色，按所选人物适配身份和称谓，保留原剧情与动作。只有确实独立的新人物才会新增角色。</p>
+
       <div className="sticky bottom-0 z-10 flex justify-between border-t border-[var(--border-color)] bg-[var(--bg-primary)]/95 py-4 backdrop-blur">
         <button
           onClick={onBack}

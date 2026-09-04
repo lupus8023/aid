@@ -1,3 +1,9 @@
+## 0.1.192 - 2026-09-04
+
+- Match source-script roles to selected character cards before Story writing. Adapt names, identities and forms of address to the selected cast without rewriting authored action, plot, timing or unrelated dialogue; reuse the selected cards and locked voices.
+- Carry validated mappings through screenplay and direction, retaining both the original and adapted source. Show the mapping and source comparison in Story; only genuinely independent roles are added, and ambiguous matches request clarification instead of silently duplicating characters.
+- Cache successful matching and writing stages across retries. Legacy ordinary plans pass through cast adaptation on writing retry, while approved series contracts remain unchanged. Update the website, packaged Companion and local installation together.
+
 ## 0.1.191 - 2026-09-04
 
 - Use the same registered character and prop names in Story director field repair and final validation. Silent registered background characters no longer trigger repeated false English-language failures.

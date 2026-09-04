@@ -11,6 +11,8 @@ import type { VoiceAgeGroup, VoiceGender } from '@/types';
 import { characterIdentityIndex } from '@/lib/characterIdentity';
 import { canonicalizeStoryIdentities } from './storyIdentity';
 import { sourceDialogueSections, sourceShotBlocks, sourceShotVisualFields } from './sourceScreenplay';
+import { adaptStoryCast } from './castAdapter';
+import { adaptedStoryCharacters } from './storyCastAdaptation';
 
 const TRANSITIONS: Beat['transition'][] = ['cut', 'dissolve', 'fade', 'wipe'];
 const REQUIREMENT_CATEGORIES: StoryRequirement['category'][] = ['plot', 'character', 'setting', 'tone', 'format', 'pacing', 'dialogue', 'visual', 'avoid', 'other'];
@@ -47,8 +49,13 @@ export function expandStoryCharacters(
   synopsis: string,
   uploadedCharacters: WriterCharacter[],
   language: 'zh' | 'en' = 'zh',
+  allowSingleCharacterInference = true,
+  confirmedNewCharacters: string[] = [],
 ): { characters: WriterCharacter[]; canonicalSynopsis: string; aliases: Record<string, string> } {
   const speakers = explicitDialogueSpeakers(synopsis);
+  for (const name of confirmedNewCharacters) {
+    if (!speakers.some(speaker => speaker.name === name)) speakers.push({ name, count: 0 });
+  }
   const aliases: Record<string, string> = Object.create(null);
   const identities = characterIdentityIndex(uploadedCharacters);
   for (const character of uploadedCharacters) {
@@ -67,7 +74,7 @@ export function expandStoryCharacters(
   // its character card uses a translated role label. In that one-card case,
   // the most frequent speaking identity is the deterministic protagonist
   // alias; supporting roles remain separate text-defined identities.
-  if (uploadedCharacters.length === 1 && remaining.length
+  if (allowSingleCharacterInference && uploadedCharacters.length === 1 && remaining.length
     && !uploadedCharacters[0].aliases?.length && !speakers.some(speaker => identities.has(speaker.name))) {
     aliases[remaining[0].name] = uploadedCharacters[0].name;
   }
@@ -1240,7 +1247,9 @@ export async function generateStoryPlan(input: {
     scriptModel = 'gpt-4o',
     dmxApiKey,
   } = input;
-  const expanded = expandStoryCharacters(sourceSynopsis, uploadedCharacters, language);
+  const castAdaptation = await adaptStoryCast({ source: sourceSynopsis, characters: uploadedCharacters, objects,
+    requiredNames: explicitDialogueSpeakers(sourceSynopsis).map(speaker => speaker.name), apiKey, dmxApiKey, scriptProvider, scriptModel });
+  const expanded = expandStoryCharacters(castAdaptation.adaptedSource, adaptedStoryCharacters(uploadedCharacters, castAdaptation), language, false, castAdaptation.newCharacters);
   let characters = expanded.characters;
   const synopsis = expanded.canonicalSynopsis;
   const targetShotCount = normalizeTargetShotCount(input.targetShotCount);
@@ -1360,8 +1369,8 @@ export async function generateStoryPlan(input: {
     const plannedVoiceProfile = asString(planned?.voiceProfile).trim();
     const storyIdentity = {
       ...character,
-      gender: voiceGender(planned?.gender),
-      ageGroup: voiceAgeGroup(planned?.ageGroup),
+      gender: character.gender && character.gender !== 'unknown' ? character.gender : voiceGender(planned?.gender),
+      ageGroup: character.ageGroup && character.ageGroup !== 'unknown' ? character.ageGroup : voiceAgeGroup(planned?.ageGroup),
       description: [character.description, role, plannedVoiceProfile].filter(Boolean).join('；'),
       voiceProfile: plannedVoiceProfile || character.voiceProfile,
       voiceId: undefined,
@@ -1675,7 +1684,7 @@ export async function generateStoryPlan(input: {
     raw,
     characters.map(c => c.name),
     objects.map(o => o.name),
-    sourceSynopsis,
+    castAdaptation.adaptedSource,
     targetShotCount,
     Object.fromEntries(characters.map(character => [character.name, character.voiceId])),
     Object.fromEntries(characters.map(character => [character.name, character.voiceProfile])),
@@ -1684,9 +1693,13 @@ export async function generateStoryPlan(input: {
     Object.fromEntries(characters.map(character => [character.name, character.ageGroup])),
     Object.fromEntries(characters.map(character => [character.name, character.voiceLocked])),
   );
+  plan.sourceBrief = sourceSynopsis;
+  plan.castAdaptation = castAdaptation;
   const actualShotCount = storyPlanBeatCount(plan);
   plan.characters = plan.characters.map(character => ({
-    ...character, aliases: characters.find(registered => registered.name === character.name)?.aliases,
+    ...character,
+    role: castAdaptation.bindings.find(binding => binding.targetName === character.name)?.targetRole || character.role,
+    aliases: characters.find(registered => registered.name === character.name)?.aliases,
   }));
   if (actualShotCount !== targetShotCount) {
     throw new Error(`剧本模型返回了 ${actualShotCount} 个镜头，但制作规格要求 ${targetShotCount} 个；请重试生成`);

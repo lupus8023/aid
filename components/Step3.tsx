@@ -115,6 +115,30 @@ export default function Step3({ storyPlan, storyboards, characters, objects, cos
         </section>
       )}
 
+      {storyPlan?.castAdaptation && (
+        <section className="rounded-xl border border-[var(--accent-green)]/25 bg-[var(--bg-secondary)] p-4">
+          <h3 className="text-sm font-semibold text-[var(--accent-green)]">人物与剧本已适配</h3>
+          <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">按选定人物改写身份、姓名和称谓；适配步骤保留原剧情、动作、时长与其他台词，沿用已选角色卡及音色。</p>
+          <ul className="mt-3 space-y-2 text-xs">
+            {storyPlan.castAdaptation.bindings.map(binding => (
+              <li key={binding.targetName} className="rounded border border-white/5 bg-black/10 p-3">
+                <p className="text-white">{binding.sourceNames.join(' / ')} → {binding.targetName}<span className="ml-2 text-[var(--text-secondary)]">{binding.sourceRole} → {binding.targetRole}</span></p>
+                <p className="mt-1 leading-5 text-[var(--text-secondary)]">{binding.reason}</p>
+              </li>
+            ))}
+          </ul>
+          {storyPlan.castAdaptation.newCharacters.length > 0 && <p className="mt-2 text-xs text-[var(--text-secondary)]">原稿独立新增人物：{storyPlan.castAdaptation.newCharacters.join('、')}</p>}
+          <details className="mt-3 text-xs text-[var(--text-secondary)]">
+            <summary className="cursor-pointer">查看原稿与人物适配稿</summary>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              {[['原稿（保留）', storyPlan.sourceBrief], ['人物适配稿（后续编剧使用）', storyPlan.castAdaptation.adaptedSource]].map(([label, source]) => (
+                <div key={label} className="min-w-0"><p className="mb-2 font-semibold text-white">{label}</p><pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded border border-white/5 bg-black/10 p-3 font-sans leading-5">{source}</pre></div>
+              ))}
+            </div>
+          </details>
+        </section>
+      )}
+
       {/* Global costume/scene reference panel */}
       <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-4">
         <p className="text-xs font-mono text-[var(--text-secondary)] mb-1">Global References — generated once, applied to all shots</p>

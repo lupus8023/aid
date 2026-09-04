@@ -27,6 +27,7 @@ import { isRequestTooLargeError, readApiJson } from '@/lib/apiResponse';
 import { createStoryImageRequestPreparer } from '@/lib/storyImageRequest';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { canResumeStoryPlan } from '@/lib/pipeline/resumePlan';
+import { adaptedStoryCharacters, storyCastKey } from '@/lib/pipeline/storyCastAdaptation';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
 import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedPlannedVideoSegment, normalizeVideoSegmentPlan, refreshPlannedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
@@ -1184,7 +1185,7 @@ export default function StoryPage() {
     const voiceLockedCharacters = castStoryVoices(characters, language);
     charactersRef.current = voiceLockedCharacters;
     setCharacters(voiceLockedCharacters);
-    const writerCharacters = voiceLockedCharacters.map(({ name, aliases, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }) => ({ name, aliases, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }));
+    const writerCharacters = voiceLockedCharacters.map(({ id, name, aliases, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }) => ({ id, name, aliases, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }));
     const writerObjects = objects.map(({ name, description }) => ({ name, description }));
     const activeSettings = settingsRef.current;
     const savedSeriesContract = storyStorageKeys().isolated ? localStorage.getItem(storyStorageKeys().contract) : null;
@@ -1203,7 +1204,9 @@ export default function StoryPage() {
     }
     let storyPlan = storyPlanRef.current;
     if (storyPlan) {
-      storyPlan = canonicalizeStoryIdentities(storyPlan, writerCharacters);
+      const planCast = storyPlan.castAdaptation?.castKey === storyCastKey(writerCharacters)
+        ? adaptedStoryCharacters(writerCharacters, storyPlan.castAdaptation) : writerCharacters;
+      storyPlan = canonicalizeStoryIdentities(storyPlan, planCast);
       storyPlanRef.current = storyPlan;
       setStoryPlan(storyPlan);
     }

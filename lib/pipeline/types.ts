@@ -1,4 +1,5 @@
 import type { Character, NarrativeState, ObjectItem, StoryAudioPlan, Storyboard, StoryClipType, StoryDialogueTurn, StoryPerformanceCue, StorySpeechLine, VoiceAgeGroup, VoiceGender } from '@/types';
+import type { StoryCastAdaptation } from './storyCastAdaptation';
 
 // 编剧阶段：把「一句话梗概」变成「有欲望/冲突/转折/潜台词/母题」的结构化故事。
 // 这是「全自动」的关键契约——阶段之间传结构化 JSON，而非自由文本。
@@ -94,6 +95,7 @@ export interface StoryPlan {
   targetDurationSeconds?: number; // 按制作规格估算的目标片长
   estimatedDurationSeconds?: number; // beats.durationHint 累加得到的实际预估片长
   sourceBrief?: string; // original user input, retained as the source of truth across stages
+  castAdaptation?: StoryCastAdaptation; // 选角后先适配身份/称谓；保留原稿，后续逐字对白以适配稿为准
   // Approved series episodes use their episodic story contract instead of
   // reclassifying every episode as a standalone film with seven milestones.
   seriesEpisode?: { opening: string; goal: string; conflict: string; choice: string; resolution: string; hook: string };
@@ -155,5 +157,5 @@ export interface PipelineState {
 }
 
 // 参与编剧阶段的角色/物件输入（从 UI 状态规约而来）
-export type WriterCharacter = Pick<Character, 'name' | 'aliases' | 'description' | 'voiceId' | 'voiceProfile' | 'voiceSource' | 'voiceLocked' | 'gender' | 'ageGroup'>;
+export type WriterCharacter = Pick<Character, 'name' | 'aliases' | 'description' | 'voiceId' | 'voiceProfile' | 'voiceSource' | 'voiceLocked' | 'gender' | 'ageGroup'> & Partial<Pick<Character, 'id'>>;
 export type WriterObject = Pick<ObjectItem, 'name' | 'description'>;
