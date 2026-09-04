@@ -233,7 +233,9 @@ test('storyboard grids lock mapped object references across all four panels', ()
   );
   assert.match(prompt, /REFERENCE OBJECT LOCK/i);
   assert.match(prompt, /immutable prop\/product/i);
-  assert.match(prompt, /never redesign, deform, substitute or add\/remove parts/i);
+  assert.match(prompt, /never redesign, substitute or add\/remove parts/i);
+  assert.match(prompt, /Soft sheets may fold, drape and fit naturally/i);
+  assert.match(prompt, /frosted glass and silver pump/);
   assert.match(prompt, /existing label\/logo unchanged/i);
   assert.doesNotMatch(prompt, /No .*logos.*readable text/i);
   for (let index = 1; index <= 4; index += 1) assert.match(prompt, new RegExp(`shot ${index}\\b`, 'i'));
@@ -255,7 +257,7 @@ test('long named ensemble grids retain every panel, complete cast and reference 
   const names = ['Luna Tideborne', 'Victoria Tideborne', 'Professor Silt'];
   const refs = names.map(name => `CHARACTER IDENTITY: ${name}`).concat(['CHARACTER IDENTITY: Tilda Trashfin', 'CHARACTER IDENTITY: Rill', 'ENVIRONMENT: shots 1,2', 'ENVIRONMENT: shots 3,4']);
   const prompt = buildGridPrompt('Multiple underwater palace locations', names.join(', '), Array.from({ length: 4 }, (_, i) =>
-    `${names[0]}(${'detailed costume identity '.repeat(10)}) performs ACTION_${i + 1} as ${names[1]} watches. ${'Long camera staging and atmosphere. '.repeat(20)} Only ${names.join(', ')} appear in this frame, one instance of each.`), '9:16', refs);
+    `${names[0]}(${'detailed costume identity '.repeat(10)}) performs ACTION_${i + 1} as ${names[1]} watches. ${'Long camera staging and atmosphere. '.repeat(20)} Only ${names.join(', ')} appear in this frame, one instance of each.`), '9:16', refs, undefined, undefined, undefined, 'gpt-image-2');
   const panels = prompt.split(/In the (?:top-left|top-right|bottom-left|bottom-right) frame, depict /).slice(1);
   assert.equal(panels.length, 4);
   panels.forEach((panel, i) => {
@@ -264,7 +266,7 @@ test('long named ensemble grids retain every panel, complete cast and reference 
   });
   refs.forEach((ref, i) => assert.ok(prompt.includes(`#${i + 1}=${ref}`)));
   assert.match(prompt, /2x2.*9:16/);
-  assert.ok(prompt.length <= 3500);
+  assert.ok(prompt.length <= 16000);
 });
 
 test('over-capacity grids fail before payment instead of losing later panels', async () => {

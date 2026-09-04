@@ -19,6 +19,7 @@ export interface Character {
   imageUrl: string;
   imageBase64?: string; // base64 格式的图片，用于 API 调用
   imageFile?: File;
+  visualIdentity?: AssetVisualIdentity;
   voiceId?: string; // fish.audio reference_id
   voiceProfile?: string; // 角色音色画像；自动选角时用于复现同一声音
   voiceSource?: 'user' | 'auto';
@@ -35,6 +36,18 @@ export interface ObjectItem {
   imageUrl: string;
   imageBase64?: string; // base64 格式的图片，用于 API 调用
   imageFile?: File;
+  aliases?: string[];
+  visualIdentity?: AssetVisualIdentity;
+}
+
+/** Grounded once from the selected original, never from a generated shot. */
+export interface AssetVisualIdentity {
+  version: 1;
+  sourceKey: string;
+  kind: 'character' | 'packaging' | 'product' | 'material' | 'prop';
+  appearance: string;
+  scale: string;
+  states: string;
 }
 
 export type StoryClipType = 'insert' | 'reaction' | 'establishing' | 'action' | 'dialogue' | 'performance' | 'montage' | 'long_take';
@@ -119,6 +132,7 @@ export interface Storyboard {
   prompt: string;
   characters: string[]; // 角色名称列表
   objects?: string[]; // 物体名称列表
+  referenceBindings?: { characterIds: string[]; objectIds: string[]; characterNames?: string[]; objectNames?: string[] };
   imageUrl?: string;
   gridSourceUrl?: string; // 高分辨率四宫格母图；用于恢复或重新拆分
   status: 'pending' | 'generating' | 'completed' | 'failed';

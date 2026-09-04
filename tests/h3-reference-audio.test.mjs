@@ -93,12 +93,12 @@ test('Story uses Fish once per character as timbre reference and never as final 
   assert.match(storyPage, /\/api\/generate-voice-reference/);
   assert.match(
     storyPage,
-    /speaks\s*&&\s*autoVideoProvider\s*!==\s*'fal'\s*&&\s*settingsRef\.current\.fishAudioKey\s*&&\s*!voiceReferencesRef\.current\?\.\[character\.name\]/,
+    /speaks\s*&&\s*autoVideoProvider\s*!==\s*'fal'\s*&&\s*settingsRef\.current\.fishAudioKey\s*&&\s*!currentCastVoiceReferences\(\)\[character\.name\]/,
     'one-click production must create a missing Fish timbre reference only for providers that accept audio input',
   );
   assert.match(
     storyPage,
-    /for \(const character of speakingCharacters\)[\s\S]*?!voiceReferencesRef\.current\?\.\[character\][\s\S]*?handleGenerateVoiceReference\(character, \{ throwOnError: true \}\)/,
+    /for \(const character of speakingCharacters\)[\s\S]*?!currentCastVoiceReferences\(\)\[character\][\s\S]*?handleGenerateVoiceReference\(character, \{ throwOnError: true \}\)/,
     'manual segment generation must lazily create the same one-time timbre reference for older projects',
   );
   assert.doesNotMatch(storyPage, /\/api\/generate-audio/);

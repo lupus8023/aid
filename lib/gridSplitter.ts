@@ -3,15 +3,9 @@ import { buildCompactImageCaptureContract } from './promptArchitecture';
 import { buildGridCapturePresetContract, isObservationalCapturePreset } from './capturePresets';
 import { isGptImage2Model } from './imageModels';
 import { usesPhotographicReferences } from './gptImageReferences';
+import { VISUAL_ASSET_AUTHORITY } from './storyVisualAssets';
 
 export class GridPromptCapacityError extends Error {}
-
-function clipAtWord(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  const candidate = value.slice(0, Math.max(1, maxLength - 3));
-  const boundary = candidate.lastIndexOf(' ');
-  return `${(boundary >= maxLength * 0.68 ? candidate.slice(0, boundary) : candidate).trimEnd()}...`;
-}
 
 export const STORYBOARD_GRID_SIZE = 2 as const;
 export const STORYBOARD_GRID_CAPACITY = STORYBOARD_GRID_SIZE * STORYBOARD_GRID_SIZE;
@@ -82,9 +76,9 @@ export function buildGridPrompt(
   imageModel = '',
 ): string {
   const objectLock = referenceImageLabels?.some(label => /^OBJECT IDENTITY\s*:/i.test(label.trim()))
-    ? 'REFERENCE OBJECT LOCK: every OBJECT IDENTITY image defines one immutable prop/product. Keep its silhouette, proportions, parts, layout, material, finish, colors, markings and scale identical; never redesign, deform, substitute or add/remove parts. Keep its existing label/logo unchanged; add no text.'
+    ? 'REFERENCE OBJECT LOCK: every OBJECT IDENTITY image defines one immutable prop/product design. Keep material, colors, cutouts, construction and physical scale; never redesign, substitute or add/remove parts. Soft sheets may fold, drape and fit naturally. Keep its existing label/logo unchanged; add no text.'
     : '';
-  const promptBudget = objectLock ? 3900 : isObservationalCapturePreset(capturePreset) ? 3700 : 3500;
+  const promptBudget = isGptImage2Model(imageModel) ? 16000 : objectLock ? 3900 : isObservationalCapturePreset(capturePreset) ? 3700 : 3500;
   const orientation = aspectRatio === '9:16' ? 'vertical portrait' : aspectRatio === '1:1' ? 'square' : 'horizontal landscape';
   const positions = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
   const sourceShots = shotDescriptions.slice(0, STORYBOARD_GRID_CAPACITY);
@@ -94,47 +88,34 @@ export function buildGridPrompt(
     const index = indexes.length ? Math.min(...indexes) : -1;
     const rawRequirements = index >= 0 ? shot.slice(index) : '';
     const requirements = rawRequirements.replace(/^Only (.*?) appear(?:s)? in this frame, one instance of each\./, 'CAST: $1; each exactly once.');
-    // Identity descriptions already live in the mapped references. Remove only
-    // inline Name(description) wrappers before shortening visual direction, so
-    // long cast names do not consume the action's entire budget.
-    let visual = index >= 0 ? shot.slice(0, index).trim() : shot;
-    const names = rawRequirements.match(/^Only (.*?) appear(?:s)?(?: in this frame)?[,.]/)?.[1]?.split(', ') || [];
-    for (const name of names) {
-      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      visual = visual.replace(new RegExp(escaped + '\\([^)]*\\)', 'g'), name);
-    }
+    const visual = index >= 0 ? shot.slice(0, index).trim() : shot;
     return { visual, requirements };
   });
-  // Never truncate a reference mapping midway through an identity. Long object
-  // descriptions are secondary; the complete name/index binding is mandatory.
-  const references = (referenceImageLabels || []).map((label, i) => `#${i + 1}=${label.split(' — ')[0]}`).join('; ');
+  const references = (referenceImageLabels || []).map((label, i) => `#${i + 1}=${label}`).join('\n');
   const prefix = [
     `UNIQUE STORYBOARD BATCH: ${sourceShots.map((_, i) => sceneNumbers?.[i] ?? i + 1).join('-')}`,
     // The canvas and each quadrant share an aspect ratio. Explicit geometry
     // prevents "four stills" becoming a vertical strip that cannot be cut 2x2.
     `LAYOUT: one 2x2 sheet on a ${aspectRatio} canvas: exactly two columns and two rows. Each cell is a complete ${orientation} (${aspectRatio}) film still, half the canvas width and half its height.`,
-    'Top row: top-left and top-right side by side. Bottom row: bottom-left and bottom-right side by side. Image boundaries meet at x=50%, y=50%, with no drawn borders, gaps or margins. One shot/instant per cell; no scene spans cells. Never one column of four stacked frames, one row of four frames, or panels inside a cell. Reference layouts must not override this arrangement.',
+    'Top row: top-left and top-right side by side. Bottom row: bottom-left and bottom-right side by side. Boundaries at x=50%, y=50%; no borders or gaps. One shot/instant per cell; no scene spans cells. Never one column of four stacked frames, one row of four frames, or panels inside a cell. Reference layouts must not override this arrangement.',
     buildCompactImageCaptureContract(visualStyle).split('\nCAPTURE COHERENCE:')[0],
     buildGridCapturePresetContract(capturePreset),
     isGptImage2Model(imageModel) && usesPhotographicReferences(visualStyle)
       ? 'Photorealistic photographs. References lock identity, species, anatomy and costume design, not CG shading or illustration. Preserve age and distinguishing features; use natural skin variation, cloth weight and localized reflections. No beauty smoothing or invented scars.' : '',
     references ? `Reference mapping: ${references}` : '',
+    references ? VISUAL_ASSET_AUTHORITY : '',
     "Each frame's stated people are authoritative: each exactly once, no omitted, merged, cloned or extra identities. Character sheets show one identity only.",
     'ZERO TYPOGRAPHY: No headings, camera terms, captions, subtitles, dialogue text, labels, watermark or UI. Preserve only existing markings on mapped objects.',
     objectLock,
     'Four invisible directing notes; never print them:',
   ].filter(Boolean).join('\n');
-  const render = (visualBudget: number) => prefix + '\n' + parts.map(({ visual, requirements }, i) =>
-    `In the ${positions[i]} frame, depict ${clipAtWord(visual, visualBudget)}${requirements ? ' ' + requirements : ''}`,
+  const prompt = prefix + '\n' + parts.map(({ visual, requirements }, i) =>
+    `In the ${positions[i]} frame, depict ${visual}${requirements ? ' ' + requirements : ''}`,
   ).join('\n');
-  // Allocate the remaining characters to every panel before composing the
-  // request. Slicing the finished prompt can silently delete the last shots.
-  let visualBudget = 200;
-  while (visualBudget > 96 && render(visualBudget).length > promptBudget) visualBudget--;
-  let prompt = render(visualBudget);
-  if (prompt.length > promptBudget) throw new GridPromptCapacityError(`四宫格人物与参考信息超过提示词容量（${prompt.length}/${promptBudget}），自动改为逐镜生成；未提交四宫格任务`);
   const context = `\nScene continuity: ${sceneStyle}\nCharacter identities: ${characterDescriptions}`;
-  const remaining = promptBudget - prompt.length;
-  if (remaining > 60) prompt += clipAtWord(context, remaining);
-  return prompt;
+  // Never spend the budget by cutting off a gesture, product surface or the
+  // last panel. A smaller request can be planned before any paid grid exists.
+  const complete = prompt + context;
+  if (complete.length > promptBudget) throw new GridPromptCapacityError(`四宫格完整动作与参考说明超过提示词容量（${complete.length}/${promptBudget}），自动改为逐镜生成；未截断内容或提交四宫格任务`);
+  return complete;
 }

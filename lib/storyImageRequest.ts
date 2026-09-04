@@ -4,6 +4,8 @@ import type { ImageStyleReference } from './imageStyleReference';
 import type { MidjourneyStyleReference } from './midjourney';
 import { ApiResponseError, readApiJson } from './apiResponse';
 import { visibleImageCast, type ImageCastCharacter } from './series/imageCastContract';
+import { visibleStoryObjects, visualAssetDescription } from './storyVisualAssets';
+import { characterAliasValues } from './characterIdentity';
 
 export const MAX_STORY_IMAGE_REQUEST_BYTES = 1024 * 1024;
 const MAX_REFERENCE_BYTES = 50 * 1024 * 1024;
@@ -114,7 +116,7 @@ export function createStoryImageRequestPreparer(
   return async (input: StoryImageRequest): Promise<string> => {
     const board = input.storyboard;
     const cast = visibleImageCast(board, input.characters);
-    const objects = input.objects.filter(object => board.objects?.includes(object.name));
+    const objects = visibleStoryObjects(board, input.objects);
     const sourceOf = (item: Character | ObjectItem) => remoteImageUrl(item.imageUrl || '')
       ? item.imageUrl : item.imageBase64 || item.imageUrl || '';
     const fallbackSources = new Map([...cast, ...objects].filter(item => item.imageUrl?.startsWith('blob:') && item.imageBase64)
@@ -128,17 +130,18 @@ export function createStoryImageRequestPreparer(
       ? Promise.resolve(resolvedBySource.get(source) || (remoteImageUrl(source) ? source : ''))
       : resolve(source);
     const costumes: Record<string, string> = {};
+    const sourceCostumes = characterAliasValues(input.costumeImages, input.characters);
     const visible = new Set(cast);
     // Keep lightweight cast metadata (including the empty-shot case required
     // by older Companion APIs), but never upload an off-shot character image.
     const characters = await Promise.all(input.characters.map(async character => {
-      const costume = input.costumeImages?.[character.name];
+      const costume = sourceCostumes[character.name];
       const imageUrl = visible.has(character) ? await metadataImage(costume || sourceOf(character)) : '';
       if (!explicitReferences && costume && visible.has(character)) costumes[character.name] = imageUrl;
-      return { id: character.id, name: character.name, description: character.description, imageUrl, appearance: (character as ImageCastCharacter).appearance };
+      return { id: character.id, name: character.name, aliases: character.aliases, description: visualAssetDescription(character, costume || sourceOf(character)), imageUrl, appearance: (character as ImageCastCharacter).appearance };
     }));
     const preparedObjects = await Promise.all(objects.map(async object => ({
-      id: object.id, name: object.name, description: object.description,
+      id: object.id, name: object.name, aliases: object.aliases, description: visualAssetDescription(object),
       imageUrl: await metadataImage(sourceOf(object)),
     })));
     const sceneImage = explicitReferences ? '' : await resolve(board.sceneImageOverride || input.sceneImage || '');
@@ -146,7 +149,7 @@ export function createStoryImageRequestPreparer(
       storyboard: {
         id: board.id, sceneNumber: board.sceneNumber, status: board.status,
         prompt: board.prompt, description: board.description, action: board.action,
-        characters: board.characters, objects: board.objects,
+        characters: board.characters, objects: objects.map(object => object.name), referenceBindings: board.referenceBindings,
         characterCostume: board.characterCostume, sceneStyle: board.sceneStyle,
         shotSize: board.shotSize, angle: board.angle, cameraMove: board.cameraMove,
         capturePreset: board.capturePreset,

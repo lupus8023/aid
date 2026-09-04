@@ -1,9 +1,10 @@
 import type { Character, Storyboard } from '@/types';
+import { characterIdentityIndex } from '../characterIdentity';
 
-export type ImageCastCharacter = Pick<Character, 'name' | 'description' | 'imageUrl'> & { appearance?: 'on_screen' | 'voice_only' };
+export type ImageCastCharacter = Pick<Character, 'name' | 'description' | 'imageUrl'> & Partial<Pick<Character, 'id' | 'aliases'>> & { appearance?: 'on_screen' | 'voice_only' };
 export interface ImageCastCheck { sceneNumber: number; imageUrl: string; passed: boolean | null; issues: string[] }
 
-type CastBoard = Pick<Storyboard, 'characters'> & Partial<Pick<Storyboard, 'prompt'>>;
+type CastBoard = Pick<Storyboard, 'characters'> & Partial<Pick<Storyboard, 'prompt' | 'referenceBindings'>>;
 
 // Director identity tags describe depicted roles, including silent companions
 // omitted from a dialogue-driven beat cast. Do not scan dialogue or infer names
@@ -18,8 +19,12 @@ export function storyboardVisualCastNames(board: CastBoard, knownNames: string[]
 }
 
 export function visibleImageCast<T extends ImageCastCharacter>(board: CastBoard, characters: T[]): T[] {
-  const names = storyboardVisualCastNames(board, characters.map(c => c.name));
-  return characters.filter(c => names.includes(c.name) && c.appearance !== 'voice_only');
+  const index = characterIdentityIndex(characters);
+  const names = storyboardVisualCastNames(board, characters.flatMap(c => [c.name, ...(c.aliases || [])]));
+  const cast = new Set(names.map(name => index.resolve(name)).filter(Boolean));
+  const binding = board.referenceBindings;
+  const idsCurrent = !binding?.characterNames || JSON.stringify(binding.characterNames) === JSON.stringify(board.characters);
+  return characters.filter(c => (cast.has(c) || Boolean(idsCurrent && c.id && binding?.characterIds.includes(c.id))) && c.appearance !== 'voice_only');
 }
 
 export function prepareImageCastRepair(board: Storyboard, check: ImageCastCheck, characters: ImageCastCharacter[]): Storyboard {

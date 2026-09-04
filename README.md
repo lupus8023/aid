@@ -189,6 +189,8 @@ npm start
 
 ### Image to Video Mode
 
+v0.1.194 新增可选 **H3 Director 连续长视频（实验）**：在独立图生视频页面选择约 30/60 秒，整理并编辑 3/6 段提示词后提交。仅首段使用原始图片，后段继承音视频上下文，最终输出合并视频。网站与 Companion 均需更新到此版本；首版为 480P 级原生音频，不支持外部音色、多图或尾帧，未完成 30/60 秒 GPU 效果实测。刷新或查询失败时续查原任务，不重复生成。现有短视频模式保持不变。
+
 1. **Upload Images**
    - Upload your first frame image (required)
    - Optionally upload a last frame image for controlled motion
@@ -205,6 +207,8 @@ npm start
    - Download or regenerate as needed
 
 ### AI Story Generation Mode
+
+v0.1.194 会在编剧及首次新生图前理解已选角色、服装与产品原图，并缓存外观事实。分镜请求完整保留每镜动作和对应参考，不静默丢图；包装、膜体和材质参考分别处理。Story 与连续剧共用此修复，不增加生成后质检，也不自动重做历史图片。详见 [原图引用说明](docs/story-reference-fidelity.md)。
 
 1. **Setup Characters & Objects**
    - Add character names and upload reference images

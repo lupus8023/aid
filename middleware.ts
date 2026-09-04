@@ -62,6 +62,8 @@ export const config = {
     '/api/upload-image',
     '/api/generate-audio',
     '/api/generate-story-plan',
+    '/api/prepare-story-assets',
+    '/api/prepare-long-video',
     '/api/direct-storyboard',
     '/api/expand-story',
   ],

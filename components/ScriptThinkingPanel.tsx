@@ -3,9 +3,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BrainCircuit, CheckCircle2, Clapperboard, Sparkles } from 'lucide-react';
 
-export type ScriptGenerationPhase = 'idle' | 'planning' | 'directing' | 'validating';
+export type ScriptGenerationPhase = 'idle' | 'assets' | 'planning' | 'directing' | 'validating';
 
 const PHASES = [
+  {
+    id: 'assets' as const,
+    label: '正在理解原图与固定资产外观',
+    kicker: 'ORIGINAL REFERENCES',
+    icon: BrainCircuit,
+    messages: ['区分产品包装、膜体与材质参考', '记录原图人物、服装与产品细节', '仅首次或素材变更时准备，后续镜头复用'],
+  },
   {
     id: 'planning' as const,
     label: '正在适配人物与构思故事',

@@ -157,5 +157,5 @@ export interface PipelineState {
 }
 
 // 参与编剧阶段的角色/物件输入（从 UI 状态规约而来）
-export type WriterCharacter = Pick<Character, 'name' | 'aliases' | 'description' | 'voiceId' | 'voiceProfile' | 'voiceSource' | 'voiceLocked' | 'gender' | 'ageGroup'> & Partial<Pick<Character, 'id'>>;
-export type WriterObject = Pick<ObjectItem, 'name' | 'description'>;
+export type WriterCharacter = Pick<Character, 'name' | 'aliases' | 'description' | 'voiceId' | 'voiceProfile' | 'voiceSource' | 'voiceLocked' | 'gender' | 'ageGroup'> & Partial<Pick<Character, 'id'>> & { visualDescription?: string };
+export type WriterObject = Pick<ObjectItem, 'name' | 'description'> & Partial<Pick<ObjectItem, 'id' | 'aliases'>>;

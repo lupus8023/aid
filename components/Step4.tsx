@@ -38,7 +38,7 @@ export default function Step4({ storyboards, onBack, onNext, onGenerateImage, on
           <span className="text-[var(--text-secondary)]">04.</span> Generate Images
         </h2>
         <p className="text-[var(--text-secondary)] font-mono text-sm mb-3">
-          {singleShotMode ? 'MJ 逐镜生成：固定角色参考、服装与场景，每镜核验人物一致性' : 'Generate one 2×2 contact sheet per 4 shots, then split it into individual storyboards'}
+          {singleShotMode ? 'MJ 逐镜生成：使用原图固定人物、服装、道具与场景' : 'Generate one 2×2 contact sheet per 4 shots, then split it into individual storyboards'}
         </p>
         {onGenerateGrid && (
           <button

@@ -14,6 +14,7 @@ import { usesPhotographicReferences } from '@/lib/gptImageReferences';
 import { buildGptImage2PhotographicContract } from '@/lib/gptImagePrompt';
 import { storyboardVisualCastNames } from '@/lib/series/imageCastContract';
 import { canonicalizeStoryIdentities, storyIdentityContract } from './storyIdentity';
+import { characterProductionDescription, VISUAL_ASSET_AUTHORITY } from '@/lib/storyVisualAssets';
 
 // 导演阶段：把编剧产出的 StoryPlan 可视化成分镜（Storyboard[]）。
 // 关键点：镜头数量/顺序/台词/时长/转场/连续关系【忠实于 StoryPlan】，只补画面/视频提示词与定妆。
@@ -32,8 +33,8 @@ export function buildDirectorPrompt(input: {
   capturePreset?: CapturePreset;
 }): string {
   const { storyPlan, beats, batchNumber, totalBatches, previousShots = [], continuesSequence = false, nextBeats = [], characters, objects, language, visualStyle, capturePreset } = input;
-  const characterDetails = characters.map(c => `- ${c.name}: ${c.description}`).join('\n');
-  const objectDetails = objects.length ? objects.map(o => `- ${o.name}: ${o.description}`).join('\n') : '无';
+  const characterDetails = characters.map(c => `- ${c.name}: ${characterProductionDescription(c)}`).join('\n');
+  const objectDetails = (objects.length ? objects.map(o => `- ${o.name}: ${o.description}`).join('\n') : '无') + `\n${VISUAL_ASSET_AUTHORITY}\n原图说明中的 [packaging] 是外包装，[product]/[material] 才是对应产品或膜体。旧稿若把包装名称用于贴脸、展开膜片等动作，使用实际膜体的登记名称和特征，保留动作、表情、运镜与逐字台词；不得把金色包装改画成金色膜片。以已选角色的原图服装为准，不根据贵妃/皇后等称谓另造服装。`;
   const firstIndex = beats[0]?.index || 0;
   const lastIndex = beats[beats.length - 1]?.index || 0;
   const stylePreset = getProductionStylePreset(visualStyle);
@@ -125,7 +126,7 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
    - 每条 prompt 约 55–95 个英文词，长度服从这一镜所需的信息，不补通用风格口号。最独特的行动与机位放在前面。
    - 输出媒介由项目选定风格控制；参考图按身份、环境、色彩摄影气质分工，不能把参考图的CG画法带入真人项目。
    - 精确执行 beat.characters 中的命名角色：每个只出现一次，不新增命名角色。剧本明确写出的无名背景侍从、群众可保留为次要人物；没有写到就不添加，不能让群众复制主角面孔。角色参考图的多视图不是多个人。
-   - 禁止字幕、标题、对白文字、气泡、Logo、水印或任何可读文字。
+   - 禁止叠加字幕、标题、对白文字、气泡、水印和界面文字；仅保留参考产品实物表面原有的标签、Logo与印字，不新增或改写。
 3. characterCostume：为每个在本镜头出现的角色给一套服装/发型/配饰/颜色描述，跨镜头保持一致。
 4. shotSize / cameraMove / angle：为剧本动作选择一个明确且可执行的景别、单一物理运镜和机位；相邻镜头避免机械重复。
    - 先确定本镜要揭示的信息或关系变化，再选一个摄影任务；cameraMove 写具体方向与幅度，不以“轻微调整”代替设计。参照前后镜的景别、运动方向、焦点与落点组织节奏，不连续套用固定全景或慢推。固定构图有叙事作用时保留，不按比例强加运动。具体执行写入 videoDirection.camera，其他字段不得给出相反指令。

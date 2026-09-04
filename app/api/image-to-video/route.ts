@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createVideoTask } from '@/lib/apimart';
-import { createComfyUIVideoTask, MAX_COMFYUI_REFERENCE_IMAGES } from '@/lib/comfyui';
+import { createComfyUIDirectorTask, createComfyUIVideoTask, MAX_COMFYUI_REFERENCE_IMAGES } from '@/lib/comfyui';
+import { validateDirectorPlan } from '@/lib/h3Director';
 import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import { enforceNoSubtitles } from '@/lib/videoTextPolicy';
 import { createFalH3MaxVideoTask } from '@/lib/falVideo';
@@ -28,6 +29,7 @@ export async function POST(request: NextRequest) {
       referenceImages = [],
       secondImageRole,
       comfyWorkflowMode,
+      directorPlan,
       prompt,
       aspectRatio = '16:9',
       duration,
@@ -48,6 +50,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
     }
     const safePrompt = enforceNoSubtitles(prompt);
+
+    if (comfyWorkflowMode === 'director_continuous') {
+      if (videoProvider !== 'comfyui') return NextResponse.json({ error: '连续长视频仅支持 ComfyUI H3 Director' }, { status: 400 });
+      if ([...referenceImages, ...audioFiles, ...audioUrls, ...videoFiles, ...videoUrls].some(Boolean))
+        return NextResponse.json({ error: 'Director 连续长视频当前仅接受一张起始图与原生声音，请清除额外参考素材或切回短视频模式' }, { status: 400 });
+      let plan;
+      try { plan = validateDirectorPlan(directorPlan, Number(duration), prompt); }
+      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : '长视频计划无效' }, { status: 400 }); }
+      const result = await createComfyUIDirectorTask({ firstFrame: mainImage, plan, aspectRatio, settings: comfyui });
+      return NextResponse.json({ success: true, ...result, provider: 'comfyui', message: 'H3 Director 连续长视频已提交；后段承接前段，最终合并为一条视频' });
+    }
+    if (videoProvider === 'comfyui' && Number(duration) > 15)
+      return NextResponse.json({ error: '超过 15 秒请使用 H3 Director 连续长视频，不能由短视频接口截短生成' }, { status: 400 });
 
     if (videoProvider === 'fal') {
       const endImage = secondImageRole === 'last_frame' ? referenceImages[0] : undefined;

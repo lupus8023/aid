@@ -1,5 +1,37 @@
 # MiniMax H3 Director A/B 评估
 
+## 2026-09-05 独立图生视频已接入（v0.1.194）
+
+用户已明确选择先接独立“图生视频”页面，支持 30/60 秒连续生成；取代下面 9 月 4 日“尚未接入/本次只研究”的阶段状态，不改变历史实测结论。
+
+- 页面新增 `director_continuous` 可选模式，默认原模式不变。约 30/60 秒分别整理为 3/6 个 10 秒段，H3 帧对齐与边界相位处理会造成少量实际时长偏差。
+- `/api/prepare-long-video` 使用所配置的文本模型整理原稿，按段分配已有动作与完整台词，不重复整篇；支持提交前编辑。一次请求、保留草稿，不加入视觉/ASR 质检。原稿或时长改变后旧计划不可误用。
+- `lib/h3Director.ts` 直接构造 Director API 图，仅第一段连接原始图片，后续连接 22 帧 AV 上下文；每段动作/台词本地时间移动到引导前缀之后，前缀由 Director 自行裁切。单任务输出全部片段合成的 MP4，不把第一段预览当终稿。
+- 首版 480P 级（864×480 / 480×864，方形 640×640），DaSiWa 4-step，关闭 Refine；不支持外部音色、多图和尾帧，额外输入会明确提示，不默默忽略。原短视频仍可使用已有参考音色功能。
+- 复用 SSH `/prompt`、`/queue`、`/history` 与下载链路；Director 数字节点 ID 每个新任务独立，避免跨任务磁盘缓存串用。已提交 ID 在浏览器持久化，刷新/查询失败/下载失败可继续查询，不重提 GPU 生成。
+- 进度只读云端队列与可用的分段落盘计数；旧节点无该查询接口时显示“连续生成中（共 N 段）”，不伪造百分比、不阻断任务。完成只能选最终合并 `SaveVideo` 输出。
+- Companion `h3DirectorLongVideo` 能力检查防止旧后端将请求降成短片；云端节点/权重检查失败在付费提交前报明缺项，不安装节点、不自动切回短视频。发布必须同步网站和 Companion。
+- 自动测试及构建不等同于 GPU 效果实测。本轮未实际生成 30/60 秒视频、未测试长对白；仍为实验入口。历史 15.292 秒实测仅证明当时三段续接可工作。
+
+验证：`npm run test:h3-director`，`npm run build`。v0.1.194 同步发布网站与 Companion；不重启或更新 GPU，不将模拟测试视为实际长视频效果验证。发布验收记录位于 `out/releases/v0.1.194/release-verification.json`。
+
+另有 `scripts/i2v-director-ui-smoke.mjs` 浏览器冒烟：选择 60 秒、编辑六段中的一段、只提交一次、刷新后按原编号继续查询、旧 Companion 能力拦截；所有 API 均模拟，不消耗模型/GPU 额度。可通过 `AID_PLAYWRIGHT_MODULE` 与 `AID_BROWSER_EXECUTABLE` 使用本机已安装的 Playwright/Chrome，默认本地测试地址为 3041。
+
+## 2026-09-04 长视频接入复核
+
+- 当前官方仓库复核至 `6b585412a838473e94c68cd0a215f23c8dd0a1b7`。以下是源码/文档复核，不是新的 GPU 实测。
+- 可以把一张图作为首段起点，一次提交多个片段，得到超过 15 秒的输出；不是将现有单段 H3 API 的 duration 改成 30/60。Director 内部逐段采样，将前段末尾音视频上下文钉入下一段，解码后裁掉引导前缀并合并。
+- 首段使用指定图片，后续同场连续段使用前段运动状态，不应在每段重新锁回最初图片。R2V 可以另保留公共参考图/音频，但需要 ref2va，不能当作 FL2VA 的同一个接口。
+- 现有独立 `app/image-to-video/page.tsx` 仍为单段提交；`lib/h3MotionContext.ts` 和已有 Director A/B builder 可复用部分分段/上下文经验，但独立页面尚未接入 Director 长视频。
+- 建议首版单独增加可选 Director 长视频模式（30/60 秒作为产品预设，不是声称已经实测的模型档位），保留当前短视频后端。展示分段进度、任务 ID 与恢复状态，末段覆盖与音视频裁切要按同一时间轴处理。默认不启用 Refine，不加入视觉或 ASR 质检。
+- 对白应先在生成输入中分配到各段，不能将整段台词重复传给每段，也不能把引导区裁切算入有效台词时间。当前任务未验证 30/60 秒带对白的实际效果，不将历史无对白 15.292 秒测试扩展为“长对白已通过”。
+- 2026-09-04 新提交包含分段落盘后的像素释放，改善内存工作集；不能仅凭代码提交断言任意长度、分辨率都可稳定生成。
+- 开源仓库 LICENSE 为 Apache-2.0；本次只研究接入，未复制其实现或更新 GPU 上已安装的节点。
+
+来源：[官方 README](https://github.com/AIMixer/ComfyUI_MiniMaxH3_Director/blob/6b585412a838473e94c68cd0a215f23c8dd0a1b7/README.md)、[连续段说明](https://github.com/AIMixer/ComfyUI_MiniMaxH3_Director/blob/6b585412a838473e94c68cd0a215f23c8dd0a1b7/director/segment_continuity.py)、[执行与裁切](https://github.com/AIMixer/ComfyUI_MiniMaxH3_Director/blob/6b585412a838473e94c68cd0a215f23c8dd0a1b7/director/executor_core.py)。本轮抓取副本保存在 `.firecrawl/h3-director-*`，不进入版本库。
+
+---
+
 测试日期：2026-09-02（Asia/Shanghai）
 
 ## 结论

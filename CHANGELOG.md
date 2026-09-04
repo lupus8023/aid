@@ -1,3 +1,11 @@
+## 0.1.194 - 2026-09-05
+
+- Ground selected Story character/costume and product originals once before writing or new image generation. Cache appearance facts with a source fingerprint; distinguish packaging, actual products and material references without changing authored actions/dialogue or casting decisions.
+- Keep complete per-panel actions, product facts and wardrobe descriptions through 2×2 compilation and the final provider request. Resolve registered aliases and stable asset IDs, reserve style-reference capacity, and never silently drop references or continue after a failed reference upload.
+- Reuse paid tasks and existing images; add no generated-media QC or automatic paid regeneration. Story and Series share the fixed path. The new original-understanding API requires updating both the website and Companion at release.
+- Add optional H3 Director continuous I2V to the independent Image-to-Video page: approximately 30/60 seconds, 3/6 ordered segments, a single original starting frame, moving AV context continuation, native audio and one final combined video. Keep the existing short-video workflows unchanged; no GPU install/update or paid test run is included.
+- Organize long-video action/dialogue once from the user's prompt with editable segment prompts. Retain submitted task IDs for query/download recovery, isolate Director cache IDs, guard unsupported older Companions, and do not silently shorten long requests to 15 seconds. Experimental 480P-class output, no Refine or external voice/image references in this first version.
+
 ## 0.1.193 - 2026-09-04
 
 - Explicitly direct Story contact sheets as two columns by two rows, with one complete same-aspect film still in each quadrant. Remove ambiguous template-layout wording and disallow vertical strips, nested panels, and scenes spanning cells.

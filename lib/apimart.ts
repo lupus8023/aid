@@ -120,10 +120,10 @@ export async function createImageTask(
       : [referenceImageUrls];
     const capabilities = getImageModelCapabilities(model);
     const validRawUrls = allRawUrls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0);
-    const rawUrls = validRawUrls.slice(0, capabilities.maxReferenceImages);
     if (validRawUrls.length > capabilities.maxReferenceImages) {
-      console.warn(`${capabilities.label} supports up to ${capabilities.maxReferenceImages} references; extra images were omitted.`);
+      throw new Error(`${capabilities.label} supports up to ${capabilities.maxReferenceImages} references; all ${validRawUrls.length} references were retained and generation was not submitted.`);
     }
+    const rawUrls = validRawUrls;
 
     // 将 base64 图片上传到 APIMart 获取公网 URL
     const imageUrls: string[] = [];
@@ -140,9 +140,8 @@ export async function createImageTask(
           imageUrls.push(ensureCloudinaryMinHeight(img));
           console.log(`Image ${i + 1}/${rawUrls.length} is already a URL: ${img}`);
         }
-      } catch (error) {
-        console.error(`Failed to upload image ${i + 1}/${rawUrls.length}:`, error);
-        // 继续处理其他图片，不中断整个流程
+      } catch {
+        throw new Error(`参考图 ${i + 1}/${rawUrls.length} 上传失败；未提交生成，未跳过图片或改变参考编号`);
       }
     }
 

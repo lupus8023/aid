@@ -2,7 +2,7 @@ import { getMidjourneyImageStatus, getTaskStatus } from './apimart';
 import { createProviderImageTask } from './imageTaskProvider';
 import type { ComfyUIClientSettings } from './comfyui';
 import type { Storyboard, Character, ObjectItem, VisualStyle, CapturePreset } from '@/types';
-import { buildImageCaptureContract, buildMediumLock } from './promptArchitecture';
+import { buildCompactImageCaptureContract, buildImageCaptureContract, buildMediumLock } from './promptArchitecture';
 import { buildImageCapturePresetContract } from './capturePresets';
 import { buildGptImage2PhotographicContract, buildGptImage2StoryPrompt } from './gptImagePrompt';
 import { getImageModelCapabilities, isComfyUIZImageTurbo, isGptImage2Model, isMidjourneyImageModel } from './imageModels';
@@ -11,6 +11,8 @@ import { isMidjourneyTask, type MidjourneyStyleReference } from './midjourney';
 import { midjourneyShotInput } from './midjourneyStory';
 import { usesPhotographicReferences } from './gptImageReferences';
 import type { ImageStyleReference } from './imageStyleReference';
+import { requireReferenceCapacity, visibleStoryObjects, VISUAL_ASSET_AUTHORITY } from './storyVisualAssets';
+import { characterAliasValues } from './characterIdentity';
 
 // 为单个分镜生成图片
 export async function generateStoryboardImage(
@@ -32,6 +34,7 @@ export async function generateStoryboardImage(
   styleReference?: ImageStyleReference,
 ): Promise<string> {
   const selectedImageModel = imageModel || 'seedream-5-0-pro';
+  globalCostumeImages = characterAliasValues(globalCostumeImages, characters);
   const photographicGpt = isGptImage2Model(selectedImageModel) && usesPhotographicReferences(visualStyle);
   if (isMidjourneyImageModel(selectedImageModel)) {
     if (/UNIQUE STORYBOARD BATCH:|(?:2x2|3x3) storyboard contact sheet/i.test(storyboard.prompt) || preUploadedReferences?.length) {
@@ -51,9 +54,7 @@ export async function generateStoryboardImage(
   const sceneCharacters = visibleImageCast(storyboard, characters);
 
   // 找到该分镜中出现的物体(如果有)
-  const sceneObjects = objects.filter(o =>
-    storyboard.objects?.includes(o.name)
-  );
+  const sceneObjects = visibleStoryObjects(storyboard, objects);
   const exactCastContract = isGptImage2Model(selectedImageModel)
     ? `NAMED CAST (${sceneCharacters.length}): ${sceneCharacters.length ? sceneCharacters.map(character => `${character.name} — exactly one visible instance`).join('; ') : 'none'}. Anonymous background people are permitted only when explicitly described in the shot brief; otherwise no extras. Keep them secondary and distinct from named characters. No duplicate identities or reflection doubles.`
     : sceneCharacters.length
@@ -73,10 +74,11 @@ export async function generateStoryboardImage(
     && storyboard.prompt.includes('GRID STYLE BIBLE (authoritative');
   if (isStructuredGridPrompt || (preUploadedReferences && preUploadedReferences.length > 0)) {
     console.log('Using grid prompt with supplied references, if any');
-    const effectiveReferences = (preUploadedReferences || []).slice(0, maxReferenceImages);
+    requireReferenceCapacity(preUploadedReferences?.length || 0, maxReferenceImages);
+    const effectiveReferences = preUploadedReferences || [];
     const effectiveReferenceLabels = preUploadedReferenceLabels.slice(0, effectiveReferences.length);
 
-    const cleanPrompt = storyboard.prompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1');
+    const cleanPrompt = storyboard.prompt;
 
     // 收集有参考图和无参考图的物体描述
     const objectsWithoutRef: ObjectItem[] = [];
@@ -114,9 +116,7 @@ export async function generateStoryboardImage(
       );
     });
 
-    // Grid-specific scene content must lead the request. If APIMart's practical
-    // prompt limit is reached, the generic style/reference tail may be trimmed,
-    // but the four distinct panels and batch identity must always survive.
+    // Grid-specific content leads; full actions and reference roles survive.
     const supplementalObjectRules = objectsWithoutRef.map(obj =>
       `Unmapped object "${obj.name}": ${obj.description}. Keep its design identical wherever requested.`
     );
@@ -156,16 +156,15 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     const promptLimit = isComfyUIZImageTurbo(selectedImageModel) ? 16000 : 4000;
     // Structured grids already contain their ordered cast/reference mapping.
     // Keep it intact, but do not drop the GPT-specific photographic treatment.
+    const missingRoles = referenceDescriptions.filter((_, index) => !effectiveReferenceLabels[index] || !cleanPrompt.includes(effectiveReferenceLabels[index]));
+    const missingObjects = sceneObjects.filter(o => o.description && !cleanPrompt.includes(o.description)).map(o => `${o.name}: ${o.description}`);
+    const assetDescriptions = isStructuredGridPrompt && (missingRoles.length || missingObjects.length)
+      ? `\n\n${cleanPrompt.includes('VISUAL ASSET AUTHORITY:') ? '' : VISUAL_ASSET_AUTHORITY}\n${missingRoles.join('\n')}\n${missingObjects.join('\n')}` : '';
     const finalPrompt = isStructuredGridPrompt ? isGptImage2Model(selectedImageModel)
-      ? `${cleanPrompt}\n\n${providerCaptureContract}` : cleanPrompt
-      : isGptImage2Model(selectedImageModel) ? cleanEnhancedPrompt : cleanEnhancedPrompt.length > promptLimit
-      ? (() => {
-          const truncIndex = cleanEnhancedPrompt.lastIndexOf('. ', promptLimit - 100);
-          const truncated = truncIndex > 0 ? cleanEnhancedPrompt.substring(0, truncIndex + 1) : cleanEnhancedPrompt.substring(0, promptLimit);
-          console.log(`Truncated prompt length: ${truncated.length} chars`);
-          return truncated;
-        })()
+      ? `${cleanPrompt}${assetDescriptions}\n\n${providerCaptureContract}` : `${cleanPrompt}${assetDescriptions}`
       : cleanEnhancedPrompt;
+    if (!isStructuredGridPrompt && !isGptImage2Model(selectedImageModel) && finalPrompt.length > promptLimit)
+      throw new Error(`完整分镜与参考说明超过模型输入容量（${finalPrompt.length}/${promptLimit}）；未截断内容或提交生成`);
 
     console.log(`Creating grid image task with ${effectiveReferences.length} reference images`);
     console.log(`Prompt length: ${finalPrompt.length} characters`);
@@ -197,14 +196,15 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
   }
 
   // 单个分镜生成的正常流程。先建立“图片 + 对应说明”的原子条目，
-  // 再按模型上限裁剪，确保提示词中的 Reference image N 永远与实际上传一致。
-  const characterReferenceEntries: Array<{ image: string; description: string; fallback: string }> = [];
+  // 提交前检查完整列表容量，确保 Reference image N 与实际上传一致；不静默丢图。
+  const characterReferenceEntries: Array<{ image: string; description: string; fallback: string; compact: string }> = [];
   sceneCharacters.forEach(char => {
     const image = globalCostumeImages[char.name] || char.imageUrl || char.imageBase64;
     if (!image) return;
     const usingCostume = Boolean(globalCostumeImages[char.name]);
     characterReferenceEntries.push({
       image,
+      compact: `CHARACTER ${char.name}: ${char.description}`,
       description: photographicGpt
         ? `CHARACTER IDENTITY ONLY — "${char.name}". ${char.description} Keep this face/head, age, species, anatomy, hair and wardrobe. Ignore the reference pose, background, layout and rendering style.`
         : `CHARACTER IDENTITY ONLY — "${char.name}". ${usingCostume ? 'Preserve the exact face, body proportions, hairstyle, wardrobe, accessories, and visual medium.' : `${char.description}. Preserve this character's exact face, body, hair, wardrobe, and visual medium.`} Ignore the reference pose, camera, background, layout, duplicate views, labels, and text. Instantiate this identity exactly once when required by the cast contract.`,
@@ -213,12 +213,13 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
   });
   const sceneReferenceEntry = globalSceneImage ? {
       image: globalSceneImage,
+      compact: 'ENVIRONMENT ONLY: architecture and geography, not people or product designs.',
       description: photographicGpt
         ? 'ENVIRONMENT ONLY. Keep architecture, geography, entrances and landmarks. The current shot controls light, exposure and framing; do not copy people or rendering artifacts.'
         : 'ENVIRONMENT ONLY. Preserve architecture, geography, entrances, landmarks, time of day, motivated light direction, palette, atmosphere, and material language. Ignore any people, poses, framing, labels, or text in the reference.',
       fallback: 'Scene requirement: follow the environment, lighting and atmosphere described in the storyboard prompt.',
     } : undefined;
-  const objectReferenceEntries: Array<{ image: string; description: string; fallback: string }> = [];
+  const objectReferenceEntries: Array<{ image: string; description: string; fallback: string; compact: string }> = [];
   const objectsWithoutRef: ObjectItem[] = [];
 
   sceneObjects.forEach((obj) => {
@@ -226,6 +227,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     if (img) {
       objectReferenceEntries.push({
         image: img,
+        compact: `OBJECT ${obj.name}: ${obj.description}`,
         description: `OBJECT IDENTITY ONLY — "${obj.name}". ${obj.description}. This image is the immutable design source for this object. Preserve its exact silhouette, dimensions, proportions, physical scale, component layout, construction, material, surface finish, color, texture, seams, closures, interfaces, intentional markings, wear and small identifying details. Change only viewpoint, placement, lighting and physically possible articulation required by the scene. Never redesign, simplify, stretch, melt, substitute, or add/remove parts. Ignore the reference background, layout and hands. Preserve labels or logos only when they physically belong to the object, in the same position and design; ignore all unrelated text.`,
         fallback: `Object requirement: "${obj.name}" - ${obj.description}. Preserve one immutable design: identical silhouette, proportions, component layout, material, finish, color, markings and scale; never redesign or deform it.`,
       });
@@ -236,17 +238,15 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
   // Fixed prop identity is never optional environment flavor. Put referenced
   // objects first for every provider so low reference limits cannot discard
   // the exact design that the shot is required to preserve.
-  const referenceEntries: Array<{ image: string; description: string; fallback: string }> = [
+  const referenceEntries: Array<{ image: string; description: string; fallback: string; compact: string }> = [
     ...objectReferenceEntries,
     ...characterReferenceEntries,
     ...(sceneReferenceEntry ? [sceneReferenceEntry] : []),
   ];
 
-  const selectedReferenceEntries = referenceEntries.slice(0, maxReferenceImages);
-  if (objectReferenceEntries.length > maxReferenceImages) {
-    throw new Error(`This shot requires ${objectReferenceEntries.length} immutable object references, but ${selectedImageModel} supports only ${maxReferenceImages}; generation stopped before payment.`);
-  }
-  const omittedReferenceEntries = referenceEntries.slice(maxReferenceImages);
+  requireReferenceCapacity(referenceEntries.length, maxReferenceImages);
+  const selectedReferenceEntries = referenceEntries;
+  const omittedReferenceEntries: typeof referenceEntries = [];
   const referenceImages = selectedReferenceEntries.map(entry => entry.image);
 
   // 检查是否有任何角色或物体（无论是否有参考图）
@@ -317,6 +317,7 @@ ${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}`;
   const referenceDescriptions = selectedReferenceEntries.map((entry, index) =>
     `Reference image ${index + 1}: ${entry.description}`
   );
+  referenceDescriptions.push(VISUAL_ASSET_AUTHORITY);
   omittedReferenceEntries.forEach(entry => referenceDescriptions.push(entry.fallback));
 
   // 没有参考图的物体：直接添加描述，不引用 Reference image
@@ -347,7 +348,7 @@ Environment and lighting: ${storyboard.sceneStyle || 'the story location describ
 
 OUTPUT CONSTRAINTS:
 ${exactCastContract}
-One complete standalone frame. No captions, subtitles, dialogue text, speech bubbles, titles, logos, watermark, UI, or readable text. Do not add unrelated people, objects, scenery, or decorative elements.
+One complete standalone frame. No captions, subtitles, dialogue text, speech bubbles, titles, watermark or UI. Preserve only original physical product labels and markings. Do not add unrelated people, objects, scenery, or decorative elements.
 
 REFERENCE JOBS — each input has one job only; never blend their backgrounds, poses, or layouts:
 ${referenceDescriptions.join('\n')}
@@ -380,18 +381,11 @@ Obey EXACT CAST literally. Maintain exact face, body proportions, hairstyle, clo
   // GPT prompt here drops the CAST/reference map and trailing output rules,
   // even though its photographic prefix survives. Send that contract intact.
   const promptLimit = isComfyUIZImageTurbo(selectedImageModel) ? 16000 : 4000;
-  const finalPrompt = isGptImage2Model(selectedImageModel) ? cleanEnhancedPrompt : cleanEnhancedPrompt.length > promptLimit
-    ? (() => {
-        const truncIndex = cleanEnhancedPrompt.lastIndexOf('. ', promptLimit - 100);
-        const truncated = truncIndex > 0 ? cleanEnhancedPrompt.substring(0, truncIndex + 1) : cleanEnhancedPrompt.substring(0, promptLimit);
-        console.log(`Truncated prompt length: ${truncated.length} chars`);
-        return truncated;
-      })()
-    : cleanEnhancedPrompt;
-
-  if (!isComfyUIZImageTurbo(selectedImageModel) && !isGptImage2Model(selectedImageModel) && finalPrompt.length > 5000) {
-    console.error(`❌ ERROR: Prompt is still too long (${finalPrompt.length} chars) after truncation. Generation may fail.`);
-  }
+  // Shorten only repeated boilerplate, never authored action or asset facts.
+  const compactReferences = selectedReferenceEntries.map((entry, i) => `Reference image ${i + 1}: ${entry.compact}`);
+  const compactPrompt = `IMAGE GOAL:\n${cleanedScenePrompt}\n${storyboard.description || ''}\nPhysical action: ${storyboard.action || ''}\nCamera: ${[storyboard.shotSize, storyboard.angle, storyboard.cameraMove].filter(Boolean).join(', ')}\nScene: ${storyboard.sceneStyle || ''}\n${exactCastContract}\n${VISUAL_ASSET_AUTHORITY}\nREFERENCE JOBS — each input has one job only:\n${compactReferences.join('\n')}\n${objectsWithoutRef.map(o => `${o.name}: ${o.description}`).join('\n')}\n${buildCompactImageCaptureContract(visualStyle)}\n${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}\nNo captions, subtitles, dialogue text, speech bubbles, titles, watermark or UI. Preserve original physical product markings only.`;
+  const finalPrompt = !isGptImage2Model(selectedImageModel) && cleanEnhancedPrompt.length > promptLimit ? compactPrompt : cleanEnhancedPrompt;
+  if (!isGptImage2Model(selectedImageModel) && finalPrompt.length > promptLimit) throw new Error(`完整镜头与参考说明超过模型输入容量（${finalPrompt.length}/${promptLimit}）；未截断动作、未丢弃参考图、未提交生成`);
 
   const taskId = await createProviderImageTask(
     finalPrompt,

@@ -25,6 +25,8 @@ import { getImageModelCapabilities, imageModelRequiresApiKey, isGptImage2Model, 
 import { Grid2X2 } from 'lucide-react';
 import { isRequestTooLargeError, readApiJson } from '@/lib/apiResponse';
 import { createStoryImageRequestPreparer } from '@/lib/storyImageRequest';
+import { prepareStoryAssets } from '@/lib/storyAssetPreparation';
+import { bindStoryboardReferences, currentVisualIdentity, ImageReferenceCapacityError, requireReferenceCapacity, visibleStoryObjects, visualAssetDescription, visualAssetSourceKey } from '@/lib/storyVisualAssets';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { canResumeStoryPlan } from '@/lib/pipeline/resumePlan';
 import { adaptedStoryCharacters, storyCastKey } from '@/lib/pipeline/storyCastAdaptation';
@@ -302,6 +304,7 @@ export default function StoryPage() {
   const activeVideoPollsRef = useRef(new Map<string, Promise<void>>());
   const gridRecoveryRef = useRef(new Set<string>());
   const prepareImageRequestRef = useRef(createStoryImageRequestPreparer());
+  const assetPreparationRef = useRef<{ projectId: string; promise: Promise<void> }>();
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
 
@@ -1176,17 +1179,55 @@ export default function StoryPage() {
   };
 
   // Step2 → Step3: generate shot script from story + characters
+  const ensureStoryVisualAssets = async () => {
+    const projectId = projectIdRef.current;
+    const existing = assetPreparationRef.current;
+    if (existing?.projectId === projectId) return existing.promise;
+    const promise = (async () => {
+      const beforeCharacters = charactersRef.current, beforeObjects = objectsRef.current;
+      const costumes = characterAliasValues(costumeImagesRef.current, beforeCharacters);
+      const needs = beforeCharacters.some(c => (costumes[c.name] || c.imageUrl || c.imageBase64) && !currentVisualIdentity(c, costumes[c.name]))
+        || beforeObjects.some(o => (o.imageUrl || o.imageBase64) && !currentVisualIdentity(o));
+      if (!needs) return;
+      if (autoRunLockRef.current) setAutoStage('理解已选原图并固定资产外观（仅首次或素材变更时）');
+      const active = settingsRef.current;
+      const prepared = await prepareStoryAssets({ characters: beforeCharacters, objects: beforeObjects, costumeImages: costumes,
+        apiKey: active.apiKey, dmxApiKey: active.dmxApiKey, scriptProvider: active.scriptProvider, scriptModel: active.scriptModel,
+        prepareImages: prepareImageRequestRef.current,
+        request: body => fetchStoryApi('/api/prepare-story-assets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }, active.comfyui),
+      });
+      if (projectId !== projectIdRef.current) throw new Error('项目已切换，未回写旧项目资产');
+      const unchanged = beforeCharacters.length === charactersRef.current.length && beforeObjects.length === objectsRef.current.length
+        && beforeCharacters.every(c => { const now = charactersRef.current.find(n => n.id === c.id); return now && visualAssetSourceKey(c, costumes[c.name]) === visualAssetSourceKey(now, characterAliasValues(costumeImagesRef.current, charactersRef.current)[now.name]); })
+        && beforeObjects.every(o => { const now = objectsRef.current.find(n => n.id === o.id); return now && visualAssetSourceKey(o) === visualAssetSourceKey(now); });
+      if (!unchanged) throw new Error('参考素材已更改，请重新开始；未提交生图');
+      charactersRef.current = charactersRef.current.map(c => ({ ...c, visualIdentity: prepared.characters.find(n => n.id === c.id)?.visualIdentity }));
+      objectsRef.current = objectsRef.current.map(o => ({ ...o, visualIdentity: prepared.objects.find(n => n.id === o.id)?.visualIdentity }));
+      setCharacters(charactersRef.current); setObjects(objectsRef.current);
+      persistCurrentProject();
+    })();
+    assetPreparationRef.current = { projectId, promise };
+    try { await promise; } finally { if (assetPreparationRef.current?.promise === promise) assetPreparationRef.current = undefined; }
+  };
+
   // ① 编剧 + ② 导演：梗概 → StoryPlan → 分镜。返回生成的分镜数组供编排器使用。
   const runScript = async (resume = false): Promise<Storyboard[]> => {
     // Never send uploaded image/base64/File fields to the text-only screenplay
     // endpoints. Besides wasting bandwidth, large character images can make a
     // hosting gateway reject the request with an HTML 413/5xx page.
     const language = projectLanguageRef.current;
-    const voiceLockedCharacters = castStoryVoices(characters, language);
+    setScriptGenerationPhase('assets');
+    await ensureStoryVisualAssets();
+    setScriptGenerationPhase('planning');
+    const voiceLockedCharacters = castStoryVoices(charactersRef.current, language);
     charactersRef.current = voiceLockedCharacters;
     setCharacters(voiceLockedCharacters);
-    const writerCharacters = voiceLockedCharacters.map(({ id, name, aliases, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }) => ({ id, name, aliases, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup }));
-    const writerObjects = objects.map(({ name, description }) => ({ name, description }));
+    const writerCharacters = voiceLockedCharacters.map(character => {
+      const { id, name, aliases, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup } = character;
+      const source = characterAliasValues(costumeImagesRef.current, voiceLockedCharacters)[name];
+      return { id, name, aliases, description, visualDescription: currentVisualIdentity(character, source) ? visualAssetDescription(character, source) : undefined, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup };
+    });
+    const writerObjects = objectsRef.current.map(object => ({ id: object.id, name: object.name, aliases: object.aliases, description: currentVisualIdentity(object) ? `${object.description}\nOriginal image facts (appearance authority): ${visualAssetDescription(object)}` : object.description }));
     const activeSettings = settingsRef.current;
     const savedSeriesContract = storyStorageKeys().isolated ? localStorage.getItem(storyStorageKeys().contract) : null;
     // Ordinary stories still need the generic shot-count contract. A series
@@ -1267,7 +1308,7 @@ export default function StoryPage() {
       ? approvedSeriesContract?.shots
       : undefined;
     const styledStoryboards = lockStoryboardVoiceIds(
-      storyboards.map((storyboard, index) => ({ ...storyboard, visualStyle, capturePreset: capturePresetRef.current,
+      storyboards.map((storyboard, index) => ({ ...bindStoryboardReferences(storyboard, effectiveVoiceCast, objectsRef.current), visualStyle, capturePreset: capturePresetRef.current,
         ...(approvedShots?.[index] ? { locationId: approvedShots[index].locationId || storyboard.locationId,
           sceneStyle: approvedShots[index].sceneStyle || storyboard.sceneStyle,
           sceneImageOverride: approvedShots[index].sceneImageUrl || storyboard.sceneImageOverride } : {}),
@@ -1344,8 +1385,10 @@ export default function StoryPage() {
     const failedBatches: string[] = [];
     // Process in groups of 4
     try {
+      if (!options.resumeTaskId) await ensureStoryVisualAssets();
       const gridSize = options.gridSize || 2;
       const gridCapacity = gridSize * gridSize;
+      if (options.resumeTaskId && batch.length > gridCapacity) throw new Error('恢复批次超出原任务容量；保留任务编号，未重新生成');
       for (const group of chunkGridBatch(batch, gridCapacity)) {
         updateGridStoryboards(items => items.map(sb =>
           group.some(g => g.id === sb.id) ? { ...sb, status: 'generating' } : sb
@@ -1359,41 +1402,28 @@ export default function StoryPage() {
         // Grid generation must consider the cast from every panel, not only the
         // first storyboard in the group. Otherwise later character references
         // are uploaded without a matching prompt label and can be ignored.
-        const mentionsEntity = (sb: Storyboard, name: string, listedNames?: string[]) =>
-          listedNames?.includes(name) ||
-          sb.prompt.includes(`[${name}]`) ||
-          sb.prompt.includes(name) ||
-          sb.description.includes(name);
-        const groupCharacters = visibleImageCast({ characters: [...new Set(group.flatMap(sb => sb.characters))] }, effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters)).filter(character =>
-          group.some(sb => mentionsEntity(sb, character.name, sb.characters))
-        );
-        const groupObjects = objectsRef.current.filter(object =>
-          group.some(sb => mentionsEntity(sb, object.name, sb.objects))
-        );
-        const summarize = (value: string, maxLength = 160) => {
-          if (value.length <= maxLength) return value;
-          const candidate = value.slice(0, maxLength - 3);
-          const boundary = candidate.lastIndexOf(' ');
-          return `${(boundary >= maxLength * 0.68 ? candidate.slice(0, boundary) : candidate).trimEnd()}...`;
-        };
+        const productionCast = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters);
+        const groupCharacters = productionCast.filter(character => group.some(sb => visibleImageCast(sb, productionCast).includes(character)));
+        const groupObjects = objectsRef.current.filter(object => group.some(sb => visibleStoryObjects(sb, objectsRef.current).includes(object)));
+        const costumeSources = characterAliasValues(costumeImagesRef.current, productionCast);
 
         // Build grid prompt from group's prompts
         const sceneStyle = new Set(group.map(s => s.locationId).filter(Boolean)).size > 1
           ? 'Locations vary by panel. Each mapped environment applies only to its listed shots; keep character identities consistent across locations.'
           : group[0]?.sceneStyle || '';
         const textDefinedCharacters = [...new Set(group.flatMap(sb => sb.characters || []))]
-          .filter(name => !groupCharacters.some(character => character.name === name))
+          .filter(name => !characterIdentityIndex(groupCharacters).resolve(name))
           .map(name => {
             const costume = group.map(sb => sb.characterCostume?.[name]).find(Boolean);
-            return `${name}: ${summarize(costume || 'stable role-appropriate face, body, age, silhouette, wardrobe and color palette; text-defined identity without a separate reference image')}`;
+            return `${name}: ${costume || 'stable role-appropriate face, body, age, silhouette, wardrobe and color palette; text-defined identity without a separate reference image'}`;
           });
         const charDescs = [
-          ...groupCharacters.map(c => `${c.name}: ${summarize(c.description)}`),
+          ...groupCharacters.map(c => `${c.name}: ${visualAssetDescription(c, costumeSources[c.name])}`),
           ...textDefinedCharacters,
         ].join('\n');
         const rejected = group.find(sb => sb.status === 'failed' && isImageSafetyRejection(sb.imageFailureReason));
         if (rejected) throw new TerminalImageTaskError(rejected.imageFailureReason || '上游审核拒绝');
-        const safetyFindings = group.map(sb => ({
+        const safetyFindings = (options.resumeTaskId ? [] : group).map(sb => ({
           storyboard: sb,
           risks: analyzeImagePromptSafety(`${sb.prompt}\n${sb.description}`),
         })).filter(finding => finding.risks.length > 0);
@@ -1417,15 +1447,14 @@ export default function StoryPage() {
           const sourcePrompt = shouldRewrite
             ? rewriteImagePromptForSafety(basePrompt, safetyLevel).replace(/^[\s\S]*?\n\n/, '')
             : basePrompt;
-          const cleanPrompt = sourcePrompt.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[([^\]]+)\]/g, '$1');
+          const cleanPrompt = sourcePrompt.replace(/\[([^\]]+)\]/g, '$1');
+          const identityIndex = characterIdentityIndex(productionCast);
           const requiredCharacters = [...new Set([
             ...(sb.characters || []),
-            ...groupCharacters
-              .filter(character => mentionsEntity(sb, character.name, sb.characters))
+            ...visibleImageCast(sb, productionCast)
               .map(character => character.name),
-          ])].filter(name => !charactersRef.current.some(c => c.name === name && (c as ImageCastCharacter).appearance === 'voice_only'));
-          const requiredObjects = groupObjects
-            .filter(object => mentionsEntity(sb, object.name, sb.objects))
+          ].map(name => identityIndex.resolve(name)?.name || name))].filter(name => !charactersRef.current.some(c => c.name === name && (c as ImageCastCharacter).appearance === 'voice_only'));
+          const requiredObjects = visibleStoryObjects(sb, groupObjects)
             .map(object => object.name);
           const panelChars = requiredCharacters.length
             ? `Only ${requiredCharacters.join(', ')} appear in this frame, one instance of each.`
@@ -1440,14 +1469,14 @@ export default function StoryPage() {
         // stay in the prompt but must not consume a reference image number.
         const characterReferences = groupCharacters
           .map(character => ({
-            image: costumeImagesRef.current[character.name] || character.imageUrl || character.imageBase64,
-            label: `CHARACTER IDENTITY: ${character.name}`
+            image: costumeSources[character.name] || character.imageUrl || character.imageBase64,
+            label: `CHARACTER IDENTITY: ${character.name} [ID ${character.id}] — ${visualAssetDescription(character, costumeSources[character.name])}${character.aliases?.length ? `; same identity aliases: ${character.aliases.join(', ')}` : ''}`
           }))
           .filter((reference): reference is { image: string; label: string } => Boolean(reference.image));
         const objectReferences = groupObjects
           .map(object => ({
             image: object.imageUrl || object.imageBase64,
-            label: `OBJECT IDENTITY: ${object.name} — ${summarize(object.description)}`
+            label: `OBJECT IDENTITY: ${object.name} [ID ${object.id}] — ${visualAssetDescription(object)}`
           }))
           .filter((reference): reference is { image: string; label: string } => Boolean(reference.image));
         const specificScenes = [...new Set(group.map(s => s.sceneImageOverride).filter((url): url is string => Boolean(url)))];
@@ -1455,13 +1484,11 @@ export default function StoryPage() {
           ? specificScenes.map(image => ({ image, label: `ENVIRONMENT: shots ${group.filter(s => s.sceneImageOverride === image).map(s => s.sceneNumber).join(',')}` }))
           : sceneImagesRef.current[0] ? [{ image: sceneImagesRef.current[0], label: 'ENVIRONMENT: scene/world reference' }] : [];
         const referenceLimit = getImageModelCapabilities(gridImageModel).maxReferenceImages;
-        if (objectReferences.length > referenceLimit) {
-          throw new Error(`本批需要 ${objectReferences.length} 张固定道具参考，但当前图片模型最多支持 ${referenceLimit} 张；已停止提交以避免道具被替换`);
-        }
         // A registered fixed prop is an immutable identity source, not optional
         // environment flavor. Keep it ahead of every other reference for all
         // providers so a low image limit can never silently drop it.
-        const references = [...objectReferences, ...characterReferences, ...sceneReference].slice(0, referenceLimit);
+        const references = [...objectReferences, ...characterReferences, ...sceneReference];
+        if (!options.resumeTaskId) requireReferenceCapacity(references.length, referenceLimit, styleReferenceRef.current ? 1 : 0);
         const refLabels = references.map(reference => reference.label);
         const refImages = references.map(reference => reference.image);
         let gridUrl = '';
@@ -1469,7 +1496,7 @@ export default function StoryPage() {
         const maxSafetyAttempts = 1; // Preflight only; never rewrite around a provider refusal.
         for (let safetyAttempt = 0; safetyAttempt < maxSafetyAttempts && !gridUrl; safetyAttempt += 1) {
           const shotDescs = buildShotDescriptions(safetyAttempt);
-          const rawGridPrompt = buildGridPrompt(
+          const rawGridPrompt = options.resumeTaskId ? '' : buildGridPrompt(
             sceneStyle,
             charDescs,
             shotDescs,
@@ -1584,7 +1611,7 @@ export default function StoryPage() {
           });
         }, items));
         } catch (error) {
-          if (error instanceof GridPromptCapacityError) {
+          if (!options.resumeTaskId && (error instanceof GridPromptCapacityError || error instanceof ImageReferenceCapacityError)) {
             // The grid has not been submitted. Preserve each full shot and its
             // references through the ordinary single-image recovery path.
             for (const member of group) {
@@ -1628,6 +1655,9 @@ export default function StoryPage() {
         if (options.throwOnError) throw new Error(summary);
         alert(summary);
       }
+    } catch (error) {
+      if (options.throwOnError) throw error;
+      alert(extractImageTaskError(error));
     } finally {
       setIsGeneratingGrid(false);
     }
@@ -1668,6 +1698,7 @@ export default function StoryPage() {
           const latest = storyboardsRef.current.find(item => item.id === storyboard.id) || storyboard;
           let taskId = safetyAttempt === 0 && latest.imageTaskMode === 'single' ? latest.taskId : undefined;
           if (!taskId) {
+            await ensureStoryVisualAssets();
             const requestBody = await prepareImageRequestRef.current({ storyboard: { ...storyboard, prompt, capturePreset: capturePresetRef.current }, characters: effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters), objects: objectsRef.current, aspectRatio: projectAspectRatioRef.current, imageModel: activeSettings.imageModel, apiKey: activeSettings.apiKey, costumeImages: costumeImagesRef.current, sceneImage: storyboard.sceneImageOverride || sceneImagesRef.current[0] || '', visualStyle, capturePreset: capturePresetRef.current, comfyui: localComfyUISettings(activeSettings.comfyui), styleReference: styleReferenceRef.current, midjourneyStyle: resolveMidjourneyStyleSetting(activeSettings), midjourneyProfile: resolveMidjourneyProfileSetting(activeSettings) });
             if (generationProjectId !== projectIdRef.current || (autoRunLockRef.current && autoAbortRef.current)) throw new Error('制作已暂停或项目已切换，未提交新的分镜任务');
             const response = await fetch(imageApiUrl('/api/generate', activeSettings.comfyui, activeSettings.imageModel), {
@@ -2484,7 +2515,7 @@ export default function StoryPage() {
       if (autoAbortRef.current) return;
 
       setCurrentStep(4);
-      await retryUntilCompleted(isMidjourneyImageModel(settingsRef.current.imageModel) ? 'MJ 逐镜生成与角色核验' : '四宫格生成分镜图', async () => {
+      await retryUntilCompleted(isMidjourneyImageModel(settingsRef.current.imageModel) ? 'MJ 逐镜生成分镜图' : '四宫格生成分镜图', async () => {
         const { chunkGridBatch } = await import('@/lib/gridSplitter');
         const normalized = storyboardsRef.current.map(normalizeStoryboardImageArtifact);
         if (normalized.some((item, index) => item !== storyboardsRef.current[index])) {

@@ -51,6 +51,7 @@ function cleanCharacter(char: Character): Character {
     name: char.name,
     aliases: char.aliases,
     description: char.description,
+    visualIdentity: char.visualIdentity,
     imageUrl: char.imageUrl || '',
     voiceId: char.voiceId,
     voiceProfile: char.voiceProfile,
@@ -67,7 +68,9 @@ function cleanObject(obj: ObjectItem): ObjectItem {
   return {
     id: obj.id,
     name: obj.name,
+    aliases: obj.aliases,
     description: obj.description,
+    visualIdentity: obj.visualIdentity,
     imageUrl: obj.imageUrl || '',
     ...(hasPublicUrl(obj.imageUrl) ? {} : { imageBase64: obj.imageBase64 }),
   };

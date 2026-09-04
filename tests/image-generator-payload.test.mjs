@@ -93,7 +93,8 @@ test('structured GPT grids deliver photographic treatment without losing panels 
       }
     }
     await generateStoryboardImage(board, [], 'test-only', [], '9:16', 'seedream-5-0-pro', {}, undefined, references, labels, 'cinematic-natural');
-    assert.equal(submitted.prompt, prompt);
+    assert.ok(submitted.prompt.startsWith(prompt));
+    labels.forEach(label => assert.ok(submitted.prompt.includes(label)));
   } finally {
     axios.post = originalPost;
   }

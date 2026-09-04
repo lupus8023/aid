@@ -5,6 +5,7 @@ import { ObjectItem } from '@/types';
 import { useObjectHistory } from '@/hooks/useObjectHistory';
 import HistoryModal from './HistoryModal';
 import { History, Edit2 } from 'lucide-react';
+import { createStoryImageRequestPreparer } from '@/lib/storyImageRequest';
 
 interface ObjectUploadProps {
   onObjectsChange: (objects: ObjectItem[]) => void;
@@ -30,18 +31,17 @@ export default function ObjectUpload({ onObjectsChange }: ObjectUploadProps) {
     reader.onload = async (event) => {
       const imageBase64 = event.target?.result as string;
 
-      let imageUrl = URL.createObjectURL(file);
+      let imageUrl: string;
       try {
-        const res = await fetch('/api/upload-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageData: imageBase64 })
+        const body = await createStoryImageRequestPreparer()({
+          storyboard: { id:'object-upload', sceneNumber:0, status:'pending', prompt:'', description:'', characters:[], objects:[] },
+          characters:[], objects:[], referenceImages:[imageBase64], referenceImageLabels:['Original product'], aspectRatio:'1:1', imageModel:'gpt-image-2', apiKey:'',
         });
-        if (res.ok) {
-          const data = await res.json();
-          imageUrl = data.url;
-        }
-      } catch {}
+        imageUrl = JSON.parse(body).referenceImages[0];
+      } catch (error) {
+        alert(`道具原图上传失败，未用缩略图替代：${error instanceof Error ? error.message : '请重试'}`);
+        return;
+      }
 
       const newObject: ObjectItem = {
         id: editingId || `obj-${Date.now()}`,

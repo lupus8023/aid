@@ -9,6 +9,7 @@ import path from 'path';
 import net from 'net';
 import { Client, type SFTPWrapper } from 'ssh2';
 import { MAX_H3_REFERENCE_SPEAKERS, MAX_H3_SPEECH_TURNS } from '@/lib/speechAudioContract';
+import { buildH3DirectorGraph, directorGraphInfo, type DirectorPlan } from '@/lib/h3Director';
 import {
   applyT8H3MotionContext,
   h3MotionContextHeadSeconds,
@@ -1982,6 +1983,45 @@ export async function createComfyUICharacterReplaceTask(input: {
   }
 }
 
+export async function createComfyUIDirectorTask(input: {
+  firstFrame: string; plan: DirectorPlan; aspectRatio: string; settings?: ComfyUIClientSettings;
+}): Promise<{ taskId: string; workflow: string; totalSegments: number; nominalDuration: number }> {
+  const config = getComfyUIConfig(input.settings);
+  try {
+    if (!config.sshHost) throw new ComfyUIError('ComfyUI SSH Host 未配置');
+    const definitions = await readRemoteDefinitions(config);
+    const runId = randomBytes(6).toString('hex');
+    // Director disk caches are keyed by node ID, not ComfyUI prompt ID.
+    // Never share the A/B script's fixed node 30 between production jobs.
+    const directorNodeId = String(Number(BigInt(`0x${runId}`)) + 1000000);
+    const built = buildH3DirectorGraph({
+      plan: input.plan, remoteImage: 'pending-original.png', aspectRatio: input.aspectRatio,
+      seed: Number(BigInt(`0x${randomBytes(6).toString('hex')}`)), directorNodeId,
+      outputPrefix: `aid/director/${runId}/continuous`, definitions,
+    });
+    validatePrompt(built.prompt, definitions);
+    const directory = await mkdtemp(path.join(tmpdir(), 'aid-director-'));
+    try {
+      const localImage = await materializeSource(input.firstFrame, directory, 'original');
+      built.prompt['10'].inputs.image = await uploadAsset(config, localImage, 'aid/assets', { contentAddressed: true });
+      const promptId = await withTunnel(config, async baseUrl => {
+        const result = await fetchJson(baseUrl, '/prompt', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: built.prompt, client_id: `aid-director-${runId}` }),
+        });
+        const id = String(result.prompt_id || '').trim();
+        if (!id) throw new ComfyUIError('Director 提交响应缺少 prompt_id；请先检查云端队列，避免重复提交');
+        return id;
+      });
+      return { taskId: `${COMFYUI_TASK_PREFIX}${promptId}`, workflow: 'h3_director_continuous', totalSegments: built.totalSegments, nominalDuration: built.nominalDuration };
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  } finally {
+    await cleanupPrivateKey(config);
+  }
+}
+
 export async function createComfyUIVideoTask(input: {
   firstFrame: string;
   prompt: string;
@@ -2502,6 +2542,24 @@ export async function getComfyUIVideoStatus(taskId: string, settings: ComfyUICli
         // queue or history. Previously a missing id was reported as processing
         // forever, leaving Story locked even though the backend had no job.
         const queue = await fetchJson(baseUrl, '/queue', {}, 30_000);
+        const running = (queue.queue_running || []).find((entry: unknown) => Array.isArray(entry) && String(entry[1]) === promptId);
+        const pending = (queue.queue_pending || []).find((entry: unknown) => Array.isArray(entry) && String(entry[1]) === promptId);
+        const director = directorGraphInfo((running || pending)?.[2]);
+        if (director) {
+          let completedSegments: number | undefined;
+          // Read execution cache counts only; not an image/video quality check.
+          // Older Director versions may lack this optional endpoint.
+          if (running) {
+            try {
+              const cache = await fetchJson(baseUrl, '/minimax/director/first_pass_cache_status', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...director.inputs, node_id: director.nodeId }),
+              }, 5000);
+              if (Number.isInteger(cache.final_cached_count)) completedSegments = Math.min(director.totalSegments, Math.max(0, cache.final_cached_count));
+            } catch { /* Status stays processing; never regenerate on a progress read failure. */ }
+          }
+          return { status: 'processing' as const, stage: pending ? 'queued' : completedSegments === director.totalSegments ? 'merging' : 'director_generating', completedSegments, totalSegments: director.totalSegments };
+        }
         return comfyUIQueueContainsPrompt(queue, promptId)
           ? { status: 'processing' as const }
           : { status: 'failed' as const, error: 'ComfyUI 中未找到该任务；已解除生成锁，请重新提交' };
@@ -2513,9 +2571,11 @@ export async function getComfyUIVideoStatus(taskId: string, settings: ComfyUICli
           error: `ComfyUI 执行失败：${comfyUIExecutionError(status.messages, historyApiPrompt(item))}`,
         };
       }
-      const output = selectComfyUIVideoOutput(item.outputs || {});
+      const director = directorGraphInfo(historyApiPrompt(item));
+      // Only the final all-segment SaveVideo output can complete a Director job.
+      const output = selectComfyUIVideoOutput(director ? item.outputs?.['32'] || {} : item.outputs || {});
       if (!output) return { status: 'failed' as const, error: 'ComfyUI 任务完成但没有返回视频文件' };
-      return { status: 'completed' as const, output };
+      return { status: 'completed' as const, output, ...(director ? { stage: 'completed', totalSegments: director.totalSegments, completedSegments: director.totalSegments } : {}) };
     });
   } finally {
     await cleanupPrivateKey(config);

@@ -1,4 +1,5 @@
 import type { WriterCharacter, WriterObject } from './types';
+import { characterProductionDescription, VISUAL_ASSET_AUTHORITY } from '@/lib/storyVisualAssets';
 import { normalizeTargetShotCount, targetDurationSeconds } from './shotCount';
 import { storyIdentityContract } from './storyIdentity';
 import { sourceShotBlocks } from './sourceScreenplay';
@@ -128,7 +129,7 @@ export function buildStoryOutlinePrompt(input: {
   const { synopsis, characters, objects, language } = input;
   const targetShots = normalizeTargetShotCount(input.targetShotCount);
   const targetSeconds = targetDurationSeconds(targetShots);
-  const characterDetails = characters.map(character => `- ${character.name}: ${character.description}${character.gender && character.gender !== 'unknown' ? `；已知性别=${character.gender}` : ''}${character.ageGroup && character.ageGroup !== 'unknown' ? `；已知年龄段=${character.ageGroup}` : ''}`).join('\n');
+  const characterDetails = characters.map(character => `- ${character.name}: ${characterProductionDescription(character)}${character.gender && character.gender !== 'unknown' ? `；已知性别=${character.gender}` : ''}${character.ageGroup && character.ageGroup !== 'unknown' ? `；已知年龄段=${character.ageGroup}` : ''}`).join('\n');
   const objectDetails = objects.length
     ? objects.map(object => `- ${object.name}: ${object.description}`).join('\n')
     : 'None';
@@ -152,6 +153,7 @@ ${AUTHORED_ACTION_CONTRACT}
 
 已上传物体（objects 只能使用这些精确名称）：
 ${objectDetails}
+${VISUAL_ASSET_AUTHORITY}
 
 制作规格：全片严格 ${targetShots} 镜，目标约 ${targetSeconds} 秒。
 
@@ -262,7 +264,7 @@ export function buildStorySpinePrompt(input: {
   const targetShots = normalizeTargetShotCount(input.targetShotCount);
   const targetSeconds = targetDurationSeconds(targetShots);
   const characterDetails = characters.map(character => (
-    `- ${character.name}: ${character.description}${character.gender && character.gender !== 'unknown' ? `；已知性别=${character.gender}` : ''}${character.ageGroup && character.ageGroup !== 'unknown' ? `；已知年龄段=${character.ageGroup}` : ''}`
+    `- ${character.name}: ${characterProductionDescription(character)}${character.gender && character.gender !== 'unknown' ? `；已知性别=${character.gender}` : ''}${character.ageGroup && character.ageGroup !== 'unknown' ? `；已知年龄段=${character.ageGroup}` : ''}`
   )).join('\n');
   const objectDetails = objects.length
     ? objects.map(object => `- ${object.name}: ${object.description}`).join('\n')
@@ -286,6 +288,7 @@ ${AUTHORED_ACTION_CONTRACT}
 
 已上传物体：
 ${objectDetails}
+${VISUAL_ASSET_AUTHORITY}
 
 制作规格：全片严格 ${targetShots} 镜，目标约 ${targetSeconds} 秒。
 
@@ -610,11 +613,12 @@ ${JSON.stringify(previousBoundary || null, null, 2)}
 ${JSON.stringify(nextRoadmap.slice(0, 2), null, 2)}
 
 允许角色：
-${characters.map(character => `- ${character.name}: ${character.description}`).join('\n')}
+${characters.map(character => `- ${character.name}: ${characterProductionDescription(character)}`).join('\n')}
 ${storyIdentityContract(characters)}
 ${AUTHORED_ACTION_CONTRACT}
 允许物体：
 ${objects.length ? objects.map(object => `- ${object.name}: ${object.description}`).join('\n') : 'None'}
+${VISUAL_ASSET_AUTHORITY}
 
 写作规则：
 - 严格输出 ${beatMap.length} 个 beats，对应 index ${firstIndex}–${lastIndex}；每个 beat 只展开对应 beatMap，不得合并、拆分、增删或调序。
@@ -690,7 +694,7 @@ export function buildStoryPlanPrompt(input: {
   const targetShots = normalizeTargetShotCount(input.targetShotCount);
   const targetSeconds = targetDurationSeconds(targetShots);
   const characterNames = characters.map(c => c.name).join('、');
-  const characterDetails = characters.map(c => `- ${c.name}: ${c.description}`).join('\n');
+  const characterDetails = characters.map(c => `- ${c.name}: ${characterProductionDescription(c)}`).join('\n');
   const objectNames = objects.map(o => o.name).join('、');
   const objectDetails = objects.length ? objects.map(o => `- ${o.name}: ${o.description}`).join('\n') : '无';
 
@@ -750,6 +754,7 @@ ${AUTHORED_ACTION_CONTRACT}
 
 📦 已上传物体（唯一允许的物体名称）
 ${objectDetails}
+${VISUAL_ASSET_AUTHORITY}
 ${objects.length ? `✅ 允许的物体名称: ${objectNames}` : '⚠️ 未上传物体'}
 
 📖 用户原始输入（最高优先级，不得遗漏明确要求）

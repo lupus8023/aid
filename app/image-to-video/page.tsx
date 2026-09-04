@@ -1,6 +1,6 @@
 'use client';
 
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Upload, Video, X, Settings, Home, ChevronDown, ChevronUp, Edit, Clock3, Volume2, Layers3 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -10,8 +10,12 @@ import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
 import { comfyUIApiUrl, downloadComfyUIVideo, isComfyUIClientTask, localComfyUISettings, videoStatusResponseError } from '@/lib/comfyuiClient';
 import { enforceNoSubtitles } from '@/lib/videoTextPolicy';
+import { DIRECTOR_DURATIONS, validateDirectorPlan, type DirectorPlan } from '@/lib/h3Director';
+import { readApiJson } from '@/lib/apiResponse';
 
 const MAX_COMFYUI_REFERENCE_IMAGES = 5;
+const I2V_TASK_STORAGE = 'aid:i2v:task:v1';
+type SavedVideoTask = { taskId: string; backend: string; state: 'pending' | 'completed' | 'failed'; totalSegments?: number };
 
 export default function ImageToVideoPage() {
   const router = useRouter();
@@ -32,8 +36,28 @@ export default function ImageToVideoPage() {
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16' | '1:1'>('16:9');
   const [duration, setDuration] = useState(5);
   const [quality, setQuality] = useState<'480p' | '720p'>('480p');
-  const [comfyWorkflowMode, setComfyWorkflowMode] = useState<'single_reference' | 'multi_reference' | 'first_last'>('single_reference');
+  const [comfyWorkflowMode, setComfyWorkflowMode] = useState<'single_reference' | 'multi_reference' | 'first_last' | 'director_continuous'>('single_reference');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [directorPlan, setDirectorPlan] = useState<DirectorPlan | null>(null);
+  const [isPlanning, setIsPlanning] = useState(false);
+  const [activeTask, setActiveTask] = useState<SavedVideoTask | null>(null);
+  const [taskMessage, setTaskMessage] = useState('');
+  const pollController = useRef<AbortController | null>(null);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(I2V_TASK_STORAGE) || 'null');
+      if (saved && typeof saved.taskId === 'string' && typeof saved.backend === 'string' && ['pending', 'completed', 'failed'].includes(saved.state)) {
+        setActiveTask(saved);
+        setTaskMessage('已保留任务编号，可继续查询或取回视频，不会重新提交生成。');
+      }
+    } catch { /* A broken local record must not block the page. */ }
+    return () => pollController.current?.abort();
+  }, []);
+  const saveTask = (task: SavedVideoTask) => {
+    setActiveTask(task);
+    try { localStorage.setItem(I2V_TASK_STORAGE, JSON.stringify(task)); }
+    catch { setTaskMessage('浏览器无法保存任务记录，请保留下方任务编号。'); }
+  };
 
   useLayoutEffect(() => {
     const textarea = promptTextareaRef.current;
@@ -50,6 +74,13 @@ export default function ImageToVideoPage() {
   const videoProvider = settings.videoProvider || 'apimart';
   const isComfyUI = videoProvider === 'comfyui';
   const isFal = videoProvider === 'fal';
+  const isDirector = isComfyUI && comfyWorkflowMode === 'director_continuous';
+  const taskBackend = isComfyUI
+    ? JSON.stringify([comfyUIApiUrl('', settings.comfyui), settings.comfyui?.sshHost || '', settings.comfyui?.sshPort || '', settings.comfyui?.comfyPort || '', settings.comfyui?.workflowRoot || ''])
+    : videoProvider;
+  const fullVideoPrompt = enforceNoSubtitles(cameraParams ? `${prompt}. ${cameraParams}` : prompt);
+  const currentDirectorPlan = directorPlan?.sourcePrompt === fullVideoPrompt && directorPlan?.duration === duration ? directorPlan : null;
+  const hasDirectorExtraMedia = Boolean(secondImage || referenceImages.length || audioFiles.length || audioUrls.length || videoFiles.length || videoUrls.length);
   const modelName = settings.videoModel?.toLowerCase() || '';
   const isOmniFlashExt = !isComfyUI && !isFal && modelName.includes('omni-flash-ext');
   const isGrokImagine = !isComfyUI && !isFal && modelName.includes('grok-imagine');
@@ -76,8 +107,8 @@ export default function ImageToVideoPage() {
         ? 'reference'
         : 'none';
   const durationMin = isComfyUI ? 2 : (isOmniFlashExt ? 4 : (isGrokImagine ? 6 : (isFal ? 5 : (isMiniMaxH3 ? 4 : 5))));
-  const durationMax = isOmniFlashExt ? 10 : (isGrokImagine ? 30 : 15);
-  const durationOptions = isOmniFlashExt ? [4, 6, 8, 10] : undefined;
+  const durationMax = isDirector ? 60 : isOmniFlashExt ? 10 : (isGrokImagine ? 30 : 15);
+  const durationOptions = isDirector ? DIRECTOR_DURATIONS : isOmniFlashExt ? [4, 6, 8, 10] : undefined;
 
   // 当切换到 Omni-Flash-Ext 时，自动调整 duration
   if (isOmniFlashExt && ![4, 6, 8, 10].includes(duration)) {
@@ -88,8 +119,10 @@ export default function ImageToVideoPage() {
     setDuration(6);
   }
   useLayoutEffect(() => {
-    if (isFal && duration < 5) setDuration(5);
-  }, [duration, isFal]);
+    if (isDirector) {
+      if (duration !== 30 && duration !== 60) setDuration(30);
+    } else if (duration > durationMax || duration < durationMin) setDuration(Math.max(durationMin, Math.min(durationMax, duration)));
+  }, [duration, isDirector, durationMin, durationMax]);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   const handleMainImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -212,18 +245,31 @@ export default function ImageToVideoPage() {
     }
   };
 
-  const pollTaskStatus = async (taskId: string) => {
-    const maxAttempts = 180;
+  const pollTaskStatus = async (task: SavedVideoTask) => {
+    if (task.backend !== taskBackend) {
+      alert('生成后已切换视频后端或云端实例，请恢复提交时的设置再继续查询，避免查错任务。');
+      setIsGenerating(false);
+      return;
+    }
+    pollController.current?.abort();
+    const controller = new AbortController();
+    pollController.current = controller;
+    const { signal } = controller;
+    const taskId = task.taskId;
+    const maxAttempts = task.totalSegments ? 720 : 180;
     const isComfyTask = isComfyUIClientTask(taskId);
+    setIsGenerating(true);
     let consecutiveErrors = 0;
     for (let i = 0; i < maxAttempts; i++) {
-      await new Promise(resolve => setTimeout(resolve, 10000));
+      if (i) await new Promise(resolve => setTimeout(resolve, 10000));
+      if (signal.aborted) return;
       try {
         const statusUrl = isComfyTask
           ? comfyUIApiUrl('/api/check-video-status', settings.comfyui)
           : '/api/check-video-status';
         const response = await fetch(statusUrl, {
           method: 'POST',
+          signal,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             taskId,
@@ -236,39 +282,76 @@ export default function ImageToVideoPage() {
         if (!response.ok) throw new Error(await videoStatusResponseError(response));
 
         const data = await response.json();
+        if (signal.aborted) return;
+        if (data.status === 'processing') {
+          setTaskMessage(data.stage === 'queued' ? '云端排队中' : data.stage === 'merging' ? '正在合并连续片段与音频' : data.totalSegments
+            ? `连续生成中${Number.isInteger(data.completedSegments) ? `，已完成 ${data.completedSegments}/${data.totalSegments} 段` : `（共 ${data.totalSegments} 段）`}`
+            : '云端生成中');
+        }
 
         if (isComfyTask && data.status === 'completed' && data.readyForDownload) {
           const localVideoUrl = await downloadComfyUIVideo(taskId, settings.comfyui);
+          if (signal.aborted) return;
           setVideoUrl(localVideoUrl);
+          saveTask({ ...task, state: 'completed' });
+          setTaskMessage('完整视频已生成，可预览、下载或进入编辑器。');
           setIsGenerating(false);
           return;
         }
         if (data.status === 'completed' && data.videoUrl) {
           setVideoUrl(data.videoUrl);
+          saveTask({ ...task, state: 'completed' });
+          setTaskMessage('视频已生成。');
           setIsGenerating(false);
           return;
         }
         if (data.status === 'failed') {
+          saveTask({ ...task, state: 'failed' });
+          setTaskMessage(`生成失败：${data.error || '未知错误'}。任务编号已保留，不会自动重提。`);
           alert(`Video generation failed: ${data.error || 'Unknown error'}`);
           setIsGenerating(false);
           return;
         }
         consecutiveErrors = 0;
       } catch (error) {
+        if (signal.aborted) return;
         console.error('Polling error:', error);
         consecutiveErrors += 1;
         if (consecutiveErrors >= 3) {
-          alert(`视频回传失败：${error instanceof Error ? error.message : '无法连接本地 Companion'}`);
+          setTaskMessage(`查询或下载暂时中断：${error instanceof Error ? error.message : '无法连接本地 Companion'}。任务编号已保存，请点“继续查询”，不会重新生成。`);
           setIsGenerating(false);
           return;
         }
       }
     }
-    alert('Video generation timeout');
+    setTaskMessage('等待时间较长，已暂停查询；任务编号保留，后台任务不会被取消。可继续查询。');
     setIsGenerating(false);
   };
 
+  const assertDirectorSupport = async () => {
+    const response = await fetch(comfyUIApiUrl('/api/companion/status', settings.comfyui), { cache: 'no-store' });
+    const status = await readApiJson<{ h3DirectorLongVideo?: boolean }>(response, '检查长视频支持失败');
+    if (!status.h3DirectorLongVideo) throw new Error('当前 Companion/服务端尚不支持 H3 Director 连续长视频，请先更新；不会退回生成 15 秒短片');
+  };
+
+  const prepareDirectorPlan = async () => {
+    await assertDirectorSupport();
+    const response = await fetch(comfyUIApiUrl('/api/prepare-long-video', settings.comfyui), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: fullVideoPrompt, duration, apiKey: settings.apiKey, dmxApiKey: settings.dmxApiKey, scriptProvider: settings.scriptProvider, scriptModel: settings.scriptModel }),
+    });
+    const { plan } = await readApiJson<{ plan: DirectorPlan }>(response, '长视频分段整理失败');
+    const valid = validateDirectorPlan(plan, duration, fullVideoPrompt);
+    setDirectorPlan(valid);
+    return valid;
+  };
+
   const handleGenerate = async () => {
+    if (isGenerating || isPlanning) return;
+    if (activeTask?.state === 'pending') {
+      alert('已有任务编号，请先继续查询。若要另起任务，请明确清除记录；清除记录不会取消后台任务。');
+      return;
+    }
     if (!mainImage || !prompt) {
       alert('Please upload main image and enter motion description');
       return;
@@ -294,10 +377,21 @@ export default function ImageToVideoPage() {
       alert('ComfyUI MiniMax H3 最多使用 3 条参考音频');
       return;
     }
+    if (isDirector && hasDirectorExtraMedia) {
+      alert('连续长视频当前使用一张起始图与原生声音。请先清除额外参考素材，或切回短视频模式。');
+      return;
+    }
 
     setIsGenerating(true);
     try {
-      const fullPrompt = enforceNoSubtitles(cameraParams ? `${prompt}. ${cameraParams}` : prompt);
+      const fullPrompt = fullVideoPrompt;
+      let plan: DirectorPlan | undefined;
+      if (isDirector) {
+        setTaskMessage('正在按原提示词整理连续分段…');
+        if (currentDirectorPlan) { await assertDirectorSupport(); plan = currentDirectorPlan; }
+        else plan = await prepareDirectorPlan();
+      }
+      setTaskMessage('正在上传素材并提交视频任务…');
 
       const generationUrl = videoProvider === 'comfyui'
         ? comfyUIApiUrl('/api/image-to-video', settings.comfyui)
@@ -314,6 +408,7 @@ export default function ImageToVideoPage() {
             ? 'reference'
             : secondImage ? secondImageMode : undefined,
           comfyWorkflowMode: isComfyUI ? comfyWorkflowMode : undefined,
+          directorPlan: plan,
           prompt: fullPrompt,
           aspectRatio,
           duration,
@@ -351,7 +446,10 @@ export default function ImageToVideoPage() {
         throw new Error('Server returned invalid response. Please check Netlify logs.');
       }
 
-      pollTaskStatus(data.taskId);
+      if (!data.taskId) throw new Error('提交结果缺少任务编号，请检查后台队列后再操作，避免重复生成');
+      const task: SavedVideoTask = { taskId: data.taskId, backend: taskBackend, state: 'pending', totalSegments: data.totalSegments };
+      saveTask(task);
+      void pollTaskStatus(task);
     } catch (error) {
       alert(`Video generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setIsGenerating(false);
@@ -405,7 +503,7 @@ export default function ImageToVideoPage() {
                 <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-1.5">{duration}s · {aspectRatio}</span>
               </div>
             </div>
-            <div className="aid-form-stack space-y-4 md:space-y-5">
+            <fieldset disabled={isGenerating || isPlanning} className="aid-form-stack min-w-0 space-y-4 md:space-y-5">
               {isComfyUI && (
                 <div className="space-y-4 !border-[var(--accent-green)]/35">
                   <div className="flex items-start gap-3">
@@ -413,14 +511,15 @@ export default function ImageToVideoPage() {
                     <div><p className="aid-step-kicker">01 · 选择生成方式</p>
                     <h2 className="mt-1 text-base font-semibold text-white">MiniMax H3 工作流</h2>
                     <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                      仙宫云 4-step LoRA · 约 720P · 原生生成同步对白、环境声和音乐
+                      {isDirector ? 'Director 连续长视频 · 480P 级 · 分段续接并输出一条完整视频' : '仙宫云 4-step LoRA · 约 720P · 原生生成同步对白、环境声和音乐'}
                     </p></div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     {[
                       { value: 'single_reference' as const, label: '单图参考', detail: 'Ref2VA · 1 张参考图' },
                       { value: 'multi_reference' as const, label: '多图参考', detail: 'Ref2VA · 2–5 张参考图' },
                       { value: 'first_last' as const, label: '首尾帧', detail: 'FL2VA · 精确首帧和尾帧' },
+                      { value: 'director_continuous' as const, label: '连续长视频 · 实验', detail: 'H3 Director · 约 30 / 60 秒' },
                     ].map(option => (
                       <button
                         key={option.value}
@@ -441,6 +540,15 @@ export default function ImageToVideoPage() {
                       </button>
                     ))}
                   </div>
+                  {isDirector && (
+                    <div className="text-xs leading-6 text-[var(--text-secondary)]">
+                      一张图作为开场，后段承接上一段动作与声音。先按原稿分配动作和台词，不重复开场，不增加成片质检。实际时长随 H3 帧对齐略有浮动；暂不启用高清二采。
+                      {hasDirectorExtraMedia && <div className="mt-2 text-amber-300">
+                        当前还有额外参考素材，长视频暂不接受外部音轨、多图或尾帧。
+                        <button type="button" className="ml-2 underline" onClick={() => { setSecondImage(null); setReferenceImages([]); setAudioFiles([]); setAudioDurations([]); setAudioUrls([]); setVideoFiles([]); setVideoUrls([]); }}>清除额外参考素材</button>
+                      </div>}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -449,7 +557,7 @@ export default function ImageToVideoPage() {
                 {/* First Frame */}
                 <div>
                   <h2 className="text-sm font-mono text-[var(--text-primary)] mb-3">
-                    {isComfyUI && comfyWorkflowMode !== 'first_last' ? 'Reference Image 1' : 'First Frame'}
+                    {isComfyUI && comfyWorkflowMode !== 'first_last' && !isDirector ? 'Reference Image 1' : 'First Frame'}
                   </h2>
                   <p className="text-xs text-[var(--text-secondary)] mb-2">Image size &lt; 6MB</p>
                   <div className="border-2 border-dashed border-[var(--border-color)] rounded-lg p-6 text-center bg-[var(--bg-secondary)]">
@@ -459,7 +567,7 @@ export default function ImageToVideoPage() {
                       <div>
                         <Upload className="w-10 h-10 mx-auto mb-3 text-[var(--text-secondary)]" />
                         <p className="text-[var(--text-secondary)] text-sm mb-3">
-                          {isComfyUI && comfyWorkflowMode !== 'first_last' ? 'Upload reference image' : 'Upload first frame'}
+                          {isComfyUI && comfyWorkflowMode !== 'first_last' && !isDirector ? 'Upload reference image' : 'Upload first frame'}
                         </p>
                       </div>
                     )}
@@ -608,7 +716,7 @@ export default function ImageToVideoPage() {
                       className="px-3 py-1.5 text-sm font-mono bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
                     >
                       {durationOptions.map(d => (
-                        <option key={d} value={d}>{d}s</option>
+                        <option key={d} value={d}>{isDirector ? '约 ' : ''}{d}s</option>
                       ))}
                     </select>
                   ) : (
@@ -681,11 +789,34 @@ export default function ImageToVideoPage() {
                 )}
               </div>
 
+              {isDirector && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-sm text-[var(--text-primary)]">连续分段 · {duration / 10} 段</h2>
+                    <button type="button" disabled={!prompt.trim() || isPlanning || isGenerating} className="rounded border border-[var(--border-color)] px-3 py-2 text-xs disabled:opacity-40"
+                      onClick={async () => {
+                        setIsPlanning(true);
+                        try { await prepareDirectorPlan(); }
+                        catch (error) { alert(error instanceof Error ? error.message : '分段整理失败'); }
+                        finally { setIsPlanning(false); }
+                      }}>{isPlanning ? '整理中…' : '按原稿整理分段'}</button>
+                  </div>
+                  <p className="text-xs leading-5 text-[var(--text-secondary)]">可先整理并调整每段动作；直接开始生成也会自动整理。每段内时间从 00:00 开始，每句台词只分配一次。修改原提示词、运镜或时长后需重新整理。</p>
+                  {currentDirectorPlan?.segments.map((segment, i) => (
+                    <label key={i} className="block text-xs text-[var(--text-secondary)]">
+                      第 {i + 1} 段 · 约 {i * 10}–{(i + 1) * 10} 秒{ i ? ' · 承接前段' : ' · 从原图开始'}
+                      <textarea value={segment.prompt} maxLength={6000} rows={4} className="mt-2 w-full rounded border border-[var(--border-color)] bg-[var(--bg-secondary)] p-3 text-sm text-[var(--text-primary)]"
+                        onChange={event => setDirectorPlan(previous => previous ? { ...previous, segments: previous.segments.map((s, index) => index === i ? { prompt: event.target.value } : s) } : previous)} />
+                    </label>
+                  ))}
+                </div>
+              )}
+
               {/* Camera Parameters */}
               <CameraSelector onParamsChange={setCameraParams} />
 
               {/* MiniMax-H3 native audio / optional voice references */}
-              {supportsH3VoiceReference && (
+              {supportsH3VoiceReference && !isDirector && (
                 <div className="space-y-4 p-4 border border-[var(--border-color)] rounded-lg bg-[var(--bg-secondary)]">
                   <h2 className="text-sm font-mono text-[var(--accent-green)]">
                     {isComfyUI ? 'Native Audio Generation' : 'MiniMax-H3 Audio Sync'}
@@ -785,13 +916,13 @@ export default function ImageToVideoPage() {
               {/* Generate Button */}
               <button
                 onClick={handleGenerate}
-                disabled={isGenerating || !mainImage || !prompt || (isComfyUI && comfyWorkflowMode === 'first_last' && !secondImage) || (isComfyUI && comfyWorkflowMode === 'multi_reference' && referenceImages.length < 1)}
+                disabled={isGenerating || isPlanning || activeTask?.state === 'pending' || !mainImage || !prompt || (isComfyUI && comfyWorkflowMode === 'first_last' && !secondImage) || (isComfyUI && comfyWorkflowMode === 'multi_reference' && referenceImages.length < 1) || (isDirector && hasDirectorExtraMedia)}
                 className="w-full py-3 bg-[var(--accent-blue)] hover:bg-[#006bb3] disabled:opacity-50 disabled:cursor-not-allowed rounded font-mono text-sm text-white flex items-center justify-center gap-2"
               >
                 <Video className="w-4 h-4" />
-                {isGenerating ? '正在生成视频…' : '开始生成视频'}
+                {isGenerating ? '正在生成视频…' : isDirector ? `开始连续生成约 ${duration} 秒` : '开始生成视频'}
               </button>
-            </div>
+            </fieldset>
           </div>
 
           {/* Right: Video Preview */}
@@ -807,6 +938,22 @@ export default function ImageToVideoPage() {
               </button>
             </div>
             <div className={`${isPreviewOpen ? 'block' : 'hidden'} xl:block`}>
+            {(taskMessage || activeTask) && (
+              <div className="aid-panel mb-4 space-y-3 p-4 text-xs leading-6" aria-live="polite">
+                <p>{taskMessage}</p>
+                {activeTask && <>
+                  <p className="break-all font-mono text-[var(--text-secondary)]">任务：{activeTask.taskId}</p>
+                  <div className="flex flex-wrap gap-3">
+                    <button disabled={isGenerating || isPlanning} className="underline disabled:opacity-40" onClick={() => void pollTaskStatus(activeTask)}>{activeTask.state === 'completed' ? '重新取回视频' : '继续查询（不重新生成）'}</button>
+                    <button disabled={isGenerating || isPlanning} className="underline disabled:opacity-40" onClick={() => {
+                      if (!confirm('清除本页任务记录不会取消后台任务。确定清除吗？')) return;
+                      setActiveTask(null); setTaskMessage('');
+                      try { localStorage.removeItem(I2V_TASK_STORAGE); } catch { /* Current in-memory record is cleared. */ }
+                    }}>清除记录</button>
+                  </div>
+                </>}
+              </div>
+            )}
             <div className={`aid-panel mb-4 flex items-center justify-center overflow-hidden bg-black/25 ${
               aspectRatio === '16:9' ? 'aspect-video' :
               aspectRatio === '9:16' ? 'aspect-[9/16]' :
@@ -817,14 +964,14 @@ export default function ImageToVideoPage() {
               ) : (
                 <div className="text-center text-[var(--text-secondary)]">
                   <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)]"><Video className="h-5 w-5 opacity-70" /></div>
-                  <p className="text-sm text-[var(--text-primary)]">等待生成</p>
+                  <p className="text-sm text-[var(--text-primary)]">{isGenerating ? '正在生成' : '等待生成'}</p>
                   <p className="mt-1 text-xs">完成后可预览、编辑和下载</p>
                 </div>
               )}
             </div>
 
             <div className="aid-panel mb-4 divide-y divide-[var(--border-color)] px-4">
-              <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Layers3 size={14} />引擎</span><span className="font-mono text-white">{isComfyUI ? 'MiniMax H3' : isFal ? 'MiniMax H3 Max · fal' : settings.videoModel}</span></div>
+              <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Layers3 size={14} />引擎</span><span className="font-mono text-white">{isDirector ? 'H3 Director 连续长视频' : isComfyUI ? 'MiniMax H3' : isFal ? 'MiniMax H3 Max · fal' : settings.videoModel}</span></div>
               <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Clock3 size={14} />输出规格</span><span className="font-mono text-white">{duration}s · {aspectRatio}{isFal ? ` · ${quality === '480p' ? '480P' : '768P'}` : ''}</span></div>
               <div className="flex items-center justify-between py-3 text-xs"><span className="flex items-center gap-2 text-[var(--text-secondary)]"><Volume2 size={14} />声音</span><span className="font-mono text-white">{isMiniMaxH3 ? '原生音频' : audioFiles.length ? `${audioFiles.length} 条参考` : '按模型设置'}</span></div>
             </div>
