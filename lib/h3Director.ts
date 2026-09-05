@@ -12,6 +12,31 @@ export interface DirectorPlan {
 }
 type Graph = Record<string, any>;
 
+const DIRECTOR_TIMECODE = /\b(\d{2}):([0-5]\d)\.(\d{3})\b/g;
+
+function formatDirectorTimecode(seconds: number): string {
+  const millis = Math.max(0, Math.round(seconds * 1000));
+  const minutes = Math.floor(millis / 60_000);
+  const remainder = millis - minutes * 60_000;
+  return `${String(minutes).padStart(2, '0')}:${String(Math.floor(remainder / 1000)).padStart(2, '0')}.${String(remainder % 1000).padStart(3, '0')}`;
+}
+
+/** Repair a planner that numbered a 10-second segment on the global timeline. */
+export function normalizeDirectorSegmentTimecodes(prompt: string, segmentIndex: number): string {
+  if (segmentIndex <= 0) return prompt;
+  const matches = [...prompt.matchAll(DIRECTOR_TIMECODE)];
+  if (!matches.length) return prompt;
+  const values = matches.map(match => Number(match[1]) * 60 + Number(match[2]) + Number(match[3]) / 1000);
+  const globalStart = segmentIndex * DIRECTOR_SEGMENT_SECONDS;
+  const isGlobal = values.some(value => value > DIRECTOR_SEGMENT_SECONDS + 0.001)
+    && values.every(value => value >= globalStart - 0.001 && value <= globalStart + DIRECTOR_SEGMENT_SECONDS + 0.001);
+  if (!isGlobal) return prompt;
+  return prompt.replace(DIRECTOR_TIMECODE, (_, minutes, seconds, millis) => {
+    const value = Number(minutes) * 60 + Number(seconds) + Number(millis) / 1000;
+    return formatDirectorTimecode(value - globalStart);
+  });
+}
+
 export function validateDirectorPlan(value: unknown, duration: number, sourcePrompt?: string): DirectorPlan {
   if (!DIRECTOR_DURATIONS.includes(duration as 30 | 60)) throw new Error('连续长视频仅支持约 30 秒或 60 秒');
   const plan = value as DirectorPlan;
@@ -21,7 +46,11 @@ export function validateDirectorPlan(value: unknown, duration: number, sourcePro
     throw new Error('原提示词已改变，请重新整理长视频分段；尚未提交视频生成');
   if (plan.segments.some(segment => typeof segment?.prompt !== 'string' || !segment.prompt.trim() || segment.prompt.length > 6000))
     throw new Error('每段需要有效的动作与声音提示词（最多 6000 字符）');
-  return { sourcePrompt: plan.sourcePrompt, duration: duration as 30 | 60, segments: plan.segments.map(s => ({ prompt: s.prompt.trim() })) };
+  return {
+    sourcePrompt: plan.sourcePrompt,
+    duration: duration as 30 | 60,
+    segments: plan.segments.map((segment, index) => ({ prompt: normalizeDirectorSegmentTimecodes(segment.prompt.trim(), index) })),
+  };
 }
 
 export function directorPlanningPrompt(sourcePrompt: string, duration: number): string {
@@ -52,8 +81,8 @@ export function buildH3DirectorGraph(input: {
   const required = ['MiniMaxH3Director', 'MiniMaxH3DirectorGroupImageToVideo', 'MiniMaxH3DirectorGroupsCombine', 'UNETLoader', 'CLIPLoader', 'VAELoader', 'LoadImage', 'CreateVideo', 'SaveVideo'];
   const missing = required.filter(name => !defs[name]);
   if (missing.length) throw new Error(`云端未安装兼容的 H3 Director 长视频节点：${missing.join(', ')}。未提交视频，也不会回退成 15 秒`);
-  const loraClass = defs.LoraLoaderModelOnly ? 'LoraLoaderModelOnly' : defs.LoraLoaderBypassModelOnly ? 'LoraLoaderBypassModelOnly' : '';
-  if (!loraClass) throw new Error('云端缺少 H3 Director 所需的 model-only LoRA loader');
+  const loraClass = defs.LoraLoaderBypassModelOnly ? 'LoraLoaderBypassModelOnly' : '';
+  if (!loraClass) throw new Error('云端缺少 H3 Director 四步量化模型所需的 Bypass LoRA loader；未提交视频生成');
   const node = (class_type: string, inputs: Graph, title = class_type) => ({ class_type, inputs, _meta: { title } });
   const prompt: Graph = {
     '1': node('UNETLoader', { unet_name: 'minimax_h3_fl2va_pruned_int8_convrot.safetensors', weight_dtype: 'default' }),
@@ -96,7 +125,7 @@ export function buildH3DirectorGraph(input: {
     model: ['3', 0], video_vae: ['5', 0], audio_vae: ['6', 0], clip: ['4', 0], i2v_groups: ['28', 0],
     task_type: taskType, global_prompt: '', bd_grp_sample: '采样设置', cfg: 1, seed: input.seed,
     frame_rate: DIRECTOR_FPS, width, height, ref_max_size: Math.max(width, height), total_frames: totalFrames,
-    timeline_data: JSON.stringify(timeline), steps: 4, sampler: 'res_multistep', scheduler: 'simple',
+    timeline_data: JSON.stringify(timeline), steps: 4, sampler: 'euler', scheduler: 'simple',
     shift_video: 12, shift_audio: 3, clear_vram_between_segments: true, export_source_images: false,
   }, 'AID continuous long video');
   prompt['31'] = node('CreateVideo', { images: [input.directorNodeId, 0], audio: [input.directorNodeId, 1], fps: [input.directorNodeId, 2], bit_depth: 8 });

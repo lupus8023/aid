@@ -1,3 +1,10 @@
+## 0.1.195 - 2026-09-05
+
+- Fix the experimental 30/60-second H3 Director source graph: use the model-preserving Bypass LoRA loader and the installed T8 dual-clock Euler sampler for the exact four-step DaSiWa contract. Keep unrelated Director sampling modes on their original path.
+- Normalize planner-produced global timestamps into each 10-second segment before Director adds continuation context, preserving authored actions and dialogue without sending impossible 50–60 second cues into a local segment.
+- Require Companion v0.1.195 for continuous jobs so the website cannot submit through a stale local graph builder. Publish the matching Companion while preserving task polling, download recovery, projects and generated media.
+- Deploy a reversible compatibility patch for the older production ComfyUI core. A controlled 60-second A/B and a fresh 10.125-second production-patch smoke test completed with decodable H.264 video and stereo AAC; no media QC or automatic paid regeneration was added.
+
 ## 0.1.194 - 2026-09-05
 
 - Ground selected Story character/costume and product originals once before writing or new image generation. Cache appearance facts with a source fingerprint; distinguish packaging, actual products and material references without changing authored actions/dialogue or casting decisions.

@@ -8,6 +8,7 @@ export const DEFAULT_COMFYUI_COMPANION_URL = 'http://127.0.0.1:3018';
 export const STORY_COMPANION_MIN_VERSION = [0, 1, 89] as const;
 export const SEGMENT_VIDEO_COMPANION_MIN_VERSION = [0, 1, 100] as const;
 export const LOCAL_EXPORT_COMPANION_MIN_VERSION = [0, 1, 92] as const;
+export const H3_DIRECTOR_COMPANION_MIN_VERSION = [0, 1, 195] as const;
 
 type ComfyUISettings = NonNullable<AppSettings['comfyui']>;
 

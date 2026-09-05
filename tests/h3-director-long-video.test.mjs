@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { buildH3DirectorGraph, directorFrameCount, directorGraphInfo, directorPlanningPrompt, validateDirectorPlan } from '../lib/h3Director.ts';
+import { buildH3DirectorGraph, directorFrameCount, directorGraphInfo, directorPlanningPrompt, normalizeDirectorSegmentTimecodes, validateDirectorPlan } from '../lib/h3Director.ts';
+import { H3_DIRECTOR_COMPANION_MIN_VERSION } from '../lib/comfyuiClient.ts';
 
 function definitions(legacy = false) {
-  return Object.fromEntries(['MiniMaxH3Director', 'MiniMaxH3DirectorGroupImageToVideo', 'MiniMaxH3DirectorGroupsCombine', 'UNETLoader', 'CLIPLoader', 'VAELoader', 'LoadImage', 'CreateVideo', 'SaveVideo', 'LoraLoaderModelOnly', 'MiniMaxH3MemoryEfficientSageAttentionPatch', 'PreviewAny'].map(name => [name, name === 'MiniMaxH3DirectorGroupsCombine' && legacy ? { input: { optional: { group_0: ['MMX_DIR_GROUP'] } } } : {}]));
+  return Object.fromEntries(['MiniMaxH3Director', 'MiniMaxH3DirectorGroupImageToVideo', 'MiniMaxH3DirectorGroupsCombine', 'UNETLoader', 'CLIPLoader', 'VAELoader', 'LoadImage', 'CreateVideo', 'SaveVideo', 'LoraLoaderBypassModelOnly', 'MiniMaxH3MemoryEfficientSageAttentionPatch', 'PreviewAny'].map(name => [name, name === 'MiniMaxH3DirectorGroupsCombine' && legacy ? { input: { optional: { group_0: ['MMX_DIR_GROUP'] } } } : {}]));
 }
 const plan = duration => ({ sourcePrompt: '原稿：先抬手，再展示面膜，然后停住。', duration, segments: Array.from({ length: duration / 10 }, (_, i) => ({ prompt: `At 00:00.800, ACTION_${i + 1}. Speak "LINE_${i + 1}" once. At 00:09.500, settle.` })) });
 const build = (duration, overrides = {}) => buildH3DirectorGraph({ plan: plan(duration), remoteImage: 'aid/assets/original.png', aspectRatio: '9:16', seed: 123, directorNodeId: '1234567890', outputPrefix: 'aid/director/test/final', definitions: definitions(), ...overrides });
@@ -27,6 +28,8 @@ test('30/60 seconds compile as 3/6 linked 10-second groups with a single real fi
     assert.equal(info.inputs.width, 480);
     assert.equal(info.inputs.height, 864);
     assert.equal(info.inputs.steps, 4);
+    assert.equal(info.inputs.sampler, 'euler');
+    assert.equal(built.prompt['3'].class_type, 'LoraLoaderBypassModelOnly');
     assert.equal(info.inputs.refine, undefined);
     for (let i = 0; i < duration / 10; i++) {
       const group = built.prompt[String(20 + i)];
@@ -41,6 +44,21 @@ test('30/60 seconds compile as 3/6 linked 10-second groups with a single real fi
     assert.deepEqual(built.prompt['31'].inputs.audio, ['1234567890', 1]);
     assert.deepEqual(built.prompt['32'].inputs.video, ['31', 0]);
   }
+});
+
+test('global model timecodes are deterministically rebased before the continuity prefix is added', () => {
+  assert.equal(
+    normalizeDirectorSegmentTimecodes('### 00:10.000–00:20.000\n动作持续到 00:19.500。', 1),
+    '### 00:00.000–00:10.000\n动作持续到 00:09.500。',
+  );
+  assert.equal(
+    normalizeDirectorSegmentTimecodes('### 00:50.000–01:00.000', 5),
+    '### 00:00.000–00:10.000',
+  );
+  assert.equal(
+    normalizeDirectorSegmentTimecodes('### 00:00.000–00:10.000', 5),
+    '### 00:00.000–00:10.000',
+  );
 });
 
 test('continuation timestamps move past borrowed AV context and preserve spoken words', () => {
@@ -93,9 +111,21 @@ test('all references resolve, no refine/QC nodes, both canvas orientations and s
   assert.equal(directorGraphInfo(prompt).inputs.height, 480);
 });
 
+test('cloud compatibility patch preserves the tested four-step dual-clock contract', async () => {
+  const patch = await readFile(new URL('../cloud/patches/core_sampling.aid.py', import.meta.url), 'utf8');
+  assert.match(patch, /MiniMaxH3DualClockSamplerT8/);
+  assert.match(patch, /sampler_name\) == "euler"/);
+  assert.match(patch, /int\(steps\) == 4/);
+  assert.match(patch, /shift_video.*12\.0/);
+  assert.match(patch, /shift_audio.*3\.0/);
+  assert.match(patch, /dual_clock_euler/);
+});
+
 test('production wiring guards older companions, keeps task IDs and only downloads final combined output', async () => {
   const [page, route, comfy, planner, middleware] = await Promise.all(['app/image-to-video/page.tsx', 'app/api/image-to-video/route.ts', 'lib/comfyui.ts', 'app/api/prepare-long-video/route.ts', 'middleware.ts'].map(file => readFile(new URL(`../${file}`, import.meta.url), 'utf8')));
   assert.match(page, /if \(!status.h3DirectorLongVideo\) throw/);
+  assert.deepEqual(H3_DIRECTOR_COMPANION_MIN_VERSION, [0, 1, 195]);
+  assert.match(page, /companionVersionAtLeast\(String\(status.version \|\| ''\), H3_DIRECTOR_COMPANION_MIN_VERSION\)/);
   assert.match(page, /localStorage.setItem\(I2V_TASK_STORAGE/);
   assert.match(page, /继续查询（不重新生成）/);
   assert.match(page, /activeTask\?\.state === 'pending'/);

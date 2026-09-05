@@ -8,7 +8,7 @@ import DevToolsLayout from '@/components/DevToolsLayout';
 import CameraSelector from '@/components/CameraSelector';
 import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
-import { comfyUIApiUrl, downloadComfyUIVideo, isComfyUIClientTask, localComfyUISettings, videoStatusResponseError } from '@/lib/comfyuiClient';
+import { companionVersionAtLeast, comfyUIApiUrl, downloadComfyUIVideo, H3_DIRECTOR_COMPANION_MIN_VERSION, isComfyUIClientTask, localComfyUISettings, videoStatusResponseError } from '@/lib/comfyuiClient';
 import { enforceNoSubtitles } from '@/lib/videoTextPolicy';
 import { DIRECTOR_DURATIONS, validateDirectorPlan, type DirectorPlan } from '@/lib/h3Director';
 import { readApiJson } from '@/lib/apiResponse';
@@ -330,8 +330,11 @@ export default function ImageToVideoPage() {
 
   const assertDirectorSupport = async () => {
     const response = await fetch(comfyUIApiUrl('/api/companion/status', settings.comfyui), { cache: 'no-store' });
-    const status = await readApiJson<{ h3DirectorLongVideo?: boolean }>(response, '检查长视频支持失败');
+    const status = await readApiJson<{ h3DirectorLongVideo?: boolean; version?: string }>(response, '检查长视频支持失败');
     if (!status.h3DirectorLongVideo) throw new Error('当前 Companion/服务端尚不支持 H3 Director 连续长视频，请先更新；不会退回生成 15 秒短片');
+    if (!companionVersionAtLeast(String(status.version || ''), H3_DIRECTOR_COMPANION_MIN_VERSION)) {
+      throw new Error(`H3 Director 长视频采样已修正，请先更新 Companion 至 v${H3_DIRECTOR_COMPANION_MIN_VERSION.join('.')} 或更高版本；不会使用旧工作流提交`);
+    }
   };
 
   const prepareDirectorPlan = async () => {
