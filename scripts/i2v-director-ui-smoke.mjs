@@ -19,7 +19,7 @@ try {
     const pathname = new URL(route.request().url()).pathname;
     const body = route.request().method() === 'POST' ? route.request().postDataJSON() : {};
     const json = data => route.fulfill({ json: data });
-    if (pathname === '/api/companion/status') return json({ ok: true, h3DirectorLongVideo: capability });
+    if (pathname === '/api/companion/status') return json({ ok: true, version: '0.1.196', h3DirectorLongVideo: capability });
     if (pathname === '/api/prepare-long-video') return json({ plan: { duration: body.duration, sourcePrompt: body.prompt, segments: Array.from({ length: body.duration / 10 }, (_, i) => ({ prompt: `00:00.000–00:09.500: ACTION_${i + 1}. No dialogue.` })) } });
     if (pathname === '/api/image-to-video') {
       submissions++; submitted = body;

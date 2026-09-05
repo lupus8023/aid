@@ -22,9 +22,11 @@ try {
   await page.route('**/*', async route => {
     const request = route.request(); const url = new URL(request.url());
     if (url.hostname === 'example.com') return route.fulfill({ contentType: 'image/png', body: png });
+    if (url.hostname === 'api.cloudinary.com') return route.fulfill({ json: { secure_url: 'https://example.com/original.png' } });
     if (url.pathname.startsWith('/api/')) {
       calls.push({ path: url.pathname, body: request.headers()['content-type']?.includes('application/json') ? request.postDataJSON() : null });
       if (url.pathname === '/api/upload-image') return route.fulfill({ json: { url: 'https://example.com/original.png' } });
+      if (url.pathname === '/api/media-upload/sign') return route.fulfill({ json: { targets: [{ url: 'https://api.cloudinary.com/v1_1/mock/image/upload', fields: { signature: 'mock-only' } }] } });
       if (url.pathname === '/api/character-design') {
         const body = request.postDataJSON();
         return route.fulfill({ json: { taskId: body.stage === 'extension' ? 'gpt-extension' : body.imageModel === 'midjourney' ? 'midjourney:mock' : 'gpt-master', prompt: body.aestheticDirection || 'mock master prompt', layout: body.imageModel === 'midjourney' ? 'native-candidates' : 'single' } });
