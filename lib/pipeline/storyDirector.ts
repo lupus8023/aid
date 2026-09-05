@@ -120,11 +120,11 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
    - CAMERA 必须写清相机相对主体的高度、距离和朝向；不能只写 eye-level、close-up。
    - COMPOSITION 必须写清主体在画面中的位置、留白方向，以及前景/中景/背景关系；需要时使用真实遮挡、非对称裁切或贴近地面的机位，不要每镜都中央构图。
    - 只说明故事需要看清什么、哪些背景可以暗下去或看不清；不要为了真实感强加微距细节、极浅景深或镜头瑕疵。
-   - 光线写成现场可见的事实，例如“左侧窗光照到半张脸，另一边偏暗，后面的灯很亮”。同一场景保持光源方向，不另外补美颜灯或轮廓光。
+   - 静态图光线沿用角色定稿的柔硬度、色调和质感，按剧本写出当前光源方向；不新增风格化处理，也不以“去美颜、粗糙写实”覆盖定稿。
    - 不使用材质/渲染工程术语：不要在成稿中罗列 PBR、subsurface scattering、material response、microcontrast、highlight roll-off、global illumination、shader、ray tracing。用具体可见的现象代替；不要求每种表面都清楚、漂亮、发亮。
    - 幻想设定保留原种族、造型和地理；写实项目可用实体化妆、服装、布景与道具灯来表现，不能借此把生物改成人类或把真实水下剧情改成空摄影棚。不要让摄影器材或剧组入镜。
    - 每条 prompt 约 55–95 个英文词，长度服从这一镜所需的信息，不补通用风格口号。最独特的行动与机位放在前面。
-   - 输出媒介由项目选定风格控制；参考图按身份、环境、色彩摄影气质分工，不能把参考图的CG画法带入真人项目。
+   - 静态图沿用所选角色原图的身份、服装、媒介、皮肤质感、光线与审美；不要重写风格，不加 cinematic、photorealistic、电影调色、胶片颗粒等通用风格词。没有参考图才按项目风格建立基线。道具参考只控制产品设计与细节，不能改写人物风格。
    - 精确执行 beat.characters 中的命名角色：每个只出现一次，不新增命名角色。剧本明确写出的无名背景侍从、群众可保留为次要人物；没有写到就不添加，不能让群众复制主角面孔。角色参考图的多视图不是多个人。
    - 禁止叠加字幕、标题、对白文字、气泡、水印和界面文字；仅保留参考产品实物表面原有的标签、Logo与印字，不新增或改写。
 3. characterCostume：为每个在本镜头出现的角色给一套服装/发型/配饰/颜色描述，跨镜头保持一致。
@@ -142,7 +142,7 @@ ${JSON.stringify(nextBeats.slice(0, 2).map(beat => ({ index: beat.index, action:
    - 蒙太奇必须有句法：因果切让前镜结果触发后镜动作；平行切比较同时发生的压力；对照切让前后价值发生碰撞；省略切跳过重复过程但保留动作起点、关键变化与结果。每一切既回答上一个观众问题，又打开更具体的下一个问题。
 5. sceneStyle：用20–40个英文词记录当前地点、时段与主要现场光源，供同场景镜头复用。不要复制整季场景说明、将来变灯方案、材质清单或渲染术语。
 
-🎥 项目成像基线（只用于落实摄影物理，不要原样复制成长段落）：
+🎥 项目成像基线（静态 prompt 有角色定稿时不使用下列风格段，只还原分镜事实并继承角色原图）：
 Selected production style: ${stylePreset.label} — ${stylePreset.description}
 ${usesPhotographicReferences(visualStyle) ? buildGptImage2PhotographicContract(visualStyle, capturePreset) : buildImageCaptureContract(visualStyle)}
 ${buildDirectorCaptureContract(capturePreset)}

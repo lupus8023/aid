@@ -1,6 +1,8 @@
 import type { CapturePreset, VisualStyle } from '@/types';
 import { buildCompactImageCaptureContract } from './promptArchitecture';
+import { INHERIT_CHARACTER_LOOK } from './characterVisualMaster';
 import { buildGridCapturePresetContract, isObservationalCapturePreset } from './capturePresets';
+import { buildImageStyleControls } from './imageStyleControls';
 import { isGptImage2Model } from './imageModels';
 import { usesPhotographicReferences } from './gptImageReferences';
 import { VISUAL_ASSET_AUTHORITY } from './storyVisualAssets';
@@ -75,6 +77,7 @@ export function buildGridPrompt(
   capturePreset?: CapturePreset,
   imageModel = '',
 ): string {
+  const inheritLook = referenceImageLabels?.some(label => /^(?:CHARACTER IDENTITY|CHARACTER|COSTUME)\b/i.test(label.trim()));
   const objectLock = referenceImageLabels?.some(label => /^OBJECT IDENTITY\s*:/i.test(label.trim()))
     ? 'REFERENCE OBJECT LOCK: every OBJECT IDENTITY image defines one immutable prop/product design. Keep material, colors, cutouts, construction and physical scale; never redesign, substitute or add/remove parts. Soft sheets may fold, drape and fit naturally. Keep its existing label/logo unchanged; add no text.'
     : '';
@@ -98,9 +101,9 @@ export function buildGridPrompt(
     // prevents "four stills" becoming a vertical strip that cannot be cut 2x2.
     `LAYOUT: one 2x2 sheet on a ${aspectRatio} canvas: exactly two columns and two rows. Each cell is a complete ${orientation} (${aspectRatio}) film still, half the canvas width and half its height.`,
     'Top row: top-left and top-right side by side. Bottom row: bottom-left and bottom-right side by side. Boundaries at x=50%, y=50%; no borders or gaps. One shot/instant per cell; no scene spans cells. Never one column of four stacked frames, one row of four frames, or panels inside a cell. Reference layouts must not override this arrangement.',
-    buildCompactImageCaptureContract(visualStyle).split('\nCAPTURE COHERENCE:')[0],
-    buildGridCapturePresetContract(capturePreset),
-    isGptImage2Model(imageModel) && usesPhotographicReferences(visualStyle)
+    inheritLook ? buildImageStyleControls({ visualStyle, capturePreset, hasCharacterReference: true }) : buildCompactImageCaptureContract(visualStyle).split('\nCAPTURE COHERENCE:')[0],
+    inheritLook ? '' : buildGridCapturePresetContract(capturePreset),
+    !inheritLook && isGptImage2Model(imageModel) && usesPhotographicReferences(visualStyle)
       ? 'Photorealistic photographs. References lock identity, species, anatomy and costume design, not CG shading or illustration. Preserve age and distinguishing features; use natural skin variation, cloth weight and localized reflections. No beauty smoothing or invented scars.' : '',
     references ? `Reference mapping: ${references}` : '',
     references ? VISUAL_ASSET_AUTHORITY : '',

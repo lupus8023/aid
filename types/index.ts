@@ -11,6 +11,14 @@ export interface ProjectProductionTiming {
   elapsedMs?: number;
 }
 
+export interface CharacterVisualMaster {
+  version: 1;
+  imageUrl: string;
+  source: 'midjourney' | 'upload' | 'generated';
+  prompt?: string;
+  extensionUrl?: string;
+}
+
 export interface Character {
   id: string;
   name: string;
@@ -20,6 +28,7 @@ export interface Character {
   imageBase64?: string; // base64 格式的图片，用于 API 调用
   imageFile?: File;
   visualIdentity?: AssetVisualIdentity;
+  visualMaster?: CharacterVisualMaster;
   voiceId?: string; // fish.audio reference_id
   voiceProfile?: string; // 角色音色画像；自动选角时用于复现同一声音
   voiceSource?: 'user' | 'auto';

@@ -22,7 +22,8 @@ export function selectLibraryImage(actor: SeriesLibraryEntry, source: string): S
   if (!actor.imageCandidates.includes(source)) throw new Error("请选择已加载的角色图片");
   const { imageCandidates: _candidates, ...snapshot } = actor;
   // Never carry a failed full-card address into production after showing a fallback.
-  return { ...snapshot, imageUrl: source, bibleUrl: source === actor.bibleUrl ? source : undefined };
+  return { ...snapshot, imageUrl: source, bibleUrl: source === actor.bibleUrl ? source : undefined,
+    visualMaster: source === actor.visualMaster?.imageUrl ? actor.visualMaster : undefined };
 }
 
 // Read both existing libraries without migrating or overwriting the user's data.
@@ -46,7 +47,7 @@ export function seriesCastLibrary(
           .filter(Boolean)
           .join("；"),
         imageUrl: text(d.conceptUrl) || text(d.bibleUrl) || text(h.imageUrl),
-        imageCandidates: [d.bibleUrl, d.conceptUrl, d.imageUrl, d.imageBase64, h.bibleUrl, h.imageUrl, h.imageBase64],
+        imageCandidates: [record(d.visualMaster).imageUrl, d.bibleUrl, d.conceptUrl, d.imageUrl, d.imageBase64, h.bibleUrl, h.imageUrl, h.imageBase64],
         voiceId: text(d.voiceId) || text(h.voiceId),
         voiceProfile: text(d.voiceProfile) || text(h.voiceProfile),
         voiceReferenceUrl:
@@ -72,6 +73,7 @@ export function seriesCastLibrary(
         imageUrl,
         description: text(raw.description),
         bibleUrl: text(raw.bibleUrl) || undefined,
+        visualMaster: raw.visualMaster as SeriesLibraryActor['visualMaster'],
         imageCandidates: imageCandidates(Array.isArray(raw.imageCandidates)
           ? raw.imageCandidates : [raw.bibleUrl, raw.imageUrl, raw.imageBase64]),
         voiceId: text(raw.voiceId) || undefined,
@@ -125,6 +127,11 @@ export function applyLibraryActor(
       : undefined,
   };
   if (!actor.id || !actor.name) throw new Error("角色库记录缺少编号或名字");
+  const master = record(raw.visualMaster);
+  if (master.version === 1 && master.imageUrl === actor.imageUrl && ['midjourney', 'upload', 'generated'].includes(text(master.source))) {
+    actor.visualMaster = { version: 1, imageUrl: actor.imageUrl, source: master.source as 'midjourney' | 'upload' | 'generated',
+      extensionUrl: httpsUrl(master.extensionUrl, '延展图') };
+  }
   if (JSON.stringify(character.casting) === JSON.stringify(actor))
     return character;
   const manualVoice =
@@ -144,7 +151,8 @@ export function applyLibraryActor(
     description: actor.description || character.description,
     imageUrl: actor.imageUrl,
     // Selection approves an existing image, even for legacy actors without a full card.
-    bibleUrl: actor.bibleUrl || actor.imageUrl,
+    bibleUrl: actor.visualMaster?.imageUrl || actor.bibleUrl || actor.imageUrl,
+    visualMaster: actor.visualMaster,
     imageSource: 'library',
     gender: actor.gender || character.gender,
     ageGroup: actor.ageGroup || character.ageGroup,

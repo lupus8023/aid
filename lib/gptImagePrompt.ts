@@ -2,6 +2,7 @@ import type { CapturePreset, VisualStyle } from '@/types';
 import { getCapturePreset } from './capturePresets';
 import { getProductionStylePreset, normalizeVisualStyle } from './promptArchitecture';
 import { buildGptPhotographicDetail, type PhotographicDetailContext } from './gptPhotographicDetail';
+import { INHERIT_CHARACTER_LOOK } from './characterVisualMaster';
 
 const collapse = (value?: string) => String(value || '').replace(/\s+/g, ' ').trim();
 
@@ -80,6 +81,8 @@ export interface GptImage2StoryPromptInput {
   referenceDescriptions?: string[];
   visualStyle?: VisualStyle;
   capturePreset?: CapturePreset;
+  inheritReferenceLook?: boolean;
+  referenceLookContract?: string;
 }
 
 export function buildGptImage2StoryPrompt(input: GptImage2StoryPromptInput): string {
@@ -90,7 +93,7 @@ export function buildGptImage2StoryPrompt(input: GptImage2StoryPromptInput): str
   const actionLine = action && !goal.toLowerCase().includes(action.toLowerCase()) ? action : '';
   const references = (input.referenceDescriptions || []).filter(Boolean);
   const hasObjects = references.some(reference => /OBJECT IDENTITY|Object requirement|product reference/i.test(reference));
-  const outputContract = buildGptImage2PhotographicContract(input.visualStyle, input.capturePreset, {
+  const outputContract = input.inheritReferenceLook ? input.referenceLookContract || INHERIT_CHARACTER_LOOK : buildGptImage2PhotographicContract(input.visualStyle, input.capturePreset, {
     shotSize: input.shotSize, characterCount: input.characterCount,
   });
 
@@ -106,5 +109,5 @@ CAST:
 ${collapse(input.exactCast)}
 
 ${references.length ? `REFERENCE INPUT ROLES:\n${references.join('\n')}\n\n` : ''}CONSTRAINTS:
-One complete standalone frame, capturing one instant of the action. References supply only their named roles, not their pose, sheet layout or rendering method. No captions, subtitles, dialogue text, watermark, UI, panels or extra views.${hasObjects ? '\nEach object reference is an immutable design source: keep its silhouette, proportions, component layout, material, surface finish and scale; never redesign, simplify, stretch, melt, substitute or add/remove parts. A label, logo or marking on a locked reference object stays unchanged.' : ''}\nNo unrelated person, object, scenery or decoration.`;
+One complete standalone frame, capturing one instant of the action. References supply only their named roles, not their pose or sheet layout.${input.inheritReferenceLook ? ' The character reference also supplies the approved look and finish.' : ' Do not copy their rendering method.'} No captions, subtitles, dialogue text, watermark, UI, panels or extra views.${hasObjects ? '\nEach object reference is an immutable design source: keep its silhouette, proportions, component layout, material, surface finish and scale; never redesign, simplify, stretch, melt, substitute or add/remove parts. A label, logo or marking on a locked reference object stays unchanged.' : ''}\nNo unrelated person, object, scenery or decoration.`;
 }

@@ -3,6 +3,7 @@ import ObjectUpload from './ObjectUpload';
 import { CapturePreset, Character, ObjectItem, VisualStyle } from '@/types';
 import { PRODUCTION_STYLE_PRESETS } from '@/lib/promptArchitecture';
 import { CAPTURE_PRESETS } from '@/lib/capturePresets';
+import { buildImageStyleControls } from '@/lib/imageStyleControls';
 
 interface Step2Props {
   characters: Character[];
@@ -30,6 +31,8 @@ export default function Step2({ characters, objects, onCharactersChange, onObjec
       </div>
 
       <section className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] px-4 py-3.5 md:px-5">
+        <p className="mb-3 text-xs leading-5 text-[var(--text-secondary)]">MJ 定稿后建议两项都选“跟随参考”，保留原图审美；主动选择其他风格或拍摄方式会应用到新分镜，不改变人物身份与产品设计。切换不会自动付费重做。</p>
+        <details className="mb-3 text-xs text-[var(--text-secondary)]"><summary>查看生图风格与拍摄提示词</summary><pre className="mt-2 whitespace-pre-wrap break-words">{buildImageStyleControls({ visualStyle, capturePreset, hasCharacterReference: characters.some(character => !!character.imageUrl) }) || '沿用参考图，不额外叠加风格。'}</pre></details>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-6">
           <div className="shrink-0 lg:w-64">
             <div className="flex items-center justify-between gap-3 lg:block">

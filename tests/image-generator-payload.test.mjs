@@ -16,6 +16,8 @@ test('silent tagged companions each receive their identity reference in a five-r
     assert.equal(submitted.image_urls.length, 7);
     for (const character of characters) assert.ok(submitted.image_urls.includes(character.imageUrl));
     assert.match(submitted.prompt, /Reference image 6: ENVIRONMENT ONLY/);
+    assert.match(submitted.prompt, /CHARACTER DESIGN AUTHORITY/);
+    assert.equal(submitted.image_urls[6], 'https://example.com/style.png', 'explicit style must be a separate reference, not silently discarded');
     assert.match(submitted.prompt, /Reference image 7 is STYLE ONLY/);
     assert.deepEqual(shot.characters, names.slice(0, 3), 'image submission must not mutate caller state');
   } finally { axios.post = original; }

@@ -52,7 +52,7 @@ test('final GPT card, scene, shot and grid requests carry one distinct style inp
     for(const {body} of sent){assert.equal(body.model,'gpt-image-2');assert.equal(body.image_urls.at(-1),style.imageUrl);assert.match(body.prompt,new RegExp(`Reference image ${body.image_urls.length} is STYLE ONLY`));}
     assert.deepEqual(sent[2].body.image_urls,[cast[0].imageUrl,style.imageUrl]);
     assert.match(sent[2].body.prompt,/NAMED CAST \(1\): Aster/);
-    assert.match(sent[2].body.prompt,/Do not inherit its artistic medium or rendering method/);
+    assert.match(sent[2].body.prompt,/An explicitly selected output medium takes priority/);
   }finally{axios.post=original;}
 });
 

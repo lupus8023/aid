@@ -64,6 +64,7 @@ jobs:
       - run: npm run test:grid-preprocess
       - run: npm run test:image-upload
       - run: npm run test:character-design
+      - run: npm run test:image-style-controls
       - run: npm run test:character-library
       - run: npm run test:image-capture
       - run: npm run test:image-models

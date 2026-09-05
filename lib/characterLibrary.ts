@@ -17,6 +17,7 @@ export interface CharacterDesignLibraryRecord {
   conceptUrl?: string;
   bibleUrl?: string;
   createdAt?: string;
+  visualMaster?: Character['visualMaster'];
 }
 
 export interface GeneratedSeriesCharacterRecord extends Character {
@@ -45,7 +46,7 @@ export function characterFromDesignRecord(value: unknown): Character | undefined
   if (!value || typeof value !== 'object') return undefined;
   const record = value as Partial<CharacterDesignLibraryRecord>;
   const name = text(record.name);
-  const imageUrl = text(record.conceptUrl) || text(record.bibleUrl);
+  const imageUrl = text(record.visualMaster?.imageUrl) || text(record.conceptUrl) || text(record.bibleUrl);
   if (!name || !imageUrl) return undefined;
 
   const details = [
@@ -62,6 +63,7 @@ export function characterFromDesignRecord(value: unknown): Character | undefined
     name,
     description: details.join('；') || '角色设计工作台生成的角色',
     imageUrl,
+    visualMaster: record.visualMaster,
   };
 }
 

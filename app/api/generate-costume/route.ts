@@ -6,6 +6,7 @@ import { buildCharacterBiblePrompt, buildFixedObjectReferencePrompt, buildSceneR
 import { submitImageOnce } from '@/lib/series/imageSubmission';
 import { assertSeriesRequest, assertSeriesService, seriesRoot } from '@/lib/series/store';
 import path from 'node:path';
+import { buildCharacterExtensionPrompt, buildInheritedScenePrompt } from '@/lib/characterVisualMaster';
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,7 +20,9 @@ export async function POST(request: NextRequest) {
       prompt = buildGptCharacterAnchorPrompt({ name, description, costumeDesc, hasIdentityReference: Boolean(referenceImageUrl), visualStyle });
       if (typeof appearanceCorrection === 'string' && appearanceCorrection.trim()) prompt += `\nCorrect these observed rendering defects only; preserve identity, species and costume: ${appearanceCorrection.slice(0, 1400)}`;
     } else if (type === 'costume') {
-      prompt = (isGptImage2Model(selectedModel) ? buildGptCharacterBiblePrompt : buildCharacterBiblePrompt)({
+      prompt = body.inheritReferenceLook && referenceImageUrl
+        ? `${buildCharacterExtensionPrompt(name, { visualStyle, capturePreset, hasStyleReference: Boolean(styleReference) })}${costumeDesc ? `\nAuthored wardrobe change only: ${costumeDesc}. Preserve the face and the unmodified reference design.` : ''}`
+        : (isGptImage2Model(selectedModel) ? buildGptCharacterBiblePrompt : buildCharacterBiblePrompt)({
         name,
         description,
         costumeDesc,
@@ -27,7 +30,9 @@ export async function POST(request: NextRequest) {
         visualStyle,
       });
     } else if (type === 'scene') {
-      prompt = isMidjourneyImageModel(selectedModel)
+      prompt = body.inheritReferenceLook && referenceImageUrl
+        ? buildInheritedScenePrompt(sceneStyle || '', aspectRatio || '16:9', { visualStyle, capturePreset, hasStyleReference: Boolean(styleReference) })
+        : isMidjourneyImageModel(selectedModel)
         ? buildStoryWorldAnchorPrompt({
             sceneStyle,
             representativeShot,

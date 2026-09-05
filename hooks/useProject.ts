@@ -52,6 +52,7 @@ function cleanCharacter(char: Character): Character {
     aliases: char.aliases,
     description: char.description,
     visualIdentity: char.visualIdentity,
+    visualMaster: char.visualMaster,
     imageUrl: char.imageUrl || '',
     voiceId: char.voiceId,
     voiceProfile: char.voiceProfile,

@@ -1810,3 +1810,9 @@
 - Image and video prompts enforce an exact per-beat cast to prevent duplicate or extra characters.
 - Story planning defaults to visual storytelling and no longer invents dialogue, narration, subtitles, or incidental voices.
 - Companion setup now explains that every computer owns a distinct device key and must be authorized separately.
+## 0.1.196 - 2026-09-05
+
+- Add separate MJ/GPT character-master design, direct adoption of original artwork, library confirmation and optional GPT reference extensions. Carry the original visual master through Story and Series; use GPT-Image-2 for four-panel storyboards derived from an MJ master without redesigning the character.
+- Make image style and capture presets effective alongside character references. Preserve explicit style images and descriptions, pass MJ sref/sw independently, fix local style-reference weight loss, and restore selections from drafts. Default new Story projects to following the master; confirm invalidation before changing existing visual assets.
+- Keep original reference bytes through signed upload and persistence, with clearer HTML-error handling. Preserve authored shot actions and product-reference roles; do not add production QC or automatic paid regeneration.
+- Verify real 2×2 delivery and browser preprocessing using the generated palace sample, plus single/multi-image H3 API handoff with GPU submission mocked. Keep existing grid geometry, H3 sampling, audio and cloud workflows unchanged. Update the website and Companion together.

@@ -26,6 +26,7 @@ import { Grid2X2 } from 'lucide-react';
 import { isRequestTooLargeError, readApiJson } from '@/lib/apiResponse';
 import { createStoryImageRequestPreparer } from '@/lib/storyImageRequest';
 import { prepareStoryAssets } from '@/lib/storyAssetPreparation';
+import { resolveCharacterStoryboardModel } from '@/lib/characterVisualMaster';
 import { bindStoryboardReferences, currentVisualIdentity, ImageReferenceCapacityError, requireReferenceCapacity, visibleStoryObjects, visualAssetDescription, visualAssetSourceKey } from '@/lib/storyVisualAssets';
 import { buildShotCountContract, DEFAULT_TARGET_SHOT_COUNT, normalizeTargetShotCount, storyPlanBeatCount, targetDurationSeconds } from '@/lib/pipeline/shotCount';
 import { canResumeStoryPlan } from '@/lib/pipeline/resumePlan';
@@ -269,8 +270,8 @@ export default function StoryPage() {
   const [projectLanguage, setProjectLanguage] = useState<'zh' | 'en'>('zh');
   const [targetShotCount, setTargetShotCount] = useState(DEFAULT_TARGET_SHOT_COUNT);
   const [projectAspectRatio, setProjectAspectRatio] = useState<StoryAspectRatio>('16:9');
-  const [visualStyle, setVisualStyle] = useState<VisualStyle>(DEFAULT_VISUAL_STYLE);
-  const [capturePreset, setCapturePreset] = useState<CapturePreset>(DEFAULT_CAPTURE_PRESET);
+  const [visualStyle, setVisualStyle] = useState<VisualStyle>('follow-reference');
+  const [capturePreset, setCapturePreset] = useState<CapturePreset>('follow-reference');
   const [productionTiming, setProductionTiming] = useState<ProjectProductionTiming>();
   const [productionClock, setProductionClock] = useState(() => Date.now());
   const [storyboards, setStoryboards] = useState<Storyboard[]>([]);
@@ -1088,16 +1089,21 @@ export default function StoryPage() {
   const handleVisualStyleChange = (style: VisualStyle) => {
     const normalized = normalizeVisualStyle(style);
     if (normalized === visualStyle) return;
+    if (storyboardsRef.current.some(item => item.status === 'generating' || item.videoStatus === 'generating')) {
+      alert('当前仍有生成任务，请等任务结束后再更换风格。'); return;
+    }
+    if (hasStoryMedia(storyboardsRef.current) && !window.confirm('更换风格后现有分镜图需要重新生成，相关视频也需重制。不会自动提交付费生成，是否继续？')) return;
     setVisualStyle(normalized);
     productionTimingRef.current = undefined;
     setProductionTiming(undefined);
     setStoryboards(prev => {
       const next = prev.map(storyboard => storyboard.visualStyle === normalized
         ? storyboard
-        : clearGeneratedVideo({ ...storyboard, visualStyle: normalized }));
+        : applyCapturePreset({ ...storyboard, visualStyle: normalized }, capturePresetRef.current));
       storyboardsRef.current = next;
       return next;
     });
+    sceneImagesRef.current = []; setSceneImages([]);
   };
 
   const handleCapturePresetChange = (preset: CapturePreset) => {
@@ -1350,7 +1356,7 @@ export default function StoryPage() {
 
   // Step4: batch generate via 2x2 grid
   const handleGenerateGrid = async (batch: Storyboard[], options: { throwOnError?: boolean; resumeTaskId?: string; gridSize?: 2 | 3 } = {}) => {
-    const activeSettings = settingsRef.current;
+    const activeSettings = { ...settingsRef.current, imageModel: resolveCharacterStoryboardModel(settingsRef.current.imageModel, charactersRef.current) };
     if (isMidjourneyImageModel(activeSettings.imageModel)) {
       setIsGeneratingGrid(true);
       try {
@@ -1665,7 +1671,7 @@ export default function StoryPage() {
 
   // Step4: individual image generation
   const handleGenerateImage = async (storyboard: Storyboard, options: { throwOnError?: boolean } = {}) => {
-    const activeSettings = settingsRef.current;
+    const activeSettings = { ...settingsRef.current, imageModel: resolveCharacterStoryboardModel(settingsRef.current.imageModel, charactersRef.current) };
     if (imageModelRequiresApiKey(activeSettings.imageModel) && !activeSettings.apiKey) {
       const error = new Error('Please configure API Key in settings');
       if (options.throwOnError) throw error;
@@ -1790,7 +1796,7 @@ export default function StoryPage() {
     characterName?: string,
     options: { throwOnError?: boolean } = {},
   ) => {
-    const activeSettings = settingsRef.current;
+    const activeSettings = { ...settingsRef.current, imageModel: resolveCharacterStoryboardModel(settingsRef.current.imageModel, charactersRef.current) };
     if (imageModelRequiresApiKey(activeSettings.imageModel) && !activeSettings.apiKey) {
       const error = new Error('请先在设置中配置 APIMart API Key');
       if (options.throwOnError) throw error;
@@ -1819,6 +1825,7 @@ export default function StoryPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type, name: characterName,
+          inheritReferenceLook: type === 'scene' ? Boolean(anchorCharacter) : Boolean(character?.visualMaster),
           description: character?.description || '',
           costumeDesc: characterName ? storyboardsRef.current[0]?.characterCostume?.[characterName] : undefined,
           sceneStyle,
@@ -2482,7 +2489,7 @@ export default function StoryPage() {
         // before the actual story-world master frame is created.
         const midjourneyRoleCardReady = isMidjourneyImageModel(settingsRef.current.imageModel)
           && Boolean(character.imageUrl || character.imageBase64);
-        if (midjourneyRoleCardReady) continue;
+        if (midjourneyRoleCardReady || character.visualMaster) continue;
         if (!costumeImagesRef.current[character.name]) {
           await retryUntilCompleted(`生成 ${character.name} 定妆`, async () => {
             await handleGenerateCostume('costume', character.name, { throwOnError: true });
@@ -2515,7 +2522,7 @@ export default function StoryPage() {
       if (autoAbortRef.current) return;
 
       setCurrentStep(4);
-      await retryUntilCompleted(isMidjourneyImageModel(settingsRef.current.imageModel) ? 'MJ 逐镜生成分镜图' : '四宫格生成分镜图', async () => {
+      await retryUntilCompleted(isMidjourneyImageModel(resolveCharacterStoryboardModel(settingsRef.current.imageModel, charactersRef.current)) ? 'MJ 逐镜生成分镜图' : '四宫格生成分镜图', async () => {
         const { chunkGridBatch } = await import('@/lib/gridSplitter');
         const normalized = storyboardsRef.current.map(normalizeStoryboardImageArtifact);
         if (normalized.some((item, index) => item !== storyboardsRef.current[index])) {
@@ -2526,7 +2533,7 @@ export default function StoryPage() {
         // failed cards first would shift panel indexes and can assign a crop to
         // the wrong scene on retry.
         for (const group of chunkGridBatch(storyboardsRef.current)) {
-          const plan = planAutoImageBatch(group, settingsRef.current.imageModel);
+          const plan = planAutoImageBatch(group, resolveCharacterStoryboardModel(settingsRef.current.imageModel, charactersRef.current));
           if (plan.kind === 'skip') continue;
           if (plan.kind === 'await-legacy-grid') throw new AwaitingMediaTaskError(plan.taskId);
           if (plan.kind === 'resume-grid') {
@@ -2797,7 +2804,7 @@ export default function StoryPage() {
             onGenerateVideoPrompt={handleGenerateVideoPrompt}
             onGenerateVideo={handleGenerateVideo}
             onGenerateGrid={handleGenerateGrid}
-            singleShotMode={isMidjourneyImageModel(settings.imageModel)}
+            singleShotMode={isMidjourneyImageModel(resolveCharacterStoryboardModel(settings.imageModel, characters))}
           />
         </div>
       ) : (
@@ -2930,7 +2937,7 @@ export default function StoryPage() {
                 onUpdate={handleUpdateStoryboard}
                 onGenerateGrid={handleGenerateGrid}
                 isGeneratingGrid={isGeneratingGrid}
-                singleShotMode={isMidjourneyImageModel(settings.imageModel)}
+                singleShotMode={isMidjourneyImageModel(resolveCharacterStoryboardModel(settings.imageModel, characters))}
               />
             )}
             {currentStep === 5 && (

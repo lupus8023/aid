@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Character } from '@/types';
-import { compressImageToThumbnail } from '@/utils/imageCompression';
+import { createImageReferenceUploader } from '@/lib/storyImageRequest';
 import {
   CHARACTER_DESIGNS_STORAGE_KEY,
   CHARACTER_HISTORY_STORAGE_KEY,
@@ -28,21 +28,13 @@ export function useCharacterHistory() {
   // 添加到历史记录
   const addToHistory = async (character: Character) => {
     try {
-      // 压缩图片为缩略图
-      let thumbnailBase64 = '';
-      if (character.imageFile) {
-        thumbnailBase64 = await compressImageToThumbnail(character.imageFile);
-      }
-
-      // 保存名称、描述和缩略图
-      const historyItem = {
-        id: character.id,
-        name: character.name,
-        description: character.description,
-        imageUrl: thumbnailBase64,
-        imageBase64: thumbnailBase64,
-        voiceId: character.voiceId,
-      };
+      // A thumbnail must never become the production reference. Persist the
+      // original before adding to history, and retain identity/voice metadata.
+      const imageUrl = await createImageReferenceUploader()(
+        /^https?:\/\//i.test(character.imageUrl) ? character.imageUrl : character.imageBase64 || character.imageUrl,
+      );
+      const { imageFile: _file, imageBase64: _bytes, ...metadata } = character;
+      const historyItem = { ...metadata, imageUrl };
 
       const saved = parseStoredArray(localStorage.getItem(CHARACTER_HISTORY_STORAGE_KEY));
       const updated = upsertCharacterHistory(saved, historyItem);

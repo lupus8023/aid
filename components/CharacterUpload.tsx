@@ -5,6 +5,7 @@ import { Character } from '@/types';
 import { useCharacterHistory } from '@/hooks/useCharacterHistory';
 import HistoryModal from './HistoryModal';
 import { History, Edit2 } from 'lucide-react';
+import { createImageReferenceUploader } from '@/lib/storyImageRequest';
 
 interface CharacterUploadProps {
   onCharactersChange: (characters: Character[]) => void;
@@ -34,15 +35,7 @@ export default function CharacterUpload({ onCharactersChange }: CharacterUploadP
       // 上传到 Cloudinary 获取公网 URL
       let imageUrl = URL.createObjectURL(file);
       try {
-        const res = await fetch('/api/upload-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageData: imageBase64 })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          imageUrl = data.url;
-        }
+        imageUrl = await createImageReferenceUploader()(imageBase64);
       } catch {}
 
       const newCharacter: Character = {

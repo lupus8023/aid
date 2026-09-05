@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Check,
@@ -21,6 +21,11 @@ import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
 import { readApiJson } from '@/lib/apiResponse';
 import { PRODUCTION_STYLE_PRESETS } from '@/lib/promptArchitecture';
+import { CAPTURE_PRESETS } from '@/lib/capturePresets';
+import type { CapturePreset } from '@/types';
+import type { ImageStyleReference } from '@/lib/imageStyleReference';
+import ImageStyleReferenceControls from '@/components/ImageStyleReferenceControls';
+import { buildImageStyleControls } from '@/lib/imageStyleControls';
 import {
   CHARACTER_DESIGNS_STORAGE_KEY,
   CHARACTER_HISTORY_STORAGE_KEY,
@@ -28,13 +33,16 @@ import {
   parseStoredArray,
   upsertCharacterHistory,
 } from '@/lib/characterLibrary';
-import { getImageModelCapabilities, imageModelRequiresApiKey } from '@/lib/imageModels';
+import { APIMART_IMAGE_MODEL_OPTIONS, getImageModelCapabilities, imageModelRequiresApiKey, isMidjourneyImageModel, isGptImage2Model } from '@/lib/imageModels';
+import { createImageReferenceUploader } from '@/lib/storyImageRequest';
+import { HISTORICAL_CINEMA_AESTHETIC, makeCharacterVisualMaster } from '@/lib/characterVisualMaster';
 import { imageApiUrl, localComfyUISettings } from '@/lib/comfyuiClient';
 import type { VisualStyle } from '@/types';
 import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '@/lib/midjourney';
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
-const TARGET_BYTES = 1200 * 1024;
+const DRAFT_KEY = 'aidCharacterMasterDraftV1';
+type PendingDesign = { taskId: string; stage: 'concepts' | 'extension'; model: string; count: 4 | 9; masterUrl?: string; prompt?: string; layout?: 'single' | 'native-candidates' };
 
 function readAsDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -43,30 +51,6 @@ function readAsDataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(new Error('图片读取失败'));
     reader.readAsDataURL(blob);
   });
-}
-
-async function compressImage(file: File): Promise<string> {
-  if (file.size <= TARGET_BYTES && /^image\/(?:jpeg|png|webp)$/i.test(file.type)) return readAsDataUrl(file);
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = new Image();
-    image.src = objectUrl;
-    await image.decode();
-    const scale = Math.min(1, 2048 / Math.max(image.naturalWidth, image.naturalHeight));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('浏览器无法处理图片');
-    context.fillStyle = '#fff';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.86));
-    if (!blob) throw new Error('图片压缩失败');
-    return readAsDataUrl(blob);
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
 }
 
 async function downloadImage(url: string, filename: string) {
@@ -86,7 +70,12 @@ async function downloadImage(url: string, filename: string) {
 
 export default function CharacterDesignPage() {
   const { settings, saveSettings } = useSettings();
-  const referenceLimit = Math.min(4, getImageModelCapabilities(settings.imageModel).maxReferenceImages);
+  const [designModel, setDesignModel] = useState('midjourney');
+  const [aestheticDirection, setAestheticDirection] = useState('');
+  const referenceLimit = Math.min(4, getImageModelCapabilities(designModel).maxReferenceImages);
+  const isMj = isMidjourneyImageModel(designModel);
+  const singleMaster = isMj || isGptImage2Model(designModel);
+  const uploadReference = useRef(createImageReferenceUploader());
   const [showSettings, setShowSettings] = useState(false);
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
@@ -95,7 +84,11 @@ export default function CharacterDesignPage() {
   const [coreTheme, setCoreTheme] = useState('');
   const [description, setDescription] = useState('');
   const [costumeDesc, setCostumeDesc] = useState('');
-  const [visualStyle, setVisualStyle] = useState<VisualStyle>('cinematic-natural');
+  const [visualStyle, setVisualStyle] = useState<VisualStyle>('follow-reference');
+  const [capturePreset, setCapturePreset] = useState<CapturePreset>('follow-reference');
+  const [styleOverride, setStyleOverride] = useState<ImageStyleReference | null>();
+  const globalStyle = resolveMidjourneyStyleSetting(settings);
+  const styleReference = styleOverride === undefined ? (globalStyle.styleReferenceUrl ? { imageUrl: globalStyle.styleReferenceUrl } : undefined) : styleOverride || undefined;
   const [candidateCount, setCandidateCount] = useState<4 | 9>(4);
   const [references, setReferences] = useState<string[]>([]);
   const [conceptGridUrl, setConceptGridUrl] = useState('');
@@ -104,6 +97,39 @@ export default function CharacterDesignPage() {
   const [bibleUrl, setBibleUrl] = useState('');
   const [busyStage, setBusyStage] = useState<'upload' | 'concepts' | 'bible' | null>(null);
   const [status, setStatus] = useState('填写角色简报，从多个方向中锁定最终形象。');
+  const [pending, setPending] = useState<PendingDesign | null>(null);
+  const [masterSource, setMasterSource] = useState<'midjourney' | 'upload' | 'generated'>('midjourney');
+  const [masterPrompt, setMasterPrompt] = useState('');
+  const [savedSnapshot, setSavedSnapshot] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const snapshot = JSON.stringify({ name, role, age, personality, coreTheme, description, costumeDesc, selectedConcept, bibleUrl, masterSource, masterPrompt });
+  const isSaved = savedSnapshot === snapshot;
+  useEffect(() => {
+    try {
+      const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+      if (draft) {
+        setName(draft.name || ''); setRole(draft.role || ''); setAge(draft.age || '');
+        setPersonality(draft.personality || ''); setCoreTheme(draft.coreTheme || '');
+        setDescription(draft.description || ''); setCostumeDesc(draft.costumeDesc || '');
+        setAestheticDirection(draft.aestheticDirection || ''); setDesignModel(draft.designModel || 'midjourney');
+        setConcepts(draft.concepts || []); setSelectedConcept(draft.selectedConcept || '');
+        setConceptGridUrl(draft.conceptGridUrl || ''); setBibleUrl(draft.bibleUrl || '');
+        setMasterSource(draft.masterSource || 'upload'); setMasterPrompt(draft.masterPrompt || '');
+        setPending(draft.pending || null); setSavedSnapshot(draft.savedSnapshot || '');
+        setReferences(draft.references || []);
+        setVisualStyle(draft.visualStyle || 'follow-reference'); setCapturePreset(draft.capturePreset || 'follow-reference');
+        setStyleOverride(draft.styleOverride);
+      }
+    } catch { /* A damaged draft must not prevent using the module. */ }
+    setLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...JSON.parse(snapshot), aestheticDirection, designModel, concepts,
+        conceptGridUrl, pending, savedSnapshot, visualStyle, capturePreset, styleOverride, references: references.filter(url => /^https?:\/\//i.test(url)) }));
+    } catch { setStatus('浏览器草稿保存失败；当前结果仍在，请先下载原图。'); }
+  }, [loaded, snapshot, aestheticDirection, designModel, concepts, conceptGridUrl, pending, savedSnapshot, references, visualStyle, capturePreset, styleOverride]);
 
   const currentStep = bibleUrl ? 3 : concepts.length ? 2 : 1;
   const selectedIndex = useMemo(() => concepts.indexOf(selectedConcept), [concepts, selectedConcept]);
@@ -117,7 +143,8 @@ export default function CharacterDesignPage() {
     }
     setBusyStage('upload');
     try {
-      const values = await Promise.all(incoming.map(compressImage));
+      if (incoming.some(file => !/^image\/(?:jpeg|png|webp)$/i.test(file.type))) throw new Error('请上传 PNG、JPEG 或 WebP 原图');
+      const values = await Promise.all(incoming.map(readAsDataUrl));
       setReferences(previous => [...previous, ...values].slice(0, referenceLimit));
       setStatus('参考图已加入。它们会约束身份特征、媒介和材质语言。');
     } catch (error) {
@@ -136,14 +163,9 @@ export default function CharacterDesignPage() {
         continue;
       }
       setStatus(`上传参考图 ${index + 1}/${references.length}…`);
-      const response = await fetch('/api/upload-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageData: value }),
-      });
-      const data = await readApiJson<{ url: string }>(response, `参考图 ${index + 1} 上传失败`);
-      if (!data.url) throw new Error(`参考图 ${index + 1} 没有返回 URL`);
-      uploaded.push(data.url);
+      const url = await uploadReference.current(value);
+      uploaded.push(url);
+      setReferences(previous => previous.map(item => item === value ? url : item));
     }
     setReferences(uploaded);
     return uploaded;
@@ -159,15 +181,9 @@ export default function CharacterDesignPage() {
         body: JSON.stringify({ taskId, apiKey: settings.apiKey, comfyui: localComfyUISettings(settings.comfyui) }),
       });
       if (!response.ok) continue;
-      const data = await readApiJson<{ status: string; imageUrl?: string; error?: string }>(response, '查询生图状态失败');
+      const data = await readApiJson<{ status: string; imageUrl?: string; candidateUrls?: string[]; error?: string }>(response, '查询生图状态失败', { taskStatus: true });
       if (data.status === 'completed' && data.imageUrl) {
-        if (!data.imageUrl.startsWith('data:')) return data.imageUrl;
-        const upload = await fetch('/api/upload-image', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageData: data.imageUrl }),
-        });
-        const persisted = await readApiJson<{ url: string }>(upload, '本地生成图片上传失败');
-        if (!persisted.url) throw new Error('本地生成图片上传后没有返回 URL');
-        return persisted.url;
+        return { imageUrl: await uploadReference.current(data.imageUrl), candidateUrls: data.candidateUrls };
       }
       if (data.status === 'failed') throw new Error(data.error || '图片生成失败');
     }
@@ -183,51 +199,72 @@ export default function CharacterDesignPage() {
     description,
     costumeDesc,
     visualStyle,
-    imageModel: settings.imageModel,
+    imageModel: designModel,
+    aestheticDirection,
+    capturePreset,
+    styleReference,
     apiKey: settings.apiKey,
     comfyui: localComfyUISettings(settings.comfyui),
     midjourneyProfile: resolveMidjourneyProfileSetting(settings),
-    midjourneyStyle: resolveMidjourneyStyleSetting(settings),
+    midjourneyStyle: { ...globalStyle, styleWeight: settings.midjourneyStyleWeight ?? 100, styleReferenceUrl: styleReference?.imageUrl },
   });
+
+  const finishTask = async (job: PendingDesign) => {
+    const result = await pollImage(job.taskId, job.stage === 'extension' ? 'GPT 延展中' : '角色定稿生成中');
+    if (job.stage === 'extension') {
+      if (job.masterUrl === selectedConcept) setBibleUrl(result.imageUrl);
+    } else {
+      let choices: string[];
+      if (isMidjourneyImageModel(job.model) || job.layout === 'single') {
+        // MJ already returns independent full images. Never split a portrait.
+        choices = result.candidateUrls?.length ? result.candidateUrls : [result.imageUrl];
+      } else {
+        const response = await fetch('/api/split-grid', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageUrl: result.imageUrl, gridSize: job.count === 4 ? 2 : 3 }) });
+        const split = await readApiJson<{ cells: string[] }>(response, '草稿拆分失败');
+        choices = split.cells.slice(0, job.count);
+      }
+      if (!choices.length) throw new Error('任务已完成但没有可选图片；保留任务编号');
+      setConceptGridUrl(result.imageUrl); setConcepts(choices); setSelectedConcept(choices[0]); setBibleUrl('');
+      setMasterSource(isMidjourneyImageModel(job.model) ? 'midjourney' : 'generated'); setMasterPrompt(job.prompt || '');
+    }
+    setPending(null);
+    setStatus(job.stage === 'extension' ? 'GPT 延展完成，原始定稿仍是主参考。' : '选择满意的原图即可入库；GPT 延展为可选步骤。');
+  };
+
+  const resumeTask = async () => {
+    if (!pending) return;
+    setBusyStage(pending.stage === 'extension' ? 'bible' : 'concepts');
+    try { await finishTask(pending); }
+    catch (error) { setStatus(`${error instanceof Error ? error.message : '查询失败'}；任务编号已保留，可继续查询，不会重新生成。`); }
+    finally { setBusyStage(null); }
+  };
 
   const generateConcepts = async () => {
     if (!name.trim() || !description.trim()) {
       alert('请先填写角色名称和具体外观');
       return;
     }
-    if (imageModelRequiresApiKey(settings.imageModel) && !settings.apiKey) {
+    if (imageModelRequiresApiKey(designModel) && !settings.apiKey) {
       setShowSettings(true);
       return;
     }
     setBusyStage('concepts');
-    setConceptGridUrl('');
-    setConcepts([]);
-    setSelectedConcept('');
-    setBibleUrl('');
     try {
+      if (pending && !confirm('已有保留任务。重新生成会创建新的付费任务，是否继续？')) return;
       const referenceImages = await ensureUploadedReferences();
-      setStatus(`生成 ${candidateCount} 个角色方向…`);
-      const response = await fetch(imageApiUrl('/api/character-design', settings.comfyui, settings.imageModel), {
+      setStatus(isMj ? 'MJ 正在创作单幅角色候选…' : singleMaster ? 'GPT 正在生成单幅角色定稿…' : `生成 ${candidateCount} 个角色方向…`);
+      const response = await fetch(imageApiUrl('/api/character-design', settings.comfyui, designModel), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...commonPayload(), stage: 'concepts', candidateCount, referenceImages }),
       });
-      const data = await readApiJson<{ taskId: string }>(response, '启动角色草稿失败');
-      const gridUrl = await pollImage(data.taskId, '角色草稿生成中');
-      setConceptGridUrl(gridUrl);
-      setStatus('正在拆分可选择草稿…');
-      const splitResponse = await fetch('/api/split-grid', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrl: gridUrl, gridSize: candidateCount === 4 ? 2 : 3 }),
-      });
-      const split = await readApiJson<{ gridUrl: string; cells: string[] }>(splitResponse, '角色草稿拆分失败');
-      setConceptGridUrl(split.gridUrl);
-      setConcepts(split.cells.slice(0, candidateCount));
-      setSelectedConcept(split.cells[0] || '');
-      setStatus('草稿已完成。选择一个形象后生成完整角色卡。');
+      const data = await readApiJson<{ taskId: string; prompt: string; layout?: PendingDesign['layout'] }>(response, '启动角色定稿失败');
+      const job: PendingDesign = { taskId: data.taskId, prompt: data.prompt, layout: data.layout, model: designModel, stage: 'concepts', count: candidateCount };
+      setPending(job);
+      await finishTask(job);
     } catch (error) {
-      setStatus('角色草稿生成失败');
+      setStatus('未完成；已有图片和任务编号保留，可继续查询。');
       alert(error instanceof Error ? error.message : '角色草稿生成失败');
     } finally {
       setBusyStage(null);
@@ -236,19 +273,20 @@ export default function CharacterDesignPage() {
 
   const generateBible = async () => {
     if (!selectedConcept) return;
+    if (!settings.apiKey) { setShowSettings(true); return; }
     setBusyStage('bible');
-    setBibleUrl('');
     try {
-      setStatus('正在扩展多角度、表情、动作与材质系统…');
-      const response = await fetch(imageApiUrl('/api/character-design', settings.comfyui, settings.imageModel), {
+      if (pending && !confirm('已有保留任务。生成延展会创建新的付费任务，是否继续？')) return;
+      setStatus('GPT 沿用定稿原图，扩展四个角度与表情…');
+      const response = await fetch(imageApiUrl('/api/character-design', settings.comfyui, 'gpt-image-2'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...commonPayload(), stage: 'bible', selectedConceptUrl: selectedConcept }),
+        body: JSON.stringify({ ...commonPayload(), imageModel: 'gpt-image-2', stage: 'extension', selectedConceptUrl: selectedConcept }),
       });
       const data = await readApiJson<{ taskId: string }>(response, '启动角色卡生成失败');
-      const url = await pollImage(data.taskId, '完整角色卡生成中');
-      setBibleUrl(url);
-      setStatus('完整角色卡已生成，可下载或存入本地角色库。');
+      const job: PendingDesign = { taskId: data.taskId, model: 'gpt-image-2', stage: 'extension', count: 4, masterUrl: selectedConcept };
+      setPending(job);
+      await finishTask(job);
     } catch (error) {
       setStatus('完整角色卡生成失败');
       alert(error instanceof Error ? error.message : '完整角色卡生成失败');
@@ -258,10 +296,13 @@ export default function CharacterDesignPage() {
   };
 
   const saveToLibrary = () => {
-    if (!bibleUrl) return;
+    if (!selectedConcept || !name.trim()) { alert('请填写角色名称并选定原图'); return; }
+    try {
+    const existing = parseStoredArray(localStorage.getItem(CHARACTER_DESIGNS_STORAGE_KEY));
+    const old = existing.find((item: any) => item?.name?.trim().toLowerCase() === name.trim().toLowerCase()) as { id?: string } | undefined;
     const record = {
-      id: `character-${Date.now()}`,
-      name,
+      id: old?.id || `character-${Date.now()}`,
+      name: name.trim(),
       role,
       age,
       personality,
@@ -272,9 +313,9 @@ export default function CharacterDesignPage() {
       conceptUrl: selectedConcept,
       bibleUrl,
       createdAt: new Date().toISOString(),
+      visualMaster: { ...makeCharacterVisualMaster(selectedConcept, masterSource, masterPrompt), extensionUrl: bibleUrl || undefined },
     };
-    const existing = parseStoredArray(localStorage.getItem(CHARACTER_DESIGNS_STORAGE_KEY));
-    localStorage.setItem(CHARACTER_DESIGNS_STORAGE_KEY, JSON.stringify([record, ...existing].slice(0, 50)));
+    localStorage.setItem(CHARACTER_DESIGNS_STORAGE_KEY, JSON.stringify([record, ...existing.filter((item: any) => item?.name?.trim().toLowerCase() !== record.name.toLowerCase())].slice(0, 50)));
 
     const historyCharacter = characterFromDesignRecord(record);
     if (historyCharacter) {
@@ -282,6 +323,19 @@ export default function CharacterDesignPage() {
       localStorage.setItem(CHARACTER_HISTORY_STORAGE_KEY, JSON.stringify(upsertCharacterHistory(history, historyCharacter)));
     }
     setStatus('已存入 AID 角色库，可在 Story 的“历史角色”中直接引用。');
+    setSavedSnapshot(snapshot);
+    } catch { setStatus('角色库保存失败，请检查浏览器存储空间；原图仍保留。'); }
+  };
+
+  const adoptReference = async (source: string) => {
+    setBusyStage('upload');
+    try {
+      const url = await uploadReference.current(source);
+      setConcepts([url]); setSelectedConcept(url); setBibleUrl(''); setConceptGridUrl(url);
+      setMasterSource('upload'); setMasterPrompt('');
+      setStatus('已采用上传原图，无需重新生成；填写名称后即可入库。');
+    } catch (error) { setStatus(error instanceof Error ? error.message : '原图上传失败'); }
+    finally { setBusyStage(null); }
   };
 
   const toolbar = (
@@ -304,14 +358,14 @@ export default function CharacterDesignPage() {
         <div className="min-h-full bg-[var(--bg-primary)]">
           <div className="mx-auto max-w-[1500px] p-4 md:p-7">
             <header className="mb-6 grid gap-5 border-b border-[var(--border-color)] pb-6 lg:grid-cols-[1fr_auto] lg:items-end">
-              <div><p className="aid-eyebrow">Character development lab</p><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-4xl">从角色方向，到可生产的完整角色卡</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">文字和参考图先探索 4 或 9 个形象方向；锁定一款后，再统一生成转面、表情、姿态、材质与色板。</p></div>
+              <div><p className="aid-eyebrow">MJ Master → GPT Continuity</p><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-4xl">MJ 定审美，GPT 做延展</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">先定人物、服装、光线与质感；满意的原图直接入库。GPT 只沿用定稿扩展角度和表情，Story 再融合产品、还原分镜动作，不重新定义风格。</p></div>
               <div className="flex gap-2">
-                {['角色简报', '方向选择', '完整角色卡'].map((label, index) => <div key={label} className={`rounded-full border px-3 py-2 font-mono text-[10px] ${currentStep >= index + 1 ? 'border-[var(--accent-green)]/50 bg-[var(--accent-green)]/10 text-[var(--accent-green)]' : 'border-[var(--border-color)] text-[var(--text-muted)]'}`}>0{index + 1} {label}</div>)}
+                {['审美简报', '原图定稿 / 入库', 'GPT 延展（可选）'].map((label, index) => <div key={label} className={`rounded-full border px-3 py-2 font-mono text-[10px] ${currentStep >= index + 1 ? 'border-[var(--accent-green)]/50 bg-[var(--accent-green)]/10 text-[var(--accent-green)]' : 'border-[var(--border-color)] text-[var(--text-muted)]'}`}>0{index + 1} {label}</div>)}
               </div>
             </header>
 
             <div className="grid gap-6 xl:grid-cols-[430px_minmax(0,1fr)]">
-              <section className="aid-panel h-fit space-y-5 p-5 xl:sticky xl:top-6">
+              <fieldset disabled={!loaded || busyStage !== null} className="aid-panel h-fit space-y-5 p-5 xl:sticky xl:top-6">
                 <div><p className="aid-step-kicker">01 · Brief</p><h2 className="mt-1 text-lg font-semibold text-white">角色简报</h2></div>
                 <div className="grid grid-cols-2 gap-3">
                   <label className="col-span-2"><span className="aid-field-label">角色名称 *</span><input value={name} onChange={event => setName(event.target.value)} className="aid-input w-full" placeholder="例如：Meme" /></label>
@@ -319,33 +373,39 @@ export default function CharacterDesignPage() {
                   <label><span className="aid-field-label">年龄</span><input value={age} onChange={event => setAge(event.target.value)} className="aid-input w-full" placeholder="童年、20岁左右…" /></label>
                   <label className="col-span-2"><span className="aid-field-label">性格关键词</span><input value={personality} onChange={event => setPersonality(event.target.value)} className="aid-input w-full" placeholder="好奇、顽皮、温柔、勇敢" /></label>
                   <label className="col-span-2"><span className="aid-field-label">核心主题</span><input value={coreTheme} onChange={event => setCoreTheme(event.target.value)} className="aid-input w-full" placeholder="角色在故事里代表什么" /></label>
-                  <label className="col-span-2"><span className="aid-field-label">具体外观 *</span><textarea value={description} onChange={event => setDescription(event.target.value)} className="aid-input min-h-28 w-full resize-y" placeholder="发型、脸型、体型、肤色/材质、识别特征；尽量写具体，不写‘漂亮、时尚’这类抽象词。" /></label>
+                  <label className="col-span-2"><span className="aid-field-label">人物外观 / 主提示词 *</span><textarea value={description} onChange={event => setDescription(event.target.value)} className="aid-input min-h-28 w-full resize-y" placeholder="可以直接粘贴你的 MJ 提示词：人物、五官、发丝、服装、材质、姿态与氛围。中英文均可。" /></label>
                   <label className="col-span-2"><span className="aid-field-label">服装与造型方向</span><textarea value={costumeDesc} onChange={event => setCostumeDesc(event.target.value)} className="aid-input min-h-20 w-full resize-y" placeholder="服装单品、颜色、材质、配饰、妆发与不可改变的细节" /></label>
                 </div>
 
                 <div>
                   <div className="mb-2 flex items-center justify-between"><span className="aid-field-label !mb-0">参考图</span><span className="font-mono text-[10px] text-[var(--text-muted)]">{references.length}/{referenceLimit}</span></div>
                   <div className="grid grid-cols-4 gap-2">
-                    {references.map((image, index) => <button key={`${image.slice(0, 24)}-${index}`} onClick={() => setReferences(previous => previous.filter((_, itemIndex) => itemIndex !== index))} className="group relative aspect-square overflow-hidden rounded-lg border border-[var(--border-color)] bg-black/20"><img src={image} alt={`参考 ${index + 1}`} className="h-full w-full object-cover" /><span className="absolute inset-x-0 bottom-0 bg-black/70 py-1 text-[9px] opacity-0 group-hover:opacity-100">移除</span></button>)}
+                    {references.map((image, index) => <div key={`${image.slice(0, 24)}-${index}`} className="overflow-hidden rounded-lg border border-[var(--border-color)] bg-black/20"><img src={image} alt={`参考 ${index + 1}`} className="aspect-square w-full object-contain" /><button disabled={busyStage !== null} onClick={() => void adoptReference(image)} className="w-full py-1 text-[10px] text-[var(--accent-green)] disabled:opacity-50">直接采用原图</button><button disabled={busyStage !== null} onClick={() => setReferences(previous => previous.filter((_, itemIndex) => itemIndex !== index))} className="w-full py-1 text-[10px] text-[var(--text-muted)]">移除</button></div>)}
                     {references.length < referenceLimit && <label className="grid aspect-square cursor-pointer place-items-center rounded-lg border border-dashed border-[var(--border-strong)] text-[var(--text-muted)] hover:border-[var(--accent-green)] hover:text-[var(--accent-green)]"><Upload size={18} /><input type="file" accept="image/*" multiple className="hidden" onChange={event => { if (event.target.files) void uploadReferences(event.target.files); event.target.value = ''; }} /></label>}
                   </div>
                 </div>
 
-                <div><span className="aid-field-label">制作风格</span><select value={visualStyle} onChange={event => setVisualStyle(event.target.value as VisualStyle)} className="aid-input w-full">{PRODUCTION_STYLE_PRESETS.map(style => <option key={style.value} value={style.value}>{style.label} · {style.description}</option>)}</select></div>
-                <div><span className="aid-field-label">探索数量</span><div className="grid grid-cols-2 gap-2">{([4, 9] as const).map(count => <button key={count} onClick={() => setCandidateCount(count)} className={`rounded-lg border px-4 py-3 text-sm ${candidateCount === count ? 'border-[var(--accent-green)] bg-[var(--accent-green)]/12 text-[var(--accent-green)]' : 'border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)]'}`}><LayoutGrid size={15} className="mr-2 inline" />{count} 个方向</button>)}</div></div>
+                <p className="text-xs text-[var(--text-muted)]">PNG / JPEG / WebP，单张最多 8 MB；保留原始像素，不自动缩图或重压缩。</p>
+                <label><span className="aid-field-label">角色定稿模型（独立于 Story 生图设置）</span><select disabled={busyStage !== null} value={designModel} onChange={event => setDesignModel(event.target.value)} className="aid-input w-full">{APIMART_IMAGE_MODEL_OPTIONS.map(model => <option key={model.value} value={model.value}>{model.label}</option>)}</select></label>
+                {singleMaster && <div className="space-y-3"><label className="block"><span className="aid-field-label">定稿制作风格</span><select aria-label="定稿制作风格" value={visualStyle} onChange={event => setVisualStyle(event.target.value as VisualStyle)} className="aid-input w-full">{PRODUCTION_STYLE_PRESETS.map(style => <option key={style.value} value={style.value}>{style.label} · {style.description}</option>)}</select></label><label className="block"><span className="aid-field-label">定稿拍摄方式</span><select aria-label="定稿拍摄方式" value={capturePreset} onChange={event => setCapturePreset(event.target.value as CapturePreset)} className="aid-input w-full">{CAPTURE_PRESETS.map(preset => <option key={preset.value} value={preset.value}>{preset.label} · {preset.description}</option>)}</select></label><p className="text-xs text-[var(--text-muted)]">跟随参考不追加默认风格；选择其他项会加入对应的真实提示词。无参考图时由主提示词和审美方向定稿。避免同时填写相互矛盾的媒介或光线。</p></div>}
+                <ImageStyleReferenceControls value={styleReference} onChange={value => setStyleOverride(value || null)} disabled={busyStage !== null} onBusy={busy => setBusyStage(busy ? 'upload' : null)} />
+                {isMj && styleReference && <label><span className="aid-field-label">MJ 风格权重 --sw（0–1000）</span><input aria-label="MJ 风格权重" type="number" min={0} max={1000} value={settings.midjourneyStyleWeight ?? 100} onChange={event => saveSettings({ ...settings, midjourneyStyleWeight: Number(event.target.value) })} className="aid-input w-full" /></label>}
+                <details className="text-xs text-[var(--text-muted)]"><summary>查看当前风格提示词</summary><pre className="mt-2 whitespace-pre-wrap break-words">{buildImageStyleControls({ visualStyle, capturePreset, hasStyleReference: Boolean(styleReference) }) || '不追加预设：沿用参考图或你的主提示词。'}{styleReference?.description ? `\n风格说明：${styleReference.description}` : ''}</pre></details>
+                {singleMaster ? <div><label className="block"><span className="aid-field-label">{isMj ? 'MJ' : 'GPT'} 审美方向（可选，原样保留）</span><textarea value={aestheticDirection} onChange={event => setAestheticDirection(event.target.value)} className="aid-input min-h-24 w-full" placeholder="live-action fantasy movie scene, detailed realistic skin texture, flowing fabric, intricate gold jewelry, soft even lighting, gentle shadows…" /></label><button onClick={() => { if (!aestheticDirection || confirm('用“古装电影实拍质感”替换当前审美方向？')) setAestheticDirection(HISTORICAL_CINEMA_AESTHETIC); }} className="mt-2 text-xs text-[var(--accent-green)]">使用预设：古装电影实拍质感</button><p className="mt-2 text-xs text-[var(--text-muted)]">{isMj ? '一笔 MJ 任务返回独立候选原图，不生成拼图；不强制 Raw。Profile / 风格参考沿用设置中的显式选择。' : 'GPT 每次生成一张完整定稿。预设提取构图、光源、皮肤和材质写法，不固定贵妃身份或镜头参数。'} 此处只用于创作定稿，不叠加到后续分镜。</p></div> : <><div><span className="aid-field-label">定稿制作风格</span><select value={visualStyle} onChange={event => setVisualStyle(event.target.value as VisualStyle)} className="aid-input w-full">{PRODUCTION_STYLE_PRESETS.map(style => <option key={style.value} value={style.value}>{style.label}</option>)}</select></div><div><span className="aid-field-label">探索数量</span><div className="grid grid-cols-2 gap-2">{([4, 9] as const).map(count => <button key={count} onClick={() => setCandidateCount(count)} className={`rounded-lg border px-4 py-3 text-sm ${candidateCount === count ? 'border-[var(--accent-green)] text-[var(--accent-green)]' : 'border-[var(--border-color)]'}`}><LayoutGrid size={15} className="mr-2 inline" />{count} 个方向</button>)}</div></div></>}
+                {pending && <div className="rounded-lg border border-[var(--border-color)] p-3"><p className="break-all text-xs">保留任务：{pending.taskId}</p><button onClick={() => void resumeTask()} disabled={busyStage !== null} className="mt-2 text-sm text-[var(--accent-green)] disabled:opacity-50">继续查询（不重新生成）</button></div>}
                 <button onClick={generateConcepts} disabled={busyStage !== null} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-green)] px-4 py-3 text-sm font-medium text-[#06231f] disabled:opacity-50">{busyStage === 'concepts' || busyStage === 'upload' ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}{concepts.length ? '重新探索角色方向' : '生成角色草稿'}</button>
-              </section>
+              </fieldset>
 
               <section className="space-y-6">
                 <div className="aid-panel p-5">
                   <div className="mb-4 flex items-center justify-between"><div><p className="aid-step-kicker">02 · Concepts</p><h2 className="mt-1 text-lg font-semibold text-white">选择一个形象方向</h2></div>{conceptGridUrl && <a href={conceptGridUrl} target="_blank" rel="noreferrer" className="text-xs text-[var(--accent-green)]">查看母图</a>}</div>
-                  {concepts.length ? <div className={`grid gap-3 ${candidateCount === 4 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>{concepts.map((concept, index) => <button key={concept} onClick={() => { setSelectedConcept(concept); setBibleUrl(''); }} className={`group relative overflow-hidden rounded-xl border bg-black/20 text-left ${selectedConcept === concept ? 'border-[var(--accent-green)] shadow-[0_0_0_1px_var(--accent-green)]' : 'border-[var(--border-color)] hover:border-[var(--border-strong)]'}`}><img src={concept} alt={`角色方向 ${index + 1}`} className="aspect-square w-full object-cover" /><span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 font-mono text-[10px]">{String(index + 1).padStart(2, '0')}</span>{selectedConcept === concept && <span className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-[var(--accent-green)] text-[#06231f]"><Check size={16} /></span>}</button>)}</div> : <div className="grid min-h-[390px] place-items-center rounded-xl border border-dashed border-[var(--border-color)] bg-black/10 text-center text-[var(--text-muted)]"><div><ImagePlus size={42} className="mx-auto mb-3 opacity-50" /><p className="text-sm">角色方向会在这里拆分为可选草稿</p><p className="mt-2 text-xs">每格只放一个完整角色，选择后再扩展角色卡</p></div></div>}
-                  {concepts.length > 0 && <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-primary)] p-3"><div className="min-w-0"><p className="text-sm text-white">已选择方向 {selectedIndex + 1}</p><p className="mt-1 text-xs text-[var(--text-muted)]">后续所有转面、表情和材质都以这一格为身份锚点。</p></div><button onClick={generateBible} disabled={!selectedConcept || busyStage !== null} className="flex shrink-0 items-center gap-2 rounded-lg bg-[var(--accent-green)] px-4 py-2.5 text-sm font-medium text-[#06231f] disabled:opacity-50">{busyStage === 'bible' ? <Loader2 size={16} className="animate-spin" /> : <UserRound size={16} />}生成完整角色卡</button></div>}
+                  {concepts.length ? <div className={`grid gap-3 ${concepts.length > 4 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>{concepts.map((concept, index) => <button key={concept} disabled={busyStage !== null} onClick={() => { setSelectedConcept(concept); setBibleUrl(''); }} className={`group relative overflow-hidden rounded-xl border bg-black/20 text-left ${selectedConcept === concept ? 'border-[var(--accent-green)] shadow-[0_0_0_1px_var(--accent-green)]' : 'border-[var(--border-color)] hover:border-[var(--border-strong)]'}`}><img src={concept} alt={`角色方向 ${index + 1}`} className="aspect-[9/16] w-full object-contain" /><span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 font-mono text-[10px]">{String(index + 1).padStart(2, '0')}</span>{selectedConcept === concept && <span className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-[var(--accent-green)] text-[#06231f]"><Check size={16} /></span>}</button>)}</div> : <div className="grid min-h-[390px] place-items-center rounded-xl border border-dashed border-[var(--border-color)] bg-black/10 text-center text-[var(--text-muted)]"><div><ImagePlus size={42} className="mx-auto mb-3 opacity-50" /><p className="text-sm">候选原图将在这里显示</p><p className="mt-2 text-xs">也可以上传现有 MJ 原图，点击“直接采用原图”</p></div></div>}
+                  {concepts.length > 0 && <div className="mt-4 space-y-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-primary)] p-3"><div><p className="text-sm text-white">已选择方向 {selectedIndex + 1} {isSaved && <span className="ml-2 text-[var(--accent-green)]">✓ 已入库</span>}</p><p className="mt-1 text-xs text-[var(--text-muted)]">这张原图同时作为身份、审美和材质主参考，不会被延展图替换。</p></div><div className="flex flex-wrap gap-2"><button disabled={busyStage !== null || isSaved} onClick={saveToLibrary} className="rounded-lg bg-[var(--accent-green)] px-4 py-2.5 text-sm text-[#06231f] disabled:opacity-50"><Library size={15} className="mr-2 inline" />{isSaved ? '已入库' : '原图直接入库'}</button><button onClick={() => void downloadImage(selectedConcept, `${name || 'character'}-master.png`)} className="rounded-lg border border-[var(--border-color)] px-4 py-2.5 text-sm">下载定稿原图</button><button onClick={generateBible} disabled={!selectedConcept || busyStage !== null} className="rounded-lg border border-[var(--border-color)] px-4 py-2.5 text-sm disabled:opacity-50">{busyStage === 'bible' && <Loader2 size={16} className="mr-2 inline animate-spin" />}GPT 四宫格延展（可选）</button></div></div>}
                 </div>
 
                 <div className="aid-panel p-5">
-                  <div className="mb-4 flex items-center justify-between"><div><p className="aid-step-kicker">03 · Character Bible</p><h2 className="mt-1 text-lg font-semibold text-white">完整角色卡</h2></div><span className="font-mono text-[10px] text-[var(--text-muted)]">4:3 PRODUCTION BOARD</span></div>
-                  {bibleUrl ? <><div className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-white"><img src={bibleUrl} alt={`${name} 完整角色卡`} className="w-full object-contain" /></div><div className="mt-4 grid gap-2 sm:grid-cols-3"><button onClick={() => void downloadImage(bibleUrl, `${name || 'character'}-bible.png`)} className="flex items-center justify-center gap-2 rounded-lg border border-[var(--border-color)] px-4 py-2.5 text-sm hover:bg-[var(--bg-hover)]"><Download size={15} /> 下载角色卡</button><button onClick={saveToLibrary} className="flex items-center justify-center gap-2 rounded-lg border border-[var(--border-color)] px-4 py-2.5 text-sm hover:bg-[var(--bg-hover)]"><Library size={15} /> 存入角色库</button><button onClick={generateBible} disabled={busyStage !== null} className="flex items-center justify-center gap-2 rounded-lg border border-[var(--border-color)] px-4 py-2.5 text-sm hover:bg-[var(--bg-hover)] disabled:opacity-50"><RefreshCw size={15} /> 重新生成</button></div></> : <div className="grid min-h-[360px] place-items-center rounded-xl border border-dashed border-[var(--border-color)] bg-black/10 text-center text-[var(--text-muted)]"><div><UserRound size={44} className="mx-auto mb-3 opacity-50" /><p className="text-sm">锁定草稿后生成完整角色卡</p><p className="mt-2 max-w-md text-xs leading-5">包含转面、轮廓、8组表情、微表情、头部角度、姿态、服装材质、手部动作和连续性色板。</p></div></div>}
+                  <div className="mb-4 flex items-center justify-between"><div><p className="aid-step-kicker">03 · Optional GPT Extension</p><h2 className="mt-1 text-lg font-semibold text-white">角度与表情延展</h2></div><span className="font-mono text-[10px] text-[var(--text-muted)]">GPT-IMAGE-2 · 2×2</span></div>
+                  {bibleUrl ? <><div className="overflow-hidden rounded-xl border border-[var(--border-color)]"><img src={bibleUrl} alt={`${name} GPT 延展`} className="w-full object-contain" /></div><div className="mt-4 grid gap-2 sm:grid-cols-3"><button onClick={() => void downloadImage(bibleUrl, `${name || 'character'}-extension.png`)} className="rounded-lg border border-[var(--border-color)] px-4 py-2.5 text-sm"><Download size={15} className="mr-2 inline" /> 下载延展图</button><button disabled={isSaved || busyStage !== null} onClick={saveToLibrary} className="rounded-lg border border-[var(--border-color)] px-4 py-2.5 text-sm disabled:opacity-50"><Library size={15} className="mr-2 inline" />{isSaved ? '✓ 已入库' : '保存原图与延展'}</button><button onClick={generateBible} disabled={busyStage !== null} className="rounded-lg border border-[var(--border-color)] px-4 py-2.5 text-sm disabled:opacity-50"><RefreshCw size={15} className="mr-2 inline" /> 重新延展</button></div></> : <div className="grid min-h-[260px] place-items-center rounded-xl border border-dashed border-[var(--border-color)] bg-black/10 text-center text-[var(--text-muted)]"><div><UserRound size={44} className="mx-auto mb-3 opacity-50" /><p className="text-sm">不需要延展？直接使用定稿原图即可。</p><p className="mt-2 max-w-md text-xs leading-5">如需补充角度，GPT 只延展同一人物、妆发、服装和质感，不生成中性灰底定妆照，也不另加风格词。</p></div></div>}
                 </div>
               </section>
             </div>

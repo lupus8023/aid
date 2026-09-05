@@ -154,7 +154,7 @@ test('grid layout fixes two rows and two columns with a complete same-aspect sti
   }
 });
 
-test('observational grid contracts preserve all four shots within their expanded safe budget', () => {
+test('referenced grids preserve authored staging and honor explicitly selected capture', () => {
   const shots = Array.from({ length: 4 }, (_, index) => (
     `CANDID_PHASE_${index + 1}: Nana continues a distinct ordinary task phase near the shop window; off-center physical action and foreground depth. CAST[1]: Nana; each exactly once.`
   ));
@@ -169,8 +169,9 @@ test('observational grid contracts preserve all four shots within their expanded
     'broadcast-candid',
   );
   for (let index = 1; index <= 4; index += 1) assert.match(prompt, new RegExp(`CANDID_PHASE_${index}\\b`));
-  assert.match(prompt, /plausible motion blur/i);
-  assert.match(prompt, /broadcast compression/i);
+  assert.match(prompt, /CHARACTER DESIGN AUTHORITY/);
+  assert.match(prompt, /SELECTED CAPTURE METHOD: broadcast-candid/);
+  assert.match(prompt, /plausible motion blur|broadcast compression/i);
   assert.ok(prompt.length <= 3700, `observational grid prompt was ${prompt.length} characters`);
 });
 

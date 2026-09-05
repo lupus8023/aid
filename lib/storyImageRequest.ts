@@ -6,6 +6,7 @@ import { ApiResponseError, readApiJson } from './apiResponse';
 import { visibleImageCast, type ImageCastCharacter } from './series/imageCastContract';
 import { visibleStoryObjects, visualAssetDescription } from './storyVisualAssets';
 import { characterAliasValues } from './characterIdentity';
+import { resolveCharacterStoryboardModel } from './characterVisualMaster';
 
 export const MAX_STORY_IMAGE_REQUEST_BYTES = 1024 * 1024;
 const MAX_REFERENCE_BYTES = 50 * 1024 * 1024;
@@ -99,7 +100,7 @@ async function uploadReference(source: string, request: typeof fetch, localUploa
 
 /** One preparer per Story page: shared references are uploaded once across
  * batches/retries. Failed uploads are evicted; the saved project is untouched. */
-export function createStoryImageRequestPreparer(
+export function createImageReferenceUploader(
   request: typeof fetch = fetch,
   localUpload = typeof window !== 'undefined' && ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname),
 ) {
@@ -113,6 +114,14 @@ export function createStoryImageRequestPreparer(
     }
     return pending;
   };
+  return resolve;
+}
+
+export function createStoryImageRequestPreparer(
+  request: typeof fetch = fetch,
+  localUpload = typeof window !== 'undefined' && ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname),
+) {
+  const resolve = createImageReferenceUploader(request, localUpload);
   return async (input: StoryImageRequest): Promise<string> => {
     const board = input.storyboard;
     const cast = visibleImageCast(board, input.characters);
@@ -138,7 +147,9 @@ export function createStoryImageRequestPreparer(
       const costume = sourceCostumes[character.name];
       const imageUrl = visible.has(character) ? await metadataImage(costume || sourceOf(character)) : '';
       if (!explicitReferences && costume && visible.has(character)) costumes[character.name] = imageUrl;
-      return { id: character.id, name: character.name, aliases: character.aliases, description: visualAssetDescription(character, costume || sourceOf(character)), imageUrl, appearance: (character as ImageCastCharacter).appearance };
+      return { id: character.id, name: character.name, aliases: character.aliases, description: visualAssetDescription(character, costume || sourceOf(character)), imageUrl,
+        visualMaster: character.visualMaster ? { version: 1, source: character.visualMaster.source, imageUrl } : undefined,
+        appearance: (character as ImageCastCharacter).appearance };
     }));
     const preparedObjects = await Promise.all(objects.map(async object => ({
       id: object.id, name: object.name, aliases: object.aliases, description: visualAssetDescription(object),
@@ -156,7 +167,7 @@ export function createStoryImageRequestPreparer(
       },
       characters, objects: preparedObjects, costumeImages: costumes, sceneImage,
       referenceImages: resolvedReferences, referenceImageLabels: input.referenceImageLabels || [],
-      aspectRatio: input.aspectRatio, imageModel: input.imageModel, apiKey: input.apiKey,
+      aspectRatio: input.aspectRatio, imageModel: resolveCharacterStoryboardModel(input.imageModel, input.characters), apiKey: input.apiKey,
       visualStyle: input.visualStyle, capturePreset: input.capturePreset, comfyui: input.comfyui,
       styleReference: input.styleReference ? {
         imageUrl: await resolve(input.styleReference.imageUrl), description: input.styleReference.description,

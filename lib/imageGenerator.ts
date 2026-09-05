@@ -13,6 +13,8 @@ import { usesPhotographicReferences } from './gptImageReferences';
 import type { ImageStyleReference } from './imageStyleReference';
 import { requireReferenceCapacity, visibleStoryObjects, VISUAL_ASSET_AUTHORITY } from './storyVisualAssets';
 import { characterAliasValues } from './characterIdentity';
+import { INHERIT_CHARACTER_LOOK, resolveCharacterStoryboardModel } from './characterVisualMaster';
+import { buildImageStyleControls } from './imageStyleControls';
 
 // 为单个分镜生成图片
 export async function generateStoryboardImage(
@@ -33,9 +35,15 @@ export async function generateStoryboardImage(
   midjourneyStyle: MidjourneyStyleReference = {},
   styleReference?: ImageStyleReference,
 ): Promise<string> {
-  const selectedImageModel = imageModel || 'seedream-5-0-pro';
+  const selectedImageModel = resolveCharacterStoryboardModel(imageModel || 'seedream-5-0-pro', characters);
   globalCostumeImages = characterAliasValues(globalCostumeImages, characters);
-  const photographicGpt = isGptImage2Model(selectedImageModel) && usesPhotographicReferences(visualStyle);
+  const inheritReferenceLook = preUploadedReferences?.length
+    ? preUploadedReferenceLabels.some(label => /^(?:CHARACTER IDENTITY|CHARACTER|COSTUME)\b/i.test(label.trim()))
+    : visibleImageCast(storyboard, characters).some(char => globalCostumeImages[char.name] || char.imageUrl || char.imageBase64);
+  const photographicGpt = !inheritReferenceLook && isGptImage2Model(selectedImageModel) && usesPhotographicReferences(visualStyle);
+  const referencedLookContract = buildImageStyleControls({ visualStyle, capturePreset: capturePreset || storyboard.capturePreset, hasCharacterReference: inheritReferenceLook, hasStyleReference: Boolean(styleReference) });
+  const imageLookContract = inheritReferenceLook ? referencedLookContract
+    : `${buildMediumLock(visualStyle)}\n\n${buildImageCaptureContract(visualStyle)}\n\n${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}`;
   if (isMidjourneyImageModel(selectedImageModel)) {
     if (/UNIQUE STORYBOARD BATCH:|(?:2x2|3x3) storyboard contact sheet/i.test(storyboard.prompt) || preUploadedReferences?.length) {
       throw new Error('MJ 分镜必须逐镜生成，不接受四宫格任务');
@@ -71,14 +79,19 @@ export async function generateStoryboardImage(
   // the single-shot compiler adds conflicting instructions and loses the grid
   // resolution override (4K where supported by the provider).
   const isStructuredGridPrompt = storyboard.prompt.includes('UNIQUE STORYBOARD BATCH:')
-    && storyboard.prompt.includes('GRID STYLE BIBLE (authoritative');
+    && (storyboard.prompt.includes('GRID STYLE BIBLE (authoritative') || storyboard.prompt.includes('LAYOUT: one 2x2 sheet'));
   if (isStructuredGridPrompt || (preUploadedReferences && preUploadedReferences.length > 0)) {
     console.log('Using grid prompt with supplied references, if any');
     requireReferenceCapacity(preUploadedReferences?.length || 0, maxReferenceImages);
     const effectiveReferences = preUploadedReferences || [];
     const effectiveReferenceLabels = preUploadedReferenceLabels.slice(0, effectiveReferences.length);
 
-    const cleanPrompt = storyboard.prompt;
+    // Refresh only our generated grid style block. The authored four actions
+    // and reference mapping remain byte-for-byte; a saved old style must not
+    // contradict an explicitly changed selection or an added style image.
+    const cleanPrompt = isStructuredGridPrompt && inheritReferenceLook && styleReference
+      ? storyboard.prompt.replace(INHERIT_CHARACTER_LOOK, '').replace(/CHARACTER DESIGN AUTHORITY:[\s\S]*?(?=\n(?:Reference mapping:|VISUAL ASSET AUTHORITY:|Each frame's))/, '')
+      : storyboard.prompt;
 
     // 收集有参考图和无参考图的物体描述
     const objectsWithoutRef: ObjectItem[] = [];
@@ -124,7 +137,7 @@ export async function generateStoryboardImage(
       .filter(obj => effectiveReferenceLabels.some(label => label.toLowerCase().includes(obj.name.toLowerCase())))
       .map(obj => obj.name);
     const gridObjectLock = `REFERENCE OBJECT LOCK: ${referencedObjectNames.length ? `the mapped references for ${referencedObjectNames.join(', ')} are immutable product/prop designs` : 'any input mapped as an object or product is an immutable design source'}. Preserve exact silhouette, proportions, component layout, construction, material, surface finish, color, texture, seams, interfaces, intentional markings and physical scale in every panel. Change only viewpoint, placement, lighting and physically possible articulation. Never redesign, simplify, stretch, melt, substitute, or add/remove parts. Existing object labels or logos may remain only as unchanged physical design details; add no other text.`;
-    const providerCaptureContract = isGptImage2Model(selectedImageModel)
+    const providerCaptureContract = inheritReferenceLook ? referencedLookContract : isGptImage2Model(selectedImageModel)
       ? buildGptImage2PhotographicContract(visualStyle, capturePreset || storyboard.capturePreset, { view: 'grid' })
       : `${buildMediumLock(visualStyle)}\n\n${buildImageCaptureContract(visualStyle)}\n\n${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}`;
     const enhancedPrompt = isStructuredGridPrompt ? `${cleanPrompt}
@@ -160,8 +173,8 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
     const missingObjects = sceneObjects.filter(o => o.description && !cleanPrompt.includes(o.description)).map(o => `${o.name}: ${o.description}`);
     const assetDescriptions = isStructuredGridPrompt && (missingRoles.length || missingObjects.length)
       ? `\n\n${cleanPrompt.includes('VISUAL ASSET AUTHORITY:') ? '' : VISUAL_ASSET_AUTHORITY}\n${missingRoles.join('\n')}\n${missingObjects.join('\n')}` : '';
-    const finalPrompt = isStructuredGridPrompt ? isGptImage2Model(selectedImageModel)
-      ? `${cleanPrompt}${assetDescriptions}\n\n${providerCaptureContract}` : `${cleanPrompt}${assetDescriptions}`
+    const finalPrompt = isStructuredGridPrompt ? isGptImage2Model(selectedImageModel) || styleReference
+      ? `${cleanPrompt}${assetDescriptions}${cleanPrompt.includes(providerCaptureContract) ? '' : `\n\n${providerCaptureContract}`}` : `${cleanPrompt}${assetDescriptions}`
       : cleanEnhancedPrompt;
     if (!isStructuredGridPrompt && !isGptImage2Model(selectedImageModel) && finalPrompt.length > promptLimit)
       throw new Error(`完整分镜与参考说明超过模型输入容量（${finalPrompt.length}/${promptLimit}）；未截断内容或提交生成`);
@@ -207,7 +220,7 @@ Strict rules: obey EXACT CAST literally; maintain exact face, hairstyle, clothin
       compact: `CHARACTER ${char.name}: ${char.description}`,
       description: photographicGpt
         ? `CHARACTER IDENTITY ONLY — "${char.name}". ${char.description} Keep this face/head, age, species, anatomy, hair and wardrobe. Ignore the reference pose, background, layout and rendering style.`
-        : `CHARACTER IDENTITY ONLY — "${char.name}". ${usingCostume ? 'Preserve the exact face, body proportions, hairstyle, wardrobe, accessories, and visual medium.' : `${char.description}. Preserve this character's exact face, body, hair, wardrobe, and visual medium.`} Ignore the reference pose, camera, background, layout, duplicate views, labels, and text. Instantiate this identity exactly once when required by the cast contract.`,
+        : `CHARACTER IDENTITY ONLY — "${char.name}". ${usingCostume ? 'Preserve the exact face, body proportions, hairstyle, wardrobe and accessories.' : `${char.description}. Preserve this character's exact face, body, hair and wardrobe.`} The selected style controls rendering; otherwise inherit the master finish. Ignore the reference pose, camera, background, layout, duplicate views, labels, and text. Instantiate this identity exactly once when required by the cast contract.`,
       fallback: `Character requirement: "${char.name}" - ${char.description}. Preserve this identity exactly once.`,
     });
   });
@@ -337,6 +350,8 @@ ${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}`;
     exactCast: exactCastContract,
     characterCount: sceneCharacters.length,
     referenceDescriptions,
+    inheritReferenceLook,
+    referenceLookContract: referencedLookContract,
     visualStyle,
     capturePreset: capturePreset || storyboard.capturePreset,
   }) : `IMAGE GOAL:
@@ -353,11 +368,7 @@ One complete standalone frame. No captions, subtitles, dialogue text, speech bub
 REFERENCE JOBS — each input has one job only; never blend their backgrounds, poses, or layouts:
 ${referenceDescriptions.join('\n')}
 
-${buildMediumLock(visualStyle)}
-
-${buildImageCaptureContract(visualStyle)}
-
-${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}
+${imageLookContract}
 
 PRESERVE INVARIANTS:
 Obey EXACT CAST literally. Maintain exact face, body proportions, hairstyle, clothing, accessories, and visual medium for every character. Treat each referenced object or product as an immutable design source: preserve its silhouette, dimensions, proportions, component layout, construction, material, surface finish, color, texture, seams, interfaces, intentional markings and physical scale. Change only viewpoint, placement, lighting and physically possible articulation; never redesign, simplify, stretch, melt, substitute or add/remove parts. A label or logo physically belonging to that object stays in the same position and design; add no unrelated text. Preserve the scene reference's architecture, geography, motivated light, atmosphere, and material language while allowing the requested camera viewpoint. Change only the action, composition, and viewpoint requested in IMAGE GOAL.
@@ -383,7 +394,8 @@ Obey EXACT CAST literally. Maintain exact face, body proportions, hairstyle, clo
   const promptLimit = isComfyUIZImageTurbo(selectedImageModel) ? 16000 : 4000;
   // Shorten only repeated boilerplate, never authored action or asset facts.
   const compactReferences = selectedReferenceEntries.map((entry, i) => `Reference image ${i + 1}: ${entry.compact}`);
-  const compactPrompt = `IMAGE GOAL:\n${cleanedScenePrompt}\n${storyboard.description || ''}\nPhysical action: ${storyboard.action || ''}\nCamera: ${[storyboard.shotSize, storyboard.angle, storyboard.cameraMove].filter(Boolean).join(', ')}\nScene: ${storyboard.sceneStyle || ''}\n${exactCastContract}\n${VISUAL_ASSET_AUTHORITY}\nREFERENCE JOBS — each input has one job only:\n${compactReferences.join('\n')}\n${objectsWithoutRef.map(o => `${o.name}: ${o.description}`).join('\n')}\n${buildCompactImageCaptureContract(visualStyle)}\n${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}\nNo captions, subtitles, dialogue text, speech bubbles, titles, watermark or UI. Preserve original physical product markings only.`;
+  const compactLookContract = inheritReferenceLook ? referencedLookContract : `${buildCompactImageCaptureContract(visualStyle)}\n${buildImageCapturePresetContract(capturePreset || storyboard.capturePreset)}`;
+  const compactPrompt = `IMAGE GOAL:\n${cleanedScenePrompt}\n${storyboard.description || ''}\nPhysical action: ${storyboard.action || ''}\nCamera: ${[storyboard.shotSize, storyboard.angle, storyboard.cameraMove].filter(Boolean).join(', ')}\nScene: ${storyboard.sceneStyle || ''}\n${exactCastContract}\n${VISUAL_ASSET_AUTHORITY}\nREFERENCE JOBS — each input has one job only:\n${compactReferences.join('\n')}\n${objectsWithoutRef.map(o => `${o.name}: ${o.description}`).join('\n')}\n${compactLookContract}\nNo captions, subtitles, dialogue text, speech bubbles, titles, watermark or UI. Preserve original physical product markings only.`;
   const finalPrompt = !isGptImage2Model(selectedImageModel) && cleanEnhancedPrompt.length > promptLimit ? compactPrompt : cleanEnhancedPrompt;
   if (!isGptImage2Model(selectedImageModel) && finalPrompt.length > promptLimit) throw new Error(`完整镜头与参考说明超过模型输入容量（${finalPrompt.length}/${promptLimit}）；未截断动作、未丢弃参考图、未提交生成`);
 

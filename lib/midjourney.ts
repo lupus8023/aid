@@ -6,7 +6,7 @@ export const MIDJOURNEY_TASK_PREFIX = 'midjourney:';
 export const DEFAULT_MIDJOURNEY_PERSONALIZATION_PROFILE = 'votj2t8';
 
 export type MidjourneyReferenceMode = 'image' | 'character' | 'style';
-export type MidjourneyTaskMode = 'single' | 'story-shot' | 'grid' | 'character-sheet';
+export type MidjourneyTaskMode = 'single' | 'story-shot' | 'grid' | 'character-sheet' | 'character-master';
 
 export interface MidjourneyReferenceOptions {
   version?: '6.1' | '7' | '8.2';
@@ -16,6 +16,7 @@ export interface MidjourneyReferenceOptions {
   omniWeight?: number;
   styleReferenceUrl?: string;
   styleWeight?: number;
+  styleDescription?: string;
 }
 
 export type MidjourneyStyleReference = Pick<MidjourneyReferenceOptions, 'styleReferenceUrl' | 'styleWeight'>;
@@ -172,6 +173,9 @@ export function buildMidjourneyPrompt(input: string, options: MidjourneyPromptOp
     .replace(/--(?:profile|p|ar|aspect|v|version|q|quality|stylize|s|chaos|c|weird|w|seed|iw|cref|cw|sref|sw|oref|ow|dref|dw|stop|repeat|r|niji|style)\s+[^\s]+/gi, '');
   const objectLock = referencedObjectDirection(source);
   const taskMode = options.taskMode || inferTaskMode(source);
+  // Aesthetic development is not a neutral fitting sheet. Keep the complete
+  // authored prose without a competing realism/capture/beauty manifesto.
+  if (taskMode === 'character-master') return source.trim();
   if (taskMode === 'grid' || /^UNIQUE STORYBOARD BATCH:/im.test(source)) throw new Error('MJ 不生成分镜四宫格，请逐镜生成');
   let visual = '';
 
@@ -272,14 +276,14 @@ export function buildMidjourneyImaginePayload(input: {
       taskMode,
       hasPeople,
       hasStyleReference: Boolean(styleUrl),
-    }),
+    }) + (styleUrl && references.styleDescription?.trim() ? `\n${references.styleDescription.trim()}` : ''),
     size: input.aspectRatio,
     // Character story shots with references use the V8.2 edit endpoint below.
     // Ordinary image guidance remains available for unrelated single images.
     version,
     // Keep the chosen photographic treatment; leave unrelated optional controls
     // at APIMart defaults instead of appending a synthetic parameter recipe.
-    raw: true,
+    ...(taskMode === 'character-master' ? {} : { raw: true }),
   };
 
   if (personalizationProfile) {

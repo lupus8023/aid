@@ -3,6 +3,15 @@ import test from 'node:test';
 
 import { ApiResponseError, isRequestTooLargeError, readApiJson } from '../lib/apiResponse.ts';
 
+test('an HTML image-upload error retains status without misdirecting users to change screenplay providers', async () => {
+  await assert.rejects(readApiJson(new Response('<html>server error</html>', { status: 500, headers: { 'Content-Type': 'text/html' } }), '参考图上传失败'), error => {
+    assert.equal(error.status, 500);
+    assert.match(error.message, /参考图上传失败/);
+    assert.doesNotMatch(error.message, /切换剧本 API/);
+    return true;
+  });
+});
+
 test('413 is terminal regardless of gateway response body format', async () => {
   for (const [body, contentType] of [
     ['', 'application/json'], ['<html>too large</html>', 'text/html'],

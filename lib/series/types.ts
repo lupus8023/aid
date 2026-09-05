@@ -57,6 +57,7 @@ export interface SeriesLibraryActor {
   description: string;
   imageUrl: string;
   bibleUrl?: string;
+  visualMaster?: Character['visualMaster'];
   voiceId?: string;
   voiceProfile?: string;
   voiceReferenceUrl?: string;

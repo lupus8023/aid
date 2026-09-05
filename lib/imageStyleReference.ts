@@ -21,9 +21,12 @@ Borrow only cultural/art-direction atmosphere, palette, warm/cool balance, contr
 Do not copy its person, face, hair, costume, pose, scenery, composition or weather. Do not inherit its artistic medium or rendering method; the selected output medium takes priority, including live-action photography when selected. Respect authored shot size, camera movement, time of day and actual light sources. Identity references control the cast; environment references control geography. Apply this reference's color and mood instead of generic color presets.`;
 }
 
-export function withImageStyleReference(prompt: string, images: string[], style: ImageStyleReference | undefined, maxReferences: number) {
+export function withImageStyleReference(prompt: string, images: string[], style: ImageStyleReference | undefined, maxReferences: number, imageOnly = false) {
   if (!style) return { prompt, images };
   if (images.length >= maxReferences) throw new Error('参考图已满，需为全系列风格图保留一个名额；未丢弃角色参考');
   // Append even when the same URL is also an identity: reference roles are distinct.
-  return { prompt: `${prompt}\n\n${imageStyleDirection(style, images.length + 1)}`, images: [...images, style.imageUrl] };
+  const direction = imageOnly ? `IMAGE STYLE REFERENCE — Reference image ${images.length + 1} is STYLE ONLY, not a character, object or location reference.
+Use its palette, warm/cool balance, lighting mood, contrast and surface treatment. With follow-reference or no selected image style, also inherit its artistic medium. An explicitly selected output medium takes priority over the reference medium. ${style.description || ''}
+Do not copy its person, face, hair, costume, pose, scenery, composition or weather. Identity and product references control design; authored shots control content. Do not print this reference's text, labels or borders.` : imageStyleDirection(style, images.length + 1);
+  return { prompt: `${prompt}\n\n${direction}`, images: [...images, style.imageUrl] };
 }

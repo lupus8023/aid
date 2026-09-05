@@ -52,7 +52,7 @@ export async function readApiJson<T>(response: Response, context: string, option
       }
     } catch {
       if (looksLikeHtml(body, contentType)) {
-        throw new Error(`${context}：${statusHint(response.status)}，服务器返回了错误网页而不是数据。请重试；若持续发生，请检查本地 Companion 或切换剧本 API。`);
+        throw new ApiResponseError(`${context}：${statusHint(response.status)}，服务器返回了错误网页而不是数据。请检查该接口的服务日志；若已有任务编号，请保留编号后重试查询。`, 'INVALID_API_RESPONSE', response.status);
       }
       throw new Error(`${context}：服务器返回了无法识别的数据（HTTP ${response.status}）`);
     }

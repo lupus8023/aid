@@ -50,9 +50,9 @@ export async function createProviderImageTask(
       options.midjourneyTaskMode,
       options.midjourneyHasPeople,
       options.midjourneyProfile,
-      style ? { ...options.midjourneyReferences, styleReferenceUrl: style.imageUrl } : options.midjourneyReferences,
+      style ? { ...options.midjourneyReferences, styleReferenceUrl: style.imageUrl, styleDescription: style.description } : options.midjourneyReferences,
     );
   }
-  const styled = withImageStyleReference(prompt, imageUrls, style, getImageModelCapabilities(model).maxReferenceImages);
+  const styled = withImageStyleReference(prompt, imageUrls, style, getImageModelCapabilities(model).maxReferenceImages, true);
   return await createImageTask(styled.prompt, styled.images, apiKey, model, aspectRatio, resolutionOverride);
 }
