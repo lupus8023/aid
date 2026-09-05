@@ -18,8 +18,8 @@ const input={
 const approved=Array.from({length:5},(_,i)=>({
  index:i+8,description:'贵妃收回手，宫女在旁托着袋子。',prompt:'[沈贵妃](red robe) and [宫女](green robe) beside a couch.',
  characterCostume:{沈贵妃:'红衣'},videoDirection:{
-  action:'[沈贵妃] withdraws her hand while [宫女] holds the pouch beside her.',
-  camera:'Hold a frontal medium view of the couch.',detail:'Her sleeve falls beside the couch.',ending:'Her hand rests on the couch arm.',
+  action:'[沈贵妃]收回手，[宫女]在旁托住袋子。',
+  camera:'镜头保持卧榻正面的中景。',detail:'她的衣袖垂在卧榻旁。',ending:'她的手停在卧榻扶手上。',
  },
 }));
 
@@ -41,8 +41,8 @@ const response=content=>({status:200,headers:{'content-type':'application/json'}
 test('director adapts a stalled batch to single-field repair, keeps screenplay and reuses the saved result',async()=>{
  await isolatedDirector(async root=>{
   const invalid=structuredClone(approved);
-  invalid[0].videoDirection.action='沈贵妃收回手。';
-  invalid[2].videoDirection.action='宫女托住袋子。';
+  invalid[0].videoDirection.action='沈贵妃开口说出原句。';
+  invalid[2].videoDirection.action='宫女大喊对白。';
   const before=structuredClone(input);
   const prompts=[];
   axios.post=async(url,body)=>{
@@ -57,7 +57,7 @@ test('director adapts a stalled batch to single-field repair, keeps screenplay a
    if(prompts.length===3){
     assert.match(prompt,/Return JSON \{"value"/);
     assert.match(prompt,/ONLY shots\[0\]\.videoDirection.action/);
-    assert.match(prompt,/必须用英文完整转写/);
+    assert.match(prompt,/必须用中文完整转写/);
     assert.match(prompt,/铜镜/,'show rejected candidate, not just a path');
     return response({data:{value:approved[0].videoDirection.action}});
    }
@@ -90,7 +90,7 @@ test('director adapts a stalled batch to single-field repair, keeps screenplay a
 
 test('explicit provider refusal stops adaptive repair without resubmission or loss of the retained batch',async()=>{
  await isolatedDirector(async root=>{
-  const invalid=structuredClone(approved);invalid[0].videoDirection.action='沈贵妃收回手。';
+  const invalid=structuredClone(approved);invalid[0].videoDirection.action='沈贵妃开口说出原句。';
   let calls=0;
   axios.post=async()=>{
    calls++;

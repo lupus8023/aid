@@ -410,7 +410,7 @@ test('keeps a newly merged manual plan in segment edit until that exact group is
 });
 
 test('uses a moving continuity handoff and trims the H3 restart', () => {
-  assert.ok(CONTINUITY_HANDOFF_LEAD_SECONDS > CONTINUITY_HEAD_TRIM_SECONDS);
+  assert.equal(CONTINUITY_HEAD_TRIM_SECONDS, CONTINUITY_HANDOFF_LEAD_SECONDS);
   assert.ok(CONTINUITY_HANDOFF_LEAD_SECONDS <= 0.3);
   assert.ok(CONTINUITY_HEAD_TRIM_SECONDS >= 0.12);
 });

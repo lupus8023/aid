@@ -8,6 +8,7 @@ import type {
 } from "./types";
 import type { ProjectData } from "@/hooks/useProject";
 import { checkEpisodeTextFields } from './fieldRepair';
+import { episodeAssetReferences } from './episodeAssetReferences';
 import { checkScriptDialogue } from './scriptRepair';
 import {
   ScriptShotCountError,
@@ -226,8 +227,8 @@ export function parseEpisodes(
         throw new Error(`第${number}集没有保留用户修改的${key}字段`);
     }
     if (Number(e.number) !== number) throw new Error("分集编号不连续");
-    const characters = list(e.characterIds),
-      locations = list(e.locationIds),
+    const characters = episodeAssetReferences(e, 'characterIds', project.characters),
+      locations = episodeAssetReferences(e, 'locationIds', project.locations),
       plants = list(e.plants),
       paysOff = list(e.paysOff);
     if (!characters.length || characters.some((id) => !characterIds.has(id)))
@@ -425,9 +426,8 @@ export function parseScript(
     if (missing.length)
       throw new Error(`本集镜头尚未落实新增固定道具：${missing.map(id => project.objects.find(object => object.id === id)?.name || id).join('、')}`);
   }
-  const duration = shots.reduce((n, s) => n + s.seconds, 0);
-  if (!authored && Math.abs(duration - project.durationSeconds) > 5)
-    throw new Error(`镜头总时长 ${duration} 秒，应接近${project.durationSeconds}秒`);
+  // Project duration is an estimate, not a delivery limit. Dialogue planning
+  // may legitimately extend individual shots (each remains at most 15s).
   // Authored dialogue is immutable. Its duration is expanded at import time
   // instead of shortening the user's words in an automatic repair pass.
   if (!authored) checkScriptDialogue(shots, project.language);
@@ -597,7 +597,7 @@ export function episodeScreenplay(
     .map(id => project.objects.find(object => object.id === id)?.name)
     .filter(Boolean);
   return [
-    `连续剧《${project.name}》第${episode.number}集《${episode.title}》；${project.shotCount}镜，约${project.durationSeconds}秒。`,
+    `连续剧《${project.name}》第${episode.number}集《${episode.title}》；${project.shotCount}镜，约${episode.script?.reduce((sum, shot) => sum + shot.seconds, 0) || project.durationSeconds}秒。`,
     "以下是已定稿单集。严格保留事件、角色、镜头顺序、动作、景别、运镜、氛围和结尾，不要扩写后续集数，不新增有台词角色。用户已锁定下列台词，必须逐字保留。",
     `开场：${episode.opening}\n故事：${episode.synopsis}\n本集回报：${episode.resolution}\n末镜钩子：${episode.hook}`,
     ...(episode.script || []).map(

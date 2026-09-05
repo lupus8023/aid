@@ -1,0 +1,18 @@
+--- a/director/executor_core.py
++++ b/director/executor_core.py
+@@ -11,6 +11,7 @@
+ from ..lib.task_modes import SUPPORTED_TASK_KEYS
+ from ..nodes.conditioning import run_minimax_conditioning
+ from .core_sampling import sample_single_stage
++from .h3_context_patches import scoped_continuity_patches
+ from .refine_pack import (
+     confirm_first_pass_enabled,
+     first_pass_sigmas_override,
+@@ -264,6 +265,7 @@
+     return out or None
+
+
++@scoped_continuity_patches
+ def execute_director_plan_core(
+     plan: DirectorPlan,
+     *,

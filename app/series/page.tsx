@@ -33,6 +33,7 @@ import SeriesVoicePicker from '@/components/SeriesVoicePicker';
 import SeriesStyleReferenceEditor from '@/components/SeriesStyleReferenceEditor';
 import { useSettings } from "@/hooks/useSettings";
 import { readApiJson } from "@/lib/apiResponse";
+import { fixedObjectIdentityError } from '@/lib/series/objectIdentity';
 import { PRODUCTION_STYLE_PRESETS } from "@/lib/promptArchitecture";
 import {
   CHARACTER_HISTORY_STORAGE_KEY,
@@ -605,6 +606,7 @@ function FixedObjectCard({
   disabled,
   disabledReason,
   saving,
+  feedback,
   onSave,
   onDelete,
   onGenerate,
@@ -616,6 +618,7 @@ function FixedObjectCard({
   disabled: boolean;
   disabledReason?: string;
   saving?: boolean;
+  feedback?: { tone: 'saving' | 'success' | 'error'; message: string };
   onSave: (patch: { name: string; aliases: string; description: string; referenceMode: 'auto' | 'upload' }, file?: File) => void;
   onDelete?: () => void;
   onGenerate?: () => void;
@@ -625,13 +628,21 @@ function FixedObjectCard({
   const [referenceMode, setReferenceMode] = useState<'auto' | 'upload'>(
     object ? seriesObjectReferenceMode(object) : 'upload',
   );
+  const [selectedFile, setSelectedFile] = useState<File>();
+  const [previewUrl, setPreviewUrl] = useState('');
+  useEffect(() => {
+    if (!selectedFile) { setPreviewUrl(''); return; }
+    const url = URL.createObjectURL(selectedFile);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [selectedFile]);
   const mustUpload = referenceMode === 'upload' && (
     !object?.imageUrl || (object && seriesObjectReferenceMode(object) === 'auto')
   );
   return (
     <article className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]">
-      {object?.imageUrl ? (
-        <img src={object.imageUrl} alt={object.name} className="aspect-[4/3] w-full bg-[#141517] object-contain" />
+      {previewUrl || object?.imageUrl ? (
+        <img src={previewUrl || object?.imageUrl} alt={previewUrl ? '待保存的道具参考图' : object?.name} className="aspect-[4/3] w-full bg-[#141517] object-contain" />
       ) : (
         <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 bg-[#1d1e23]">
           <Package size={40} className="text-[#a78bfa]/30" />
@@ -693,7 +704,10 @@ function FixedObjectCard({
             name="referenceMode"
             value={referenceMode}
             disabled={disabled}
-            onChange={event => setReferenceMode(event.target.value as 'auto' | 'upload')}
+            onChange={event => {
+              setReferenceMode(event.target.value as 'auto' | 'upload');
+              setSelectedFile(undefined);
+            }}
           >
             <option value="auto">自动生成参考图</option>
             <option value="upload">我指定参考图</option>
@@ -703,7 +717,8 @@ function FixedObjectCard({
           <p className="text-xs leading-5 text-[var(--text-secondary)]">系统按上面的不可变细节生成一张独立道具参考图；修改设计后会重新生成。</p>
         ) : (
           <Labeled label={object?.imageUrl && seriesObjectReferenceMode(object) === 'upload' ? '替换指定图（不选则保留当前图）' : '指定参考图'}>
-            <input className={`${field} text-xs`} type="file" name="image" accept="image/png,image/jpeg,image/webp" required={mustUpload} disabled={disabled} />
+            <input className={`${field} text-xs`} type="file" name="image" accept="image/png,image/jpeg,image/webp" required={mustUpload} disabled={disabled}
+              onChange={event => setSelectedFile(event.target.files?.[0])} />
           </Labeled>
         )}
         {object && referenceMode === 'auto' && !object.imageUrl && onGenerate && (
@@ -724,6 +739,11 @@ function FixedObjectCard({
           </button>
           {onDelete && <button type="button" className={`${button} text-red-300`} disabled={disabled} onClick={onDelete}><Trash2 size={14} />删除</button>}
         </div>
+        {feedback && (
+          <p role={feedback.tone === 'error' ? 'alert' : 'status'} className={`rounded-lg border px-3 py-2 text-xs leading-5 ${feedback.tone === 'error' ? 'border-red-300/20 text-red-200' : feedback.tone === 'success' ? 'border-emerald-300/20 text-emerald-200' : 'border-[#a78bfa]/20 text-[#d8ceff]'}`}>
+            {feedback.message}
+          </p>
+        )}
         {disabledReason && !saving && (
           <p className="rounded-lg border border-amber-300/20 bg-amber-300/5 px-3 py-2 text-xs leading-5 text-amber-200" role="status">
             {disabledReason}
@@ -748,12 +768,14 @@ export default function SeriesPage() {
   const [tab, setTab] = useState<Tab>("outline");
   const [creating, setCreating] = useState(false);
   const [trashTarget, setTrashTarget] = useState<SeriesProject>();
+  const [showVisualRedo, setShowVisualRedo] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const [trashError, setTrashError] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [objectFeedback, setObjectFeedback] = useState<{ target: string; tone: 'saving' | 'success' | 'error'; message: string }>();
+  const [newObjectReset, setNewObjectReset] = useState(0);
   const [selection, setSelection] = useState<string[]>([]);
   const [episodeId, setEpisodeId] = useState("");
   const [preview, setPreview] = useState("");
@@ -871,6 +893,7 @@ export default function SeriesPage() {
         if (!busy) {
           setTrashTarget(undefined);
           setShowTrash(false);
+          setShowVisualRedo(false);
         }
       }
     };
@@ -952,6 +975,37 @@ export default function SeriesPage() {
     { action: "delete-job", seriesId: job.seriesId, jobId: job.id },
     "失败任务已删除，剧本、制作断点、素材和成片均保留。",
   );
+  const redoVisuals = async () => {
+    if (!project || base === undefined || busy || editingLocked) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const status = await readApiJson<{ seriesVisualRedo?: boolean }>(
+        await fetch(`${base}/api/companion/status`, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(5000),
+        }),
+        "无法检查一键重做支持",
+      );
+      if (!status.seriesVisualRedo)
+        throw new Error("一键重做需要更新 Companion 后重新连接。");
+      await seriesRequest({
+        action: "redo-visuals",
+        seriesId: project.id,
+        revision: project.revision,
+        settings,
+      }, base);
+      await refresh(base);
+      setShowVisualRedo(false);
+      setTab("queue");
+      setNotice("一键重做已开始：保留剧本、逐镜导演文本、音色和历史成片，仅重做角色/场景/自动道具图、分镜图、视频与最终拼接。");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "一键重做启动失败");
+    } finally {
+      setBusy(false);
+    }
+  };
   const saveStyleReference = async (file: File | undefined, description: string, remove = false) => {
     if (!project || busy || editingLocked || base === undefined) return false;
     const target = project;
@@ -985,6 +1039,12 @@ export default function SeriesPage() {
       return;
     }
     const target = project;
+    const aliases = patch.aliases.split(/[，,、\n]/).map(value => value.trim()).filter(Boolean);
+    const identityError = fixedObjectIdentityError(target.objects || [], patch.name, aliases, objectId);
+    if (identityError) {
+      setObjectFeedback({ target: objectId || 'new', tone: 'error', message: identityError });
+      return;
+    }
     setBusy(true); setError(''); setNotice('');
     setObjectFeedback({ target:objectId || 'new', tone:'saving', message:`正在上传并保存固定道具“${patch.name.trim()}”…` });
     try {
@@ -1006,7 +1066,7 @@ export default function SeriesPage() {
         settings,
         patch:{
           ...patch,
-          aliases:patch.aliases.split(/[，,、\n]/).map(value=>value.trim()).filter(Boolean),
+          aliases,
           ...(imageUrl ? { imageUrl } : {}),
         },
       }, base);
@@ -1016,7 +1076,10 @@ export default function SeriesPage() {
           projects: current.projects.map(item => item.id === result.project!.id ? result.project! : item),
         }));
       }
-      await refresh(base);
+      // The mutation has succeeded. A failed follow-up read must not invite a
+      // duplicate add, and background revision changes must never clear a draft.
+      if (!objectId) setNewObjectReset(value => value + 1);
+      await refresh(base).catch(() => setConnected(false));
       const sourceMessage = patch.referenceMode === 'auto'
         ? '资产定稿时会自动生成并锁定参考图。'
         : '已按用户指定图锁定外观。';
@@ -1385,6 +1448,17 @@ export default function SeriesPage() {
                   >
                     {project.paused ? <Play size={14} /> : <Pause size={14} />}
                     {project.paused ? "继续队列" : "暂停队列"}
+                  </button>
+                  <button
+                    className={button}
+                    disabled={busy || editingLocked || !ready || !project.episodes.every(episode =>
+                      episode.script?.length && episode.production?.storyboards?.length === episode.script.length
+                    )}
+                    title="保留剧本、分镜文本、音色和历史成片，从角色生图开始重做图片与视频"
+                    onClick={() => setShowVisualRedo(true)}
+                  >
+                    <RefreshCw size={14} />
+                    一键重做
                   </button>
                   <button
                     className={primary}
@@ -1855,15 +1929,17 @@ export default function SeriesPage() {
                           usage={fixedObjectUsage(project, object.id)}
                           disabledReason={fixedObjectDisabledReason}
                           saving={busy && objectFeedback?.tone === 'saving' && objectFeedback.target === object.id}
+                          feedback={objectFeedback?.target === object.id ? objectFeedback : undefined}
                           generationPending={jobs.some(job => job.kind === 'prepare' && job.assetId === object.id && ['queued', 'running', 'paused'].includes(job.status))}
                           generationDisabled={busy || editingLocked || !connected || !project.bible}
                           onGenerate={()=>void enqueue('prepare', undefined, object.id)}
                           onSave={(patch,file)=>void saveFixedObject(object.id,patch,file)}
                           onDelete={()=>void action({action:'delete-object',revision:project.revision,objectId:object.id},`固定道具“${object.name}”已删除；剧本和历史成片保留。`)} />
                       ))}
-                      <FixedObjectCard key={`new-object-${project.revision}`} disabled={editingLocked || busy || !connected}
+                      <FixedObjectCard key={`new-object-${project.id}-${newObjectReset}`} disabled={editingLocked || busy || !connected}
                         disabledReason={fixedObjectDisabledReason}
                         saving={busy && objectFeedback?.tone === 'saving' && objectFeedback.target === 'new'}
+                        feedback={objectFeedback?.target === 'new' ? objectFeedback : undefined}
                         onSave={(patch,file)=>void saveFixedObject(undefined,patch,file)} />
                     </div>
                     <h3 className="mb-4 mt-9 text-sm">常用场景</h3>
@@ -2106,6 +2182,31 @@ export default function SeriesPage() {
           )}
         </main>
       </div>
+      {project && showVisualRedo && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="visual-redo-title"
+            className="w-full max-w-lg rounded-2xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-6 shadow-2xl"
+          >
+            <h2 id="visual-redo-title" className="text-lg font-semibold">从角色生图开始一键重做？</h2>
+            <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+              保留故事总纲、分集故事、镜头剧本、逐镜导演描述、音色和历史成片；重新生成自动角色卡、场景、自动道具、四宫格分镜图、H3 视频及最终拼接。用户上传和角色库指定的图片不会重画。
+            </p>
+            <p className="mt-3 rounded-lg bg-amber-400/10 px-3 py-2 text-xs leading-6 text-amber-200">
+              此操作会产生新的图片与视频生成费用。
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button className={button} disabled={busy} onClick={() => setShowVisualRedo(false)}>取消</button>
+              <button className={primary} disabled={busy} onClick={() => void redoVisuals()}>
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                确认重做
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       {trashTarget && (
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/75 p-4">
           <section role="dialog" aria-modal="true" aria-labelledby="trash-title" aria-describedby="trash-description"

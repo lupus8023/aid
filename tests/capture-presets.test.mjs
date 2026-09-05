@@ -88,12 +88,12 @@ test('MJ world master and Nano grid both receive the project capture mode', () =
 
 test('the final H3 prompt receives visual-only broadcast candid direction', () => {
   const prompt = buildVideoSegmentPrompt([storyboard('broadcast-candid')], [], { duration: 8, language: 'zh' });
-  assert.match(prompt, /CAPTURE MODE: Authentic live television candid footage/);
-  assert.match(prompt, /long-lens observational viewpoint/i);
-  assert.match(prompt, /foreground pedestrians or street objects briefly occluding the frame/i);
-  assert.match(prompt, /continue the low-intensity task in/i);
-  assert.match(prompt, /one adjustment may pause unfinished/i);
-  assert.match(prompt, /return attention(?: to the task)?/i);
+  assert.match(prompt, /远距离机位只在动作开始后反应/);
+  assert.match(prompt, /稍晚做一次小幅重新构图或焦点恢复/);
+  assert.match(prompt, /延续<Picture 1>中的低强度行动/);
+  assert.match(prompt, /一个调整可以停在未完成状态/);
+  assert.match(prompt, /随后恢复注意或进入既定的新状态/);
+  assert.doesNotMatch(prompt, /CAPTURE MODE:/);
   assert.doesNotMatch(prompt, /<d>/);
 });
 

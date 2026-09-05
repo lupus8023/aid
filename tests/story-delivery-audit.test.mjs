@@ -29,7 +29,7 @@ function coherentFixture() {
     const speech = speechFor(index);
     return {
       index, sequenceId: index <= 9 ? 'pressure' : 'release', locationId: index <= 9 ? 'palace' : 'shore',
-      action: `Lanxi performs causal action ${index}, changing the visible state before the next beat.`,
+      action: `Lanxi完成第${index}个因果动作，使可见状态在下一镜前发生变化。`,
       characters: speech.length ? [...new Set(speech.map(line => line.character))] : ['Lanxi'], objects: [],
       speech, dialogueLines: speech.map(line => ({ character: line.character, text: line.exactLine })),
       audioPlan: { backgroundHuman: 'none', environment: ['tide ambience'], foley: ['water contact'], music: 'none', silenceBefore: 0.45, silenceAfter: 0.55 },

@@ -1,3 +1,10 @@
+## 0.1.197 - 2026-09-06
+
+- Generate every MiniMax H3 directing instruction in concise Chinese across independent Image-to-Video, Story and Series while keeping exact spoken lines in the selected project language. Rewrite retained legacy English H3 prompts before submission, preserve authored actions and expressions, and add no subtitle QC or media retry loop.
+- Keep raw character, product and scene references exclusively in GPT-Image-2 storyboard generation. H3 now receives only the final integrated storyboard frame, explicit continuity frame and audio references, preventing a raw product photograph from appearing as an inserted video frame.
+- Strengthen Series screenplay self-repair for fixed-prop names, missing speakers and partial model output while retaining accepted drafts and user-authored actions. Product identity replacements propagate through screenplay fields and bindings before visual production.
+- Add Series one-click visual redo. It preserves the bible, episode prose, shot screenplay, director storyboards, voices and historical films; it regenerates automatic character/location/prop masters, storyboard images, H3 clips and final assembly. User-uploaded and library-selected references remain authoritative. Full local suite: 621 tests; production build passed.
+
 ## 0.1.196 - 2026-09-05
 
 - Add separate MJ/GPT character-master design, direct adoption of original artwork, library confirmation and optional GPT reference extensions. Carry the original visual master through Story and Series; use GPT-Image-2 for four-panel storyboards derived from an MJ master without redesigning the character.

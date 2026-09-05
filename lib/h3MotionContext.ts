@@ -83,17 +83,25 @@ export function shiftH3SpeechTurns<T extends { start?: number; end?: number }>(t
 export function adaptH3PromptForMotionContinuation(prompt: string): string {
   return String(prompt || '')
     .replace(
+      /<Picture 1>是\[Shot 1\]的开场连续性画面。/g,
+      '<Picture 1>是[Shot 1]的人物身份、服装、场景与构图参考；动态开场来自上一片段的音画上下文。',
+    )
+    .replace(
+      /\[Shot 1\] 本镜以<Picture 1>作为构图参考。/g,
+      '[Shot 1] 动态开场直接承接上一片段的音画尾部；<Picture 1>只持续约束人物身份、服装、场景与既定构图。',
+    )
+    .replace(
       /<Picture 1> is the opening continuity frame for \[Shot 1\]\./g,
-      '<Picture 1> is the visual identity, wardrobe, scene, and composition reference for [Shot 1]; the moving opening comes from the previous segment audiovisual context.',
+      '<Picture 1>是[Shot 1]的人物身份、服装、场景与构图参考；动态开场来自上一片段的音画上下文。',
     )
     .replace(/\[locked-first-frame image-to-video([^\]]*)\]/gi, '[moving audiovisual context continuation$1]')
     .replace(
       /<Picture 1> \(\[Shot 1\] composition\): opening anchor -[^\n]*/g,
-      '<Picture 1> ([Shot 1] composition): persistent reference - preserve identity, wardrobe, setting, lighting, and authored composition while the previous moving context owns the opening.',
+      '<Picture 1>（[Shot 1]构图）是持续参考：保持人物身份、服装、场景、光线和既定构图；开场运动由上一段动态上下文决定。',
     )
     .replace(
       /REFERENCE PRIORITY — LOCK to <Picture 1>; DO NOT REDRAW\. <Picture 1> is the exact first frame at 00:00\.000, not loose style inspiration\./g,
-      'MOTION CONTEXT PRIORITY — continue directly from the previous segment\'s moving audiovisual tail. <Picture 1> is a persistent identity, wardrobe, scene, and composition reference, not a replacement opening frame.',
+      '动态上下文优先：直接承接上一段的动态音画尾部。<Picture 1>只作为持续的人物身份、服装、场景和构图参考，不替换动态开场。',
     );
 }
 

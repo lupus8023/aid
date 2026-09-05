@@ -33,10 +33,10 @@ test('count distinct bodies within each frame, not repeated appearances across t
 test('puts confirmed visual repairs inside the official detailed section before shots', () => {
   const prompt = `subject_definitions:\n<Subject 1> is Luna.\n\nsummary:\nOne shot.\n\nretention_analysis:\nKeep Luna.\n\ndetailed_description:\n[Shot 1] Luna speaks <d>[English] Stop.</d>\n\noverall_soundscape:\nRoom tone.\n\nnon_diegetic_music:\nN/A`;
   const repaired = applyVideoDuplicateRepairPrompt(prompt, '画面必须完全无字幕。');
-  assert.ok(repaired.indexOf('detailed_description:') < repaired.indexOf('For this regeneration, correct the confirmed visual anomaly:'));
-  assert.ok(repaired.indexOf('For this regeneration, correct the confirmed visual anomaly:') < repaired.indexOf('[Shot 1]'));
+  assert.ok(repaired.indexOf('detailed_description:') < repaired.indexOf('本次重新生成只修正已确认的画面异常：'));
+  assert.ok(repaired.indexOf('本次重新生成只修正已确认的画面异常：') < repaired.indexOf('[Shot 1]'));
   assert.ok(repaired.indexOf('[Shot 1]') < repaired.indexOf('overall_soundscape:'));
-  assert.match(repaired, /ordered <d> blocks remain soundtrack audio only/);
+  assert.match(repaired, /所有按顺序排列的<d>内容仍只存在于音轨中/);
   assert.equal((repaired.match(/<d>\[English] Stop\.<\/d>/g) || []).length, 1);
 });
 
@@ -109,7 +109,7 @@ test('repair preserves existing media receipts, exact speech and every other sho
   assert.equal(repaired[1].videoDuplicateHistory[0].videoCacheKey, 'old');
   assert.notEqual(videoSegmentGenerationSignature([bad]), videoSegmentGenerationSignature([repaired[1]]));
   const prompt = buildVideoSegmentPrompt([repaired[1]], [], { duration: 6, language: 'en' });
-  assert.match(prompt, /same single body/);
+  assert.match(prompt, /每个已声明主体只保留一个实例/);
   assert.equal((prompt.match(/<d>\[English] Absolutely not\.<\/d>/g) || []).length, 1);
   assert.throws(() => prepareVideoDuplicateRepair([bad], [bad], { ...audit, taskId: 'stale' }), /明确证据/);
   const exhausted = { ...bad, videoDuplicateRepairAttempts: 3 };

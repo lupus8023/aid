@@ -119,3 +119,14 @@ test('Story wires grounding before writing/new generation but skips it for retai
   const middleware=await readFile(new URL('../middleware.ts',import.meta.url),'utf8');
   assert.ok(middleware.includes("'/api/prepare-story-assets'"));
 });
+
+test('Story and Series keep product originals in image generation and never send them to H3', async () => {
+  const story=await readFile(new URL('../app/story/page.tsx',import.meta.url),'utf8');
+  const videoRoute=await readFile(new URL('../app/api/generate-video/route.ts',import.meta.url),'utf8');
+  assert.match(story,/const objectReferences = groupObjects/,'GPT-Image-2 still receives the selected object references');
+  assert.doesNotMatch(story,/objectReferences:\s*portableObjectReferences/);
+  assert.doesNotMatch(story,/道具原图`, true/);
+  assert.doesNotMatch(videoRoute,/objectReferences\s*=\s*\[\]/);
+  assert.doesNotMatch(videoRoute,/identityImages:/);
+  assert.match(videoRoute,/firstFrame,\s+auxiliaryImages,/,'H3 receives only integrated storyboard or explicit continuity frames');
+});

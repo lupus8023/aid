@@ -377,6 +377,16 @@ test('wires a single storyboard into first_frame instead of ref_images', () => {
   assert.equal(loader.inputs.image, 'locked-frame.png');
 });
 
+test('keeps first-frame authority while adding immutable object pictures', () => {
+  const prompt = nativePrompt(englishPrompt);
+  injectReferenceImages(prompt, 'aid_single_reference', ['locked-frame.png'], ['gold-box.png']);
+  assert.equal(prompt[2].inputs.task_type, 'Hybrid');
+  assert.ok(Array.isArray(prompt[2].inputs.first_frame));
+  assert.ok(Array.isArray(prompt[2].inputs['ref_images.ref_image_0']));
+  const loader = prompt[prompt[2].inputs['ref_images.ref_image_0'][0]];
+  assert.equal(loader.inputs.image, 'gold-box.png');
+});
+
 test('keeps the I2VA first frame while native voice conditioning becomes Hybrid', () => {
   const prompt = nativePrompt(englishPrompt);
   injectReferenceImages(prompt, 'aid_single_reference', ['locked-frame.png']);
@@ -394,12 +404,12 @@ test('keeps the I2VA first frame while native voice conditioning becomes Hybrid'
 
 test('never turns native audio into permission to invent speech or music', () => {
   const silent = taggedPrompt('AUDIO: no approved dialogue.', 'aid_single_reference', 0, 0);
-  assert.match(silent, /With no scripted line/);
-  assert.match(silent, /non-speaking performance/);
+  assert.match(silent, /没有剧本台词时/);
+  assert.match(silent, /保持无对白表演/);
 
   const voiced = taggedPrompt('APPROVED DIALOGUE: A: "你好"', 'aid_multi_reference', 1, 1, ['A']);
-  assert.match(voiced, /Voice-to-character binding/);
-  assert.match(voiced, /sole spoken wording/);
+  assert.match(voiced, /声音与角色绑定/);
+  assert.match(voiced, /唯一允许说出的内容/);
 });
 
 test('keeps an official structured H3 prompt free of a second appended contract', () => {

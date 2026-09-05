@@ -25,8 +25,8 @@ test('H3 prompts use natural-language text-free direction inside the official st
   assert.match(source, /subject_definitions:/);
   assert.match(source, /integrated_multimodal_description:/);
   assert.match(source, /NO_SUBTITLE_POLICY/);
-  assert.match(policy, /Deliver clean camera-original footage before graphics/);
-  assert.match(policy, /Dialogue exists only in the audio track/);
+  assert.match(policy, /纯净原片要求/);
+  assert.match(policy, /对白只存在于音轨中/);
   assert.doesNotMatch(source, /画面里不要出现字幕、文字、标志、水印或界面/);
   assert.doesNotMatch(source, /timeline_json|aid_h3_timeline|frame_text_policy/);
   assert.match(source, /visualOverride: storyboard\.videoPrompt\.trim\(\)/);
@@ -43,15 +43,16 @@ test('legacy beat bridge no longer repeats visual-text vocabulary', () => {
 test('provider boundary enforcement is idempotent', () => {
   const once = enforceNoSubtitles('Camera tracks left.');
   assert.equal(enforceNoSubtitles(once), once);
-  assert.match(once, /CLEAN-FRAME PRESENTATION/);
-  assert.match(once, /free of added typography/);
-  assert.match(once, /Preserve only lettering already present in reference pictures/);
-  assert.equal((once.match(/CLEAN-FRAME PRESENTATION/g) || []).length, 1);
+  assert.match(once, /纯净原片要求/);
+  assert.match(once, /画面中不添加字幕、标题、对白文字、水印或界面/);
+  assert.match(once, /只保留参考图中实物本来就有的印字/);
+  assert.equal((once.match(/纯净原片要求/g) || []).length, 1);
 });
 
 test('image-to-video sends the text-free policy to both ComfyUI and remote providers', async () => {
   const source = await readFile(new URL('../app/api/image-to-video/route.ts', import.meta.url), 'utf8');
-  assert.match(source, /const safePrompt = enforceNoSubtitles\(prompt\)/);
+  assert.match(source, /const safePrompt = enforceNoSubtitles\(localizedPrompt\)/);
+  assert.match(source, /h3VisualPromptIsChinese\(localizedPrompt\)/);
   assert.match(source, /prompt: safePrompt/);
   assert.match(source, /let enhancedPrompt = safePrompt/);
   assert.match(source, /createVideoTask\(\s*enhancedPrompt/s);

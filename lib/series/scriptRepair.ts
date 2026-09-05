@@ -1,4 +1,26 @@
 import type { SeriesShot } from './types';
+import { speechSeconds } from '../speechAudioContract';
+
+/** Planning correction, not media QC. Preserve speech/actions and extend a
+ * short estimate within the existing single-clip limit before shortening text. */
+export function fitScriptDialogueDurations(raw: any, language: string) {
+  const result = structuredClone(raw);
+  const changes: Array<{ shotNumber: number; from: number; to: number }> = [];
+  for (const shot of Array.isArray(result?.shots) ? result.shots : []) {
+    const previous = Number(shot?.seconds);
+    if (!Number.isFinite(previous) || previous < 2 || previous > 15 || !Array.isArray(shot.dialogue)) continue;
+    const lines = shot.dialogue.map((line: any) => typeof line?.text === 'string' ? line.text : '').filter(Boolean);
+    if (!lines.length) continue;
+    const units = lines.reduce((sum: number, line: string) => sum + (language === 'zh' ? line.length : line.trim().split(/\s+/).length), 0);
+    const estimated = lines.reduce((sum: number, line: string) => sum + speechSeconds(line), 0) + 1.8 + Math.max(0, lines.length - 1) * 0.12;
+    const seconds = Math.min(15, Math.ceil(Math.max(estimated, units / (language === 'zh' ? 4.2 : 2.4) + 0.8)));
+    if (seconds > previous) {
+      shot.seconds = seconds;
+      changes.push({ shotNumber: Number(shot.number), from: previous, to: seconds });
+    }
+  }
+  return { raw: result, changes };
+}
 
 export interface DialogueIssue {
   index: number;

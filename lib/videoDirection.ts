@@ -24,19 +24,37 @@ const VIDEO_DIRECTION_WRITING_CONTRACT_BASE = `
 `;
 
 export function videoDirectionWritingContract(_language: 'zh' | 'en' = 'zh'): string {
-  // Keep H3's visual-conditioning prose in English. The approved project
-  // language applies only to exact dialogue inside <d>; mixing Chinese visual
-  // direction with Chinese dialogue made visible glyphs much more frequent in
-  // production, while the earlier all-English directing contract did not.
-  const languageRule = '- 四个字段一律使用简洁、自然的英文；已登记角色/物体正名允许原样保留。项目语言只约束 speech 中的逐字台词。不得引用、翻译或概括逐字台词；对白只由 speech 控制。不写声音指令、暗示人物说出具体内容、<d> 标签或 H3 章节标记。';
-  const example = '例：不要写“她自然地表现震惊，镜头电影感推进”。可写 action="Lin draws the photograph from the envelope; her right hand loosens when she sees it." camera="From the table-height medium shot, dolly forward at an even pace as Lin lowers her hand, ending close on the photograph between her fingers." detail="Her smile fades before her fingers release." ending="The photograph lands face-up; her right hand remains suspended." 另一种既有构图适用的写法：camera="Locked-off close shot: as Lin\'s thumb stops on the torn seam, rack focus once from the paper edge to her eyes behind it."（仅学习写法，不复制故事、机位或动作。）';
+  // H3 visual prose is always authored in Chinese. The project language affects
+  // exact dialogue only. This mirrors the production A/B result where the same
+  // Chinese visual brief avoided the burned captions produced by its English
+  // translation, while also following blocking and expressions more precisely.
+  const languageRule = '- 四个字段一律使用简洁、自然的中文；已登记角色/物体正名原样保留。项目语言只约束 speech 中的逐字台词。不得引用、翻译或概括逐字台词；对白只由 speech 控制。不写声音指令、暗示人物说出具体内容、<d> 标签或 H3 章节标记。';
+  const example = '例：不要写“她自然地表现震惊，镜头电影感推进”。可写 action="林从信封中抽出照片；看清照片时，她的右手逐渐松开。" camera="从桌面高度的中景开始，随着林放低右手匀速推近，最后停在她指间的照片近景。" detail="她的笑意先消失，随后手指才松开。" ending="照片正面朝上落在桌面，右手仍悬在上方。" 另一种既有构图适用的写法：camera="固定机位近景；林的拇指停在破损封口时，只做一次移焦，从纸张边缘移到后方的双眼。"（仅学习写法，不复制故事、机位或动作。）';
   return VIDEO_DIRECTION_WRITING_CONTRACT_BASE
     .replace('{{LANGUAGE_RULE}}', languageRule)
     .replace('{{LANGUAGE_EXAMPLE}}', example);
 }
 
 // Backward-compatible default for callers that do not carry project language.
-export const VIDEO_DIRECTION_WRITING_CONTRACT = videoDirectionWritingContract('en');
+export const VIDEO_DIRECTION_WRITING_CONTRACT = videoDirectionWritingContract('zh');
+
+/** New H3 prompts require Chinese visual prose; registered Latin names may stay. */
+export function isChineseVideoDirectionField(value: string, entityNames: string[] = []): boolean {
+  const prose = [...entityNames].filter(Boolean).sort((a, b) => b.length - a.length)
+    .reduce((text, name) => text.replaceAll(name, ' '), String(value || ''))
+    .replace(/<\/?(?:Picture|Subject|Object|Audio|d)(?:\s+\d+)?>/gi, ' ');
+  const han = prose.match(/\p{Script=Han}/gu)?.length || 0;
+  const latin = prose.match(/[A-Za-z]/g)?.length || 0;
+  return han > 0 && latin <= Math.max(2, Math.floor(han * 0.25));
+}
+
+export function isChineseVideoDirection(value: StoryVideoDirection, entityNames: string[] = []): boolean {
+  return (Object.keys(VIDEO_DIRECTION_LIMITS) as Array<keyof StoryVideoDirection>).every(field => {
+    const text = String(value[field] || '').trim();
+    if (!text) return field === 'detail';
+    return isChineseVideoDirectionField(text, entityNames);
+  });
+}
 
 export function videoDirectionEntityNames(shot: Partial<Storyboard>): string[] {
   return [...new Set([
@@ -53,7 +71,7 @@ export function withoutVideoEntityNames(value: string, names: string[]): string 
 /**
  * Providers occasionally shorten a CJK character name (for example 沈贵妃 ->
  * 贵妃). Accept only an unambiguous suffix of a registered name and restore the
- * canonical spelling before enforcing English visual prose.
+ * canonical spelling before validating visual prose.
  */
 export function canonicalizeVideoDirectionEntityAliases(value: string, names: string[]): string {
   const canonical = [...new Set(names.map(name => String(name || '').trim()).filter(Boolean))];
@@ -64,22 +82,41 @@ export function canonicalizeVideoDirectionEntityAliases(value: string, names: st
   });
 }
 
+const normalizedDialogue = (value: string) => value.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
+
+export function isEntityNameDialogue(line: string, entityNames: string[]): boolean {
+  const needle = normalizedDialogue(line);
+  return Boolean(needle) && entityNames.some(name => normalizedDialogue(name) === needle);
+}
+
+/** A spoken vocative such as “裴大人。” does not make every visual actor reference dialogue. */
+export function containsExactDialogue(text: string, line: string, entityNames: string[] = []): boolean {
+  const needle = normalizedDialogue(line);
+  if (!needle) return false;
+  if (isEntityNameDialogue(line, entityNames)) {
+    return [...text.matchAll(/[“「『"']([^”」』"']+)[”」』"']/gu)]
+      .some(match => normalizedDialogue(match[1]) === needle)
+      || new RegExp(`(?:\\b(?:says?|asks?|replies?|whispers?|shouts?)|说道|说出|喊道)\\s*[:：,]?\\s*${line.trim().replace(/[\s\p{P}\p{S}]/gu, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'iu').test(text);
+  }
+  // A short line such as "Yes" must not match the visible word "eyes".
+  return /^[a-z]+$/.test(needle) && needle.length <= 4
+    ? new RegExp(`\\b${needle}\\b`, 'i').test(text)
+    : normalizedDialogue(text).includes(needle);
+}
+
 export function validateVideoDirectionField(field: keyof StoryVideoDirection, value: unknown, entityNames: string[] = [], exactLines: string[] = [], checkCameraSpecificity = false, enforceFieldLimit = true): string {
   if (typeof value !== 'string') throw new Error(`videoDirection.${field} 必须为字符串`);
   const text = canonicalizeVideoDirectionEntityAliases(value.replace(/\s+/g, ' ').trim(), entityNames);
   if (!text && field !== 'detail') throw new Error(`videoDirection.${field} 不能为空`);
   if (enforceFieldLimit && text.length > VIDEO_DIRECTION_LIMITS[field]) throw new Error(`videoDirection.${field} 为 ${text.length} 字符，修稿预算 ${VIDEO_DIRECTION_LIMITS[field]}；请重写完整短句，不要截断`);
   const prose = withoutVideoEntityNames(text, entityNames);
-  if (/[\p{Script=Han}\p{Script=Cyrillic}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(prose)) throw new Error(`videoDirection.${field} 必须用英文完整转写，登记的角色与物体名称除外`);
+  // Base validation remains bilingual so a saved English project can be read
+  // and migrated. The production gate (`currentChineseVideoDirection`) is the
+  // single place that requires Chinese before H3 submission.
+  if (/[\p{Script=Cyrillic}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(prose)) throw new Error(`videoDirection.${field} 包含不支持的文字；导演说明请使用中文`);
   if (/<\/?d>|\[(?:Shot|Chinese|English)\b|(?:subject_definitions|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music)\s*:|\b(?:says?|whispers?|speaks?|shouts?|voiceover|narration|dialogue)\b|(?:说道|说出|开口(?:说)?|低语|耳语|喊道|大喊|旁白|画外音|对白|台词|念出|读出)/i.test(prose)) throw new Error(`videoDirection.${field} 混入台词或声音指令；只写可见动作`);
-  const normalized = (s: string) => s.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
   for (const line of exactLines) {
-    const needle = normalized(line);
-    // A short line such as "Yes" must not match the visible word "eyes".
-    const copied = /^[a-z]+$/.test(needle) && needle.length <= 4
-      ? new RegExp(`\\b${needle}\\b`, 'i').test(text)
-      : needle && normalized(text).includes(needle);
-    if (copied) throw new Error(`videoDirection.${field} 重复了权威台词`);
+    if (containsExactDialogue(text, line, entityNames)) throw new Error(`videoDirection.${field} 重复了权威台词`);
   }
   if (field === 'action' && (/^(?:(?:the\s+)?(?:main\s+)?subject|\w+)\s+(?:completes? one clear physical action|makes? one natural gesture)/i.test(text)
     || /^(?:角色|人物|主体)(?:完成|做出)(?:一个|一次)?(?:清晰|自然|明确)?(?:的)?(?:动作|手势)[。.!！]?$/u.test(text)
@@ -149,4 +186,32 @@ export function currentVideoDirection(shot: Storyboard): StoryVideoDirection | u
     ...(shot.dialogueLines || []).map(line => line.text),
     ...Object.values(shot.dialogue || {}),
   ]);
+}
+
+/** Current production contract: visual direction is Chinese regardless of dialogue language. */
+export function currentChineseVideoDirection(shot: Storyboard): StoryVideoDirection | undefined {
+  const direction = currentVideoDirection(shot);
+  return direction && isChineseVideoDirection(direction, videoDirectionEntityNames(shot)) ? direction : undefined;
+}
+
+/** Recover old binding-only changes, never bless a changed action/prompt as current. */
+export function recoverReorderedObjectDirection(shot: Storyboard): Storyboard {
+  if (!shot.videoDirection || !shot.videoDirectionSource || shot.videoDirectionSource === videoDirectionSourceKey(shot)) return shot;
+  const objects = shot.objects || [];
+  // Legacy reference binding reordered this small list into library order.
+  // A matching old fingerprint proves ALL other visual inputs are unchanged.
+  if (!objects.length || objects.length > 6 || new Set(objects).size !== objects.length) return shot;
+  const matches = (prefix: string[], remaining: string[]): boolean => {
+    // Old bindStoryboardReferences also added explicit [prop] tags already
+    // authored in the unchanged image prompt. No arbitrary new prop is ignored.
+    if (remaining.every(name => shot.prompt?.includes(`[${name}]`))
+      && videoDirectionSourceKey({ ...shot, objects: prefix }) === shot.videoDirectionSource) return true;
+    return remaining.some((name, index) => matches([...prefix, name], remaining.filter((_, i) => i !== index)));
+  };
+  if (!matches([], objects)) return shot;
+  try { validateVideoDirection(shot.videoDirection, videoDirectionEntityNames(shot), (shot.speech || []).map(line => line.exactLine)); }
+  catch { return shot; }
+  // Updating the source also invalidates clips compiled through the stale-brief
+  // fallback, while retaining their paid media in the existing cache.
+  return { ...shot, videoDirectionSource: videoDirectionSourceKey(shot) };
 }

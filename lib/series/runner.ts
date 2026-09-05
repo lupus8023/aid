@@ -10,6 +10,7 @@ import { recoverSeriesStoryAliases } from './storyCastRecovery';
 import { storyStorageKeys } from "./storageScope";
 import { ensurePhotographicAnchor } from './photographicAnchor';
 import { seriesAssetsReady, seriesStageBlocker } from "./readiness";
+import { refreshVisualRedoProduction } from './visualRedo';
 import { isGptImage2Model } from '@/lib/imageModels';
 import { usesPhotographicReferences } from '@/lib/gptImageReferences';
 import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '@/lib/midjourney';
@@ -474,6 +475,13 @@ export async function executeSeriesClaim(
   }
   if (!episode) throw new Error("本集不存在");
   const scriptAssetFingerprint = seriesScriptAssetFingerprint(project, episode);
+  if (episode.visualRedoPending && episode.script) {
+    episode.scriptAssetFingerprint = scriptAssetFingerprint;
+    episode.scriptAssetsReconciledAt = new Date().toISOString();
+    episode.production = refreshVisualRedoProduction(project, episode);
+    episode.visualRedoPending = undefined;
+    await save(`第${episode.number}集保留原剧本与分镜文本，已换入新角色、场景和道具参考`);
+  }
   if (!episode.script || episode.scriptAssetFingerprint !== scriptAssetFingerprint) {
     await save(episode.script
       ? `第${episode.number}集按最终角色与道具复核${project.shotCount}镜剧本`

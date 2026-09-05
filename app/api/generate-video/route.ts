@@ -7,6 +7,8 @@ import { allocateSegmentTimeline, estimateVideoSegmentSeconds, MAX_H3_SEGMENT_SE
 import { createFalH3MaxVideoTask } from '@/lib/falVideo';
 import { filmEndingDuration } from '@/lib/filmEnding';
 import { adaptH3PromptForMotionContinuation } from '@/lib/h3MotionContext';
+import { buildChineseH3RewritePrompt, h3VisualPromptIsChinese, parseChineseH3Rewrite } from '@/lib/h3PromptLanguage';
+import { chatOnce } from '@/lib/pipeline/llm';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -39,7 +41,7 @@ function isLegacyH3Prompt(prompt: string): boolean {
 export async function POST(request: NextRequest) {
   try {
     const {
-      storyboard, segmentStoryboards = [], apiKey, videoModel, aspectRatio,
+      storyboard, segmentStoryboards = [], apiKey, dmxApiKey, scriptProvider, scriptModel, videoModel, aspectRatio,
       characterAudios = [], firstFrameUrl,
       subtitleRemovalSourceTaskId,
       motionContext,
@@ -62,6 +64,22 @@ export async function POST(request: NextRequest) {
     const videoStoryboards = Array.isArray(segmentStoryboards) && segmentStoryboards.length
       ? segmentStoryboards.slice(0, 4)
       : [storyboard];
+    const localizeH3Prompt = async (value: string): Promise<string> => {
+      const source = String(value || '').trim();
+      if (!source || h3VisualPromptIsChinese(source)) return source;
+      if (!apiKey && !dmxApiKey) {
+        throw new Error('英文视频提示词需要先用文本模型整理为中文；请在设置中配置剧本 API');
+      }
+      const rewritten = await chatOnce(buildChineseH3RewritePrompt(source), {
+        apiKey,
+        dmxApiKey,
+        provider: scriptProvider,
+        model: scriptModel || 'gpt-4o',
+        maxOutputTokens: 6500,
+        timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000,
+      });
+      return parseChineseH3Rewrite(rewritten, source);
+    };
     if (videoProvider === 'fal') {
       if (videoStoryboards.some((shot: any) => !shot.imageUrl || typeof shot.imageUrl !== 'string')) {
         return NextResponse.json({ error: '每个 fal H3 Max 视频片段都需要分镜参考图' }, { status: 400 });
@@ -84,7 +102,9 @@ export async function POST(request: NextRequest) {
         language: language === 'en' ? 'en' : 'zh',
       });
       const editedPrompt = storyboard.videoPromptOverride ? String(storyboard.videoPrompt || '').trim() : '';
-      const submittedPrompt = applyVideoDuplicateRepairPrompt(applySeriesVideoStyle(applyFilmEndingPrompt(editedPrompt && !isLegacyH3Prompt(editedPrompt) ? editedPrompt : generatedPrompt, requestedDuration, isFilmEnding === true), styleReference), storyboard.videoDuplicateRepairPrompt);
+      const promptSource = editedPrompt && !isLegacyH3Prompt(editedPrompt) ? editedPrompt : generatedPrompt;
+      const localizedPrompt = await localizeH3Prompt(promptSource);
+      const submittedPrompt = applyVideoDuplicateRepairPrompt(applySeriesVideoStyle(applyFilmEndingPrompt(localizedPrompt, requestedDuration, isFilmEnding === true), styleReference), storyboard.videoDuplicateRepairPrompt);
       const firstFrame = firstFrameUrl || videoStoryboards[0].imageUrl;
       const lastStoryboardImage = videoStoryboards.at(-1)?.imageUrl;
       const endFrame = (firstFrameUrl || videoStoryboards.length > 1) ? lastStoryboardImage : undefined;
@@ -191,9 +211,11 @@ export async function POST(request: NextRequest) {
       // including Chinese direction, but retire the old JSON/timeline control
       // contract so an older project cannot bypass the official prompt builder.
       const editedPrompt = storyboard.videoPromptOverride ? String(storyboard.videoPrompt || '').trim() : '';
-      const baseSubmittedPrompt = applyVideoDuplicateRepairPrompt(applySeriesVideoStyle(applyFilmEndingPrompt(editedPrompt && !isLegacyH3Prompt(editedPrompt)
+      const promptSource = editedPrompt && !isLegacyH3Prompt(editedPrompt)
         ? editedPrompt
-        : generatedPrompt, requestedDuration, isFilmEnding === true), styleReference), storyboard.videoDuplicateRepairPrompt);
+        : generatedPrompt;
+      const localizedPrompt = await localizeH3Prompt(promptSource);
+      const baseSubmittedPrompt = applyVideoDuplicateRepairPrompt(applySeriesVideoStyle(applyFilmEndingPrompt(localizedPrompt, requestedDuration, isFilmEnding === true), styleReference), storyboard.videoDuplicateRepairPrompt);
       const submittedPrompt = isMotionContinuation
         ? adaptH3PromptForMotionContinuation(baseSubmittedPrompt)
         : baseSubmittedPrompt;

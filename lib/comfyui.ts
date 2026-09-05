@@ -1006,9 +1006,16 @@ function nextNodeId(prompt: JsonRecord): string {
   return String(Math.max(0, ...Object.keys(prompt).map(Number).filter(Number.isFinite)) + 1);
 }
 
-export function injectReferenceImages(prompt: JsonRecord, variant: ComfyUIWorkflow, remoteImages: string[]): void {
+export function injectReferenceImages(
+  prompt: JsonRecord,
+  variant: ComfyUIWorkflow,
+  remoteImages: string[],
+  remoteIdentityImages: string[] = [],
+): void {
   const inputs = conditioningNode(prompt).inputs;
-  inputs.task_type = h3VisualTaskType(variant);
+  inputs.task_type = remoteIdentityImages.length && variant !== 'aid_multi_reference'
+    ? 'Hybrid'
+    : h3VisualTaskType(variant);
   if (variant === 'aid_first_last') return;
   delete inputs.first_frame;
   delete inputs.last_frame;
@@ -1028,9 +1035,18 @@ export function injectReferenceImages(prompt: JsonRecord, variant: ComfyUIWorkfl
     // ref_images made the frame optional visual inspiration and allowed H3 to
     // redraw the face, wardrobe and room before motion even began.
     inputs.first_frame = [nodeId, 0];
+    remoteIdentityImages.forEach((remoteImage, index) => {
+      const referenceNodeId = nextNodeId(prompt);
+      prompt[referenceNodeId] = {
+        class_type: 'LoadImage',
+        inputs: { image: remoteImage },
+        _meta: { title: `AID immutable object reference ${index + 1}` },
+      };
+      inputs[`ref_images.ref_image_${index}`] = [referenceNodeId, 0];
+    });
     return;
   }
-  remoteImages.forEach((remoteImage, index) => {
+  [...remoteImages, ...remoteIdentityImages].forEach((remoteImage, index) => {
     const nodeId = nextNodeId(prompt);
     prompt[nodeId] = {
       class_type: 'LoadImage',
@@ -1091,7 +1107,7 @@ function injectReferenceAudios(prompt: JsonRecord, remoteAudios: string[]): void
     };
     inputs[`ref_audios.ref_audio_${index}`] = [nodeId, 0];
   });
-  inputs.task_type = h3ConditioningTaskType(
+  inputs.task_type = inputs.task_type === 'Hybrid' ? 'Hybrid' : h3ConditioningTaskType(
     inputs.task_type === 'I2VA'
       ? 'I2VA'
       : inputs.task_type === 'FL2VA'
@@ -1445,12 +1461,12 @@ export function sanitizeSubmittedH3Prompt(prompt: string): string {
   }).join('').trim();
 }
 
-export function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, auxiliaryCount: number, referenceAudioCount: number, referenceAudioNames?: string[]): string {
-  const availablePictureCount = variant === 'aid_first_last'
+export function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, auxiliaryCount: number, referenceAudioCount: number, referenceAudioNames?: string[], identityImageCount = 0): string {
+  const availablePictureCount = (variant === 'aid_first_last'
     ? 2
     : variant === 'aid_multi_reference'
       ? 1 + Math.max(0, auxiliaryCount)
-      : 1;
+      : 1) + Math.max(0, identityImageCount);
   const prompt = sanitizeSubmittedH3Prompt(
     sanitizeUnavailablePictureOrdinals(visualPrompt, availablePictureCount),
   );
@@ -1464,22 +1480,22 @@ export function taggedPrompt(visualPrompt: string, variant: ComfyUIWorkflow, aux
   if (isOfficialH3Prompt) return prompt.trim();
 
   const rules = variant === 'aid_first_last'
-    ? ['Use the supplied first frame as the exact opening frame and the supplied last frame as the exact ending frame. Every person and object in the motion must already be present in one of these two frames — introduce no new character or subject.']
+    ? ['提供的首帧是准确开场画面，提供的尾帧是准确结束画面。运动中出现的每个人物和物体都必须已经存在于这两张图之一；不得新增角色或主体。']
     : auxiliaryCount
-      ? [`Use ${Array.from({ length: 1 + auxiliaryCount }, (_, index) => `<Picture ${index + 1}>`).join(', ')} as distinct visual identity, product, wardrobe, and scene references. Do not merge or duplicate their subjects unless the prompt explicitly asks for it. Do not introduce any character, person, or subject that is not already present in these reference images.`]
-      : ['Use <Picture 1> as the sole visual source of truth for this shot. The video is a motion rendering of <Picture 1> only — every person, character, product, object, costume, and environment element in the frame must come from <Picture 1>. Do not introduce any new character, person, or subject that is not already present in <Picture 1>. Do not add, remove, swap, or re-cast people. Dialogue, if any, may only be performed by the characters already visible in <Picture 1>.'];
+      ? [`将${Array.from({ length: 1 + auxiliaryCount }, (_, index) => `<Picture ${index + 1}>`).join('、')}分别作为人物身份、产品、服装和场景参考。除非提示词明确要求，否则不得合并或复制其中主体；不得引入参考图中原本不存在的角色、人物或主体。`]
+      : ['<Picture 1>是本镜唯一视觉事实来源。视频只把<Picture 1>中的内容转化为运动；画面内所有人物、角色、产品、物体、服装和环境元素都必须来自<Picture 1>。不得新增、删除、替换或重新选角；如有对白，只能由<Picture 1>中已经可见的角色说出。'];
   if (referenceAudioCount) {
     const bindings = (referenceAudioNames || []).slice(0, referenceAudioCount);
     if (bindings.length === referenceAudioCount && bindings.every(Boolean)) {
-      const bindingText = bindings.map((name, i) => `<Audio ${i + 1}> = ${name}`).join(', ');
-      rules.push(`Voice-to-character binding: ${bindingText}. Each reference supplies timbre and delivery for its bound character; the written timed dialogue remains the sole spoken wording.`);
+      const bindingText = bindings.map((name, i) => `<Audio ${i + 1}>对应${name}`).join('；');
+      rules.push(`声音与角色绑定：${bindingText}。每条参考只提供对应角色的音色与说话方式；带时间的逐字台词是唯一允许说出的内容。`);
     } else {
-      rules.push(`Use ${Array.from({ length: referenceAudioCount }, (_, index) => `<Audio ${index + 1}>`).join(', ')} as voice-timbre references; the written timed dialogue is authoritative.`);
+      rules.push(`将${Array.from({ length: referenceAudioCount }, (_, index) => `<Audio ${index + 1}>`).join('、')}作为音色参考；带时间的逐字台词具有唯一权威。`);
     }
   } else {
-    rules.push('Follow the written sound fields exactly. With no scripted line, keep natural ambience and visible-action Foley while on-screen faces remain in non-speaking performance.');
+    rules.push('准确遵循已经写明的声音要求。没有剧本台词时，只保留自然环境声与画面动作拟音，画面中的人物保持无对白表演。');
   }
-  return `${prompt.trim()}\n\nAID INPUT CONTRACT:\n${rules.join('\n')}`;
+  return `${prompt.trim()}\n\nAID输入约束：\n${rules.join('\n')}`;
 }
 
 function extensionFromMime(mime: string): string {
@@ -2028,6 +2044,7 @@ export async function createComfyUIVideoTask(input: {
   duration: number;
   aspectRatio: string;
   auxiliaryImages?: string[];
+  identityImages?: string[];
   endFrame?: string;
   referenceAudios?: string[];
   referenceAudioNames?: string[];
@@ -2041,6 +2058,7 @@ export async function createComfyUIVideoTask(input: {
     if (!config.sshHost) throw new ComfyUIError('ComfyUI SSH Host 未配置');
 
     const auxiliaryImages = (input.auxiliaryImages || []).filter(Boolean);
+    const identityImages = input.endFrame ? [] : (input.identityImages || []).filter(Boolean);
     const referenceAudios = (input.referenceAudios || []).filter(Boolean);
     const renderDuration = Math.min(15, Math.max(2, Number(input.duration) || 5));
     const motionContext = normalizeH3MotionContextRequest(input.motionContext);
@@ -2052,7 +2070,7 @@ export async function createComfyUIVideoTask(input: {
         `Motion Context 续段在 ${motionContext!.contextFrames} 帧上下文下最多交付 ${maxDelivered.toFixed(2)} 秒；请缩短或拆分当前片段`,
       );
     }
-    if (1 + auxiliaryImages.length > MAX_COMFYUI_REFERENCE_IMAGES) {
+    if (1 + auxiliaryImages.length + identityImages.length > MAX_COMFYUI_REFERENCE_IMAGES) {
       throw new ComfyUIError(`MiniMax H3 多图参考在 AID 中最多使用 ${MAX_COMFYUI_REFERENCE_IMAGES} 张图片`);
     }
     if (referenceAudios.length > 3) throw new ComfyUIError('MiniMax H3 最多接受 3 条参考音频');
@@ -2064,6 +2082,7 @@ export async function createComfyUIVideoTask(input: {
     try {
       const imageSources = [input.firstFrame, ...(input.endFrame ? [input.endFrame] : auxiliaryImages)];
       const localImages = await Promise.all(imageSources.map((source, index) => materializeSource(source, directory, `reference_${index + 1}`)));
+      const localIdentityImages = await Promise.all(identityImages.map((source, index) => materializeSource(source, directory, `object_reference_${index + 1}`)));
       const sourceAudios = await Promise.all(referenceAudios.map((source, index) => materializeSource(source, directory, `audio_reference_${index + 1}`)));
       const sourceAudioDurations = await Promise.all(sourceAudios.map((source, index) => probeReferenceAudio(source, index + 1)));
       const targetAudioDurations = fitH3ReferenceAudioDurations(sourceAudioDurations);
@@ -2083,6 +2102,8 @@ export async function createComfyUIVideoTask(input: {
 
       const remoteImages: string[] = [];
       for (const image of localImages) remoteImages.push(await uploadAsset(config, image, 'aid/assets', { contentAddressed: true }));
+      const remoteIdentityImages: string[] = [];
+      for (const image of localIdentityImages) remoteIdentityImages.push(await uploadAsset(config, image, 'aid/assets', { contentAddressed: true }));
       const remoteAudios: string[] = [];
       for (const audio of localAudios) remoteAudios.push(await uploadAsset(config, audio, 'aid/assets', { contentAddressed: true }));
 
@@ -2092,6 +2113,7 @@ export async function createComfyUIVideoTask(input: {
         variant === 'aid_multi_reference' ? auxiliaryImages.length : 0,
         referenceAudios.length,
         input.referenceAudioNames,
+        identityImages.length,
       );
       patchWorkflow(workflow, {
         variant,
@@ -2104,7 +2126,7 @@ export async function createComfyUIVideoTask(input: {
       });
       const apiPrompt = compileFrontendWorkflow(workflow);
       applyH3Fl2vaProfile(apiPrompt, variant, config.h3Fl2vaProfile);
-      injectReferenceImages(apiPrompt, variant, remoteImages);
+      injectReferenceImages(apiPrompt, variant, remoteImages, remoteIdentityImages);
       const usesNativeDialogue = injectH3NativeDialogue(
         apiPrompt,
         remoteAudios,

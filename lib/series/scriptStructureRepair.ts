@@ -23,7 +23,7 @@ export type ScriptStructureIssue = MissingSpeakerIssue | UngroundedObjectIssue;
 
 export interface ScriptStructureRepairLog {
   shotNumber: number;
-  kind: 'speaker_added' | 'object_grounded' | 'object_removed' | 'shot_count_normalized';
+  kind: 'speaker_added' | 'object_grounded' | 'object_removed' | 'object_replaced' | 'shot_count_normalized' | 'duration_adjusted';
   detail: string;
 }
 
@@ -48,10 +48,53 @@ export function seriesScriptAssetFingerprint(project: SeriesProject, episode: Se
     locations: project.locations
       .filter(location => episode.locationIds.includes(location.id))
       .map(({ id, name, description, imageUrl }) => ({ id, name, description, imageUrl })),
-    objects: (project.objects || []).map(({ id, name, aliases, description, imageUrl, referenceMode }) => ({
-      id, name, aliases, description, imageUrl, referenceMode,
+    objects: (project.objects || []).map(({ id, name, aliases, description, imageUrl, referenceMode, replacesObjectIds }) => ({
+      id, name, aliases, description, imageUrl, referenceMode, replacesObjectIds,
     })),
   });
+}
+
+/**
+ * Final user-selected assets outrank earlier generic screenplay props. Apply
+ * the replacement to every shot field before validation/directing so the old
+ * prop can never survive in objectIds while its name lingers in visual prose.
+ * Dialogue is deliberately untouched: this is an asset identity pass, not a
+ * story rewrite.
+ */
+export function applyFinalObjectReplacements(raw: any, project: SeriesProject) {
+  const result = structuredClone(raw);
+  const logs: ScriptStructureRepairLog[] = [];
+  if (!Array.isArray(result?.shots)) return { raw: result, logs };
+  const objects = project.objects || [];
+  const replacements = objects.flatMap(target => (target.replacesObjectIds || []).map(sourceId => ({
+    source: objects.find(object => object.id === sourceId), target,
+  }))).filter((item): item is { source: NonNullable<typeof item.source>; target: typeof item.target } => Boolean(item.source));
+  for (const shot of result.shots) {
+    const changed = new Set<string>();
+    for (const { source, target } of replacements) {
+      if (Array.isArray(shot.objectIds) && shot.objectIds.includes(source.id)) {
+        shot.objectIds = [...new Set(shot.objectIds.map((id: unknown) => id === source.id ? target.id : id))];
+        changed.add(`${source.name}→${target.name}`);
+      }
+      const sourceTerms = [source.name, ...(source.aliases || [])]
+        .map(value => String(value || '').trim()).filter(Boolean).sort((a, b) => b.length - a.length);
+      for (const field of ['visual', 'imagePrompt', 'action', 'purpose', 'sound']) {
+        if (typeof shot[field] !== 'string') continue;
+        let value = shot[field];
+        for (const term of sourceTerms) value = value.replaceAll(term, target.name);
+        if (value !== shot[field]) {
+          shot[field] = value;
+          changed.add(`${source.name}→${target.name}`);
+        }
+      }
+    }
+    if (changed.size) logs.push({
+      shotNumber: Number(shot.number) || logs.length + 1,
+      kind: 'object_replaced',
+      detail: `按最终指定资产统一 ${[...changed].join('、')}，同步对象绑定与全部画面字段`,
+    });
+  }
+  return { raw: result, logs };
 }
 
 export class ScriptShotCountError extends Error {
@@ -111,13 +154,22 @@ export function applyObjectGroundingRepairs(
         detail: `移除画面中未实际出现的 ${issue.objectName} 引用`,
       });
     } else if (repair.decision === 'ground') {
-      if (!['visual', 'action'].includes(repair.field) || typeof repair.value !== 'string' || !repair.value.trim())
+      if (!['visual', 'action'].includes(repair.field))
         throw new Error('保留道具时只能定点修正 visual 或 action');
-      const names = [issue.objectName, ...issue.aliases].map(normalized).filter(Boolean);
-      if (!names.some(name => normalized(repair.value).includes(name)))
-        throw new Error(`第${issue.shotNumber}镜修稿仍未使用 ${issue.objectName} 的正名或登记别名`);
       const oldValue = String(shot[repair.field] || '');
-      const value = repair.value.trim();
+      // The model identifies an exact existing noun phrase; code inserts the
+      // registered name. This avoids asking it to rewrite an action and then
+      // rejecting that rewrite for forgetting the canonical spelling again.
+      const mention = typeof repair.mention === 'string' ? repair.mention.trim() : '';
+      const value = mention
+        ? oldValue.replaceAll(mention, issue.objectName)
+        : typeof repair.value === 'string' ? repair.value.trim() : '';
+      if (mention && (!oldValue.includes(mention) || mention.length > 60))
+        throw new Error(`第${issue.shotNumber}镜需指出原字段中真实存在的道具短语`);
+      if (!value) throw new Error('保留道具时只能定点修正 visual 或 action');
+      const names = [issue.objectName, ...issue.aliases].map(normalized).filter(Boolean);
+      if (!names.some(name => normalized(value).includes(name)))
+        throw new Error(`第${issue.shotNumber}镜修稿仍未使用 ${issue.objectName} 的正名或登记别名`);
       if (value.length > Math.max(oldValue.length + 180, Math.ceil(oldValue.length * 1.8)))
         throw new Error(`第${issue.shotNumber}镜道具修稿改写范围过大`);
       shot[repair.field] = value;
@@ -132,6 +184,43 @@ export function applyObjectGroundingRepairs(
     allowed.delete(key);
   }
   if (allowed.size) throw new Error('有道具引用尚未处理');
+  return { raw: result, logs };
+}
+
+/** Save valid independent patches even when another target is malformed.
+ * Duplicate/unknown targets remain a hard rejection; they are not safe to guess. */
+export function applyPartialObjectGroundingRepairs(raw: any, reply: any, issues: ScriptStructureIssue[]) {
+  const targets = issues.filter((issue): issue is UngroundedObjectIssue => issue.kind === 'ungrounded_object');
+  if (!Array.isArray(reply?.repairs)) throw new Error('道具修稿必须返回 repairs 数组');
+  const allowed = new Map(targets.map(issue => [`${issue.shotNumber}:${issue.objectId}`, issue]));
+  const seen = new Set<string>();
+  for (const repair of reply.repairs) {
+    const key = `${Number(repair?.shotNumber)}:${String(repair?.objectId || '')}`;
+    if (!allowed.has(key) || seen.has(key)) throw new Error('道具修稿包含未授权、重复或错误的镜头');
+    seen.add(key);
+  }
+  let result = structuredClone(raw);
+  const logs: ScriptStructureRepairLog[] = [];
+  const errors: string[] = [];
+  for (const repair of reply.repairs) {
+    const issue = allowed.get(`${Number(repair.shotNumber)}:${repair.objectId}`)!;
+    try {
+      const applied = applyObjectGroundingRepairs(result, { repairs: [repair] }, [issue]);
+      // Multiple props may share a field. Do not let a later full-field patch
+      // erase a canonical binding already applied in this batch.
+      if (repair.decision === 'ground') {
+        for (const other of targets.filter(target => target.index === issue.index && target.objectId !== issue.objectId)) {
+          const before = `${result.shots[issue.index].visual} ${result.shots[issue.index].action}`;
+          const after = `${applied.raw.shots[issue.index].visual} ${applied.raw.shots[issue.index].action}`;
+          if (normalized(before).includes(normalized(other.objectName)) && !normalized(after).includes(normalized(other.objectName)))
+            throw new Error(`第${issue.shotNumber}镜修稿不能覆盖已对齐的 ${other.objectName}`);
+        }
+      }
+      result = applied.raw;
+      logs.push(...applied.logs);
+    } catch (error) { errors.push(error instanceof Error ? error.message : '道具定点修稿失败'); }
+  }
+  if (!logs.length) throw new Error(errors.join('；') || '道具修稿没有返回可用修改');
   return { raw: result, logs };
 }
 

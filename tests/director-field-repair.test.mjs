@@ -4,19 +4,20 @@ import { directorFieldRepairs, buildDirectorFieldRepairPrompt, DirectorFieldRepa
 import { validateDirectorShots } from '../lib/pipeline/storyDirector.ts';
 import { recoverGeneration } from '../lib/pipeline/generationDraft.ts';
 
+const sized = (seed, length) => seed.repeat(Math.ceil(length / seed.length)).slice(0, length - 1) + '。';
 const originalDirection = {
- action: 'Luna folds the note and tucks it low while turning back toward Inkfin; Tilda and Silt hold at the doorway.',
- camera: 'Stay in a medium corridor-side view and let the composition open toward the exit as Luna shifts her weight away from the table, keeping the threshold and the people behind her visible.',
- detail: 'The shark seal remains briefly exposed at her fingers.',
- ending: 'Luna remains half-turned in the corridor with the note secured low, Tilda and Silt paused behind her, and Inkfin still framed by hanging scrolls inside.',
+ action: 'Luna折好纸条并收入袖口，转身看向Inkfin；Tilda与Silt停在门边。',
+ camera: sized('镜头保持走廊侧面的中景，跟随Luna向出口移动，门槛与身后众人始终留在画面内。', 184),
+ detail: '鲨鱼印章在Luna指间短暂露出。',
+ ending: sized('Luna半转身站在走廊中，纸条收在低处，Tilda与Silt停在身后，Inkfin仍在室内卷轴之间。', 152),
 };
-const direction = {...originalDirection,action:'Luna holds the note. '.repeat(14).trim(),detail:'The seal stays visible. '.repeat(5).trim()};
+const direction = {...originalDirection,action:sized('Luna握住纸条并转向出口。',300),detail:sized('鲨鱼印章仍露在Luna指间。',140)};
 const beats=[16,17,18].map(index=>({index,characters:['Luna','Inkfin','Tilda','Silt'],objects:[],action:'Luna secures the note and faces the exit.',speech:[{character:'Luna',exactLine:'We leave at dawn.'}]}));
-const valid={...direction,camera:'A fixed medium view holds the doorway.',ending:'Luna remains half-turned toward Inkfin.'};
-const shots=beats.map((b,i)=>({index:b.index,description:'Luna holds the folded note.',prompt:'A medium view of the doorway.',characterCostume:{Luna:'blue coat'},videoDirection:structuredClone(i===2?direction:valid)}));
+const valid={...direction,camera:'固定中景保持门口构图。',ending:'Luna半转身面向Inkfin。'};
+const shots=beats.map((b,i)=>({index:b.index,description:'Luna拿着折好的纸条。',prompt:'门口的中景画面。',characterCostume:{Luna:'blue coat'},videoDirection:structuredClone(i===2?direction:valid)}));
 const reply={repairs:[
- {path:'shots[2].videoDirection.camera',value:'Hold a medium corridor view; open the frame toward the exit as Luna shifts away, retaining the doorway and group.'},
- {path:'shots[2].videoDirection.ending',value:'Half-turned Luna holds the note low; Tilda and Silt wait behind her, with Inkfin framed by scrolls.'},
+ {path:'shots[2].videoDirection.camera',value:'镜头保持走廊中景，随Luna离开桌边移向出口，并让门口与众人留在画面内。'},
+ {path:'shots[2].videoDirection.ending',value:'Luna半转身把纸条收在低处，Tilda与Silt停在身后，Inkfin留在卷轴之间。'},
 ]};
 
 test('repairs an over-budget draft without rewriting the batch',()=>{
@@ -37,22 +38,21 @@ test('the original shot-18 184/152-character fields need no repair when the whol
  assert.doesNotThrow(()=>validateDirectorShots([{description:'Luna folds the note.',prompt:'Luna at the doorway.',videoDirection:originalDirection}],beats.slice(0,1),'array','en',beats[0].characters,true));
 });
 
-test('rejects wrong episode-vs-batch paths, duplicate patches, overflow and clipped prefixes',()=>{
+test('rejects wrong episode-vs-batch paths, duplicate patches and overflow',()=>{
  const issues=directorFieldRepairs(shots,beats);
  for(const first of [
   {...reply.repairs[0],path:'shots[18].videoDirection.camera'},
   {...reply.repairs[0],path:reply.repairs[1].path},
   {...reply.repairs[0],value:direction.camera},
-  {...reply.repairs[0],value:direction.camera.slice(0,100)+'.'},
  ])assert.throws(()=>applyDirectorFieldRepairs(shots,{repairs:[first,reply.repairs[1]]},issues));
  assert.throws(()=>applyDirectorFieldRepairs(shots,{repairs:[...reply.repairs,{path:'shots[0].prompt',value:'Rewrite all.'}]},issues));
 });
 
-test('collects English and Chinese voice contamination independently of neighboring length errors',()=>{
- const invalid=structuredClone(shots);invalid[0].videoDirection.action='Luna whispers as she folds the note.';invalid[1].videoDirection.ending='Luna 开口说道台词。';
+test('collects non-Chinese prose and voice contamination independently of neighboring length errors',()=>{
+ const invalid=structuredClone(shots);invalid[0].videoDirection.action='Luna whispers as she folds the note.';invalid[1].videoDirection.ending='Luna开口说道台词。';
  const issues=directorFieldRepairs(invalid,beats);
  assert.deepEqual(issues.map(i=>i.path),['shots[0].videoDirection.action','shots[1].videoDirection.ending','shots[2].videoDirection.camera','shots[2].videoDirection.ending']);
- const total=structuredClone(shots.slice(0,1));total[0].videoDirection={action:'x'.repeat(300),camera:'x'.repeat(180),detail:'x'.repeat(140),ending:'x'.repeat(140)};
+ const total=structuredClone(shots.slice(0,1));total[0].videoDirection={action:sized('动作继续。',300),camera:sized('镜头跟随。',180),detail:sized('纸条弯曲。',140),ending:sized('人物停下。',140)};
  const budget=directorFieldRepairs(total,beats.slice(0,1));assert.equal(budget.length,4);assert.ok(budget.reduce((sum,i)=>sum+i.limit,0)<=720);
 });
 
@@ -63,9 +63,9 @@ test('repairs Chinese speech contamination in small checkpointed chunks',()=>{
  assert.equal(issues.length,6);
  assert.deepEqual(selectDirectorFieldRepairChunk(issues).map(issue=>issue.path),issues.slice(0,6).map(issue=>issue.path));
  const prompt=buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),undefined,'zh');
- assert.match(prompt,/complete concise English sentence/i);
+ assert.match(prompt,/完整、简洁中文句子/);
  assert.match(prompt,/registeredEntityNames/);
- assert.match(prompt,/quoted Chinese words/);
+ assert.match(prompt,/引号中的台词/);
  assert.match(buildDirectorFieldRepairPrompt(invalid,sixBeats,issues.slice(0,1),new Error('不得截取原句前半段'),'zh'),/rewrite the sentence with different wording/i);
 });
 
@@ -83,55 +83,55 @@ test('six contaminated action fields recover in one bounded patch without regene
   const retained=JSON.parse(previous);
   const issues=selectDirectorFieldRepairChunk(directorFieldRepairs(retained,sixBeats));
   return JSON.stringify(applyDirectorFieldRepairs(retained,{repairs:issues.map(issue=>({
-   path:issue.path,value:`Character ${issue.index + 1} turns from the table and walks toward the doorway.`,
+   path:issue.path,value:`角色${issue.index + 1}从桌边转身走向门口。`,
   }))},issues,true));
  }});
  assert.equal(calls,1);assert.equal(saves,1);
  assert.deepEqual(repaired.map(shot=>shot.marker),invalid.map(shot=>shot.marker));
- assert.ok(repaired.every(shot=>/walks toward the doorway\.$/u.test(shot.videoDirection.action)));
+ assert.ok(repaired.every(shot=>/走向门口。$/u.test(shot.videoDirection.action)));
 });
 
 test('checkpoints valid repairs when a provider omits or corrupts sibling entries',()=>{
  const invalid=structuredClone(shots);invalid[0].videoDirection.action='角色开口说道台词。';invalid[1].videoDirection.action='另一角色大喊对白。';
  const issues=directorFieldRepairs(invalid,beats);
  const progress=applyDirectorFieldRepairProgress(invalid,{repairs:[
-  {path:issues[0].path,value:'Luna turns away from the table and walks toward the doorway.'},
+  {path:issues[0].path,value:'Luna从桌边转身走向门口。'},
   {path:issues[1].path,value:'still invalid without punctuation'},
  ]},issues,beats);
  assert.deepEqual(progress.applied,[issues[0].path]);
- assert.equal(progress.shots[0].videoDirection.action,'Luna turns away from the table and walks toward the doorway.');
+ assert.equal(progress.shots[0].videoDirection.action,'Luna从桌边转身走向门口。');
  assert.equal(progress.shots[1].videoDirection.action,invalid[1].videoDirection.action);
  assert.ok(progress.rejected.includes(issues[1].path));
 });
 
-test('rejects repaired prose that still contains Chinese outside registered entity names',()=>{
+test('rejects repaired prose that still contains English outside registered entity names',()=>{
  const localBeats=[{...beats[0],characters:['萧贵妃'],objects:['铜镜']}];
- const invalid=[{videoDirection:{...valid,action:'萧贵妃把“体面”放到铜镜旁。'}}];
+ const invalid=[{videoDirection:{action:'萧贵妃 turns beside 铜镜.',camera:'镜头保持正面中景。',detail:'纸条短暂露在指间。',ending:'她收回手后保持不动。'}}];
  const issues=directorFieldRepairs(invalid,localBeats);
  const rejected=applyDirectorFieldRepairProgress(invalid,{repairs:[{
-  path:issues[0].path,value:'萧贵妃 places “体面” beside 铜镜.',
+  path:issues[0].path,value:'萧贵妃 places the note beside 铜镜.',
  }]},issues,localBeats);
  assert.deepEqual(rejected.applied,[]);
  assert.deepEqual(rejected.rejected,[issues[0].path]);
  const accepted=applyDirectorFieldRepairProgress(invalid,{repairs:[{
-  path:issues[0].path,value:'萧贵妃 places a folded note beside 铜镜 and withdraws her hand.',
+  path:issues[0].path,value:'萧贵妃把折好的纸条放在铜镜旁，然后收回手。',
  }]},issues,localBeats);
  assert.deepEqual(accepted.applied,[issues[0].path]);
- assert.equal(accepted.shots[0].videoDirection.action,'萧贵妃 places a folded note beside 铜镜 and withdraws her hand.');
+ assert.equal(accepted.shots[0].videoDirection.action,'萧贵妃把折好的纸条放在铜镜旁，然后收回手。');
 });
 
 test('one overflowing field does not force rewriting valid camera geometry when its repair frees enough budget',()=>{
- const original={action:'a'.repeat(260),camera:'c'.repeat(160),detail:'d'.repeat(195),ending:'e'.repeat(120)};
+ const original={action:sized('动作延续。',260),camera:sized('镜头平移。',160),detail:sized('纸条弯曲。',195),ending:sized('人物停下。',120)};
  const issues=directorFieldRepairs([{videoDirection:original}],beats.slice(0,1));
  assert.deepEqual(issues.map(i=>[i.field,i.limit]),[['detail',140]]);
 });
 
 test('field repair permits a complete clause while keeping all unaffected fields verbatim',()=>{
- const d={action:'a'.repeat(300),camera:'c'.repeat(180),detail:'d'.repeat(140),ending:'The ledger lies flat, with the torn opening exposed in the same place beside the index finger and the other people still remaining in their prior positions.'};
+ const d={action:sized('动作延续。',300),camera:sized('镜头平移。',180),detail:sized('纸条弯曲。',140),ending:sized('账本平放在桌面，破损开口留在食指旁边，其他人物仍停在原来的位置。',160)};
  const input=[{videoDirection:d}];const issues=directorFieldRepairs(input,beats.slice(0,1));
  assert.deepEqual(issues.map(i=>i.field),['ending']);
- const repaired=applyDirectorFieldRepairs(input,{repairs:[{path:issues[0].path,value:'The ledger lies flat.'}]},issues);
- assert.equal(repaired[0].videoDirection.ending,'The ledger lies flat.');
+ const repaired=applyDirectorFieldRepairs(input,{repairs:[{path:issues[0].path,value:'账本平放在桌面。'}]},issues);
+ assert.equal(repaired[0].videoDirection.ending,'账本平放在桌面。');
  assert.equal(repaired[0].videoDirection.camera,d.camera);
 });
 
@@ -151,26 +151,26 @@ test('repair and final validation share the project registry for silent backgrou
  const registry=['沈贵妃','裴大人','宫女','金色面膜'];
  const localBeats=[{index:8,characters:['沈贵妃'],objects:[],action:'沈贵妃俯身，裴大人坐直。',speech:[]}];
  const input=[{description:'贵妃俯身，裴大人坐直，宫女在一旁托着面膜。',prompt:'[宫女](green robe) stands beside the couch.',videoDirection:{
-  action:'[沈贵妃] leans forward; [裴大人] straightens his back while [宫女] holds [金色面膜] at the side.',
-  camera:'Hold a frontal medium shot at face height.',detail:'Her sleeve hangs beside his face.',ending:'He remains upright beneath her gaze.',
+  action:'[沈贵妃]俯身靠近；[裴大人]挺直后背，[宫女]在旁托住[金色面膜]。',
+  camera:'镜头在面部高度保持正面中景。',detail:'她的衣袖垂在他的脸侧。',ending:'他在她的注视下保持坐直。',
  }}];
  assert.doesNotThrow(()=>validateDirectorShots(input,localBeats,'array','zh',registry,true));
  assert.deepEqual(directorFieldRepairs(input,localBeats,registry),[], 'do not invent a language failure after final validation accepted the same names');
- const invalid=structuredClone(input);invalid[0].videoDirection.action+=' 她转过身。';
+ const invalid=structuredClone(input);invalid[0].videoDirection.action+=' she turns.';
  const issues=directorFieldRepairs(invalid,localBeats,registry);
  const repaired=applyDirectorFieldRepairProgress(invalid,{value:input[0].videoDirection.action},issues,localBeats,registry);
  assert.deepEqual(repaired.applied,[issues[0].path]);
  assert.deepEqual(repaired.shots,input);
  assert.match(buildDirectorFieldRepairPrompt(invalid,localBeats,issues,undefined,'zh',registry),/宫女/);
- const unknown=structuredClone(input);unknown[0].videoDirection.action='[未登记侍卫] moves away from the couch.';
- assert.equal(directorFieldRepairs(unknown,[{...localBeats[0],characters:['未登记侍卫']}],registry).length,1,'an unknown beat name must not expand the project registry');
+ const unknown=structuredClone(input);unknown[0].videoDirection.action='[UnknownGuard]从卧榻旁退开。';
+ assert.equal(directorFieldRepairs(unknown,[{...localBeats[0],characters:['UnknownGuard']}],registry).length,1,'an unknown beat name must not expand the project registry');
 });
 
 test('missing motion object is filled field by field without regenerating the approved storyboard', () => {
  const input=[{description:'Luna turns toward the exit.',prompt:'Luna beside the doorway.',marker:'keep'}];
  const issues=directorFieldRepairs(input,beats.slice(0,1));
  assert.deepEqual(issues.map(issue=>issue.field),['action','camera','detail','ending']);
- const values={action:'Luna turns from the table and walks toward the exit.',camera:'Hold a medium view from the corridor.',detail:'',ending:'Luna reaches the doorway.'};
+ const values={action:'Luna从桌边转身走向出口。',camera:'镜头从走廊保持中景。',detail:'',ending:'Luna抵达门口。'};
  const result=applyDirectorFieldRepairProgress(input,{repairs:issues.map(issue=>({path:issue.path,value:values[issue.field]}))},issues,beats.slice(0,1));
  assert.equal(result.applied.length,4);
  assert.deepEqual(result.shots,[{...input[0],videoDirection:values}]);
@@ -181,7 +181,7 @@ test('missing motion object is filled field by field without regenerating the ap
 test('equivalent patch envelopes bind only requested fields, never episode-number guesses', () => {
  const input=[{videoDirection:{...valid,action:'Luna 开口。'}}];
  const issues=directorFieldRepairs(input,beats.slice(0,1));
- const value='Luna folds the note and turns toward Inkfin.';
+ const value='Luna折好纸条并转向Inkfin。';
  const entry={path:issues[0].path,value};
  for(const reply of [[entry],{data:{repairs:[entry]}},{result:{output:{value}}},{[entry.path]:value},entry]) {
   const result=applyDirectorFieldRepairProgress(input,reply,issues,beats.slice(0,1));
@@ -198,19 +198,19 @@ test('equivalent patch envelopes bind only requested fields, never episode-numbe
 test('a rejected replacement feeds its actual reason and candidate back to the next single-field prompt', () => {
  const input=[{videoDirection:{...valid,action:'Luna 开口。'}}];
  const issues=directorFieldRepairs(input,beats.slice(0,1));
- const failed=applyDirectorFieldRepairProgress(input,{value:'Luna whispers as she folds the note.'},issues,beats.slice(0,1));
+ const failed=applyDirectorFieldRepairProgress(input,{value:'Luna开口说道原句。'},issues,beats.slice(0,1));
  assert.deepEqual(failed.applied,[]);
  assert.match(failed.failures[0].reason,/台词或声音指令/);
  const error=new DirectorFieldRepairError(failed.failures);
  const prompt=buildDirectorFieldRepairPrompt(input,beats.slice(0,1),issues,error,'zh');
  assert.match(error.message,/台词或声音指令/);
  assert.match(prompt,/Return JSON \{"value"/);
- assert.match(prompt,/Luna whispers as she folds the note/);
+ assert.match(prompt,/Luna开口说道原句/);
  assert.match(prompt,/台词或声音指令/);
 });
 
 test('an unchanged over-budget response is not counted as progress', () => {
- const input=[{videoDirection:{action:'Luna turns away. '.repeat(22),camera:'Hold a medium view. '.repeat(8),detail:'The note hangs low. '.repeat(7),ending:'Luna reaches the doorway. '.repeat(5)}}];
+ const input=[{videoDirection:{action:sized('Luna转身离开。',300),camera:sized('镜头保持中景。',180),detail:sized('纸条垂在低处。',140),ending:sized('Luna抵达门口。',140)}}];
  const issues=directorFieldRepairs(input,beats.slice(0,1));
  const reply={repairs:issues.map(issue=>({path:issue.path,value:issue.original.trim()}))};
  const result=applyDirectorFieldRepairProgress(input,reply,issues,beats.slice(0,1));

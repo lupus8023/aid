@@ -208,6 +208,8 @@ v0.1.194 新增可选 **H3 Director 连续长视频（实验）**：在独立图
 
 ### AI Story Generation Mode
 
+v0.1.197 keeps product originals in GPT-Image-2 only and sends H3 the integrated storyboard frame. H3 direction is written in concise Chinese while exact dialogue follows the selected language. Series also adds a visual-only one-click redo that preserves screenplay, director storyboards, voices and prior deliveries while regenerating automatic visual masters, storyboard images, videos and assembly. No generated-media QC loop is added.
+
 v0.1.196 adds **MJ visual masters → GPT-Image-2 storyboards**. In Character Design, generate a single master or adopt an original image directly, save it to the character library, and optionally extend it with GPT. New Story projects follow the master by default; explicitly selected image styles, capture modes and independent style references remain effective. MJ uses native sref/sw, while GPT receives a separately labeled style image. Existing H3 sampling and 2×2 cutting remain unchanged. See [image style controls and validation](docs/image-style-controls-validation.md).
 
 v0.1.194 会在编剧及首次新生图前理解已选角色、服装与产品原图，并缓存外观事实。分镜请求完整保留每镜动作和对应参考，不静默丢图；包装、膜体和材质参考分别处理。Story 与连续剧共用此修复，不增加生成后质检，也不自动重做历史图片。详见 [原图引用说明](docs/story-reference-fidelity.md)。

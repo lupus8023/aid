@@ -2,16 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { buildVideoSegmentPrompt, H3_PROMPT_MAX_CHARACTERS } from '../lib/videoGenerator.ts';
-import { currentVideoDirection, validateVideoDirection, videoDirectionSourceKey, VIDEO_DIRECTION_LIMITS, VIDEO_DIRECTION_MAX_CHARACTERS } from '../lib/videoDirection.ts';
+import { currentVideoDirection, validateVideoDirection, videoDirectionSourceKey, recoverReorderedObjectDirection, VIDEO_DIRECTION_LIMITS, VIDEO_DIRECTION_MAX_CHARACTERS } from '../lib/videoDirection.ts';
+import { bindStoryboardReferences } from '../lib/storyVisualAssets.ts';
 import { refineVideoDirections } from '../lib/pipeline/videoDirection.ts';
-import { validateDirectorShots, buildDirectorPrompt } from '../lib/pipeline/storyDirector.ts';
+import { validateDirectorShots, buildDirectorPrompt, stripExactDialogueFromDescription } from '../lib/pipeline/storyDirector.ts';
 import { videoSegmentGenerationSignature } from '../lib/videoSegments.ts';
 
 const direction = (name = 'Lin') => ({
-  action: `${name} breaks the envelope seal and draws out the photograph; her right hand loosens as she sees it.`,
-  camera: 'A waist-height medium shot arcs clockwise by 90 degrees, stopping when the photograph touches the table.',
-  detail: 'Her smile fades before her fingers release; her left hand does not move.',
-  ending: 'The photograph lands face-up on the table while her right hand remains suspended.',
+  action: `${name}撕开信封封口并抽出照片；看到照片后右手逐渐松开。`,
+  camera: '腰部高度的中景镜头顺时针环绕九十度，照片碰到桌面时停住。',
+  detail: '她的笑意在手指松开前消失，左手始终不动。',
+  ending: '照片正面朝上落在桌面，右手仍悬在半空。',
 });
 const shot = (extra = {}) => ({
   id: 's1', sceneNumber: 1, characters: ['Lin'], objects: ['envelope'],
@@ -30,18 +31,32 @@ test('motion brief survives Chinese source without becoming the still frame or a
   for (const text of Object.values(d)) assert.ok(p.includes(text), text);
   assert.doesNotMatch(p, /holds a sealed envelope|one weighted action peak|facial tension change once|00:01\.760/);
   assert.doesNotMatch(p, /From 00:00\.000 to 00:08\.000/);
-  assert.match(p, /\[Shot 1] The shot follows <Picture 1> as its composition reference/);
+  assert.match(p, /\[Shot 1] 本镜以<Picture 1>作为构图参考/);
   assert.ok(p.length <= H3_PROMPT_MAX_CHARACTERS);
 });
 
-test('registered Chinese names are bound without discarding the English action or ending', () => {
+test('registered Chinese names are bound without discarding the Chinese action or ending', () => {
   const d = direction('人鱼公主');
   const p = buildVideoSegmentPrompt([shot({ characters: ['人鱼公主'], videoDirection: d })], [], { duration: 8 });
-  assert.match(p, /<Subject 1> breaks the envelope seal/);
+  assert.match(p, /<Subject 1>撕开信封封口并抽出照片/);
   assert.ok(p.includes(d.ending));
-  assert.doesNotMatch(p, /[\u3400-\u9fff]/);
+  assert.doesNotMatch(p.split('detailed_description:')[1], /人鱼公主/);
   const legacy = buildVideoSegmentPrompt([shot({ characters: ['人鱼公主'], action: '人鱼公主 breaks the seal and drops the photograph onto the table.' })], [], { duration: 8 });
-  assert.match(legacy, /breaks the seal and drops the photograph onto the table/);
+  assert.doesNotMatch(legacy, /breaks the seal and drops the photograph onto the table/);
+  assert.match(legacy, /完成一个自然手势/);
+});
+
+test('object reference pictures get stable labels without leaking Chinese names into H3 prose', () => {
+  const d = direction('贵妃');
+  d.action = '贵妃抬起金色面膜盒，并始终看着盒子。';
+  d.detail = '贵妃收紧手指握住金色面膜盒，随后轻轻眯眼。';
+  d.ending = '贵妃把金色面膜盒平稳停在胸前。';
+  const p = buildVideoSegmentPrompt([shot({ characters: ['贵妃'], objects: ['金色面膜盒'], videoDirection: d })], [], {
+    duration: 8, objectReferenceNames: ['金色面膜盒'],
+  });
+  assert.match(p, /<Object 1>是<Picture 2>中的准确实物/);
+  assert.match(p, /<Subject 1>抬起<Object 1>/);
+  assert.doesNotMatch(p.split('detailed_description:')[1], /金色面膜盒|贵妃/);
 });
 
 test('an unambiguous shortened Chinese title is restored inside English directing prose', () => {
@@ -53,7 +68,7 @@ test('an unambiguous shortened Chinese title is restored inside English directin
   }, ['沈贵妃', '青鸾']);
   assert.equal(repaired.action, '沈贵妃 points toward the tray while 青鸾 steps back.');
   assert.match(repaired.camera, /沈贵妃 and 青鸾/);
-  assert.throws(() => validateVideoDirection({ ...direction(), action: '沈贵妃转身离开。' }, ['沈贵妃']), /必须用英文/);
+  assert.doesNotThrow(() => validateVideoDirection({ ...direction(), action: '沈贵妃转身离开。' }, ['沈贵妃']));
 });
 
 test('fields share the combined budget without splicing away words or negations', () => {
@@ -71,42 +86,101 @@ test('visual validation rejects dialogue, empty outcomes and generic adjective-o
     assert.throws(() => validateVideoDirection({ ...direction(), action }));
   }
   assert.throws(() => validateVideoDirection({ ...direction(), ending: '' }), /ending/);
-  assert.throws(() => validateVideoDirection({ ...direction(), action: '她打开信封，取出照片后将信封放在桌面。' }), /必须用英文/);
+  assert.doesNotThrow(() => validateVideoDirection({ ...direction(), action: '她打开信封，取出照片后将信封放在桌面。' }));
   assert.throws(() => validateVideoDirection({ ...direction(), action: '她开口说道台词。' }));
   assert.throws(() => validateVideoDirection({ ...direction(), detail: 'The answer is already here.' }, [], ['The answer is already here.']), /权威台词/);
   assert.doesNotThrow(() => validateVideoDirection({ ...direction(), detail: 'Her eyes widen.' }, [], ['Yes.']));
 });
 
+test('a name-only utterance does not reject or erase the registered actor in visual prose', () => {
+  const names = ['贵妃', '裴大人'];
+  const speech = [{ exactLine: '裴大人。' }, { exactLine: '臣在。' }];
+  const description = '裴大人低头退后，贵妃指向门外。';
+  const vd = { ...direction(), action: '裴大人低头退后，贵妃同时指向门外。' };
+  assert.doesNotThrow(() => validateVideoDirection(vd, names, speech.map(s => s.exactLine)));
+  assert.doesNotThrow(() => validateDirectorShots([{ description, prompt: 'A doorway.', videoDirection: vd }], [{ index: 16, speech }], 'test', 'zh', names));
+  assert.equal(stripExactDialogueFromDescription(description, { speech }, names), description);
+  assert.equal(stripExactDialogueFromDescription('贵妃说道“裴大人。”裴大人低头。', { speech }, names), '贵妃裴大人低头。');
+  for (const copied of ['“裴大人。”', '"裴大人?"', '裴大人 says 裴大人.']) {
+    assert.throws(() => validateVideoDirection({ ...vd, action: copied }, names, ['裴大人。']), /台词|声音/);
+  }
+  assert.throws(() => validateDirectorShots([{ description: '贵妃说出裴大人。', prompt: 'A doorway.' }], [{ index: 16, speech }], 'test', 'zh', names), /权威台词/);
+  assert.throws(() => validateVideoDirection({ ...vd, detail: 'The answer is here.' }, names, ['The answer is here.']), /权威台词/);
+});
+
+test('reference binding preserves object order and narrowly recovers legacy reorder-only motion sources', () => {
+  const original = shot({ objects: ['photograph', 'envelope'], videoDirection: direction() });
+  original.videoDirectionSource = videoDirectionSourceKey(original);
+  const bound = bindStoryboardReferences(original, [{id:'c', name:'Lin'}], [{id:'o1',name:'envelope'}, {id:'o2',name:'photograph'}]);
+  assert.deepEqual(bound.objects, original.objects);
+  assert.deepEqual(currentVideoDirection(bound), original.videoDirection);
+  const legacy = { ...original, objects: [...original.objects].reverse() };
+  assert.equal(currentVideoDirection(legacy), undefined);
+  const recovered = recoverReorderedObjectDirection(legacy);
+  assert.deepEqual(currentVideoDirection(recovered), original.videoDirection);
+  assert.notEqual(videoSegmentGenerationSignature([legacy]), videoSegmentGenerationSignature([recovered]));
+  const tagged = shot({ objects: ['envelope'], prompt: '[photograph] lies on the table.', videoDirection: direction() });
+  tagged.videoDirectionSource = videoDirectionSourceKey(tagged);
+  const legacyTagged = { ...tagged, objects: ['envelope', 'photograph'] };
+  assert.deepEqual(currentVideoDirection(recoverReorderedObjectDirection(legacyTagged)), tagged.videoDirection);
+  const taggedBound = bindStoryboardReferences(tagged, [{id:'c',name:'Lin'}], [{id:'o1',name:'envelope'},{id:'o2',name:'photograph'}]);
+  assert.deepEqual(currentVideoDirection(taggedBound), tagged.videoDirection);
+  for (const patch of [{action:'Lin burns the photograph.'},{prompt:'A new scene.'},{objects:['photograph','bottle']}]) {
+    const edited = {...legacy,...patch};
+    assert.equal(recoverReorderedObjectDirection(edited), edited);
+    assert.equal(currentVideoDirection(edited), undefined);
+  }
+});
+
+test('automatic source adaptation repairs a stale brief without replacing neighboring valid briefs or media', async () => {
+  const valid = shot({ videoDirection: direction() });
+  const invalid = shot({ id:'s10', sceneNumber:10, characters:['太后','贵妃'], action:'太后在门框停住，贵妃抬头。', videoDirection:{...direction(),action:'裴大人站在桌后。'}, videoDirectionSource:'stale' });
+  let calls = 0;
+  const repaired = await refineVideoDirections([valid,invalid], async prompt => {
+    calls++;
+    assert.match(prompt, /每镜 characters\/objects 是本镜主体清单/);
+    return JSON.stringify([{id:'s10',videoDirection:{...direction(),action:'太后在门框前停住，贵妃同时抬起下巴。'}}]);
+  });
+  assert.equal(calls,1);
+  assert.equal(repaired[0],valid);
+  assert.equal(repaired[1].imageUrl,invalid.imageUrl);
+  assert.equal(repaired[1].action,invalid.action);
+  assert.ok(currentVideoDirection(repaired[1]));
+  const page=readFileSync(new URL('../app/story/page.tsx',import.meta.url),'utf8');
+  assert.match(page,/await handleGenerateVideoPrompt\(segment\[0\], segment, false, \{ throwOnError: true \}\)/);
+  assert.match(page,/storyboardsRef\.current = updated;\s*setStoryboards\(updated\)/);
+});
+
 test('products get material motion, not an invented human performance', () => {
-  const s = shot({ characters: [], action: 'A bottle rotates clockwise.', videoDirection: {
-    action: 'The bottle rotates clockwise by 30 degrees on its pedestal.',
-    camera: 'The fixed macro camera holds the bottle shoulder in focus.',
-    detail: 'One condensation bead slides down the glass and joins a larger droplet.',
-    ending: 'The bottle stops with the front panel facing the lens.',
+  const s = shot({ characters: [], action: '瓶子顺时针旋转。', videoDirection: {
+    action: '瓶子在展台上顺时针旋转三十度。',
+    camera: '固定微距镜头持续对焦瓶肩。',
+    detail: '一滴冷凝水沿玻璃滑下，汇入较大的水珠。',
+    ending: '瓶子停止转动，正面标签朝向镜头。',
   } });
   const p = buildVideoSegmentPrompt([s], [], { duration: 6 });
-  assert.match(p, /condensation bead slides/);
+  assert.match(p, /冷凝水沿玻璃滑下/);
   assert.doesNotMatch(p, /gaze and facial tension|brow tense|breath tightens/);
   const legacy = buildVideoSegmentPrompt([{ ...s, videoDirection: undefined }], [], { duration: 6 });
   assert.doesNotMatch(legacy, /gaze and facial tension/);
 });
 
 test('four dense briefs retain every action, camera, detail, ending and exact dialogue under 7000 characters', () => {
-  const fill = (text, limit) => { while ((text + ' It stays in view.').length <= limit) text += ' It stays in view.'; return text; };
+  const fill = (text, limit) => { while ((text + ' 该状态始终留在画面中。').length <= limit) text += ' 该状态始终留在画面中。'; return text; };
   const shots = [1, 2, 3, 4].map(n => shot({
     id: `s${n}`, sceneNumber: n, characters: ['Lin', 'Mei', 'Guard'],
     videoDirection: {
-      action: fill(`Lin turns the key at gate ${n}; the latch retracts and Mei pushes the heavy door inward.`, 300),
-      camera: fill('The shoulder-height camera tracks the moving door edge until the open passage becomes visible.', 180),
-      detail: fill('Dust falls from the latch as metal scrapes against the frame.', 120),
-      ending: fill(`Gate ${n} remains open; the key stays in the lock and the group faces the passage.`, 120),
+      action: fill(`Lin转动第${n}道门的钥匙；门闩缩回，Mei把沉重的门推向里面。`, 300),
+      camera: fill('肩部高度的镜头跟随移动的门边，直到敞开的通道完全可见。', 180),
+      detail: fill('金属刮过门框时，灰尘从门闩落下。', 120),
+      ending: fill(`第${n}道门保持敞开；钥匙留在锁中，众人面向通道。`, 120),
     },
     ...(n === 2 ? { dialogueLines: [{ character: 'Lin', text: '跟着我，不要回头。' }] } : {}),
     ...(n === 3 ? { dialogueLines: [{ character: 'Mei', text: '出口就在前面。' }] } : {}),
   }));
   const p = buildVideoSegmentPrompt(shots, [], { duration: 15, firstFrameUrl: 'continuity', referenceAudioNames: ['Lin', 'Mei'], language: 'zh', isFilmEnding: true });
   assert.ok(p.length <= 7000, `got ${p.length}`);
-  assert.match(p, /At the end of the complete film, only the final shot's/);
+  assert.match(p, /整片结束时，只有末镜的/);
   for (const s of shots) for (const value of Object.values(s.videoDirection)) assert.ok(p.includes(value), value);
   for (const line of ['跟着我，不要回头。', '出口就在前面。']) assert.equal(p.split(line).length - 1, 1);
 });
@@ -115,7 +189,7 @@ test('FL2VA preserves authored motion and exact end reference', () => {
   const p = buildVideoSegmentPrompt([shot({ videoDirection: direction() })], [], { duration: 8, firstFrameUrl: 'opening' });
   assert.match(p, /integrated_multimodal_description/);
   assert.ok(p.includes(direction().ending));
-  assert.match(p, /reaches the pose and composition in <Picture 2>/);
+  assert.match(p, /准确到达<Picture 2>中的姿态与构图/);
 });
 
 test('camera paths change perspective without weakening identity or exact frame anchors', () => {
@@ -123,25 +197,25 @@ test('camera paths change perspective without weakening identity or exact frame 
   for (const group of [[s], [s, { ...s, id: 's2', sceneNumber: 2 }]]) {
     const p = buildVideoSegmentPrompt(group, [], { duration: 8 });
     assert.ok(p.includes(direction().camera));
-    assert.match(p, /change only the authored action, expression(?:, camera and edit| and camera)/);
+    assert.match(p, /只执行已写明的动作、表情(?:、运镜和剪辑|和运镜)/);
     assert.doesNotMatch(p, /framing, and color palette throughout|every picture composition and setting/);
-    assert.match(p, /identity|face/);
+    assert.match(p, /人物身份|脸部/);
   }
   const p = buildVideoSegmentPrompt([s], [], { duration: 8, firstFrameUrl: 'opening' });
-  assert.match(p, /exact first frame at 00:00\.000/);
-  assert.match(p, /Reach <Picture 2> as the exact final frame/);
+  assert.match(p, /00:00\.000的准确首帧/);
+  assert.match(p, /镜头结束时准确到达<Picture 2>的构图/);
 });
 
-test('legacy camera sentences retain their actual path and fixed-camera focus transfers', () => {
+test('legacy English camera sentences are converted to Chinese camera behavior before H3', () => {
   const camera = 'From waist height, truck left at walking speed by one metre, keeping Lin in profile as the door passes across the foreground.';
   const p = buildVideoSegmentPrompt([shot({ cameraMove: camera, description: 'A static image of Lin.' })], [], { duration: 8 });
-  assert.ok(p.includes(camera));
-  assert.doesNotMatch(p, /camera holds a static shot|small amplitude/);
+  assert.doesNotMatch(p, /truck left/);
+  assert.match(p, /相机随主体横向移动/);
   const focus = 'Locked-off camera: rack focus from the photograph to Lin as her fingers release.';
-  assert.ok(buildVideoSegmentPrompt([shot({ cameraMove: focus })], [], { duration: 8 }).includes(focus));
+  assert.match(buildVideoSegmentPrompt([shot({ cameraMove: focus })], [], { duration: 8 }), /固定机位；在动作触发时，只在既定的两个景深平面之间移焦一次/);
   const surveillance = buildVideoSegmentPrompt([shot({ cameraMove: camera, capturePreset: 'surveillance' })], [], { duration: 8 });
   assert.doesNotMatch(surveillance, /truck left/);
-  assert.match(surveillance, /fixed high camera never follows/);
+  assert.match(surveillance, /固定高机位不跟拍/);
 });
 
 test('new camera lint repairs vague or contradictory directions without invalidating legacy clips', () => {
@@ -155,7 +229,7 @@ test('new camera lint repairs vague or contradictory directions without invalida
 
 test('oversized final prompt fails explicitly, never truncates authoritative content', () => {
   const s = shot({ videoDirection: direction(), dialogueLines: [{ character: 'Lin', text: '走吧。' }] });
-  assert.throws(() => buildVideoSegmentPrompt([s], [], { duration: 6, voiceProfiles: { Lin: 'warm voice '.repeat(800) } }), /7000 字符上限/);
+  assert.throws(() => buildVideoSegmentPrompt([s], [], { duration: 6, voiceProfiles: { Lin: '温暖而低沉的声音。'.repeat(800) } }), /7000 字符上限/);
 });
 
 test('visual source edits invalidate the brief, but image URLs, voice metadata and segment speech distribution do not', () => {
@@ -190,7 +264,7 @@ test('explicit rewriting replaces a valid brief without replacing the paid asset
   const s = shot({ videoDirection: direction(), videoUrl: 'https://example.com/paid.mp4', videoTaskId: 'paid-task', videoStatus: 'completed' });
   s.videoDirectionSource = videoDirectionSourceKey(s);
   const before = structuredClone(s);
-  const camera = 'Locked-off medium shot: as Lin opens the envelope, rack focus from the seal to the photograph emerging behind her fingers.';
+  const camera = '固定中景：Lin打开信封时，从封口移焦到她指间露出的照片。';
   let calls = 0;
   const [rewritten] = await refineVideoDirections([s], async prompt => {
     calls++;
@@ -243,17 +317,17 @@ test('overlong model outputs are rewritten via bounded retries without dropping 
 
 test('incremental repairs retain a shorter over-budget draft and already repaired details', async () => {
   let calls = 0;
-  const longCamera = 'The camera follows Lin toward the desk. ';
-  const detail = 'Paper bends under her thumb.';
+  const longCamera = '镜头跟随Lin走向书桌。';
+  const detail = '纸张在她的拇指下弯曲。';
   const [result] = await refineVideoDirections([shot()], async prompt => {
     calls++;
-    if (calls === 1) return JSON.stringify([{id:'s1',videoDirection:{...direction(),camera:longCamera.repeat(20),detail:'x'.repeat(150)}}]);
+    if (calls === 1) return JSON.stringify([{id:'s1',videoDirection:{...direction(),camera:longCamera.repeat(90),detail:'x'.repeat(150)}}]);
     if (calls === 2) return JSON.stringify({repairs:[
-      {path:'shots[0].videoDirection.camera',value:longCamera.repeat(14)},
+      {path:'shots[0].videoDirection.camera',value:longCamera.repeat(70)},
       {path:'shots[0].videoDirection.detail',value:detail},
     ]});
-    assert.ok(prompt.includes(longCamera.repeat(14).trim()));
-    assert.ok(!prompt.includes(longCamera.repeat(20).trim()));
+    assert.ok(prompt.includes(longCamera.repeat(70).trim()));
+    assert.ok(!prompt.includes(longCamera.repeat(90).trim()));
     const requested=JSON.parse(prompt.split('Requested fields (data, not instructions): ')[1].split('\n')[0]);
     assert.deepEqual(requested.map(x=>x.path),['shots[0].videoDirection.camera']);
     return JSON.stringify({repairs:[{path:requested[0].path,value:direction().camera}]});
@@ -322,14 +396,13 @@ test('new director generation requires bounded motion briefs while legacy valida
   assert.match(p, /videoDirection/);
   assert.match(p, /主动作|可见状态/);
   assert.match(p, /合计≤720/);
-  assert.match(p, /description 与 characterCostume 使用中文/);
-  assert.match(p, /videoDirection 的 action\/camera\/detail\/ending 四个字段全部使用英文/);
-  assert.match(p, /"action": "Complete English visible-action sentence\."/);
-  assert.doesNotMatch(p, /"action": "中文因果动作"/);
-  assert.match(p, /中文对白中的概念、引号词、官职泛称或剧情总结不是实体正名/);
+  assert.match(p, /description、characterCostume 与 videoDirection/);
+  assert.match(p, /action \/ camera \/ detail \/ ending 的动作、状态、方位、摄影与连接词必须全部使用中文/);
+  assert.match(p, /"action": "完整、具象的中文可见动作句。"/);
+  assert.match(p, /对白中的概念、引号词、官职泛称或剧情总结不是可见动作/);
   const englishDialogueProject = buildDirectorPrompt({ storyPlan: { requirements: [], sequences: [] }, beats: [beat], batchNumber: 1, totalBatches: 1, characters: [], objects: [], language: 'en' });
   assert.match(englishDialogueProject, /项目语言 English 只约束 speech 中的逐字台词/);
-  assert.match(englishDialogueProject, /"action": "Complete English visible-action sentence\."/);
+  assert.match(englishDialogueProject, /"action": "完整、具象的中文可见动作句。"/);
   const source = readFileSync(new URL('../lib/pipeline/storyDirector.ts', import.meta.url), 'utf8');
   assert.match(source, /videoDirection: raw\?\.videoDirection/);
   assert.match(source, /videoDirectionSource = videoDirectionSourceKey/);

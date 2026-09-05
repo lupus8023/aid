@@ -1,6 +1,6 @@
 import type { Storyboard } from '@/types';
 import { buildDirectorCaptureContract } from '@/lib/capturePresets';
-import { currentVideoDirection, videoDirectionWritingContract, validateVideoDirection, videoDirectionEntityNames, videoDirectionSourceKey } from '@/lib/videoDirection';
+import { currentChineseVideoDirection, isChineseVideoDirection, videoDirectionWritingContract, validateVideoDirection, videoDirectionEntityNames, videoDirectionSourceKey } from '@/lib/videoDirection';
 import { storyboardSpeech } from '@/lib/speechAudioContract';
 import { isStoredStoryboardSource } from '@/lib/storyboardImageSource';
 import { extractJson } from './json';
@@ -15,7 +15,7 @@ export async function refineVideoDirections(
 ): Promise<Storyboard[]> {
   const pending = storyboards.filter(shot => {
     if (options.rewrite) return true;
-    try { return !currentVideoDirection(shot); }
+    try { return !currentChineseVideoDirection(shot); }
     catch { return true; } // An imported malformed brief can be repaired here.
   });
   if (!pending.length) return storyboards;
@@ -44,7 +44,8 @@ ${referenceContext}
 ${options.isFilmEnding ? `整片末镜 ID 为 ${storyboards.at(-1)?.id}：在其最后一句对白/旁白完整结束后自然延续至少1秒可见状态或行动，不新增台词，不定格或补黑帧；不把这条片尾要求应用于同批其他镜头。` : ''}
 ${options.rewrite ? '本次明确要求重新编写：已排除旧的运镜句子，不作同义改写。保留动作、首帧位置、对白口型和剪辑交棒；从当前画面的深度、遮挡、人物距离重新设计摄影任务，让结束构图或焦点交付已有信息变化。固定镜头有明确作用时仍可使用，不新增切镜。' : '已有 cameraMove 是本镜摄影意图；把它落实为可执行过程，不替换成通用运镜。'}
 同批前后镜仅用于确定景别、视线和运动交接，不提前发生后镜事件，也不为追求变化强行移动固定机位。
-${videoDirectionWritingContract('en')}
+每镜 characters/objects 是本镜主体清单。旧 description、imagePrompt、editBridge 或旧导演稿若夹带相邻镜头的人物，不把他们写成本镜新增演员或动作；只落实本镜已批准 action、状态和主体，不改变台词。
+${videoDirectionWritingContract('zh')}
 返回 JSON 数组，每项仅含 id 与 videoDirection，必须逐项匹配输入 ID。
 输入资料：${JSON.stringify(source)}`;
   let problem = '';
@@ -64,7 +65,7 @@ ${videoDirectionWritingContract('en')}
     try {
       const issues = retained ? directorFieldRepairs(retained, repairContext) : [];
       const response = await chat(retained && issues.length
-        ? `${buildDirectorFieldRepairPrompt(retained, repairContext, issues, undefined, 'en')}\n${referenceContext}${problem ? `\nPrevious validation failure: ${problem}. Correct this explicitly; do not repeat the rejected patch.` : ''}`
+        ? `${buildDirectorFieldRepairPrompt(retained, repairContext, issues, undefined, 'zh')}\n${referenceContext}${problem ? `\n上次校验失败：${problem}。请明确修正，不要重复被拒绝的内容。` : ''}`
         : `${prompt}${problem ? `\n上次校验失败：${problem}。请重新输出完整数组，保留具体动作与结果并在字符预算内重写，不截句。` : ''}`, imageUrls);
       received = true;
       contentAttempts++;
@@ -76,7 +77,9 @@ ${videoDirectionWritingContract('en')}
       retained = parsed;
       const updates = new Map(pending.map((shot, index) => {
         if (parsed[index]?.id !== shot.id) throw new Error(`镜头 ID/顺序不匹配：${shot.id}`);
-        const direction = validateVideoDirection(parsed[index].videoDirection, videoDirectionEntityNames(shot), storyboardSpeech(shot).map(line => line.exactLine), true);
+        const names = videoDirectionEntityNames(shot);
+        const direction = validateVideoDirection(parsed[index].videoDirection, names, storyboardSpeech(shot).map(line => line.exactLine), true);
+        if (!isChineseVideoDirection(direction, names)) throw new Error('videoDirection 的 action/camera/detail/ending 必须使用中文，登记专名除外');
         return [shot.id, { ...shot, videoDirection: direction, videoDirectionSource: videoDirectionSourceKey(shot) }];
       }));
       return storyboards.map(shot => updates.get(shot.id) || shot);

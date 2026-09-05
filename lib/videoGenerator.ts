@@ -2,8 +2,8 @@ import { createVideoTask, getVideoTaskStatus } from './apimart';
 import type { Storyboard } from '@/types';
 import { allocateSegmentTimeline, cinematicEditKind, estimateVideoSegmentSeconds } from './videoSegments';
 import { compileTimedSpeech, storyboardAudioPlan, storyboardSpeech, validateSpeechLanguage } from './speechAudioContract';
-import { buildVideoCapturePresetContract, isObservationalCapturePreset } from './capturePresets';
-import { currentVideoDirection, videoDirectionEntityNames } from './videoDirection';
+import { isObservationalCapturePreset } from './capturePresets';
+import { currentChineseVideoDirection, isChineseVideoDirectionField, videoDirectionEntityNames, withoutVideoEntityNames } from './videoDirection';
 import { FILM_ENDING_SECONDS } from './filmEnding';
 import { normalizeImageStyleReference, type ImageStyleReference } from './imageStyleReference';
 import { H3_DIALOGUE_NO_SUBTITLE_POLICY, NO_SUBTITLE_POLICY } from './videoTextPolicy';
@@ -34,12 +34,13 @@ function fitH3PromptBudget(prompt: string): string {
   // budget, leaving room for the shot actions, expressions and exact dialogue.
   fitted = fitted.replace(
     /retention_analysis:\n[\s\S]*?\n\ndetailed_description:/i,
-    'retention_analysis:\nPreserve declared identities, wardrobes and settings. Picture composition anchors each shot opening; the authored camera path controls its evolution. Use bound audio only as voice-timbre reference without copying its original signal.\n\ndetailed_description:',
+    'retention_analysis:\n保持已声明的人物身份、服装和场景；参考图锁定每镜开场构图，既定运镜控制后续变化；绑定音频只提供音色，不复制原声音信号。\n\ndetailed_description:',
   );
   fitted = fitted
     .split(/(<d>[\s\S]*?<\/d>)/gi)
     .map(part => /^<d>/i.test(part) ? part : part
       .replace(/The established positions and eyelines remain consistent\.\s*/g, '')
+      .replace(/保持已经建立的人物位置与视线关系。\s*/g, '')
       .replace(/[ \t]{2,}/g, ' '))
     .join('')
     .replace(/\n{3,}/g, '\n\n');
@@ -47,17 +48,17 @@ function fitH3PromptBudget(prompt: string): string {
 
   fitted = fitted.replace(
     /EDITING:[^\n]*/i,
-    'Use motivated hard cuts; preserve axis, eyelines, screen direction, action phase and geography; no crossfades, morphs, interpolation or repeats.\n',
+    '使用有动机的硬切，保持轴线、视线、银幕方向、动作阶段和空间关系；不叠化、不变形、不插帧、不重复。\n',
   );
   if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
 
   // Keep every authored shot field intact. If a dense segment still exceeds
   // the transport ceiling, compact only the repeated global photography rules.
   fitted = fitted
-    .replace(/^REFERENCE PRIORITY[^\n]*$/gm, 'Reference pictures control identity, wardrobe, objects, setting, light and each shot opening; only authored action and camera movement change them.')
-    .replace(/^The target video uses natural live-action cinematography[^\n]*$/gm, 'Use natural live-action cinematography, practical light, optical depth and normal-speed movement.')
-    .replace(/^Maintain photographic material reality:[^\n]*$/gm, 'Keep photographic skin, hair, fabric, contact shadows and optical depth physically plausible; preserve faces, hands, costumes and cast count.')
-    .replace(/^CAPTURE MODE:[^\n]*$/gm, 'Execute the authored camera path with the blocking; preserve screen direction and let each reaction follow its scripted cause.');
+    .replace(/^(?:REFERENCE PRIORITY|参考图：)[^\n]*$/gm, '参考图锁定人物、服装、物体、场景、光线与每镜开场，只允许既定动作和运镜改变画面。')
+    .replace(/^The target video uses natural live-action cinematography[^\n]*$/gm, '保持自然实拍质感、现场光、光学景深和正常速度运动。')
+    .replace(/^Maintain photographic material reality:[^\n]*$/gm, '保持皮肤、毛发、织物、接触阴影和光学景深符合真实摄影，并保持脸、手、服装和人物数量。')
+    .replace(/^(?:CAPTURE MODE:|拍摄方式：)[^\n]*$/gm, '按既定人物调度执行运镜，保持银幕方向，让每个反应承接剧本中的原因。');
   if (fitted.length <= H3_PROMPT_MAX_CHARACTERS) return fitted;
 
   throw new Error(`H3 提示词压缩后仍有 ${fitted.length} 字符，超过 ${H3_PROMPT_MAX_CHARACTERS} 字符上限；该片段的逐字台词或演员任务过多，请拆分片段`);
@@ -170,19 +171,19 @@ function dialogueSafeVisualAction(value: unknown, exactSpokenLines: string[], la
 
 function officialShotFraming(storyboard: Storyboard): string {
   const framing = `${storyboard.shotSize || ''} ${storyboard.angle || ''}`.toLowerCase();
-  const size = /大特写|extreme close/.test(framing) ? 'extreme close-up'
-    : /特写|close/.test(framing) ? 'close-up'
-      : /近景|medium close/.test(framing) ? 'medium close-up'
-        : /中景|medium/.test(framing) ? 'medium shot'
-          : /全景|full shot/.test(framing) ? 'full shot'
-            : /远景|wide|long shot/.test(framing) ? 'wide shot'
-              : 'story-motivated framing';
-  const angle = /仰|low angle/.test(framing) ? 'from a low angle'
-    : /俯|top|high angle/.test(framing) ? 'from a high angle'
-      : /过肩|over.?shoulder/.test(framing) ? 'over the shoulder'
-        : /fpv|主观/.test(framing) ? 'from the character point of view'
-          : 'at a natural eye-level angle';
-  return `${size} ${angle}`;
+  const size = /大特写|extreme close/.test(framing) ? '大特写'
+    : /特写|close/.test(framing) ? '特写'
+      : /近景|medium close/.test(framing) ? '近景'
+        : /中景|medium/.test(framing) ? '中景'
+          : /全景|full shot/.test(framing) ? '全景'
+            : /远景|wide|long shot/.test(framing) ? '远景'
+              : '按剧情需要确定景别';
+  const angle = /仰|low angle/.test(framing) ? '低机位仰拍'
+    : /俯|top|high angle/.test(framing) ? '高机位俯拍'
+      : /过肩|over.?shoulder/.test(framing) ? '过肩机位'
+        : /fpv|主观/.test(framing) ? '角色主观机位'
+          : '自然平视机位';
+  return `${size}，${angle}`;
 }
 
 type VideoSegmentPromptOptions = {
@@ -195,6 +196,8 @@ type VideoSegmentPromptOptions = {
   visualOverride?: string;
   language?: 'zh' | 'en';
   voiceProfiles?: Record<string, string>;
+  /** Ordered exactly like the extra H3 object-reference pictures. */
+  objectReferenceNames?: string[];
 };
 
 function officialVisibleExpression(storyboard: Storyboard): string {
@@ -205,12 +208,12 @@ function officialVisibleExpression(storyboard: Storyboard): string {
     ...(storyboard.performance || []).flatMap(cue => [cue.expression, cue.gaze, cue.breath, cue.reaction]),
     ...storyboardSpeech(storyboard).flatMap(line => [line.emotion, line.delivery]),
   ].filter(Boolean).join(' ').toLowerCase();
-  if (/害怕|恐惧|紧张|fear|afraid|tense|anxious/.test(source)) return 'The breath tightens once; the eyes and brow tense briefly, then release.';
-  if (/悲|难过|伤心|sad|grief|sorrow/.test(source)) return 'The lower eyelids tense and the mouth corners tighten slightly, then recover.';
-  if (/愤怒|生气|angry|anger|furious/.test(source)) return 'The eyes, brow, and jaw tighten once, then release.';
-  if (/喜悦|开心|温柔|happy|warm|gentle|joy/.test(source)) return 'The gaze warms and the mouth corners rise slightly once, then recover.';
-  if (/坚定|果断|决心|determined|firm|resolute/.test(source)) return 'The gaze locks once and the jaw steadies, then the tension releases after the action.';
-  return 'The gaze and facial tension change once with the action, then recover.';
+  if (/害怕|恐惧|紧张|fear|afraid|tense|anxious/.test(source)) return '呼吸短暂收紧，眼周和眉间随之绷紧，随后稍微松开。';
+  if (/悲|难过|伤心|sad|grief|sorrow/.test(source)) return '下眼睑和嘴角轻轻收紧，随后缓慢恢复。';
+  if (/愤怒|生气|angry|anger|furious/.test(source)) return '眼神、眉间与下颌同时收紧一次，随后稍微松开。';
+  if (/喜悦|开心|温柔|happy|warm|gentle|joy/.test(source)) return '目光逐渐柔和，嘴角只轻轻抬起一次，随后恢复。';
+  if (/坚定|果断|决心|determined|firm|resolute/.test(source)) return '目光定住，下颌稳定；动作完成后紧张感才稍微释放。';
+  return '目光和面部张力随动作发生一次明确变化，随后自然恢复。';
 }
 
 function officialPerformanceDirection(storyboard: Storyboard, segmentShotCount: number): string {
@@ -235,10 +238,10 @@ function officialPerformanceDirection(storyboard: Storyboard, segmentShotCount: 
       cue.gesture,
       cue.breath,
     ].map(value => String(value || '').replace(/\s+/g, ' ').trim())
-      .filter(value => value && !containsHan(value));
+      .filter(value => value && containsHan(value));
     if (!pieces.length) return '';
     const character = String(cue.character || '').trim();
-    const label = character && !containsHan(character) ? `${character}: ` : `Visible character ${index + 1}: `;
+    const label = character ? `${character}：` : `可见角色${index + 1}：`;
     return `${label}${compactActionArc(pieces.join('; '), index === 0 ? primaryBudget : supportingBudget)}`;
   }).filter(Boolean).join(' ');
 }
@@ -253,17 +256,12 @@ function storyboardCastNames(storyboard: Storyboard): string[] {
 
 function officialReferencePriorityLock(storyboards: Storyboard[], isFirstLastMode: boolean): string {
   if (storyboards.length > 1) {
-    return 'REFERENCE: Each declared picture fixes its shot opening. Keep the same identities, wardrobe, objects, setting, light and color; change only the authored action, expression, camera and edit.';
+    return '参考图：每张已声明图片锁定对应镜头的开场。保持人物身份、服装、物体、场景、光线和色彩一致，只执行已写明的动作、表情、运镜和剪辑。';
   }
   const endLock = isFirstLastMode
-    ? ' Reach <Picture 2> as the exact final frame without recasting or restyling.'
+    ? ' 镜头结束时准确到达<Picture 2>的构图，不更换人物或风格。'
     : '';
-  return `REFERENCE: <Picture 1> is the exact first frame at 00:00.000. Keep its identities, faces, hair, body proportions, wardrobe, objects, setting, light, lens and color; change only the authored action, expression and camera.${endLock}`;
-}
-
-function officialMaterialReality(style: unknown): string {
-  if (['anime', '3d-cg', 'stop-motion'].includes(String(style || ''))) return '';
-  return 'Keep realistic skin, hair, hands, fabric, material reflections, contact shadows and optical depth.';
+  return `参考图：<Picture 1>是00:00.000的准确首帧。保持人物身份、脸部、发型、身体比例、服装、物体、场景、光线、镜头质感和色彩不变，只执行已写明的动作、表情和运镜。${endLock}`;
 }
 
 function officialTemporalPerformance(
@@ -277,38 +275,26 @@ function officialTemporalPerformance(
   const settleStart = range.start + span * 0.78;
   if (segmentShotCount > 1) {
     return isObservationalCapturePreset(storyboard.capturePreset)
-      ? `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, continue ${picture}'s task; from ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, the trigger causes one delayed response, eyes or weight lead, one adjustment may remain unfinished; from ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, keep residual low activity, then return attention or change state.`
-      : `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, continue ${picture}'s action; from ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, one trigger creates the weighted peak; from ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, keep residual motion and partial recovery, never a pose.`;
+      ? `${h3Timestamp(range.start)}至${h3Timestamp(actionStart)}延续${picture}中的任务；${h3Timestamp(actionStart)}至${h3Timestamp(settleStart)}由触发引出稍有延迟的反应，眼神或重心先动，允许一个调整停在未完成状态；${h3Timestamp(settleStart)}至${h3Timestamp(range.end)}保留低强度余动，随后才恢复注意或进入新状态。`
+      : `${h3Timestamp(range.start)}至${h3Timestamp(actionStart)}延续${picture}中的动作；${h3Timestamp(actionStart)}至${h3Timestamp(settleStart)}由一个触发形成动作重音；${h3Timestamp(settleStart)}至${h3Timestamp(range.end)}保留余动和不完全恢复，不摆拍定格。`;
   }
   if (isObservationalCapturePreset(storyboard.capturePreset)) {
-    return `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, continue the low-intensity task in ${picture}, not a pose. From ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, the authored trigger causes one delayed weighted response; eyes or weight lead the head or hand, and one adjustment may pause unfinished. From ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, keep residual motion, brief low activity, then return attention or enter the authored next state.`;
+    return `${h3Timestamp(range.start)}至${h3Timestamp(actionStart)}延续${picture}中的低强度行动，不摆拍；${h3Timestamp(actionStart)}至${h3Timestamp(settleStart)}由既定触发引出稍有延迟的重点反应，眼神或重心先于头部和手部，一个调整可以停在未完成状态；${h3Timestamp(settleStart)}至${h3Timestamp(range.end)}保留余动和短暂低活动，随后恢复注意或进入既定的新状态。`;
   }
-  return `From ${h3Timestamp(range.start)} to ${h3Timestamp(actionStart)}, continue the low-intensity action in ${picture}, not a presentation pose. From ${h3Timestamp(actionStart)} to ${h3Timestamp(settleStart)}, the authored trigger produces one weighted action peak. From ${h3Timestamp(settleStart)} to ${h3Timestamp(range.end)}, preserve residual motion and partial recovery instead of freezing.`;
+  return `${h3Timestamp(range.start)}至${h3Timestamp(actionStart)}延续${picture}中的低强度动作，不作展示姿势；${h3Timestamp(actionStart)}至${h3Timestamp(settleStart)}由既定触发形成一次有重量的动作峰值；${h3Timestamp(settleStart)}至${h3Timestamp(range.end)}保留余动和不完全恢复，不要冻结。`;
 }
 
 function officialDialogueDelivery(line: ReturnType<typeof compileTimedSpeech>[number]): string {
   const source = `${line.emotion || ''} ${line.delivery || ''}`.toLowerCase();
-  const volume = line.volume === 'raised' ? 'at a controlled raised volume'
-    : line.volume === 'soft' ? 'softly'
-      : line.volume === 'whisper' ? 'in a restrained whisper'
-        : 'at a natural speaking volume';
-  const pace = /快速|急促|fast|quick|urgent/.test(source) ? 'a brisk natural conversational pace'
-    : /缓慢|慢速|slow|measured/.test(source) ? 'a measured natural conversational pace'
-      : 'a natural conversational pace';
-  return `${volume}, at ${pace}`;
+  const volume = line.volume === 'raised' ? '克制地提高音量'
+    : line.volume === 'soft' ? '轻声'
+      : line.volume === 'whisper' ? '压低声音耳语'
+        : '自然音量';
+  const pace = /快速|急促|fast|quick|urgent/.test(source) ? '自然偏快的交谈速度'
+    : /缓慢|慢速|slow|measured/.test(source) ? '从容偏慢的交谈速度'
+      : '自然交谈速度';
+  return `${volume}，${pace}`;
 }
-
-const OFFICIAL_H3_STYLE_OPENING: Record<string, string> = {
-  'follow-reference': 'The target video follows the visual medium, lighting, color, texture, and lens behavior of the reference pictures.',
-  'cinematic-natural': 'The target video uses natural live-action cinematography with real skin and fabric, practical light, optical depth, and normal-speed movement.',
-  'warm-film': 'The target video uses warm photochemical live action with amber practical light, fine grain, gentle halation, and natural movement.',
-  'neo-noir': 'The target video uses grounded neo-noir live action with cool shadows, motivated edge light, textured dark areas, and restrained movement.',
-  documentary: 'The target video uses observational documentary footage with available light, ordinary contrast, light handheld movement, and natural focus changes.',
-  commercial: 'The target video uses polished live-action commercial photography with controlled highlights, clear material texture, and precise hand-to-object contact.',
-  anime: 'The target video uses cinematic 2D animation with stable character design, consistent linework, readable poses, and controlled parallax.',
-  '3d-cg': 'The target video uses cinematic 3D animation with stable character design, physical materials, weighted movement, and a lens-based virtual camera.',
-  'stop-motion': 'The target video uses handmade stop-motion with tactile materials, clear pose changes, practical miniature light, and a tabletop camera.',
-};
 
 function containsHan(value: string): boolean {
   return /[\u3400-\u9fff]/.test(value);
@@ -340,49 +326,47 @@ function firstEnglishActionFromImagePrompt(storyboard: Storyboard, exactLines: s
 function officialH3PhysicalAction(storyboard: Storyboard, primarySubject: string): string {
   const exactLines = storyboardSpeech(storyboard).map(line => line.exactLine);
   const authored = dialogueSafeVisualAction(
-    replaceChineseEntityNames(storyboard.action || storyboard.description || '', storyboard),
+    storyboard.action || storyboard.description || '',
     exactLines,
-    containsHan(String(storyboard.action || storyboard.description || '')) ? 'zh' : 'en',
+    'zh',
   );
-  if (authored && !containsHan(authored)) return compactActionArc(authored, 320);
-  const imageAction = firstEnglishActionFromImagePrompt(storyboard, exactLines);
-  if (imageAction) return imageAction;
-  const target = primarySubject || 'The main subject';
-  if (storyboard.clipType === 'reaction') return `${target} changes gaze and expression once in response to the preceding action`;
-  if (storyboard.clipType === 'action') return `${target} completes one clear physical action with the principal object`;
-  return `${target} makes one natural gesture and shifts attention toward the principal object`;
+  if (authored && containsHan(withoutVideoEntityNames(authored, videoDirectionEntityNames(storyboard)))) return compactActionArc(authored, 320);
+  const target = primarySubject || '主要主体';
+  if (storyboard.clipType === 'reaction') return `${target}承接上一动作，只发生一次明确的视线与表情变化`;
+  if (storyboard.clipType === 'action') return `${target}与主要物体完成一个清晰的物理动作`;
+  return `${target}完成一个自然手势，并把注意转向主要物体`;
 }
 
 function officialH3CameraSentence(storyboard: Storyboard, index: number): string {
   const authored = sanitizeVisualDirection(storyboard.cameraMove).trim();
   const source = (authored || storyboard.description || '').toLowerCase();
-  if (storyboard.capturePreset === 'surveillance') return 'The fixed high camera never follows, reframes, focuses, or anticipates.';
-  if (storyboard.capturePreset === 'broadcast-candid' || storyboard.capturePreset === 'news-telephoto') return 'The remote camera reacts only after movement begins, with one late small reframe or focus recovery.';
-  if (storyboard.capturePreset === 'documentary-follow') return 'The handheld operator reacts after movement begins with one small corrective reframe.';
-  if (storyboard.capturePreset === 'phone-bystander') return 'The phone reacts after movement begins with one late handheld reframe or autofocus recovery.';
-  if (storyboard.capturePreset === 'home-video') return 'The familiar camera holder follows a beat late with one casual handheld correction.';
+  if (storyboard.capturePreset === 'surveillance') return '固定高机位不跟拍、不重新构图、不移焦，也不预判动作。';
+  if (storyboard.capturePreset === 'broadcast-candid' || storyboard.capturePreset === 'news-telephoto') return '远距离机位只在动作开始后反应，稍晚做一次小幅重新构图或焦点恢复。';
+  if (storyboard.capturePreset === 'documentary-follow') return '手持摄影在动作开始后才反应，只做一次小幅纠偏构图。';
+  if (storyboard.capturePreset === 'phone-bystander') return '手机在动作开始后稍晚反应，只做一次手持重新构图或自动对焦恢复。';
+  if (storyboard.capturePreset === 'home-video') return '熟悉人物的拍摄者稍慢一拍跟随，只做一次随意的手持修正。';
   // Do not replace a complete legacy camera instruction with a keyword-based
   // "small slow push"; in particular a locked camera can still rack focus.
-  if (authored && !containsHan(authored) && authored.length <= 180 && /[.!?]$/.test(authored)) return authored;
-  if (/(?:移焦|拉焦|rack focus|focus pull)/i.test(source)) return 'With the camera locked, transfer focus once between the authored depth planes at the action cue.';
-  if (/(?:静止|固定|static|locked)/i.test(source)) return 'The camera holds a static shot.';
-  if (/(?:手持|handheld|shoulder)/i.test(source)) return 'The camera follows the action with restrained handheld movement and settles with the subject.';
-  if (/(?:拉远|拉出|pull out|dolly out|zoom out)/i.test(source)) return 'The camera pulls out with small amplitude at slow speed.';
-  if (/(?:推近|推进|推镜|push in|dolly in|zoom in)/i.test(source)) return 'The camera pushes in with small amplitude at slow speed toward the subject.';
-  if (/(?:左摇|pan left)/i.test(source)) return 'The camera pans left with small amplitude to follow the action.';
-  if (/(?:右摇|pan right)/i.test(source)) return 'The camera pans right with small amplitude to follow the action.';
-  if (/(?:摇|pan)/i.test(source)) return 'The camera pans with small amplitude to follow the action.';
-  if (/(?:横移|左移|右移|truck|slide)/i.test(source)) return 'The camera trucks laterally with the subject and preserves the direction of movement.';
-  if (/(?:跟|tracking|follow)/i.test(source)) return 'The camera tracks the subject at normal speed and settles on the completed action.';
-  if (/(?:升|pedestal up|crane up|tilt up)/i.test(source)) return 'The camera rises with small amplitude to reveal the upper part of the space.';
-  if (/(?:降|pedestal down|crane down|tilt down)/i.test(source)) return 'The camera lowers with small amplitude toward the action detail.';
-  if (storyboard.clipType === 'insert') return 'The camera holds a stable detail shot and changes focus once.';
-  if (storyboard.clipType === 'reaction') return 'The camera pushes in briefly toward the changed expression.';
-  if (storyboard.clipType === 'dialogue' || storyboard.clipType === 'performance') return 'The camera remains mostly static and makes one small movement with the performance.';
-  if (storyboard.clipType === 'long_take') return 'The camera tracks the blocking continuously at normal speed.';
+  if (authored && containsHan(authored) && authored.length <= 180 && /[。！？]$/.test(authored)) return authored;
+  if (/(?:移焦|拉焦|rack focus|focus pull)/i.test(source)) return '固定机位；在动作触发时，只在既定的两个景深平面之间移焦一次。';
+  if (/(?:静止|固定|static|locked)/i.test(source)) return '相机保持固定构图。';
+  if (/(?:手持|handheld|shoulder)/i.test(source)) return '相机以克制的手持运动跟随动作，最后随主体停稳。';
+  if (/(?:拉远|拉出|pull out|dolly out|zoom out)/i.test(source)) return '相机缓慢小幅后撤。';
+  if (/(?:推近|推进|推镜|push in|dolly in|zoom in)/i.test(source)) return '相机朝主体缓慢小幅推近。';
+  if (/(?:左摇|pan left)/i.test(source)) return '相机小幅向左摇摄并跟随动作。';
+  if (/(?:右摇|pan right)/i.test(source)) return '相机小幅向右摇摄并跟随动作。';
+  if (/(?:摇|pan)/i.test(source)) return '相机小幅摇摄并跟随动作。';
+  if (/(?:横移|左移|右移|truck|slide)/i.test(source)) return '相机随主体横向移动，并保持原有运动方向。';
+  if (/(?:跟|tracking|follow)/i.test(source)) return '相机以正常速度跟随主体，最后落在动作完成的位置。';
+  if (/(?:升|pedestal up|crane up|tilt up)/i.test(source)) return '相机小幅升高，逐步露出空间上部。';
+  if (/(?:降|pedestal down|crane down|tilt down)/i.test(source)) return '相机小幅降低，落向动作细节。';
+  if (storyboard.clipType === 'insert') return '相机保持稳定的细节镜头，只改变一次焦点。';
+  if (storyboard.clipType === 'reaction') return '相机朝发生变化的表情短暂推近。';
+  if (storyboard.clipType === 'dialogue' || storyboard.clipType === 'performance') return '相机大体保持固定，只随表演做一次小幅运动。';
+  if (storyboard.clipType === 'long_take') return '相机以正常速度连续跟随人物调度。';
   return index === 0
-    ? 'The camera follows the action at normal speed and settles on its final position.'
-    : 'The camera makes one short movement with the action and settles.';
+    ? '相机以正常速度跟随动作，最后落在动作完成的位置。'
+    : '相机随动作做一次短促运动，然后停稳。';
 }
 
 function officialH3EditSentence(
@@ -392,64 +376,64 @@ function officialH3EditSentence(
   start: number,
   picture: string,
 ): string {
-  const prefix = `[Shot ${shotNumber}] At ${h3Timestamp(start)},`;
-  if (previous.transition === 'dissolve') return `${prefix} a restrained dissolve carries the resolved movement into the composition referenced by ${picture}, with no identity or costume blending.`;
-  if (previous.transition === 'fade') return `${prefix} fade briefly through black, then reveal the composition referenced by ${picture} as a new dramatic beat.`;
-  if (previous.transition === 'wipe') return `${prefix} a motivated foreground wipe reveals the composition referenced by ${picture} while preserving screen direction.`;
+  const prefix = `[Shot ${shotNumber}] ${h3Timestamp(start)}时，`;
+  if (previous.transition === 'dissolve') return `${prefix}用克制的叠化把已经完成的运动带入${picture}锁定的构图，不混合人物身份或服装。`;
+  if (previous.transition === 'fade') return `${prefix}短暂淡至黑场，再以${picture}锁定的构图开始新的戏剧节拍。`;
+  if (previous.transition === 'wipe') return `${prefix}由有动机的前景遮挡完成转场，露出${picture}锁定的构图，并保持银幕方向。`;
 
   const kind = cinematicEditKind(previous, current);
   const instruction: Record<ReturnType<typeof cinematicEditKind>, string> = {
-    'dialogue-reverse': `cut on the conversational turn to the composition referenced by ${picture}, creating a shot/reverse-shot response; preserve the shared eyeline, 180-degree axis, screen direction, and listener timing`,
-    'action-reaction': `cut on the completed physical action to the composition referenced by ${picture}; the reaction begins immediately from that impact while eyeline and screen direction remain continuous`,
-    'detail-insert': `cut on the hand, gaze, or object movement to the composition referenced by ${picture} as a precise detail insert; preserve hand-to-object position and match the action across the cut`,
-    'insert-return': `cut back from the detail to the composition referenced by ${picture}; resume the same action and eyeline from the exact moment established by the insert`,
-    'establish-develop': `cut from the spatial master to the composition referenced by ${picture}; move into closer dramatic coverage without reversing the established screen axis`,
-    'rhythmic-montage': `use a clean rhythmic hard cut to the composition referenced by ${picture}; connect the shots through matched movement, shape, or sound rather than visual morphing`,
-    'match-continuity': `cut on matched action, gaze, shape, or sound to the composition referenced by ${picture}; preserve motion phase, screen direction, and physical continuity across the edit`,
-    'progressive-coverage': `cut in along the established eyeline or object axis to the composition referenced by ${picture}; the closer coverage reveals new dramatic information without repeating the previous shot`,
-    'motivated-transition': `make a motivated hard cut to the composition referenced by ${picture}; the outgoing action, object, or sound bridges into the new space while each setting remains visually distinct`,
-    'direct-cut': `make a clean hard cut to the composition referenced by ${picture}; begin on a changed action phase or framing scale and preserve spatial orientation`,
+    'dialogue-reverse': `在对话轮次变化处切到${picture}锁定的构图，形成正反打回应；保持共同视线、180度轴线、银幕方向和听者反应时机`,
+    'action-reaction': `在物理动作完成处切到${picture}锁定的构图；反应立刻承接冲击，同时保持视线和银幕方向连续`,
+    'detail-insert': `顺着手部、视线或物体运动切到${picture}锁定的精确细节插入镜头；保持手与物体的位置，并在切点匹配动作`,
+    'insert-return': `从细节镜头切回${picture}锁定的构图；从插入镜头确立的同一时刻继续动作和视线`,
+    'establish-develop': `从空间主镜头切到${picture}锁定的构图；进入更近的戏剧覆盖，不反转既定银幕轴线`,
+    'rhythmic-montage': `以干净、有节奏的硬切进入${picture}锁定的构图；通过匹配动作、形状或声音连接镜头，不做画面变形`,
+    'match-continuity': `顺着匹配的动作、视线、形状或声音切到${picture}锁定的构图；保持动作阶段、银幕方向和物理连续性`,
+    'progressive-coverage': `沿既定视线或物体轴线切近到${picture}锁定的构图；用更近景别揭示新信息，不重复上一镜`,
+    'motivated-transition': `由明确动机硬切到${picture}锁定的构图；前镜动作、物体或声音连接新空间，各场景仍保持清晰区别`,
+    'direct-cut': `干净硬切到${picture}锁定的构图；从变化后的动作阶段或景别开始，并保持空间方向`,
   };
-  return `${prefix} ${instruction[kind]}.`;
+  return `${prefix}${instruction[kind]}。`;
 }
 
 function officialH3Soundscape(storyboards: Storyboard[]): string {
   const plans = storyboards.map(storyboardAudioPlan);
-  const englishCues = plans.map(plan => ({
+  const chineseCues = plans.map(plan => ({
     ...plan,
-    environment: plan.environment.filter(value => !containsHan(String(value || ''))),
-    foley: plan.foley.filter(value => !containsHan(String(value || ''))),
+    environment: plan.environment.filter(value => containsHan(String(value || ''))),
+    foley: plan.foley.filter(value => containsHan(String(value || ''))),
   }));
-  if (englishCues.every(plan => !plan.environment.length && !plan.foley.length && plan.backgroundHuman !== 'indistinct_nonverbal')) {
-    return 'A steady, non-vocal ambience matching the visible location fills the shot. Restrained Foley follows only visible physical actions.';
+  if (chineseCues.every(plan => !plan.environment.length && !plan.foley.length && plan.backgroundHuman !== 'indistinct_nonverbal')) {
+    return '保持与可见地点一致的稳定、无人声环境底噪；克制的拟音只跟随画面中实际发生的物理动作。';
   }
   // A segment can cross locations. Flattening all plans and taking the first
   // four sounds erased later shots' ambience and played early Foley everywhere.
   // Keep each sound attached to the same shot as its visible source.
-  const shots = englishCues.map((plan, index) => {
+  const shots = chineseCues.map((plan, index) => {
     return [
-      `[Shot ${index + 1}] Location bed: ${plan.environment.length ? plan.environment.join('; ') : 'natural ambience matching the visible setting'}.`,
-      plan.foley.length ? `Action Foley: ${plan.foley.join('; ')}.` : '',
+      `[Shot ${index + 1}] 环境底噪：${plan.environment.length ? plan.environment.join('；') : '与可见场景一致的自然环境声'}。`,
+      plan.foley.length ? `动作拟音：${plan.foley.join('；')}。` : '',
       plan.backgroundHuman === 'indistinct_nonverbal'
-        ? 'Background people form an indistinct, wordless murmur.'
+        ? '背景人物只有模糊、无明确词语的低声人群声。'
         : '',
     ].filter(Boolean).join(' ');
   });
   return [
-    'Keep the sound bed non-vocal and steady within each location, changing it only when the setting changes. Foley follows only its visible physical cause. Respect intentional silence.',
+    '每个地点的声音底层保持稳定且没有可辨认人声，只在场景变化时更换；拟音只跟随可见的物理原因，并保留剧本要求的刻意静默。',
     ...shots,
   ].join('\n');
 }
 
 function officialH3Music(storyboards: Storyboard[]): string {
   const music = [...new Set(storyboards.map(storyboard => storyboardAudioPlan(storyboard).music)
-    .filter(value => value && value !== 'none' && !containsHan(String(value))))];
-  return music.length ? `The non-diegetic score uses ${music.join('; ')}.` : 'N/A';
+    .filter(value => value && value !== 'none' && containsHan(String(value))))];
+  return music.length ? `非剧情内配乐使用：${music.join('；')}。` : '无。';
 }
 
 /**
  * Fresh H3 contract based on MiniMax's official h3-prompt-writing guide.
- * Direction is English, dialogue is the only original-language text, and no
+ * Direction is Chinese, dialogue is the only project-language text, and no
  * instruction tells the model how to stop, stay silent, or fill a speech slot.
  */
 function buildOfficialGuidePrompt(
@@ -476,6 +460,8 @@ function buildOfficialGuidePrompt(
   const audioId = new Map(referenceAudioNames.map((name, index) => [name, index + 1]));
   const speakerCharacters = [...new Set(timedSpeech.map(line => line.character))];
   const speakerId = new Map(speakerCharacters.map((name, index) => [name, index + 1]));
+  const objectReferenceNames = (options.objectReferenceNames || []).filter(Boolean);
+  const objectId = new Map(objectReferenceNames.map((name, index) => [name, index + 1]));
   const isFirstLastMode = Boolean(options.firstFrameUrl && storyboards.length === 1);
   const hasContinuityReference = Boolean(options.firstFrameUrl && !isFirstLastMode);
   const storyboardPictureOrdinal = (index: number) => index + (hasContinuityReference ? 2 : 1);
@@ -488,17 +474,16 @@ function buildOfficialGuidePrompt(
     const audio = audioId.get(line.character);
     const localSpeaker = speakerId.get(line.character) || 1;
     const speaker = useSubjectLabels && subject
-      ? `<Subject ${subject}> (S${localSpeaker})`
-      : `${containsHan(line.character) ? 'The visible speaker' : line.character} (S${localSpeaker})`;
-    const voiceReference = audio ? ` using the voice timbre referenced from <Audio ${audio}>` : '';
+      ? `<Subject ${subject}>（S${localSpeaker}）`
+      : `${line.character || '画面中的说话者'}（S${localSpeaker}）`;
+    const voiceReference = audio ? `，音色参考<Audio ${audio}>` : '';
     const rawVoiceProfile = !audio
       ? String(options.voiceProfiles?.[line.character] || '').replace(/[\r\n]+/g, ' ').trim()
       : '';
-    // MiniMax's official H3 prompt format keeps direction in English and only
-    // places the actual spoken language inside <d>. Never leak a Chinese cast
-    // note into the surrounding direction: native audio can vocalize it.
-    const voiceProfile = rawVoiceProfile && !/[\u3400-\u9fff]/.test(rawVoiceProfile)
-      ? ` in the consistent voice style: ${rawVoiceProfile}`
+    // Visual/audio directions stay Chinese; only the exact line inside <d>
+    // follows the selected project language.
+    const voiceProfile = rawVoiceProfile && /[\u3400-\u9fff]/.test(rawVoiceProfile)
+      ? `，保持音色风格：${rawVoiceProfile}`
       : '';
     // H3's language tag follows the approved project language. Detecting from
     // individual text misclassified punctuation-only pauses and mixed brand
@@ -506,9 +491,9 @@ function buildOfficialGuidePrompt(
     const tagged = `<d>[${options.language === 'en' ? 'English' : 'Chinese'}] ${line.exactLine}</d>`;
     const existing = dialogueByShot.get(line.storyboardIndex) || [];
     const previousSpeaker = existing.at(-1)?.character;
-    const turn = existing.length === 0 ? '' : previousSpeaker === line.character ? 'Then ' : 'In response, ';
-    const verb = existing.length === 0 ? 'speaks' : previousSpeaker === line.character ? 'continues' : 'replies';
-    const sentence = `${turn}${speaker} ${verb}${voiceReference}${voiceProfile} ${officialDialogueDelivery(line)}: ${tagged}`;
+    const turn = existing.length === 0 ? '' : previousSpeaker === line.character ? '随后，' : '回应上一句时，';
+    const verb = existing.length === 0 ? '开始说话' : previousSpeaker === line.character ? '继续说' : '回答';
+    const sentence = `${turn}${speaker}${verb}${voiceReference}${voiceProfile}，${officialDialogueDelivery(line)}：${tagged}`;
     existing.push({ character: line.character, sentence });
     dialogueByShot.set(line.storyboardIndex, existing);
   }
@@ -521,12 +506,12 @@ function buildOfficialGuidePrompt(
       const id = subjectId.get(name);
       return useSubjectLabels && id ? `<Subject ${id}>` : name;
     });
-    const primarySubject = cast[0] || 'The main subject';
-    // Saved Chinese directing briefs are from the short-lived mixed-language
-    // contract. Do not let one legacy brief block a paid render: fall back to
-    // the English image-action/camera compiler until it is explicitly refined.
-    let directed: ReturnType<typeof currentVideoDirection>;
-    try { directed = currentVideoDirection(storyboard); } catch { directed = undefined; }
+    const primarySubject = cast[0] || '主要主体';
+    // Historical English briefs are refined before submission. If an older
+    // caller reaches this compiler directly, use the locked Chinese screenplay
+    // action instead of leaking English direction into H3.
+    let directed: ReturnType<typeof currentChineseVideoDirection>;
+    try { directed = currentChineseVideoDirection(storyboard); } catch { directed = undefined; }
     // These four compact fields were authored and validated together. Never
     // splice them, replace them with a still-image sentence, or add a second
     // generic acting/timing instruction that competes with the authored event.
@@ -534,8 +519,8 @@ function buildOfficialGuidePrompt(
       .map(name => ({
         name,
         label: subjectId.has(name)
-          ? (useSubjectLabels ? `<Subject ${subjectId.get(name)}>` : 'the visible character')
-          : 'the referenced object',
+          ? (useSubjectLabels ? `<Subject ${subjectId.get(name)}>` : '画面中的角色')
+          : objectId.has(name) ? `<Object ${objectId.get(name)}>` : '已引用物体',
       }))
       .sort((a, b) => b.name.length - a.name.length)
       .reduce((text, { name, label }) => containsHan(name) ? text.replaceAll(name, label) : text, value);
@@ -550,53 +535,48 @@ function buildOfficialGuidePrompt(
     const dialogue = (dialogueByShot.get(index) || []).map(turn => turn.sentence).join(' ');
     let opening: string;
     if (index === 0 && isFirstLastMode) {
-      opening = '[Shot 1] The shot begins from <Picture 1>.';
+      opening = '[Shot 1] 镜头从<Picture 1>开始。';
     } else if (index === 0 && hasContinuityReference) {
-      opening = `[Shot 1] The video opens from <Picture 1> and follows ${picture} as the composition reference.`;
+      opening = `[Shot 1] 视频从<Picture 1>开始，并以${picture}作为本镜构图参考。`;
     } else if (index === 0) {
-      opening = `[Shot 1] The shot follows ${picture} as its composition reference.`;
+      opening = `[Shot 1] 本镜以${picture}作为构图参考。`;
     } else {
       opening = officialH3EditSentence(storyboards[index - 1], storyboard, index + 1, range.start, picture);
     }
-    const castSentence = cast.length ? `A ${framing} frames ${cast.join(cast.length > 1 ? ' and ' : '')}.` : `A ${framing} frames the action.`;
+    const castSentence = cast.length ? `${framing}同时容纳${cast.join('与')}。` : `${framing}呈现动作。`;
     const endFrameLanding = isFirstLastMode
-      ? 'The movement reaches the pose and composition in <Picture 2> at the end of the shot.'
+      ? '动作在镜头结束时准确到达<Picture 2>中的姿态与构图。'
       : '';
-    const actionText = /[.!?。！？]$/.test(action) ? action : `${action}.`;
+    const actionText = /[.!?。！？]$/.test(action) ? action : `${action}。`;
     return [
       `${opening} [${h3Timestamp(range.start)}–${h3Timestamp(range.end)}]`,
-      `Framing: ${castSentence}`,
-      `Action and expression: ${[actionText, directed?.detail ? bind(directed.detail) : '', performance, expression, directed ? '' : officialTemporalPerformance(storyboard, range, picture, storyboards.length)].filter(Boolean).join(' ')}`,
-      `Camera: ${camera}`,
-      `Ending: ${directed ? bind(directed.ending) : 'Keep the established positions and eyelines.'}${endFrameLanding ? ` ${endFrameLanding}` : ''}`,
-      dialogue ? `Dialogue: ${dialogue}` : '',
+      `景别与构图：${castSentence}`,
+      `动作与表情：${[actionText, directed?.detail ? bind(directed.detail) : '', performance, expression, directed ? '' : officialTemporalPerformance(storyboard, range, picture, storyboards.length)].filter(Boolean).join(' ')}`,
+      `运镜：${camera}`,
+      `镜尾：${directed ? bind(directed.ending) : '保持已经建立的人物位置与视线关系。'}${endFrameLanding ? ` ${endFrameLanding}` : ''}`,
+      dialogue ? `对白：${dialogue}` : '',
     ].filter(Boolean).join('\n');
   });
 
-  const style = OFFICIAL_H3_STYLE_OPENING[String(first.visualStyle || 'cinematic-natural')]
-    || OFFICIAL_H3_STYLE_OPENING['cinematic-natural'];
   const visualOverride = sanitizeVisualDirection(options.visualOverride, exactLines);
-  const englishVisualOverride = visualOverride && !containsHan(visualOverride)
+  const chineseVisualOverride = visualOverride && isChineseVideoDirectionField(visualOverride, storyboards.flatMap(videoDirectionEntityNames))
     && !/(?:subject_definitions|summary|retention_analysis|detailed_description|integrated_multimodal_description|overall_soundscape|non_diegetic_music)\s*:/i.test(visualOverride)
       ? compactActionArc(visualOverride, 360)
       : '';
   const detailed = [
     officialReferencePriorityLock(storyboards, isFirstLastMode),
-    style,
-    officialMaterialReality(first.visualStyle),
-    buildVideoCapturePresetContract(first.capturePreset),
     storyboards.length > 1
-      ? 'EDITING: Treat each picture as a separate shot. Use motivated cuts, preserve axis, eyelines, screen direction, action phase and geography; do not morph or crossfade unless the screenplay specifies it.'
+      ? '在已声明的各镜参考图之间使用剧本规定的干净切镜，保持银幕方向和动作连续。'
       : '',
     timedSpeech.length ? H3_DIALOGUE_NO_SUBTITLE_POLICY : NO_SUBTITLE_POLICY,
-    englishVisualOverride,
+    chineseVisualOverride,
     ...shotParagraphs,
   ].filter(Boolean).join('\n');
   const soundscape = officialH3Soundscape(storyboards);
   const music = officialH3Music(storyboards);
 
   if (isFirstLastMode) {
-    const alignment = `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the ${duration.toFixed(2)}-second mark of the target video.`;
+    const alignment = `参考图与目标视频的对齐方式：<Picture 1>（来自Shot 1）对应目标视频0.00秒；<Picture 2>（来自Shot 1）对应目标视频${duration.toFixed(2)}秒。`;
     return fitH3PromptBudget(`${alignment}\n\nintegrated_multimodal_description: ${detailed}\n\noverall_soundscape: ${soundscape}\n\nnon_diegetic_music: ${music}`);
   }
 
@@ -606,26 +586,23 @@ function buildOfficialGuidePrompt(
       : []);
     if (hasContinuityReference && storyboardCastNames(storyboards[0]).includes(name)) ordinals.unshift(1);
     const pictures = [...new Set(ordinals)].map(ordinal => `<Picture ${ordinal}>`).join(', ');
-    const identity = containsHan(name) ? 'the declared character' : name;
-    return `<Subject ${index + 1}> is ${identity} in ${pictures || 'the reference pictures'}.`;
+    const identity = name || '已声明角色';
+    return `<Subject ${index + 1}>是${pictures || '参考图'}中的${identity}。`;
   });
   const pictureDefinitions = [
-    ...(hasContinuityReference ? ['<Picture 1> is the opening continuity frame for [Shot 1].'] : []),
-    ...storyboards.map((_, index) => `<Picture ${storyboardPictureOrdinal(index)}> is the composition reference for [Shot ${index + 1}].`),
+    ...(hasContinuityReference ? ['<Picture 1>是[Shot 1]的开场连续性画面。'] : []),
+    ...storyboards.map((_, index) => `<Picture ${storyboardPictureOrdinal(index)}>是[Shot ${index + 1}]的构图参考。`),
+    ...objectReferenceNames.map((_, index) => {
+      const pictureOrdinal = storyboardPictureOrdinal(storyboards.length - 1) + index + 1;
+      return `<Object ${index + 1}>是<Picture ${pictureOrdinal}>中的准确实物。保持它的颜色、比例、材质、结构和印刷标记不变。`;
+    }),
   ];
   const audioDefinitions = referenceAudioNames.map((name, index) => {
     const subject = subjectId.get(name);
     const speaker = speakerId.get(name);
-    return `<Audio ${index + 1}> is the voice-timbre reference for ${subject ? `<Subject ${subject}>` : name}${speaker ? ` (S${speaker})` : ''}.`;
+    return `<Audio ${index + 1}>是${subject ? `<Subject ${subject}>` : name}${speaker ? `（S${speaker}）` : ''}的音色参考。`;
   });
-  const taskTypes = [storyboards.length === 1 ? 'locked-first-frame image-to-video' : 'keyframe completion', ...(referenceAudioNames.length ? ['audio reference'] : [])];
-  const summary = `[${taskTypes.join(' + ')}] The target video contains ${storyboards.length} sequential shot${storyboards.length === 1 ? '' : 's'} built from the declared picture references${referenceAudioNames.length ? ' and voice-timbre references' : ''}.`;
-  const retention = [
-    'Keep every declared subject, wardrobe, object and setting consistent with its picture.',
-    'Each picture fixes the opening composition of its declared shot; follow only the authored action and camera from there.',
-    ...(referenceAudioNames.length ? ['Bound audio supplies voice timbre only; generate the written <d> dialogue as a fresh performance.'] : []),
-  ];
-  const prompt = `subject_definitions:\n${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}\n\nsummary:\n${summary}\n\nretention_analysis:\n${retention.join('\n')}\n\ndetailed_description:\n${detailed}\n\noverall_soundscape:\n${soundscape}\n\nnon_diegetic_music:\n${music}`;
+  const prompt = `subject_definitions:\n${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}\n\ndetailed_description:\n${detailed}\n\noverall_soundscape:\n${soundscape}\n\nnon_diegetic_music:\n${music}`;
   return fitH3PromptBudget(prompt);
 }
 
@@ -640,13 +617,13 @@ export function buildVideoSegmentPrompt(
 
 /** Preserve repair direction even when the editor has a saved complete prompt override. */
 export function applyVideoDuplicateRepairPrompt(prompt: string, correction?: string): string {
-  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:(?:CHARACTER CONTINUITY|VIDEO VISUAL) REPAIR:|For this regeneration, correct the confirmed visual anomaly:)[^\n]*\n?/gm, '')).join('').trimEnd();
+  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:(?:CHARACTER CONTINUITY|VIDEO VISUAL) REPAIR:|For this regeneration, correct the confirmed visual anomaly:|本次重新生成只修正已确认的画面异常：)[^\n]*\n?/gm, '')).join('').trimEnd();
   if (!correction) return clean;
   const compactCorrection = correction.replace(/\s+/g, ' ').slice(0, 1200);
   const visualCorrection = containsHan(compactCorrection)
-    ? 'Regenerate the intended visual action while preserving exactly one instance of each declared subject.'
-    : compactCorrection;
-  const directive = `For this regeneration, correct the confirmed visual anomaly: ${visualCorrection} The ordered <d> blocks remain soundtrack audio only.`;
+    ? compactCorrection
+    : '重新执行既定可见动作，每个已声明主体只保留一个实例。';
+  const directive = `本次重新生成只修正已确认的画面异常：${visualCorrection}。所有按顺序排列的<d>内容仍只存在于音轨中。`;
   // The Director/H3 parser gives the official sections semantic weight. Put a
   // confirmed visual correction inside detailed_description, immediately
   // before the authored shots, instead of after non_diegetic_music where the
@@ -662,9 +639,8 @@ export function applyVideoDuplicateRepairPrompt(prompt: string, correction?: str
 export function applySeriesVideoStyle(prompt: string, value?: ImageStyleReference): string {
   const style = normalizeImageStyleReference(value);
   if (!style) return prompt;
-  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:SERIES LOOK:|Use the approved series look:)[^\n]*\n?/gm, '')).join('');
-  const description = String(style.description || '').replace(/\s+/g,' ').slice(0,800);
-  const direction = `Use the approved series look: retain the input frames' shared cultural art direction, palette, warm/cool balance, lens rendering, lighting character, highlight roll-off and material texture. ${containsHan(description) ? '' : description} Adapt it to the authored shot, time and practical light while leaving each character's identity, costume, action and camera movement unchanged; the style reference contributes no person, pose, object, or scenery.\n`;
+  const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:SERIES LOOK:|Use the approved series look:|Keep the visual style already present in the input frame;|保持输入画面中已经确定的视觉风格；)[^\n]*\n?/gm, '')).join('');
+  const direction = `保持输入画面中已经确定的视觉风格；单独的风格参考不提供人物、物体、姿势或场景内容。\n`;
   const marker = 'detailed_description:\n';
   const index = clean.indexOf(marker);
   return fitH3PromptBudget(index >= 0
@@ -675,10 +651,10 @@ export function applySeriesVideoStyle(prompt: string, value?: ImageStyleReferenc
 /** Also applied to saved prompt overrides; dialogue remains byte-for-byte intact. */
 export function applyFilmEndingPrompt(prompt: string, duration: number, isFilmEnding: boolean): string {
   const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi)
-    .map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:FILM ENDING:|At the end of the complete film,)[^\n]*(?:\n\n?|$)/gm, ''))
+    .map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:FILM ENDING:|At the end of the complete film,|整片结束时，)[^\n]*(?:\n\n?|$)/gm, ''))
     .join('');
   if (!isFilmEnding) return clean;
-  const ending = `At the end of the complete film, only the final shot's ${h3Timestamp(Math.max(0, duration - FILM_ENDING_SECONDS))}–${h3Timestamp(duration)} interval contains no dialogue or narration. The authored picture continues naturally without a freeze or added black frames, accompanied by the planned ambience and music or by intentional silence.`;
+  const ending = `整片结束时，只有末镜的${h3Timestamp(Math.max(0, duration - FILM_ENDING_SECONDS))}–${h3Timestamp(duration)}区间没有对白或旁白。既定画面自然延续，不定格、不补黑帧；声音保持计划中的环境声与配乐，或保持刻意静默。`;
   const marker = 'detailed_description:\n';
   const markerIndex = clean.indexOf(marker);
   return fitH3PromptBudget(markerIndex >= 0

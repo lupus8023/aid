@@ -1,6 +1,7 @@
 import type { AssetVisualIdentity, Character, ObjectItem, Storyboard } from '@/types';
 import { characterIdentityIndex } from './characterIdentity';
 import { visibleImageCast } from './series/imageCastContract';
+import { currentVideoDirection, videoDirectionSourceKey } from './videoDirection';
 
 export type VisualAsset = Pick<ObjectItem, 'id' | 'name' | 'description' | 'imageUrl' | 'imageBase64' | 'visualIdentity'> & { aliases?: string[] };
 
@@ -54,12 +55,22 @@ export function bindStoryboardReferences(board: Storyboard, characters: Characte
   const props = visibleStoryObjects(board, objects);
   const index = characterIdentityIndex(characters);
   const characterNames = [...new Set([...(board.characters || []).map(name => index.resolve(name)?.name || name), ...cast.map(c => c.name)])];
-  const objectNames = props.map(object => object.name);
-  return { ...board,
+  const objectIndex = characterIdentityIndex(objects);
+  // Binding IDs must not reorder a director's existing visual input and make
+  // its motion-brief fingerprint stale merely because the library is sorted.
+  const objectNames = [...new Set([
+    ...(board.objects || []).map(name => objectIndex.resolve(name)?.name).filter((name): name is string => Boolean(name)),
+    ...props.map(object => object.name),
+  ])];
+  const bound = { ...board,
     characters: characterNames,
     objects: objectNames,
     referenceBindings: { characterIds: cast.map(c => c.id), objectIds: props.map(o => o.id), characterNames, objectNames },
   };
+  // This operation resolves references already present in the shot, not new
+  // story content. Preserve a valid direction across ID/name normalization.
+  try { if (currentVideoDirection(board)) bound.videoDirectionSource = videoDirectionSourceKey(bound); } catch {}
+  return bound;
 }
 
 export class ImageReferenceCapacityError extends Error {}

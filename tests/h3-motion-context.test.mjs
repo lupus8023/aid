@@ -74,8 +74,8 @@ retention_analysis:
 detailed_description:
 REFERENCE PRIORITY — LOCK to <Picture 1>; DO NOT REDRAW. <Picture 1> is the exact first frame at 00:00.000, not loose style inspiration.`);
   assert.match(prompt, /moving audiovisual context continuation/);
-  assert.match(prompt, /persistent identity, wardrobe, scene, and composition reference/);
-  assert.doesNotMatch(prompt, /exact first frame|opening anchor/);
+  assert.match(prompt, /持续的人物身份、服装、场景和构图参考/);
+  assert.doesNotMatch(prompt, /准确首帧|开场锚点|exact first frame|opening anchor/);
 });
 
 test('rewires only the T8 conditioning and output seam', () => {

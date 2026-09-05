@@ -79,6 +79,8 @@ export interface SeriesObject extends ObjectItem, SeriesImageAsset {
   referenceMode?: "auto" | "upload";
   /** User-added fixed props are story requirements, not library-only assets. */
   narrativeRequired?: boolean;
+  /** Older generic prop records superseded by this final, user-specified asset. */
+  replacesObjectIds?: string[];
 }
 
 export interface SeriesPromise {
@@ -119,6 +121,8 @@ export interface SeriesShot {
 }
 
 export interface SeriesEpisode {
+  /** One-click visual redo keeps screenplay/director text and bypasses script regeneration once. */
+  visualRedoPending?: boolean;
   scriptAssetFingerprint?: string;
   scriptAssetsReconciledAt?: string;
   scriptAssetRepairs?: Array<{
@@ -164,7 +168,7 @@ export interface SeriesEpisode {
 
 export interface SeriesProject {
   styleReference?: ImageStyleReference;
-  visualHistory?: Array<{ changedAt: string; styleReference?: ImageStyleReference; characters: SeriesCharacter[]; locations: SeriesLocation[]; objects?: ObjectItem[]; productions: Array<{ episodeId: string; version: number; production: ProjectData }> }>;
+  visualHistory?: Array<{ changedAt: string; reason?: "style_change" | "manual_visual_redo"; styleReference?: ImageStyleReference; characters: SeriesCharacter[]; locations: SeriesLocation[]; objects?: ObjectItem[]; productions: Array<{ episodeId: string; version: number; production: ProjectData }> }>;
   id: string;
   revision: number;
   name: string;

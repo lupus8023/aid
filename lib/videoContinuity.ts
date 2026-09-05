@@ -7,7 +7,7 @@ export const CONTINUITY_HANDOFF_LEAD_SECONDS = 0.24;
 
 // H3 commonly holds its supplied first frame while motion ramps up. Removing
 // this short head interval keeps the join moving without hiding meaningful action.
-export const CONTINUITY_HEAD_TRIM_SECONDS = 0.18;
+export const CONTINUITY_HEAD_TRIM_SECONDS = 0.24;
 
 /** Narrative continuity is not permission to replace a selected first frame. */
 export function previousSegmentTailSource(storyboards: Storyboard[], leader: Storyboard): Storyboard | undefined {

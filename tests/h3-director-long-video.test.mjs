@@ -7,7 +7,7 @@ import { H3_DIRECTOR_COMPANION_MIN_VERSION } from '../lib/comfyuiClient.ts';
 function definitions(legacy = false) {
   return Object.fromEntries(['MiniMaxH3Director', 'MiniMaxH3DirectorGroupImageToVideo', 'MiniMaxH3DirectorGroupsCombine', 'UNETLoader', 'CLIPLoader', 'VAELoader', 'LoadImage', 'CreateVideo', 'SaveVideo', 'LoraLoaderBypassModelOnly', 'MiniMaxH3MemoryEfficientSageAttentionPatch', 'PreviewAny'].map(name => [name, name === 'MiniMaxH3DirectorGroupsCombine' && legacy ? { input: { optional: { group_0: ['MMX_DIR_GROUP'] } } } : {}]));
 }
-const plan = duration => ({ sourcePrompt: '原稿：先抬手，再展示面膜，然后停住。', duration, segments: Array.from({ length: duration / 10 }, (_, i) => ({ prompt: `At 00:00.800, ACTION_${i + 1}. Speak "LINE_${i + 1}" once. At 00:09.500, settle.` })) });
+const plan = duration => ({ sourcePrompt: '原稿：先抬手，再展示面膜，然后停住。', duration, segments: Array.from({ length: duration / 10 }, (_, i) => ({ prompt: `00:00.800时执行动作_${i + 1}。对白：<d>[English] LINE_${i + 1}</d>。00:09.500时自然停稳。` })) });
 const build = (duration, overrides = {}) => buildH3DirectorGraph({ plan: plan(duration), remoteImage: 'aid/assets/original.png', aspectRatio: '9:16', seed: 123, directorNodeId: '1234567890', outputPrefix: 'aid/director/test/final', definitions: definitions(), ...overrides });
 
 test('30/60 seconds compile as 3/6 linked 10-second groups with a single real first frame', () => {
@@ -37,7 +37,7 @@ test('30/60 seconds compile as 3/6 linked 10-second groups with a single real fi
       if (i === 0) assert.deepEqual(group.inputs.first_frame, ['10', 0]);
       else assert.equal(group.inputs.first_frame, undefined, 'later segment must not reset to original');
       assert.deepEqual(built.prompt['28'].inputs[`groups.group_${i}`], [String(20 + i), 0]);
-      assert.match(group.inputs.prompt, new RegExp(`ACTION_${i + 1}`));
+      assert.match(group.inputs.prompt, new RegExp(`动作_${i + 1}`));
       assert.equal((group.inputs.prompt.match(/LINE_\d+/g) || []).length, 1, 'never concatenate the full source dialogue into each segment');
     }
     assert.deepEqual(built.prompt['31'].inputs.images, ['1234567890', 0]);
@@ -66,9 +66,9 @@ test('continuation timestamps move past borrowed AV context and preserve spoken 
   assert.match(prompt['20'].inputs.prompt, /00:00\.800/);
   assert.match(prompt['21'].inputs.prompt, /00:01\.717/);
   assert.match(prompt['21'].inputs.prompt, /00:10\.417/);
-  assert.match(prompt['21'].inputs.prompt, /Speak "LINE_2" once/);
-  assert.match(prompt['21'].inputs.prompt, /previous moving audiovisual tail/);
-  assert.doesNotMatch(prompt['21'].inputs.prompt, /LINE_1|ACTION_1/);
+  assert.match(prompt['21'].inputs.prompt, /<d>\[English] LINE_2<\/d>/);
+  assert.match(prompt['21'].inputs.prompt, /上一段动态音画尾部/);
+  assert.doesNotMatch(prompt['21'].inputs.prompt, /LINE_1|动作_1/);
 });
 
 test('plan must match the exact current source and duration before a paid submission', () => {
@@ -82,10 +82,11 @@ test('plan must match the exact current source and duration before a paid submis
 
 test('planner instructions preserve actions, exact dialogue and local timing without QC', () => {
   const instruction = directorPlanningPrompt('贵妃抬手："这是敷脸的。"', 60);
-  assert.match(instruction, /6 consecutive 10-second segments/);
-  assert.match(instruction, /each spoken line belongs to ONE segment/);
-  assert.match(instruction, /Preserve the exact spoken words/);
-  assert.match(instruction, /do not describe QC/i);
+  assert.match(instruction, /6 个连续的10秒分段/);
+  assert.match(instruction, /每句逐字台词只属于一个分段/);
+  assert.match(instruction, /逐字台词、说话者和台词语言必须原样保留/);
+  assert.match(instruction, /不写质检或评估说明/);
+  assert.match(instruction, /所有分段说明必须使用简洁、自然、具象的中文/);
   assert.match(instruction, /贵妃抬手："这是敷脸的。"/);
 });
 

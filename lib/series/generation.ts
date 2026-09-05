@@ -7,9 +7,10 @@ import { scriptContinuationPrompt } from './scriptContinuation';
 import type { SeriesGenerationState } from './generationCache';
 import type { SeriesProject } from './types';
 import { applyEpisodeFieldRepairs, EpisodeFieldError, type EpisodeFieldIssue } from './fieldRepair';
-import { applyDialogueRepairs, ScriptDialogueError, type DialogueIssue } from './scriptRepair';
+import { applyDialogueRepairs, fitScriptDialogueDurations, ScriptDialogueError, type DialogueIssue } from './scriptRepair';
 import {
-  applyObjectGroundingRepairs,
+  applyPartialObjectGroundingRepairs,
+  applyFinalObjectReplacements,
   applySafeSpeakerRepairs,
   applyShotCountRepair,
   ScriptShotCountError,
@@ -38,9 +39,22 @@ export async function generateSeriesStage(
     if (stage === 'episodes') return { episodes: parseEpisodes(raw, project, project.episodes.length + 1, 1) };
     const episode = project.episodes.find(e => e.id === episodeId);
     if (!episode) throw new Error('分集不存在');
+    const canonical = applyFinalObjectReplacements(raw, project);
+    for (const log of canonical.logs) {
+      if (!repairLogs.some(existing => existing.shotNumber === log.shotNumber && existing.kind === log.kind && existing.detail === log.detail))
+        repairLogs.push(log);
+    }
+    const fitted = project.sourceMode === 'authored_screenplay' ? { raw: canonical.raw, changes: [] } : fitScriptDialogueDurations(canonical.raw, project.language);
+    const script = parseScript(fitted.raw, project, episode);
+    // Only report the final accepted duration, not an estimate from a failed
+    // intermediate parse that a later focused dialogue repair superseded.
+    const changes: ScriptStructureRepairLog[] = [...repairLogs, ...fitted.changes.map(change => ({
+      shotNumber: change.shotNumber, kind: 'duration_adjusted' as const,
+      detail: `保留本轮对白与动作，将预计时长从${change.from}秒延长到${change.to}秒`,
+    }))];
     return {
-      script: parseScript(raw, project, episode),
-      scriptAssetRepairs: repairLogs.length ? [...repairLogs] : undefined,
+      script,
+      scriptAssetRepairs: changes.length ? changes : undefined,
     };
   };
   let draft = await deps.read?.();
@@ -103,7 +117,7 @@ export async function generateSeriesStage(
     const instruction = focusedShotCount
       ? `本轮只把现有${shotCount}镜校正为严格${project.shotCount}镜。保留全部原台词的文字、角色、情绪与先后顺序，保留固定道具线索、开场因果和末镜钩子；不得新增角色、场景、对白、支线或结局。${project.sourceMode === 'authored_screenplay' ? '用户原稿镜头边界、动作、景别、运镜、氛围和AI生图提示词均已锁定，只能补回遗漏镜头，不能归并、拆分或改写。' : `可合并相邻低信息镜头或拆分过载镜头，重新连续编号并把总时长控制在${project.durationSeconds - 5}–${project.durationSeconds + 5}秒。`}单镜2–15秒。返回完整的 {"shots":[...]}，不要解释。`
       : focusedStructure
-      ? `ASSET-AUTHORITATIVE SCREENPLAY REPAIR. Final registered prop names and references are authoritative. Process every listed target exactly once: ${JSON.stringify(objectTargets)}. If the fixed prop is visibly present, held, used or visually changes state in that shot, choose decision="ground" and minimally revise only visual OR action so it contains the exact canonical objectName or one registered alias. If it is merely discussed, absent, off-screen, or was tagged speculatively, choose decision="remove". Do not change dialogue, characters, timing, scene, purpose, plot or any untargeted field. Return only {"repairs":[{"shotNumber":7,"objectId":"o1","decision":"ground|remove","field":"visual|action only for ground","value":"complete minimally revised field only for ground"}]}.`
+      ? `ASSET-AUTHORITATIVE SCREENPLAY REPAIR. Final registered prop names and references are authoritative. Process every listed target exactly once: ${JSON.stringify(objectTargets)}. If the fixed prop is visibly present, held, used or visually changes state, choose decision="ground", field="visual" or "action", and mention=the EXACT short noun phrase copied from that ORIGINAL field referring to this prop. The application replaces that phrase with objectName; do not rewrite the action or output a whole sentence. Do not confuse a mask sheet with its bag, box, or tray. If it is merely discussed, absent, off-screen, or was tagged speculatively, choose decision="remove". Never remove a visibly used prop merely to pass validation. Do not change dialogue, characters, timing, scene, purpose or plot. Return only {"repairs":[{"shotNumber":7,"objectId":"o1","decision":"ground","field":"action","mention":"exact original prop noun phrase"},{"shotNumber":8,"objectId":"o2","decision":"remove"}]}. These are format examples, not target IDs. Previous validation: ${problem}`
       : ownership
       ? `AUTHORITATIVE DIALOGUE OWNERSHIP REPAIR. The old lines are known to be copied from a neighboring shot and assigned to the WRONG ACTORS. DISCARD their incorrect propositions; do not merely shorten or paraphrase them. Rebuild these lines from each item's actual speaker role, shot action and dramatic purpose. A messenger must announce the correct person's nomination, not claim to be that candidate. This instruction overrides earlier requests to preserve the invalid dialogue, while preserving all unaffected content. Every listed path is a zero-based array address; shotNumber is one-based. Exact targets and context: ${JSON.stringify(ownershipContext)}. Keep each value within maxUnits. Return only {"repairs":[{"path":"exact target path","value":"correct line for THIS actor and action"}]}. Every target exactly once; no other field changes.`
       : focusedDialogue
@@ -187,7 +201,7 @@ export async function generateSeriesStage(
           repairLogs.push(...repaired.logs);
           draft = JSON.stringify(repaired.raw);
         } else if (focusedStructure) {
-          const repaired = applyObjectGroundingRepairs(extractJson(draft!), extractJson(response), structureIssues!);
+          const repaired = applyPartialObjectGroundingRepairs(extractJson(draft!), extractJson(response), structureIssues!);
           repairLogs.push(...repaired.logs);
           draft = JSON.stringify(repaired.raw);
         } else {

@@ -5,6 +5,8 @@ import { validateDirectorPlan } from '@/lib/h3Director';
 import { uploadToCloudinary } from '@/lib/cloudinaryUpload';
 import { enforceNoSubtitles } from '@/lib/videoTextPolicy';
 import { createFalH3MaxVideoTask } from '@/lib/falVideo';
+import { buildChineseH3RewritePrompt, h3VisualPromptIsChinese, parseChineseH3Rewrite } from '@/lib/h3PromptLanguage';
+import { chatOnce } from '@/lib/pipeline/llm';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -35,6 +37,9 @@ export async function POST(request: NextRequest) {
       duration,
       quality,
       apiKey,
+      dmxApiKey,
+      scriptProvider,
+      scriptModel,
       videoModel = 'sora-2',
       videoFiles = [],
       audioFiles = [],
@@ -49,7 +54,19 @@ export async function POST(request: NextRequest) {
     if (!mainImage || !prompt) {
       return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
     }
-    const safePrompt = enforceNoSubtitles(prompt);
+    const isH3Request = videoProvider === 'comfyui' || videoProvider === 'fal' || /minimax[- ]?h3/i.test(String(videoModel || ''));
+    let localizedPrompt = String(prompt).trim();
+    if (isH3Request && comfyWorkflowMode !== 'director_continuous' && !h3VisualPromptIsChinese(localizedPrompt)) {
+      if (!apiKey && !dmxApiKey) {
+        return NextResponse.json({ error: '英文视频提示词需要先用文本模型整理为中文；请在设置中配置剧本 API' }, { status: 400 });
+      }
+      const rewritten = await chatOnce(buildChineseH3RewritePrompt(localizedPrompt), {
+        apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel || 'gpt-4o',
+        maxOutputTokens: 6500, timeoutMs: process.env.AID_LOCAL_COMPANION === '1' ? 120_000 : 48_000,
+      });
+      localizedPrompt = parseChineseH3Rewrite(rewritten, localizedPrompt);
+    }
+    const safePrompt = enforceNoSubtitles(localizedPrompt);
 
     if (comfyWorkflowMode === 'director_continuous') {
       if (videoProvider !== 'comfyui') return NextResponse.json({ error: '连续长视频仅支持 ComfyUI H3 Director' }, { status: 400 });
@@ -183,9 +200,9 @@ export async function POST(request: NextRequest) {
     // Build enhanced prompt with audio instructions if audio is provided
     let enhancedPrompt = safePrompt;
     if (uploadedAudioUrls.length > 0) {
-      enhancedPrompt = enforceNoSubtitles(`${prompt}
+      enhancedPrompt = enforceNoSubtitles(`${localizedPrompt}
 
-AUDIO: Use the provided reference audio. Natural sound effects only (footsteps, wind, water, fabric, impacts, ambient). No background music. Spoken words remain audio-only and must never be displayed. Maintain the voice timbre and tone of the reference audio exactly as provided.`);
+声音：使用提供的参考音频。只生成自然音效，例如脚步、风、水、布料、碰撞和环境声；不添加背景音乐。逐字台词只存在于音轨中，画面不得显示台词文字。准确保持参考音频的音色和语气。`);
     }
 
     const taskId = await createVideoTask(

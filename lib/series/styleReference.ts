@@ -6,7 +6,7 @@ export function setSeriesStyleReference(project: SeriesProject, input: unknown):
   if ((project.styleReference?.imageUrl || '') === (style?.imageUrl || '') && (project.styleReference?.description || '') === (style?.description || '')) return false;
   project.visualHistory ||= [];
   project.visualHistory.push({
-    changedAt: new Date().toISOString(), styleReference: project.styleReference,
+    changedAt: new Date().toISOString(), reason: 'style_change', styleReference: project.styleReference,
     characters: structuredClone(project.characters), locations: structuredClone(project.locations), objects: structuredClone(project.objects),
     productions: project.episodes.filter(e => e.production).map(e => ({ episodeId:e.id, version:e.version, production:structuredClone(e.production!) })),
   });

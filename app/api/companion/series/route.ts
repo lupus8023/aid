@@ -8,6 +8,8 @@ import { castSeriesRole } from "@/lib/series/casting";
 import { seriesAssetsReady, seriesStageBlocker } from "@/lib/series/readiness";
 import { seriesScriptAssetFingerprint } from '@/lib/series/scriptStructureRepair';
 import { resetSeriesImageForManualRetry } from '@/lib/series/imagePreparation';
+import { resetSeriesVisualProduction } from '@/lib/series/visualRedo';
+import { fixedObjectIdentityError, inferSupersededObjectIds } from '@/lib/series/objectIdentity';
 import { moveSeriesToTrash, restoreSeriesFromTrash } from "@/lib/series/trash";
 import {
   createSeries,
@@ -129,15 +131,15 @@ export async function POST(request: NextRequest) {
               if (parsed.protocol !== 'https:' || parsed.username || parsed.password)
                 throw new Error('固定道具参考图需要安全的HTTPS地址');
             }
-            const candidateNames = [name, ...aliases].map(value => value.toLocaleLowerCase());
-            const existingNames = project.objects.filter(object => object.id !== current?.id)
-              .flatMap(object => [object.name, ...(object.aliases || [])]).map(value => value.toLocaleLowerCase());
-            if (new Set(candidateNames).size !== candidateNames.length || candidateNames.some(value => existingNames.includes(value)))
-              throw new Error('固定道具名称重复；请编辑已有道具');
+            const identityError = fixedObjectIdentityError(project.objects, name, aliases, current?.id);
+            if (identityError) throw new Error(identityError);
             const value = {
               id: current?.id || seriesId('object'), name, aliases, description,
               imageUrl, referenceMode,
               narrativeRequired: current ? current.narrativeRequired : true,
+              replacesObjectIds: current?.replacesObjectIds || (referenceMode === 'upload'
+                ? inferSupersededObjectIds(project.objects, name)
+                : []),
             };
             if (current) project.objects[project.objects.indexOf(current)] = value;
             else {
@@ -526,6 +528,58 @@ export async function POST(request: NextRequest) {
           }
           project.paused = false;
           return { added };
+        }
+        case "redo-visuals": {
+          if (!project) throw new Error("连续剧不存在");
+          if (busy(project.id))
+            throw new Error("请先暂停制作队列，等待当前任务保存断点后再一键重做");
+          if (body.revision !== project.revision)
+            throw new Error("内容已有更新，请刷新后再一键重做，未覆盖新版本");
+          if (!project.bible || project.episodes.length !== project.episodeCount || project.episodes.some(episode => episode.needsReview))
+            throw new Error("请先完成故事、分集和分镜定稿后再一键重做");
+          if (project.characters.some(character => character.speaking && (!character.voiceId || !character.voiceReferenceUrl)))
+            throw new Error("请先完成全部有台词角色的音色绑定；一键重做会保留现有音色");
+          const effectiveSettings = enforceSeriesVideoProvider({
+            ...(body.settings || {}),
+            apiKey: body.settings?.apiKey || process.env.APIMART_API_KEY || '',
+          });
+          if (imageModelRequiresApiKey(effectiveSettings.imageModel || 'seedream-5-0-pro') && !effectiveSettings.apiKey)
+            throw new Error("当前图片模型需要 APIMart API Key；请先在设置中配置后再一键重做");
+          const summary = resetSeriesVisualProduction(project);
+          // Paused/failed checkpoints belong to the superseded visual pass.
+          // Completed history and every delivered file remain available.
+          db.jobs = db.jobs.filter(job =>
+            job.seriesId !== project.id || job.status === 'completed',
+          );
+          const sealedSettings = await sealSettings(effectiveSettings);
+          db.jobs.push({
+            id: seriesId("job"),
+            seriesId: project.id,
+            kind: "prepare",
+            status: "queued",
+            stage: "一键重做：重新生成角色、场景与自动道具图",
+            attempts: 0,
+            createdAt: now,
+            updatedAt: now,
+            sealedSettings,
+          });
+          for (const episode of project.episodes) {
+            db.jobs.push({
+              id: seriesId("job"),
+              seriesId: project.id,
+              episodeId: episode.id,
+              kind: "produce",
+              status: "queued",
+              stage: "一键重做：保留剧本与分镜文本，等待重做图片和视频",
+              attempts: 0,
+              createdAt: now,
+              updatedAt: now,
+              sealedSettings,
+            });
+          }
+          project.paused = false;
+          touchProject(project);
+          return { project, added: project.episodes.length + 1, visualRedo: summary };
         }
         case "pause":
         case "resume": {

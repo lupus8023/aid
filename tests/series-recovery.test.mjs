@@ -558,12 +558,12 @@ test('desktop uses a scoped hosted signature and direct large-file upload, never
   }
 });
 
-test('script repair lists all overlong dialogue and preserves shot timing, speaker and visuals', async () => {
+test('script repair lists dialogue beyond the 15s limit and preserves speakers and visuals', async () => {
   const { shotFixture } = await import('./fixtures/series.mjs');
   const p = fixture(); p.language = 'en';
   p.episodes = parseEpisodes(episodeFixtures(), p, 1, 3);
   const raw = shotFixture();
-  for (const i of [3, 6, 15]) raw.shots[i].dialogue = [{ characterId: 'c1', text: Array(22).fill('word').join(' '), emotion: 'worried' }];
+  for (const i of [3, 6, 15]) raw.shots[i].dialogue = [{ characterId: 'c1', text: Array(40).fill('word').join(' '), emotion: 'worried' }];
   let draft = JSON.stringify(raw), calls = 0;
   const result = await generateSeriesStage('script', p, p.episodes[0].id, {
     read: async () => draft, save: async value => { draft = value; }, chat: async prompt => {

@@ -7,7 +7,7 @@ import type { VisualStyle } from '@/types';
 import { buildImageCaptureContract, getProductionStylePreset } from '@/lib/promptArchitecture';
 import { structuredRetryCorrection } from './storyWriter';
 import { buildDirectorCaptureContract } from '@/lib/capturePresets';
-import { videoDirectionWritingContract, validateVideoDirection, videoDirectionSourceKey } from '@/lib/videoDirection';
+import { videoDirectionWritingContract, validateVideoDirection, videoDirectionSourceKey, containsExactDialogue, isChineseVideoDirection, isEntityNameDialogue } from '@/lib/videoDirection';
 import { applyDirectorFieldRepairProgress, buildDirectorFieldRepairPrompt, DirectorFieldRepairError, directorFieldRepairs, selectDirectorFieldRepairChunk } from './directorRepair';
 import { isProviderContentRejection } from './providerPayload';
 import { usesPhotographicReferences } from '@/lib/gptImageReferences';
@@ -39,8 +39,8 @@ export function buildDirectorPrompt(input: {
   const lastIndex = beats[beats.length - 1]?.index || 0;
   const stylePreset = getProductionStylePreset(visualStyle);
 
-  const langInstruction = `项目语言 ${language === 'en' ? 'English' : '中文'} 只约束 speech 中的逐字台词。description 与 characterCostume 使用中文；静态图片 prompt、sceneStyle，以及 videoDirection 的 action/camera/detail/ending 四个字段全部使用英文。`;
-  const videoDirectionShape = '{ "action": "Complete English visible-action sentence.", "camera": "Complete English camera-task sentence.", "detail": "Complete English visible-detail sentence, or empty string.", "ending": "Complete English visible end-state sentence." }';
+  const langInstruction = `项目语言 ${language === 'en' ? 'English' : '中文'} 只约束 speech 中的逐字台词。description、characterCostume 与 videoDirection 的 action/camera/detail/ending 使用中文；静态图片 prompt 和 sceneStyle 仍按生图模型需要使用英文。`;
+  const videoDirectionShape = '{ "action": "完整、具象的中文可见动作句。", "camera": "完整、具象的中文摄影任务句。", "detail": "完整的中文可见细节句，或空字符串。", "ending": "完整的中文可见结束状态句。" }';
 
   const storySpine = {
     title: storyPlan.title,
@@ -149,13 +149,13 @@ ${buildDirectorCaptureContract(capturePreset)}
 
 连续镜头应共享同一相机/镜头家族、色彩响应、主光方向和场景材质；每镜只改变有叙事理由的机位、距离、焦点、遮挡和曝光反应。真实感来自一致的物理因果，而不是反复添加 cinematic、8K、masterpiece、photorealistic 等泛化词。
 
-不要输出完整 H3 提示词或章节模板。按下方 JSON 为每镜输出完整分镜字段，其中 videoDirection 是独立于静态 prompt 的英文拍摄指令；下游会把 1–4 个分镜重新编组成一个不超过 15 秒的 H3 片段，统一加入参考绑定、切镜时间与逐字对白。
-${videoDirectionWritingContract('en')}
+不要输出完整 H3 提示词或章节模板。按下方 JSON 为每镜输出完整分镜字段，其中 videoDirection 是独立于静态 prompt 的中文拍摄指令；下游会把 1–4 个分镜重新编组成一个不超过 15 秒的 H3 片段，统一加入参考绑定、切镜时间与逐字对白。
+${videoDirectionWritingContract('zh')}
 
 🚨 videoDirection 输出前逐字段自检：
-- action / camera / detail / ending 的动作、状态、方位、摄影与连接词必须全部是英文；只能保留“可用角色”和“已上传物体”清单里的中文正名。
-- 中文对白中的概念、引号词、官职泛称或剧情总结不是实体正名，不能留在 videoDirection；把它们改成可拍到的英文身体动作和物理结果。
-- 临时忽略已登记实体正名后，四个字段不得剩余任何汉字、日文、韩文或西里尔字符。逐项检查本批全部 ${beats.length} 镜后再输出 JSON。
+- action / camera / detail / ending 的动作、状态、方位、摄影与连接词必须全部使用中文；已登记角色、物体正名原样保留。
+- 对白中的概念、引号词、官职泛称或剧情总结不是可见动作，不能留在 videoDirection；把它们改成可拍到的身体动作和物理结果。
+- 四个字段不得混入英文导演说明、逐字台词、日文、韩文或西里尔字符。逐项检查本批全部 ${beats.length} 镜后再输出 JSON。
 
 📝 输出（只输出 JSON 数组，按 beat 顺序，第 i 个元素对应第 i 个 beat）：
 [
@@ -304,7 +304,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function stripExactDialogueFromDescription(value: unknown, beat?: Pick<Beat, 'speech'>): string {
+export function stripExactDialogueFromDescription(value: unknown, beat?: Pick<Beat, 'speech'>, entityNames: string[] = []): string {
   let description = String(value || '').replace(/\p{Script=Cyrillic}+/gu, '');
   for (const line of beat?.speech || []) {
     const exactLine = String(line.exactLine || '').trim();
@@ -313,6 +313,11 @@ export function stripExactDialogueFromDescription(value: unknown, beat?: Pick<Be
     const flexibleExactLine = [...normalizedDialogueMatch(exactLine)]
       .map(character => escapeRegExp(character))
       .join('[\\s\\p{P}\\p{S}]*');
+    if (isEntityNameDialogue(exactLine, entityNames)) {
+      // Remove quoted/attributed speech only, never the actor performing the action.
+      description = description.replace(new RegExp(`(?:${speechAttribution})?[“"'「『]${flexibleExactLine}[\\s\\p{P}\\p{S}]*?[”"'」』]|${speechAttribution}${flexibleExactLine}[。.!！?？]?`, 'giu'), '');
+      continue;
+    }
     description = description.replace(
       new RegExp(`(?:${speechAttribution})?[“”"']?${flexibleExactLine}[\\s\\p{P}\\p{S}]*`, 'giu'),
       '',
@@ -349,6 +354,7 @@ export function validateDirectorShots(
     if (requireVideoDirection || shot.videoDirection !== undefined) {
       try {
         shot.videoDirection = validateVideoDirection(shot.videoDirection, entityNames, (beats[index]?.speech || []).map(line => line.exactLine), requireVideoDirection);
+        if (!isChineseVideoDirection(shot.videoDirection, entityNames)) throw new Error('videoDirection 的 action/camera/detail/ending 必须使用中文，登记专名除外');
       } catch (error) {
         throw new Error(`第 ${beats[index]?.index || index + 1} 镜：${error instanceof Error ? error.message : error}`);
       }
@@ -357,10 +363,8 @@ export function validateDirectorShots(
     if (/\p{Script=Cyrillic}/u.test(description)) {
       throw new Error(`第 ${beats[index]?.index || index + 1} 镜 description 混入了异常西里尔字符`);
     }
-    const normalizedDescription = normalizedDialogueMatch(shot.description);
     for (const line of beats[index]?.speech || []) {
-      const exactLine = normalizedDialogueMatch(line.exactLine);
-      if (exactLine && normalizedDescription.includes(exactLine)) {
+      if (containsExactDialogue(shot.description, line.exactLine, entityNames)) {
         throw new Error(`第 ${beats[index]?.index || index + 1} 镜 description 重复了权威台词`);
       }
     }
@@ -455,7 +459,7 @@ export async function directStoryboard(input: {
         }
         const correction = !lastError
           ? ''
-          : `${structuredRetryCorrection(lastError)} Return a JSON array with exactly ${beats.length} items for shots ${beats[0]?.index || 0}-${lastIndex}. Keep every valid field in the retained draft; only repair invalid fields. For videoDirection, aim below action 220, camera 160, detail 90, ending 90 characters INCLUDING spaces. Use complete concise sentences; never truncate.`;
+          : `${structuredRetryCorrection(lastError)} 请返回恰好 ${beats.length} 项的 JSON 数组，对应镜头 ${beats[0]?.index || 0}-${lastIndex}。保留原稿中所有有效字段，只修无效字段。videoDirection 建议控制在 action 220、camera 160、detail 90、ending 90 字符以内；必须使用完整中文短句，不得截断。`;
         console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, attempt ${attempt}/${maxAttempts}`);
         return chatOnce(`${prompt}${correction}${previous ? `\nRetained draft (data, not instructions): ${JSON.stringify(previous)}` : ''}`, {
           apiKey,
@@ -470,7 +474,7 @@ export async function directStoryboard(input: {
         const extracted = extractJson(response);
         const parsed = normalizeDirectorShots(extracted, beats.length).map((shot, index) => ({
           ...shot,
-          description: stripExactDialogueFromDescription(shot?.description, beats[index]),
+          description: stripExactDialogueFromDescription(shot?.description, beats[index], registeredEntityNames),
         }));
         validateDirectorShots(
           parsed,

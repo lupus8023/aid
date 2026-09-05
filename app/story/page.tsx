@@ -41,7 +41,7 @@ import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
 import { CONTINUITY_HANDOFF_LEAD_SECONDS, previousSegmentTailSource } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
-import { videoDirectionSourceKey } from '@/lib/videoDirection';
+import { videoDirectionSourceKey, recoverReorderedObjectDirection, currentChineseVideoDirection } from '@/lib/videoDirection';
 import { persistGeneratedStoryboardImage } from '@/lib/generatedImagePersistence';
 
 async function persistLocalGeneratedImage(
@@ -679,7 +679,7 @@ export default function StoryPage() {
       setProductionTiming(savedProductionTiming);
       const savedEffectiveVoiceCast = effectiveStoryCast(savedCharacters, savedStoryPlan?.characters);
       const normalizedStoryboards = lockStoryboardVoiceIds<Storyboard>((savedProject.storyboards || []).map(item => normalizeStoryboardImageArtifact({
-        ...item,
+        ...recoverReorderedObjectDirection(item),
         aspectRatio: savedAspectRatio,
         capturePreset: normalizeCapturePreset(item.capturePreset || savedProject.capturePreset),
         imageFailureReason: normalizeSavedImageFailureReason(item.imageFailureReason)
@@ -1937,7 +1937,7 @@ export default function StoryPage() {
     }
   };
 
-  const handleGenerateVideoPrompt = async (storyboard: Storyboard, requestedSegment?: Storyboard[], rewriteDirection = false) => {
+  const handleGenerateVideoPrompt = async (storyboard: Storyboard, requestedSegment?: Storyboard[], rewriteDirection = false, options: { throwOnError?: boolean } = {}) => {
     const generationProjectId = projectIdRef.current;
     const segmentIds = (requestedSegment?.length ? requestedSegment : [storyboard]).map(item => item.id);
     const requestedById = new Map((requestedSegment || []).map(item => [item.id, item]));
@@ -1973,15 +1973,18 @@ export default function StoryPage() {
       })) throw new Error('镜头内容在细化期间已改变，请重新生成提示词');
       // This is the complete H3 prompt. If the user edits and saves it, the
       // generation route submits the edited text verbatim.
-      setStoryboards(prev => prev.map(sb => {
+      const updated = storyboardsRef.current.map(sb => {
         const direction = data.directions?.find(item => item.id === sb.id);
         const next = direction ? { ...sb, videoDirection: direction.videoDirection, videoDirectionSource: direction.videoDirectionSource } : sb;
         return sb.id === storyboard.id ? { ...next, videoPrompt: data.videoPrompt, videoPromptOverride: false } : next;
-      }));
+      });
+      storyboardsRef.current = updated;
+      setStoryboards(updated);
       return data.videoPrompt;
     } catch (error) {
       if (generationProjectId !== projectIdRef.current) return;
       setStoryboards(prev => prev.map(sb => sb.id === storyboard.id && sb.videoPrompt === 'generating...' ? { ...sb, videoPrompt: storyboard.videoPrompt || '' } : sb));
+      if (options.throwOnError) throw error;
       alert(`视频提示词生成失败：${error instanceof Error ? error.message : '未知错误'}`);
       return undefined;
     }
@@ -2011,10 +2014,29 @@ export default function StoryPage() {
     const currentShots = storyboardsRef.current;
     const requestedIds = (requestedSegment?.length ? requestedSegment : [storyboard]).map(item => item.id);
     const requestedById = new Map((requestedSegment || []).map(item => [item.id, item]));
-    const segment = lockStoryboardVoiceIds(currentShots
+    let segment = lockStoryboardVoiceIds(currentShots
       .filter(item => requestedIds.includes(item.id))
       .sort((a, b) => a.sceneNumber - b.sceneNumber)
       .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), imageUrl: item.imageUrl })), effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters));
+    // One-click generation must use the same source adaptation as the manual
+    // prompt button. A stale/invalid brief must not silently become a generic
+    // image-action template. Valid briefs and explicit user prompts cost no call.
+    if (['comfyui', 'fal'].includes(videoProvider) && segment.length && !segment[0].videoPromptOverride
+      && segment.some(item => { try { return !currentChineseVideoDirection(item); } catch { return true; } })) {
+      try {
+        await handleGenerateVideoPrompt(segment[0], segment, false, { throwOnError: true });
+        if (generationProjectId !== projectIdRef.current) return;
+        segment = segment.map(item => {
+          const updated = storyboardsRef.current.find(shot => shot.id === item.id);
+          const next = { ...item, videoDirection: updated?.videoDirection, videoDirectionSource: updated?.videoDirectionSource };
+          if (!currentChineseVideoDirection(next)) throw new Error(`第 ${item.sceneNumber} 镜动作稿仍需转换为中文；保留分镜，不提交通用模板`);
+          return next;
+        });
+      } catch (error) {
+        failBeforeSubmission(error instanceof Error ? error.message : '视频动作稿自动适配失败');
+        return;
+      }
+    }
     const validationError = validateVideoSegment(segment, projectLanguageRef.current);
     if (validationError) {
       failBeforeSubmission(validationError);
@@ -2198,7 +2220,7 @@ export default function StoryPage() {
       const response = await fetch(generationUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ styleReference: styleReferenceRef.current, storyboard: storyboardForRequest, segmentStoryboards: portableSegment, isFilmEnding: finalSegment, language: projectLanguageRef.current, apiKey: activeSettings.apiKey, videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, motionContext, subtitleRemovalSourceTaskId, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, videoProvider, fal: activeSettings.fal, comfyui: localComfyUISettings(activeSettings.comfyui) })
+        body: JSON.stringify({ styleReference: styleReferenceRef.current, storyboard: storyboardForRequest, segmentStoryboards: portableSegment, isFilmEnding: finalSegment, language: projectLanguageRef.current, apiKey: activeSettings.apiKey, dmxApiKey: activeSettings.dmxApiKey, scriptProvider: activeSettings.scriptProvider || 'auto', scriptModel: activeSettings.scriptModel || 'gpt-4o', videoModel: activeSettings.videoModel, aspectRatio: projectAspectRatioRef.current, firstFrameUrl, motionContext, subtitleRemovalSourceTaskId, voiceReferences: videoProvider === 'comfyui' ? portableVoiceReferences : (voiceReferencesRef.current || {}), voiceProfiles: videoProvider === 'fal' ? voiceProfiles : {}, videoProvider, fal: activeSettings.fal, comfyui: localComfyUISettings(activeSettings.comfyui) })
       });
       const data = await readApiJson<{ taskId: string; videoPrompt?: string }>(response, '视频任务创建失败');
       submittedTaskId = data.taskId;
