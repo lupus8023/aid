@@ -55,15 +55,12 @@ export async function POST(request: NextRequest) {
     } = await request.json();
 
     if (!storyboard) return NextResponse.json({ error: 'Storyboard is required' }, { status: 400 });
-    if (firstFrameUrl && storyboard.videoStartMode !== 'previous-segment-tail') {
-      return NextResponse.json({ error: '上一段尾帧不能自动替换当前分镜；请刷新网页，并在片段面板明确选择接续模式。' }, { status: 400 });
-    }
-    if (storyboard.videoStartMode === 'previous-segment-tail' && !firstFrameUrl) {
-      return NextResponse.json({ error: '缺少已选择的上一段尾帧，请检查接续条件或改用当前分镜。' }, { status: 400 });
-    }
     const videoStoryboards = Array.isArray(segmentStoryboards) && segmentStoryboards.length
-      ? segmentStoryboards.slice(0, 4)
-      : [storyboard];
+      ? segmentStoryboards : [storyboard];
+    if (!subtitleRemovalSourceTaskId && (videoStoryboards.length !== 1 || firstFrameUrl || motionContext
+      || videoStoryboards[0].id !== storyboard.id)) {
+      return NextResponse.json({ error: 'Story与连续剧现按每镜一张分镜图生成，请刷新页面以更新逐镜计划；连续跟拍请使用独立长视频入口。' }, { status: 400 });
+    }
     const localizeH3Prompt = async (value: string): Promise<string> => {
       const source = String(value || '').trim();
       if (!source || h3VisualPromptIsChinese(source)) return source;
@@ -158,7 +155,7 @@ export async function POST(request: NextRequest) {
         );
       }
       const requestedDuration = filmEndingDuration(minimumPlayableDuration, isFilmEnding === true,
-        Math.ceil(Number(storyboard.videoDuration) || (videoStoryboards.length > 1 ? 15 : 5)), Number(storyboard.videoEndingMinimumDuration) || 0);
+        undefined, Number(storyboard.videoEndingMinimumDuration) || 0);
       const timedSpeech = compileTimedSpeech(
         videoStoryboards,
         allocateSegmentTimeline(videoStoryboards, requestedDuration),

@@ -59,6 +59,7 @@ function migrateSettings(settings: AppSettings): AppSettings {
   const comfyui = {
     ...DEFAULT_SETTINGS.comfyui!,
     ...(legacyComfyUI || {}),
+    h3Fl2vaProfile: 'dasiwa4' as const,
     sshKeyPath: /^(?:\/|~\/)/.test(legacyKeyPath)
       ? legacyKeyPath
       : DEFAULT_SETTINGS.comfyui!.sshKeyPath,
@@ -91,11 +92,6 @@ export function useSettings() {
     if (saved) {
       try {
         const parsed = migrateSettings(JSON.parse(saved) as AppSettings);
-        const h3MigrationKey = 'aid-h3-dasiwa4-production-default-v1';
-        if (!localStorage.getItem(h3MigrationKey) && parsed.comfyui?.h3Fl2vaProfile === 'balanced8') {
-          parsed.comfyui.h3Fl2vaProfile = 'dasiwa4';
-          localStorage.setItem(h3MigrationKey, '1');
-        }
         setSettings(parsed);
         localStorage.setItem(storyStorageKeys().settings, JSON.stringify(parsed));
       } catch (error) {

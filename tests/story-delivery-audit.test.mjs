@@ -73,7 +73,8 @@ test('delivers an 18-shot causal story and exact dialogue sequence through cinem
   assert.deepEqual(audit.errors, []);
   assert.equal(audit.metrics.plannedShots, 18);
   assert.equal(audit.metrics.dialogueLines, dialogueByShot.size);
-  assert.ok(audit.metrics.multiShotSegments > 0);
+  assert.equal(audit.metrics.multiShotSegments, 0);
+  assert.equal(groups.length, 18);
 
   const prompts = groups.map(group => buildVideoSegmentPrompt(group, [], {
     duration: estimateVideoSegmentSeconds(group), language: 'en',

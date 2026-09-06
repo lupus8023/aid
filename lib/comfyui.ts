@@ -68,19 +68,6 @@ export type ComfyUIWorkflow =
 
 export type H3Fl2vaProfile = 'balanced8' | 'dasiwa4' | 'legacy';
 
-export const H3_FL2VA_BALANCED_PROFILE = Object.freeze({
-  name: 'balanced8' as const,
-  diffusionModel: 'minimax_h3_fl2va_pruned_int8_convrot.safetensors',
-  textEncoder: 'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',
-  lora: 'minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors',
-  steps: 8,
-  shiftVideo: 6,
-  shiftAudio: 3,
-  loraStrength: 1,
-  samplerName: 'dual_clock_euler',
-  scheduler: 'native_flow',
-});
-
 /**
  * Production-tested DaSiWa four-step stack. The full Hybrid checkpoint stays
  * out of the default until its 19.5 GB artifact is available and independently
@@ -164,10 +151,9 @@ function positiveInt(value: string, fallback: number, minimum = 1): number {
   return Number.isFinite(parsed) && parsed >= minimum ? Math.floor(parsed) : fallback;
 }
 
-function h3Fl2vaProfile(value: unknown): H3Fl2vaProfile {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'legacy' || normalized === 'dasiwa4') return normalized;
-  return 'balanced8';
+function h3Fl2vaProfile(_value: unknown): H3Fl2vaProfile {
+  // Old browser settings and queued jobs must not restore the retired stacks.
+  return 'dasiwa4';
 }
 
 function normalizePrivateKey(value: string, source: string): string {
@@ -947,26 +933,18 @@ function linkedFrom(node: JsonRecord, inputName: string, expectedNodeId: string)
 }
 
 /**
- * Lock I2VA/FL2VA production jobs to the matched 768p eight-step stack.
- *
- * The remote graph remains the rollback template, but its model widgets are
- * not trusted: an earlier graph loaded a four-step LoRA while asking the
- * sampler for eight evaluations. Enforcing the complete profile after graph
- * compilation prevents filenames, saved widgets, or stale UI state from
- * silently mixing incompatible checkpoints and schedules again.
+ * Normalize every H3 generation variant, including Ref2VA, after compilation.
+ * Saved legacy/balanced8 settings remain readable but cannot bypass this stack.
  */
 export function applyH3Fl2vaProfile(
   prompt: JsonRecord,
-  variant: ComfyUIWorkflow,
-  profile: H3Fl2vaProfile = 'dasiwa4',
+  _variant: ComfyUIWorkflow,
+  _profile: H3Fl2vaProfile = 'dasiwa4',
 ): JsonRecord {
-  if (profile === 'legacy' || variant === 'aid_multi_reference') {
-    return { name: profile === 'legacy' ? 'legacy' : 'ref2va-unmodified', active: false };
-  }
-
-  const selectedProfile = profile === 'dasiwa4'
-    ? H3_DASIWA_4TURBO_PROFILE
-    : H3_FL2VA_BALANCED_PROFILE;
+  // The DaSiWa adapter is validated with this FL2VA pruned base, including
+  // Ref2VA conditioning. A same-seed Ref2VA-pruned control produced prolonged
+  // cross-shot double images; task_type does not select a different checkpoint.
+  const selectedProfile = H3_DASIWA_4TURBO_PROFILE;
 
   const [unetId, unet] = uniquePromptNode(prompt, 'UNETLoader');
   const [, clip] = uniquePromptNode(prompt, 'CLIPLoader');
@@ -1343,7 +1321,7 @@ export function injectH3NativeDialogue(
   if (!Number.isFinite(requestedDuration) || requestedDuration <= 0) {
     throw new ComfyUIError('精确台词片段缺少有效的母带时长');
   }
-  const renderSeconds = Math.min(15.08, Math.max(5.17, requestedDuration));
+  const renderSeconds = Math.min(15.084, requestedDuration);
   turns.forEach((turn, turnIndex) => {
     const label = `第 ${turnIndex + 1} 轮台词`;
     if (!Number.isFinite(turn.start) || !Number.isFinite(turn.end) || turn.start < 0 || turn.end <= turn.start) {

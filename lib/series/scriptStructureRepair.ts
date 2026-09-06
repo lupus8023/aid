@@ -127,6 +127,31 @@ export function applySafeSpeakerRepairs(raw: any, issues: ScriptStructureIssue[]
 
 const normalized = (value: unknown) => typeof value === 'string' ? value.trim().toLocaleLowerCase() : '';
 
+/** Recovery asks for source evidence, not a replacement prop name. An empty
+ * inventory means the binding was speculative; no visual text is invented. */
+export function objectEvidenceRepairs(raw: any, reply: any, issues: ScriptStructureIssue[]) {
+  const targets = issues.filter((issue): issue is UngroundedObjectIssue => issue.kind === 'ungrounded_object');
+  if (!Array.isArray(reply?.evidence) || reply.evidence.length !== targets.length)
+    throw new Error(`必须逐项核对全部${targets.length}处道具的原文证据`);
+  const allowed = new Map(targets.map(issue => [`${issue.shotNumber}:${issue.objectId}`, issue]));
+  return { repairs: reply.evidence.map((item: any) => {
+    const key = `${Number(item?.shotNumber)}:${String(item?.objectId || '')}`;
+    const issue = allowed.get(key);
+    if (!issue) throw new Error('道具证据包含未授权、重复或错误的镜头');
+    allowed.delete(key);
+    if (!Array.isArray(item.mentions)) throw new Error(`第${issue.shotNumber}镜缺少道具证据清单`);
+    if (!item.mentions.length) return { shotNumber: issue.shotNumber, objectId: issue.objectId, decision: 'remove' };
+    for (const mention of item.mentions) {
+      const source = raw?.shots?.[issue.index]?.[mention?.field];
+      if (!['visual', 'action'].includes(mention?.field) || typeof mention?.quote !== 'string'
+        || !mention.quote.trim() || mention.quote.length > 60 || typeof source !== 'string' || !source.includes(mention.quote))
+        throw new Error(`第${issue.shotNumber}镜道具证据必须逐字来自对应原字段；没有可见道具证据时返回空 mentions，不能复制资产名称`);
+    }
+    const mention = item.mentions[0];
+    return { shotNumber: issue.shotNumber, objectId: issue.objectId, decision: 'ground', field: mention.field, mention: mention.quote };
+  }) };
+}
+
 export function applyObjectGroundingRepairs(
   raw: any,
   reply: any,

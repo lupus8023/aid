@@ -10,6 +10,7 @@ import { applyEpisodeFieldRepairs, EpisodeFieldError, type EpisodeFieldIssue } f
 import { applyDialogueRepairs, fitScriptDialogueDurations, ScriptDialogueError, type DialogueIssue } from './scriptRepair';
 import {
   applyPartialObjectGroundingRepairs,
+  objectEvidenceRepairs,
   applyFinalObjectReplacements,
   applySafeSpeakerRepairs,
   applyShotCountRepair,
@@ -116,6 +117,8 @@ export async function generateSeriesStage(
       : undefined;
     const instruction = focusedShotCount
       ? `本轮只把现有${shotCount}镜校正为严格${project.shotCount}镜。保留全部原台词的文字、角色、情绪与先后顺序，保留固定道具线索、开场因果和末镜钩子；不得新增角色、场景、对白、支线或结局。${project.sourceMode === 'authored_screenplay' ? '用户原稿镜头边界、动作、景别、运镜、氛围和AI生图提示词均已锁定，只能补回遗漏镜头，不能归并、拆分或改写。' : `可合并相邻低信息镜头或拆分过载镜头，重新连续编号并把总时长控制在${project.durationSeconds - 5}–${project.durationSeconds + 5}秒。`}单镜2–15秒。返回完整的 {"shots":[...]}，不要解释。`
+      : focusedStructure && state.objectGrounding?.evidenceOnly
+      ? `道具原文证据复核。上一轮试图替换原文中不存在的道具短语，禁止再次猜测替换词。逐项阅读以下镜头的 visual 和 action，只摘录其中确实指向该道具的原有短语：${JSON.stringify(objectTargets)}。资产名称、objectId、登记别名只是待核对标签，不是画面证据；故事围绕该物件、同场前镜出现或对白谈到它，都不能证明这一镜拍到了它。若原文只有闭眼、沉默、注视、坐下、表情变化等人物反应，且没有描述道具、持有/接触动作或指代它的短语，mentions必须为[]，程序仅移除多挂的objectId，保留全部原文。若确实存在“小杯子”“它”等指向道具的短语，逐字复制到quote并给出所在field，不能直接填objectName，不能改写整句。不得为了过关删除原文确实可见、持有或使用的道具。每个目标恰好一项，只返回 {"evidence":[{"shotNumber":镜头编号,"objectId":"目标ID","mentions":[{"field":"visual或action","quote":"该字段中逐字存在的短语"}]}]}。无证据的项仍必须返回，mentions=[]。错误反馈：${problem}`
       : focusedStructure
       ? `ASSET-AUTHORITATIVE SCREENPLAY REPAIR. Final registered prop names and references are authoritative. Process every listed target exactly once: ${JSON.stringify(objectTargets)}. If the fixed prop is visibly present, held, used or visually changes state, choose decision="ground", field="visual" or "action", and mention=the EXACT short noun phrase copied from that ORIGINAL field referring to this prop. The application replaces that phrase with objectName; do not rewrite the action or output a whole sentence. Do not confuse a mask sheet with its bag, box, or tray. If it is merely discussed, absent, off-screen, or was tagged speculatively, choose decision="remove". Never remove a visibly used prop merely to pass validation. Do not change dialogue, characters, timing, scene, purpose or plot. Return only {"repairs":[{"shotNumber":7,"objectId":"o1","decision":"ground","field":"action","mention":"exact original prop noun phrase"},{"shotNumber":8,"objectId":"o2","decision":"remove"}]}. These are format examples, not target IDs. Previous validation: ${problem}`
       : ownership
@@ -201,7 +204,11 @@ export async function generateSeriesStage(
           repairLogs.push(...repaired.logs);
           draft = JSON.stringify(repaired.raw);
         } else if (focusedStructure) {
-          const repaired = applyPartialObjectGroundingRepairs(extractJson(draft!), extractJson(response), structureIssues!);
+          const source = extractJson(draft!);
+          const reply = extractJson(response);
+          const repairs = state.objectGrounding?.evidenceOnly
+            ? objectEvidenceRepairs(source, reply, structureIssues!) : reply;
+          const repaired = applyPartialObjectGroundingRepairs(source, repairs, structureIssues!);
           repairLogs.push(...repaired.logs);
           draft = JSON.stringify(repaired.raw);
         } else {
@@ -220,6 +227,12 @@ export async function generateSeriesStage(
               ? objectTargets!.map(issue => `第${issue.shotNumber}镜/${issue.objectName}`)
               : [`${shotCount}镜→${project.shotCount}镜`];
         problem = `${paths.join('、')} 仍需修正；${error instanceof Error ? error.message : '修稿格式错误'}`;
+        if (focusedStructure) {
+          // Persist the recovery strategy, so a user retry does not repeat the
+          // same failed name-insertion request against an unchanged draft.
+          state.objectGrounding = { evidenceOnly: true };
+          await deps.saveState?.(state);
+        }
         continue;
       }
     } else {

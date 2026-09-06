@@ -985,6 +985,7 @@ export default function SeriesPage() {
         seriesVisualRedo?: boolean;
         seriesVisualPromptRewrite?: boolean;
         seriesVisualRedoRecovery?: boolean;
+        storySingleImageShots?: boolean;
       }>(
         await fetch(`${base}/api/companion/status`, {
           cache: "no-store",
@@ -992,7 +993,7 @@ export default function SeriesPage() {
         }),
         "无法检查一键重做支持",
       );
-      if (!status.seriesVisualRedo || !status.seriesVisualPromptRewrite || !status.seriesVisualRedoRecovery)
+      if (!status.seriesVisualRedo || !status.seriesVisualPromptRewrite || !status.seriesVisualRedoRecovery || !status.storySingleImageShots)
         throw new Error("一键重做需要更新 Companion 后重新连接。");
       await seriesRequest({
         action: "redo-visuals",
@@ -1114,7 +1115,11 @@ export default function SeriesPage() {
           seriesIndividualAssetJobs?: boolean;
           seriesObjectAutoReferences?: boolean;
           seriesAssetScriptReconciliation?: boolean;
+          storySingleImageShots?: boolean;
+          seriesObjectEvidenceRepair?: boolean;
         }>(response, "无法检查定稿支持");
+        if (["script", "produce"].includes(kind) && (!status.storySingleImageShots || !status.seriesObjectEvidenceRepair))
+          throw new Error('逐镜制作与新版剧本修稿需要 Companion v0.1.200 或更新版本，请更新后重新连接。');
         if (kind === 'prepare' && !status.seriesIndependentPreparation)
           throw new Error("独立角色场景定稿需要 Companion v0.1.105 或更新版本，请更新后重新连接。");
         if (kind === 'prepare' && assetId && !status.seriesIndividualAssetJobs)

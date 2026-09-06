@@ -4,10 +4,10 @@ import test from 'node:test';
 
 import {
   applyH3Fl2vaProfile,
+  getComfyUIConfig,
   COMFYUI_SUBTITLE_TASK_PREFIX,
   fitH3ReferenceAudioDurations,
   H3_DASIWA_4TURBO_PROFILE,
-  H3_FL2VA_BALANCED_PROFILE,
   h3ConditioningTaskType,
   h3AlignedDurationSeconds,
   h3AlignedFrameCount,
@@ -145,48 +145,46 @@ function acceleratedPrompt() {
   };
 }
 
-test('locks I2VA and FL2VA to the matched 768p eight-step Sage stack', () => {
-  for (const variant of ['aid_single_reference', 'aid_first_last']) {
-    const prompt = acceleratedPrompt();
-    const result = applyH3Fl2vaProfile(prompt, variant, 'balanced8');
-    assert.equal(result.active, true);
-    assert.equal(result.sageAttention, true);
-    assert.equal(prompt[20].inputs.unet_name, H3_FL2VA_BALANCED_PROFILE.diffusionModel);
-    assert.equal(prompt[24].inputs.clip_name, H3_FL2VA_BALANCED_PROFILE.textEncoder);
-    assert.equal(prompt[22].inputs.lora_name, H3_FL2VA_BALANCED_PROFILE.lora);
-    assert.equal(prompt[23].inputs.steps, 8);
-    assert.equal(prompt[23].inputs.shift_video, 6);
-    assert.equal(prompt[23].inputs.shift_audio, 3);
+test('all generation variants normalize stale settings to pruned four-step graphs', () => {
+  for (const variant of ['aid_single_reference', 'aid_first_last', 'aid_multi_reference']) {
+    for (const profile of [undefined, 'balanced8', 'legacy', 'dasiwa4']) {
+      const prompt = acceleratedPrompt();
+      const result = applyH3Fl2vaProfile(prompt, variant, profile);
+      assert.equal(result.active, true);
+      assert.equal(result.name, 'dasiwa4');
+      assert.equal(result.sageAttention, true);
+      assert.equal(result.approximateCache, false);
+      assert.equal(prompt[20].inputs.unet_name, H3_DASIWA_4TURBO_PROFILE.diffusionModel);
+      assert.equal(prompt[24].inputs.clip_name, H3_DASIWA_4TURBO_PROFILE.textEncoder);
+      assert.equal(prompt[22].inputs.lora_name, H3_DASIWA_4TURBO_PROFILE.lora);
+      assert.equal(prompt[23].inputs.steps, 4);
+      assert.equal(prompt[23].inputs.shift_video, 12);
+      assert.equal(prompt[23].inputs.shift_audio, 3);
+      assert.equal(prompt[23].inputs.sampler_name, 'dual_clock_euler');
+      assert.equal(prompt[23].inputs.scheduler, 'simple');
+    }
   }
 });
 
-test('leaves Ref2VA and explicit legacy rollback workflows untouched', () => {
-  const referencePrompt = acceleratedPrompt();
-  assert.equal(applyH3Fl2vaProfile(referencePrompt, 'aid_multi_reference').active, false);
-  assert.equal(referencePrompt[20].inputs.unet_name, 'legacy.safetensors');
-  const legacyPrompt = acceleratedPrompt();
-  assert.equal(applyH3Fl2vaProfile(legacyPrompt, 'aid_first_last', 'legacy').active, false);
-  assert.equal(legacyPrompt[23].inputs.shift_video, 12);
+test('old saved acceleration choices cannot restore an eight-step submission', () => {
+  for (const profile of ['balanced8', 'legacy', 'dasiwa4', undefined]) {
+    assert.equal(getComfyUIConfig({ h3Fl2vaProfile: profile }).h3Fl2vaProfile, 'dasiwa4');
+  }
 });
 
-test('locks I2VA and FL2VA to the production-tested DaSiWa four-step stack', () => {
-  for (const variant of ['aid_single_reference', 'aid_first_last']) {
-    const prompt = acceleratedPrompt();
-    const result = applyH3Fl2vaProfile(prompt, variant, 'dasiwa4');
-    assert.equal(result.active, true);
-    assert.equal(result.approximateCache, false);
-    assert.equal(prompt[20].inputs.unet_name, H3_DASIWA_4TURBO_PROFILE.diffusionModel);
-    assert.equal(prompt[24].inputs.clip_name, H3_DASIWA_4TURBO_PROFILE.textEncoder);
-    assert.equal(prompt[22].inputs.lora_name, H3_DASIWA_4TURBO_PROFILE.lora);
-    assert.equal(prompt[23].inputs.steps, 4);
-    assert.equal(prompt[23].inputs.shift_video, 12);
-    assert.equal(prompt[23].inputs.shift_audio, 3);
-    assert.equal(prompt[23].inputs.sampler_name, 'dual_clock_euler');
-    assert.equal(prompt[23].inputs.scheduler, 'simple');
-  }
-  const referencePrompt = acceleratedPrompt();
-  assert.equal(applyH3Fl2vaProfile(referencePrompt, 'aid_multi_reference', 'dasiwa4').active, false);
-  assert.equal(referencePrompt[20].inputs.unet_name, 'legacy.safetensors');
+test('normalizing a multi-reference graph preserves all image, voice and seed inputs', () => {
+  const prompt = acceleratedPrompt();
+  prompt[30] = { class_type: 'MiniMaxH3AudioConditioningT8', inputs: {
+    task_type: 'Ref2VA', audio_mode: 'native',
+    'ref_images.ref_image_0': ['31', 0], 'ref_images.ref_image_1': ['32', 0],
+    'ref_audios.ref_audio_0': ['33', 0], 'ref_audios.ref_audio_1': ['34', 0],
+  } };
+  prompt[35] = { class_type: 'RandomNoise', inputs: { noise_seed: 23456789 } };
+  const conditioning = structuredClone(prompt[30]);
+  const noise = structuredClone(prompt[35]);
+  applyH3Fl2vaProfile(prompt, 'aid_multi_reference', 'legacy');
+  assert.deepEqual(prompt[30], conditioning);
+  assert.deepEqual(prompt[35], noise);
 });
 
 test('fails closed if Sage is missing from the FL2VA production chain', () => {

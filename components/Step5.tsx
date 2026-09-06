@@ -6,12 +6,9 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Film,
   HardDrive,
   Loader2,
-  Merge,
   Play,
   RefreshCw,
   Scissors,
@@ -30,7 +27,7 @@ import {
 import { storyboardAudioPlan, storyboardSpeech, storyboardSpeechWarnings } from '@/lib/speechAudioContract';
 import { storyAspectClass, storyAspectRatioFromDimensions, type StoryAspectRatio } from '@/lib/storyAspectRatio';
 import { formatProductionElapsed, productionElapsedMs } from '@/lib/productionTiming';
-import { hasLegacyAutomaticContinuity, previousSegmentTailSource } from '@/lib/videoContinuity';
+import { hasLegacyAutomaticContinuity } from '@/lib/videoContinuity';
 import { lockStoryboardVoiceIds } from '@/lib/voiceCasting';
 
 interface Step5Props {
@@ -164,34 +161,11 @@ export default function Step5({
 
   const splitAfter = (segmentIndex: number, shotIndex: number) => {
     const source = groupIds[segmentIndex];
+    if (groups[segmentIndex]?.some(item => item.videoStatus === 'generating')) return;
     if (!source || shotIndex >= source.length - 1) return;
     const next = [...groupIds];
     next.splice(segmentIndex, 1, source.slice(0, shotIndex + 1), source.slice(shotIndex + 1));
     commitGroups(next, segmentIndex);
-  };
-
-  const mergeWithNext = (segmentIndex: number) => {
-    const mergedIds = [...(groupIds[segmentIndex] || []), ...(groupIds[segmentIndex + 1] || [])];
-    const merged = mergedIds.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item));
-    if (validateVideoSegment(merged, language)) return;
-    const next = [...groupIds];
-    next.splice(segmentIndex, 2, mergedIds);
-    commitGroups(next, segmentIndex);
-  };
-
-  const moveBoundary = (segmentIndex: number, direction: 'left' | 'right') => {
-    const left = [...(groupIds[segmentIndex] || [])];
-    const right = [...(groupIds[segmentIndex + 1] || [])];
-    if (!left.length || !right.length) return;
-    if (direction === 'left') left.push(right.shift()!);
-    else right.unshift(left.pop()!);
-    if (!left.length || !right.length) return;
-    const leftShots = left.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item));
-    const rightShots = right.map(id => storyboardById.get(id)).filter((item): item is Storyboard => Boolean(item));
-    if (validateVideoSegment(leftShots, language) || validateVideoSegment(rightShots, language)) return;
-    const next = [...groupIds];
-    next.splice(segmentIndex, 2, left, right);
-    commitGroups(next, direction === 'left' ? segmentIndex : segmentIndex + 1);
   };
 
   const generateActive = () => {
@@ -210,7 +184,7 @@ export default function Step5({
   if (!isH3SegmentProvider) {
     return (
       <div className="space-y-5">
-        <div className="border-l-4 border-[var(--accent-purple)] pl-4"><h2 className="text-2xl font-mono text-[var(--accent-green)]"><span className="text-[var(--text-secondary)]">05.</span> Generate Videos</h2><p className="mt-2 text-sm text-[var(--text-secondary)]">当前视频通道按单个分镜生成；选择仙宫云 ComfyUI 可启用 H3 片段编排。</p></div>
+        <div className="border-l-4 border-[var(--accent-purple)] pl-4"><h2 className="text-2xl font-mono text-[var(--accent-green)]"><span className="text-[var(--text-secondary)]">05.</span> Generate Videos</h2><p className="mt-2 text-sm text-[var(--text-secondary)]">每张分镜图独立生成一个镜头，再按剧情顺序剪辑成片。</p></div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{withImages.map(item => <article key={item.id} className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]"><img src={item.imageUrl} alt={`镜 ${item.sceneNumber}`} className={`${storyAspectClass(item.aspectRatio || aspectRatio)} w-full object-cover`} /><div className="p-3"><p className="text-xs text-[var(--text-secondary)]">镜 {String(item.sceneNumber).padStart(2, '0')}</p><button onClick={() => onGenerateVideo(item)} className="mt-3 w-full rounded-lg bg-[var(--accent-purple)] px-3 py-2 text-xs text-white">{item.videoStatus === 'generating' ? '生成中…' : '生成视频'}</button></div></article>)}</div>
         <div className="flex justify-between border-t border-[var(--border-color)] pt-4"><button onClick={onBack} className="rounded-lg border border-[var(--border-color)] px-5 py-2 text-sm">返回</button><button onClick={onNext} disabled={!completedCount} className="rounded-lg bg-[var(--accent-green)] px-5 py-2 text-sm text-black disabled:opacity-40">下一步：导出</button></div>
       </div>
@@ -223,7 +197,7 @@ export default function Step5({
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--workspace-accent)]">05 · Segment edit</p>
           <h2 className="mt-2 text-xl font-semibold text-white"><span className="text-[var(--workspace-accent)]">{withImages.length}</span> 分镜 → <span className="text-[var(--workspace-accent)]">{groups.length}</span> 个视频片段 · 预计成片 {Math.floor(totalSeconds / 60)}m{String(totalSeconds % 60).padStart(2, '0')}s · <span className={productionTiming?.status === 'completed' ? 'text-emerald-300' : 'text-[var(--workspace-accent)]'}>{productionTimeLabel}</span></h2>
-          <p className="mt-2 text-xs text-[var(--text-secondary)]">{videoProvider === 'fal' ? 'MiniMax H3 Max · fal' : 'MiniMax H3 · ComfyUI'} · {language === 'en' ? 'English dialogue' : '中文对白'} · 片段先锁定有序台词，再用 1–4 个分镜承载画面 · 最长 15s</p>
+          <p className="mt-2 text-xs text-[var(--text-secondary)]">{videoProvider === 'fal' ? 'MiniMax H3 Max · fal' : 'MiniMax H3 · ComfyUI'} · {language === 'en' ? 'English dialogue' : '中文对白'} · 每段一个镜头、一张分镜首帧 · 时长按动作与完整对白安排</p>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><HardDrive size={13} />本地缓存 {cachedCount}/{completedCount}</div>
       </header>
@@ -258,22 +232,7 @@ export default function Step5({
                   </div>
                 </section>
 
-                {segmentIndex < groups.length - 1 && (() => {
-                  const left = group.at(-1)!;
-                  const right = groups[segmentIndex + 1][0];
-                  const mergeCandidate = [...group, ...groups[segmentIndex + 1]];
-                  const canMerge = !validateVideoSegment(mergeCandidate, language);
-                  const canMoveLeft = group.length < 4 && groups[segmentIndex + 1].length > 1;
-                  const canMoveRight = group.length > 1 && groups[segmentIndex + 1].length < 4;
-                  return (
-                    <div className="flex min-h-9 flex-wrap items-center justify-center gap-x-3 gap-y-1 px-3 text-[10px] text-[var(--text-muted)]">
-                      <span>镜 {String(left.sceneNumber).padStart(2, '0')} / 镜 {String(right.sceneNumber).padStart(2, '0')} · 片段边界</span>
-                      <button disabled={!canMoveLeft} onClick={() => moveBoundary(segmentIndex, 'left')} className="inline-flex items-center gap-1 hover:text-[var(--workspace-accent)] disabled:opacity-25"><ChevronLeft size={12} />后段首镜移入前段</button>
-                      <button disabled={!canMoveRight} onClick={() => moveBoundary(segmentIndex, 'right')} className="inline-flex items-center gap-1 hover:text-[var(--workspace-accent)] disabled:opacity-25">前段尾镜移入后段<ChevronRight size={12} /></button>
-                      <button disabled={!canMerge} onClick={() => mergeWithNext(segmentIndex)} className="inline-flex items-center gap-1 hover:text-[var(--workspace-accent)] disabled:opacity-25"><Merge size={12} />合并两段</button>
-                    </div>
-                  );
-                })()}
+
               </div>
             );
           })}
@@ -287,12 +246,7 @@ export default function Step5({
           {activeLeader ? (
             <>
               <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h3 className="text-lg font-semibold text-white">片段 {String(safeActiveIndex + 1).padStart(2, '0')}</h3><StatusLabel status={activeStatus} /></div><p className="mt-1 text-[11px] text-[var(--text-secondary)]">{activeGroup.length} 个节拍 · {estimateVideoSegmentSeconds(activeGroup)}s</p></div><span className="rounded border border-[var(--border-color)] px-2 py-1 font-mono text-[9px] text-[var(--text-secondary)]">MiniMax H3 · {language === 'en' ? 'EN' : 'ZH'}</span></div>
-              <label className="mt-4 block text-[11px] text-[var(--text-secondary)]">视频首帧来源
-                <select aria-label="视频首帧来源" value={activeLeader.videoStartMode || 'storyboard'} disabled={activeStatus === 'generating'} onChange={event => onUpdate?.({ ...storyboardById.get(activeLeader.id)!, videoStartMode: event.target.value as Storyboard['videoStartMode'], continuousFromPrev: false, videoPrompt: undefined, videoPromptOverride: false })} className="mt-2 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] p-2 text-white">
-                  <option value="storyboard">当前分镜（镜 {String(activeLeader.sceneNumber).padStart(2, '0')}）· 默认</option>
-                  <option value="previous-segment-tail" disabled={!previousSegmentTailSource(storyboards, { ...activeLeader, videoStartMode: 'previous-segment-tail' })}>上一段尾帧 · 仅连续接拍</option>
-                </select>
-              </label>
+              <div className="mt-4 text-[11px] text-[var(--text-secondary)]">每镜使用自己的分镜图作为首帧，动作与视线通过剪辑衔接。</div>
               {activeStatus === 'outdated' && <p className="mt-2 text-[11px] leading-5 text-amber-300">下方是旧版自动接续生成的视频，不是当前分镜图。重新生成将从上方选择的首帧开始；旧视频在重生成前保留。</p>}
               {activeLeader.videoUrl && (() => { const activeVideoAspect = detectedVideoAspect(activeLeader.videoUrl, activeLeader.aspectRatio || aspectRatio); return <div className={`relative mx-auto mt-4 max-h-[62vh] overflow-hidden rounded-lg bg-black ${storyAspectClass(activeVideoAspect)} ${activeVideoAspect === '9:16' ? 'max-w-[220px]' : 'w-full'}`}><video src={activeLeader.videoUrl} controls onLoadedMetadata={event => rememberVideoAspect(activeLeader.videoUrl, event.currentTarget)} className="h-full w-full object-contain" /><span className="pointer-events-none absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[9px] text-white">已生成片段</span></div>; })()}
               <div className="mt-4 border-t border-[var(--border-color)] pt-4"><p className="text-[11px] font-semibold text-white">包含分镜</p><div className="mt-3 space-y-2">{activeGroup.map(item => <div key={item.id} className="flex items-center gap-2"><img src={item.imageUrl} alt="" className="h-10 w-14 rounded object-cover" /><div className="min-w-0"><p className="font-mono text-[10px] text-white">镜 {String(item.sceneNumber).padStart(2, '0')}</p><p className="truncate text-[10px] text-[var(--text-muted)]">{item.description}</p></div></div>)}</div></div>
@@ -314,7 +268,7 @@ export default function Step5({
         </aside>
       </div>
 
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-color)] pt-4"><button onClick={onBack} className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-5 py-2 text-sm"><ArrowLeft size={14} />返回图片</button><div className="text-[10px] text-[var(--text-muted)]">{usesManualPlan ? '导演编排已写入项目；刷新和一键成片都会保留' : 'AI 会按时长、对白和动作因果自动归类；可手动锁定边界'}</div><button onClick={onNext} disabled={!completedCount || cachingCount > 0} className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent-green)] px-5 py-2 text-sm font-semibold text-black disabled:opacity-35">{cachingCount ? `正在缓存 ${cachingCount} 个片段` : '下一步：合并导出'}<ArrowRight size={14} /></button></footer>
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-color)] pt-4"><button onClick={onBack} className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-5 py-2 text-sm"><ArrowLeft size={14} />返回图片</button><div className="text-[10px] text-[var(--text-muted)]">{usesManualPlan ? '导演编排已写入项目；刷新和一键成片都会保留' : '每镜单图独立生成；时长按动作、对白与停顿安排'}</div><button onClick={onNext} disabled={!completedCount || cachingCount > 0} className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent-green)] px-5 py-2 text-sm font-semibold text-black disabled:opacity-35">{cachingCount ? `正在缓存 ${cachingCount} 个片段` : '下一步：合并导出'}<ArrowRight size={14} /></button></footer>
     </div>
   );
 }

@@ -4,11 +4,11 @@ import { compileTimedSpeech, consolidateSegmentSpeech, H3_SPEAKER_HANDOFF_SECOND
 
 export const MAX_H3_SEGMENT_SECONDS = 15;
 export const MAX_H3_STORYBOARDS_PER_SEGMENT = 4;
-export const VIDEO_SEGMENT_PLANNING_CONTRACT = 'cinematic-edit-v2';
+export const VIDEO_SEGMENT_PLANNING_CONTRACT = 'single-image-shot-v1';
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v39';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v41';
 
 export interface VideoSegmentDefinition {
   id: string;
@@ -165,17 +165,14 @@ function storyboardSignature(storyboards: Storyboard[]): string {
 }
 
 function estimateStoryboardVisualSeconds(storyboard: Storyboard): number {
-  const hint = Number(storyboard.durationHint || storyboard.videoDuration || 5);
-  const typeFloor: Record<string, number> = {
-    insert: 1.7, reaction: 2.4, establishing: 2.7, action: 2.8,
-    dialogue: 5, performance: 5, montage: 1.8, long_take: 8,
+  // Authored action time is authoritative; old rendered clip duration is not.
+  const hint = Number(storyboard.durationHint);
+  const fallback: Record<string, number> = {
+    insert: 2, reaction: 3, establishing: 3, action: 4,
+    dialogue: 3, performance: 4, montage: 2, long_take: 8,
   };
-  const typeCeiling: Record<string, number> = {
-    insert: 3.5, reaction: 4.5, establishing: 5.5, action: 6,
-    dialogue: 8, performance: 8, montage: 4, long_take: 15,
-  };
-  const clipType = storyboard.clipType || (storyboardSpeech(storyboard).length ? 'dialogue' : 'action');
-  return Math.min(typeCeiling[clipType] || 6, Math.max(typeFloor[clipType] || 2.8, hint * 0.6));
+  return Math.max(2, Number.isFinite(hint) && hint > 0
+    ? hint : (fallback[storyboard.clipType || 'action'] || 4));
 }
 
 export function estimateStoryboardBeatSeconds(storyboard: Storyboard): number {
@@ -222,7 +219,7 @@ function projectedVideoSegmentSeconds(storyboards: Storyboard[]): number {
 
 export function estimateVideoSegmentSeconds(storyboards: Storyboard[]): number {
   const total = projectedVideoSegmentSeconds(storyboards);
-  const firstCandidate = Math.max(3, Math.ceil(total));
+  const firstCandidate = Math.max(2, Math.ceil(total));
   // The raw speech sum is not sufficient when a line belongs to a later
   // storyboard: compileTimedSpeech must delay that speaker until the relevant
   // picture is on screen. Probe the exact production timeline and choose the
@@ -316,7 +313,14 @@ function isExplicitEditorialBridge(previous: Storyboard, current: Storyboard): b
 export function cinematicEditKind(previous: Storyboard, current: Storyboard): CinematicEditKind {
   const previousSpeech = storyboardSpeech(previous);
   const currentSpeech = storyboardSpeech(current);
+  const participants = new Set([
+    ...(previous.characters || []), ...(current.characters || []),
+    ...previousSpeech.map(line => line.character), ...currentSpeech.map(line => line.character),
+  ].map(name => String(name || '').trim().toLowerCase()).filter(Boolean));
+  // A shared dialogue unit can also contain one person's monologue and inserts.
+  // Only an exchange between distinct people can motivate reverse coverage.
   if (previous.dialogueUnitId && previous.dialogueUnitId === current.dialogueUnitId
+    && participants.size > 1
     && (previousSpeech.length || currentSpeech.length)) return 'dialogue-reverse';
   if (previous.clipType === 'action' && current.clipType === 'reaction') return 'action-reaction';
   if (current.clipType === 'insert') return 'detail-insert';
@@ -408,28 +412,18 @@ function isViableCinematicGroup(
 }
 
 export function suggestVideoSegments(storyboards: Storyboard[]): Storyboard[][] {
-  // Dynamic programming retains a storyboard as a discrete I2VA hero shot by
-  // default and chooses Ref2VA only when consecutive pictures form a genuine
-  // editorial unit: coverage progression, action/reaction, shot/reverse-shot,
-  // detail insert, montage, or an explicit match bridge.
-  const best: Array<{ score: number; groups: Storyboard[][] }> = Array(storyboards.length + 1);
-  best[storyboards.length] = { score: 0, groups: [] };
-  for (let index = storyboards.length - 1; index >= 0; index -= 1) {
-    let winner = { score: best[index + 1].score, groups: [[storyboards[index]], ...best[index + 1].groups] };
-    const maxLength = Math.min(MAX_H3_STORYBOARDS_PER_SEGMENT, storyboards.length - index);
-    for (let length = 2; length <= maxLength; length += 1) {
-      const group = storyboards.slice(index, index + length);
-      const candidate = isViableCinematicGroup(group, index, storyboards.length);
-      if (!candidate) continue;
-      const tail = best[index + length];
-      const score = candidate.score + tail.score;
-      // Prefer the longer complete editorial phrase only when its score is not
-      // worse; deterministic ties avoid plans changing between refreshes.
-      if (score >= winner.score) winner = { score, groups: [group, ...tail.groups] };
-    }
-    best[index] = winner;
-  }
-  return best[0]?.groups || [];
+  // Editorial relationships describe cuts between clips, not permission for
+  // one diffusion pass to morph across multiple storyboard compositions.
+  return storyboards.map(storyboard => [storyboard]);
+}
+
+function hasSubmittedSegment(group: Storyboard[]): boolean {
+  const leader = group[0];
+  if (!leader) return false;
+  const ids = leader.videoSegmentStoryboardIds || [leader.id];
+  return ids.join('|') === group.map(item => item.id).join('|')
+    && Boolean((leader.videoTaskId && leader.videoStatus !== 'failed')
+      || (leader.videoStatus === 'completed' && (leader.videoUrl || leader.videoCacheKey || leader.videoSourceUrl)));
 }
 
 export function createVideoSegmentPlan(
@@ -489,22 +483,39 @@ export function normalizeVideoSegmentPlan(
   plan?: VideoSegmentPlan | { version?: number; source?: 'auto' | 'manual'; planningContract?: string; groups?: string[][] },
   language?: 'zh' | 'en',
 ): VideoSegmentPlan {
-  if (isValidVideoSegmentPlan(plan as VideoSegmentPlan, storyboards, language)) return plan as VideoSegmentPlan;
   const byId = new Map(storyboards.map(storyboard => [storyboard.id, storyboard]));
-  const legacyGroups = Array.isArray(plan?.groups)
-    ? plan.groups.map(ids => ids.map(id => byId.get(id)).filter((item): item is Storyboard => Boolean(item)))
-    : [];
-  const legacyIds = legacyGroups.flat().map(storyboard => storyboard.id);
-  const canReuseLegacyBoundaries = (plan?.source === 'manual' || plan?.planningContract === VIDEO_SEGMENT_PLANNING_CONTRACT)
-    && legacyGroups.length > 0
-    && legacyIds.join('|') === storyboardSignature(storyboards)
-    && new Set(legacyIds).size === storyboards.length
-    && legacyGroups.every(group => group.length && !validateVideoSegment(group, language, { requireVoiceBindings: false }));
-  return createVideoSegmentPlan(
-    storyboards,
-    canReuseLegacyBoundaries ? legacyGroups : suggestVideoSegments(storyboards),
-    plan?.source === 'manual' && canReuseLegacyBoundaries ? 'manual' : 'auto',
-  );
+  const saved = plan as VideoSegmentPlan | undefined;
+  const definitions = saved?.version === 2 && Array.isArray(saved.segments) ? saved.segments : [];
+  const ids = definitions.length ? definitions.map(segment => segment.storyboardIds) : plan?.groups;
+  const validCoverage = Array.isArray(ids) && ids.flat().join('|') === storyboardSignature(storyboards)
+    && new Set(ids.flat()).size === storyboards.length;
+  let candidates: Storyboard[][];
+  if (validCoverage) {
+    candidates = ids!.map((group, index) => {
+      const raw = group.map(id => byId.get(id)!);
+      if (!Array.isArray(definitions[index]?.speech)) return raw;
+      // An untouched old merged plan may have combined one speaker's lines
+      // across shots. Restore the original per-shot ownership when splitting;
+      // explicit edits in the saved plan remain authoritative.
+      if (!hasSubmittedSegment(raw)
+        && JSON.stringify(definitions[index].speech) === JSON.stringify(authorSegmentSpeech(raw))) return raw;
+      return materializeSegmentStoryboards(raw, definitions[index]);
+    });
+  } else {
+    // Recover real paid memberships even when a legacy project has no plan.
+    candidates = [];
+    for (let i = 0; i < storyboards.length;) {
+      const raw = (storyboards[i].videoSegmentStoryboardIds || []).map(id => byId.get(id)).filter((item): item is Storyboard => Boolean(item));
+      const contiguous = raw.length && raw.every((item, offset) => storyboards[i + offset]?.id === item.id);
+      const group = contiguous && hasSubmittedSegment(raw) ? raw : [storyboards[i]];
+      candidates.push(group);
+      i += group.length;
+    }
+  }
+  const groups = candidates.flatMap(group => hasSubmittedSegment(group) ? [group] : group.map(item => [item]));
+  if (isValidVideoSegmentPlan(saved, storyboards, language)
+    && saved.groups.map(group => group.join('|')).join(';') === groups.map(group => group.map(item => item.id).join('|')).join(';')) return saved;
+  return createVideoSegmentPlan(storyboards, groups, plan?.source || 'auto');
 }
 
 export function resolveVideoSegmentGroups(
@@ -541,6 +552,13 @@ function equivalentSegmentSpeech(first: Storyboard[], second: Storyboard[]): boo
   }
 }
 
+/** Split a historical render while keeping explicit dialogue edits and ownership. */
+export function splitPlannedVideoSegment(storyboards: Storyboard[], planned: Storyboard[]): Storyboard[][] {
+  const current = refreshPlannedVideoSegment(storyboards, planned);
+  const raw = planned.map(item => storyboards.find(candidate => candidate.id === item.id) || item);
+  return (equivalentSegmentSpeech(raw, current) ? raw : current).map(item => [item]);
+}
+
 /** Both manual and automatic production check the same planned creative input. */
 export function isCompletedPlannedVideoSegment(storyboards: Storyboard[], planned: Storyboard[]): boolean {
   const current = refreshPlannedVideoSegment(storyboards, planned);
@@ -561,7 +579,7 @@ function hasMatchingVideoGeneration(storyboards: Storyboard[]): boolean {
   // Preserve compatible paid v33/v35 clips that already started from their own
   // storyboard and whose creative inputs are unchanged. Do not rewrite them.
   return !leader.continuousFromPrev && leader.videoStartMode !== 'previous-segment-tail'
-    && (saved.startsWith('h3-v33-') || saved.startsWith('h3-v35-'))
+    && ['h3-v33-', 'h3-v35-', 'h3-v39-', 'h3-v40-'].some(prefix => saved.startsWith(prefix))
     && saved.slice(7) === current.slice(7);
 }
 

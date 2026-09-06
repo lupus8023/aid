@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       const videoPrompt = buildVideoSegmentPrompt(refined, [], {
         styleReference,
         isFilmEnding: isFilmEnding === true,
-        duration: filmEndingDuration(estimateVideoSegmentSeconds(refined), isFilmEnding === true, Number(storyboard.videoDuration) || undefined, Number(storyboard.videoEndingMinimumDuration) || 0),
+        duration: filmEndingDuration(estimateVideoSegmentSeconds(refined), isFilmEnding === true, undefined, Number(storyboard.videoEndingMinimumDuration) || 0),
         referenceAudioNames: Array.isArray(referenceAudioNames) ? referenceAudioNames.filter(Boolean).slice(0, 3) : [],
         hasVoiceReferences: Array.isArray(referenceAudioNames) && referenceAudioNames.length > 0,
         voiceProfiles: voiceProfiles && typeof voiceProfiles === 'object' ? voiceProfiles : {},

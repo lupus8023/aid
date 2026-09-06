@@ -443,7 +443,7 @@ function buildOfficialGuidePrompt(
 ): string {
   const first = storyboards[0];
   if (!first) throw new Error('视频片段至少需要一个分镜');
-  const duration = Math.min(15, Math.max(4, options.duration || estimateVideoSegmentSeconds(storyboards)));
+  const duration = Math.min(15, Math.max(2, options.duration || estimateVideoSegmentSeconds(storyboards)));
   const timeline = allocateSegmentTimeline(storyboards, duration);
   const timedSpeech = compileTimedSpeech(storyboards, timeline);
   const speechLanguageError = validateSpeechLanguage(storyboards, options.language);
@@ -551,7 +551,7 @@ function buildOfficialGuidePrompt(
     const terminalShot = options.isFilmEnding === true && index === storyboards.length - 1;
     const tailHandoff = terminalShot
       ? '全片最后一镜保留结果与自然余韵。'
-      : '镜尾以已有动作、视线或焦点落点形成可见交接，延续银幕方向，在运动中自然衔接下一镜。';
+      : '镜尾以已有动作、视线或焦点落点形成可见交接；在当前机位内完成落点，保持当前构图到片段结束。';
     return [
       `${opening} [${h3Timestamp(range.start)}–${h3Timestamp(range.end)}]`,
       `景别与构图：${castSentence}`,
@@ -615,7 +615,7 @@ export function buildVideoSegmentPrompt(
   characterAudios: { character: string; audioUrl: string }[] = [],
   options: VideoSegmentPromptOptions = {},
 ): string {
-  const duration = Math.min(15, Math.max(4, options.duration || estimateVideoSegmentSeconds(storyboards)));
+  const duration = Math.min(15, Math.max(2, options.duration || estimateVideoSegmentSeconds(storyboards)));
   return applyFilmEndingPrompt(applySeriesVideoStyle(applyVideoDuplicateRepairPrompt(buildOfficialGuidePrompt(storyboards, characterAudios, options), storyboards.map(b => b.videoDuplicateRepairPrompt || '').filter(Boolean).join(' ')), options.styleReference), duration, options.isFilmEnding === true);
 }
 

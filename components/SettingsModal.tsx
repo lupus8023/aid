@@ -513,16 +513,10 @@ export default function SettingsModal({
                 </label>
               ))}
               <label className="block text-xs font-mono text-[var(--text-secondary)]">
-                FL2VA 加速方案
-                <select
-                  value={localSettings.comfyui?.h3Fl2vaProfile || 'dasiwa4'}
-                  onChange={(e) => updateComfyUI('h3Fl2vaProfile', e.target.value)}
-                  className="mt-1 w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
-                >
-                  <option value="balanced8">均衡成片 · 768P 8步 LoRA + Sage</option>
-                  <option value="dasiwa4">DaSiWa · 4步极速（已验证默认）</option>
-                  <option value="legacy">旧版远端工作流 · 仅用于回退</option>
-                </select>
+                H3 视频生成方案
+                <div className="mt-1 rounded border border-[var(--border-color)] px-3 py-2 text-sm text-[var(--text-primary)]">
+                  pruned 模型 + DaSiWa 4步 · 单镜、多镜、首尾帧统一
+                </div>
               </label>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="block text-xs font-mono text-[var(--text-secondary)]">

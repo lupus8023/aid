@@ -7,6 +7,10 @@ export const VIDEO_DIRECTION_MAX_CHARACTERS = 720;
 
 const VIDEO_DIRECTION_WRITING_CONTRACT_BASE = `
 视频镜头细化（videoDirection，与静态图片 prompt 分开）：
+每个分镜是一段单镜单图视频，只使用本镜的分镜首帧，不在段内切到其他分镜。导演需把表演和摄影写成同一条可执行的时序。
+- 走位与调度：从首帧已有的左右、前后、朝向和手持状态起步，说明谁先触发、谁随后反应，人物沿什么可见路径到哪里、何时停下或转身；多人镜明确各自位置与遮挡关系，不凭空新增演员。静态图必须选择这条行动的起点，不能把结果画成开场再要求重演动作。
+- 摄影与表演同步：明确相机相对人物的起点、运动触发、跟随方向与距离变化，以及终点的景别/焦点。走位和相机运动共同服务一个叙事目的；固定机位用画内调度交付变化，不能每镜都泛写缓慢推进。
+- 本镜末态与下镜初态分别设计：当前镜只完成自己的动作落点；下一张分镜应接住相容的手势、目光、运动方向与道具状态。机位变化由片段间剪辑完成，不把两张分镜渐变融合，也不在当前镜提前走完下一镜动作。
 把锁定的 action、performance、stateBefore/stateAfter 与 editBridge 整理成可直接拍摄的短导演说明。不是重新编剧，不新增事件、人物、道具、对白或音效。
 - action：可见起始状态→已有触发→一个主动作→物理结果。细到能拍：必要时写明哪只手/身体部位、接触什么位置、朝哪个方向施力、速度如何变化，物体如何随之移动。只落实已有行动，不添加无关小动作；不能把完整动作退回静态图片描述。
 - camera：只写一个摄影任务：起始观察位置→运动类型、方向、幅度、速度/触发→结束时看见什么。幅度用有依据的距离、角度或构图变化（双人中景到单人近景），速度用匀速、与人物同速、触发后加速/减速；不要只写 small move、slow push 或 cinematic。
@@ -175,11 +179,11 @@ export function videoDirectionSourceKey(shot: Partial<Storyboard>): string {
   const text = JSON.stringify([
     shot.action, shot.description, shot.prompt, shot.performance, shot.stateBefore, shot.stateAfter,
     shot.characters, shot.objects, shot.cameraMove, shot.shotSize, shot.angle, shot.editBridge, shot.clipType,
-    shot.visualStyle || 'cinematic-natural', shot.capturePreset || 'cinematic-narrative',
+    shot.visualStyle || 'cinematic-natural', shot.capturePreset || 'cinematic-narrative', shot.durationHint,
   ]);
   let hash = 2166136261;
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
-  return `vd1-${(hash >>> 0).toString(36)}`;
+  return `vd2-${(hash >>> 0).toString(36)}`;
 }
 
 export function currentVideoDirection(shot: Storyboard): StoryVideoDirection | undefined {

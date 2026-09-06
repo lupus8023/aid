@@ -3,7 +3,7 @@ import test from 'node:test';
 import { fixedObjectIdentityError, inferSupersededObjectIds } from '../lib/series/objectIdentity.ts';
 import { episodeAssetReferences } from '../lib/series/episodeAssetReferences.ts';
 import { fitScriptDialogueDurations } from '../lib/series/scriptRepair.ts';
-import { applyFinalObjectReplacements, applyPartialObjectGroundingRepairs } from '../lib/series/scriptStructureRepair.ts';
+import { applyFinalObjectReplacements, applyPartialObjectGroundingRepairs, objectEvidenceRepairs } from '../lib/series/scriptStructureRepair.ts';
 import { generateSeriesStage } from '../lib/series/generation.ts';
 import { createSeries, parseOutline, parseEpisodes } from '../lib/series/domain.ts';
 import { outlineFixture, episodeFixtures, shotFixture } from './fixtures/series.mjs';
@@ -135,4 +135,55 @@ test('invented mentions, duplicate targets and unauthorized paths never overwrit
   assert.throws(() => applyPartialObjectGroundingRepairs(raw, { repairs: [repair, repair] }, issues), /重复/);
   assert.throws(() => applyPartialObjectGroundingRepairs(raw, { repairs: [{ ...repair, shotNumber: 2 }] }, issues), /未授权/);
   assert.equal(raw.shots[0].action, '她拿起面膜。');
+});
+
+test('absent props recover from invented mentions by checking evidence, preserving the entire screenplay', async () => {
+  const { project, raw } = fixture();
+  raw.shots.forEach(shot => { shot.objectIds = []; });
+  project.objects = [{ id: 'cup', name: '白玉杯', aliases: ['玉杯'], description: '白色玉杯' }];
+  Object.assign(raw.shots[8], { objectIds: ['cup'], visual: '裴慎之闭上眼，动作停顿后，沈七质问其本意。', action: '裴慎之沉默片刻，然后重新审视沈七。' });
+  Object.assign(raw.shots[9], { objectIds: ['cup'], visual: '阿宁旁观，裴慎之坐下，情绪转变显露无遗。', action: '阿宁安静注视裴慎之，他面露复杂。' });
+  let draft = JSON.stringify(raw), calls = 0, state;
+  const result = await generateSeriesStage('script', project, project.episodes[0].id, {
+    read: async () => draft, save: async value => { draft = value; }, saveState: async value => { state = structuredClone(value); },
+    chat: async prompt => {
+      calls++;
+      if (calls === 1) return JSON.stringify({ repairs: [9, 10].map(shotNumber => ({ shotNumber, objectId: 'cup', decision: 'ground', field: 'action', mention: '白玉杯' })) });
+      assert.deepEqual(JSON.parse(draft), raw);
+      assert.equal(state.objectGrounding.evidenceOnly, true);
+      assert.match(prompt, /道具原文证据复核/);
+      return JSON.stringify({ evidence: [9, 10].map(shotNumber => ({ shotNumber, objectId: 'cup', mentions: [] })) });
+    },
+  });
+  assert.equal(calls, 2);
+  const expected = structuredClone(raw);
+  expected.shots[8].objectIds = []; expected.shots[9].objectIds = [];
+  assert.deepEqual(JSON.parse(draft), expected);
+  assert.equal(result.script.length, 16);
+});
+
+test('evidence recovery resumes after restart and preserves a visible generically named prop', async () => {
+  const { project, raw } = fixture();
+  let draft = JSON.stringify(raw), calls = 0;
+  const result = await generateSeriesStage('script', project, project.episodes[0].id, {
+    read: async () => draft, save: async value => { draft = value; },
+    readState: async () => ({ version: 1, objectGrounding: { evidenceOnly: true } }),
+    chat: async prompt => {
+      calls++; assert.match(prompt, /道具原文证据复核/);
+      return JSON.stringify({ evidence: [2, 14].map(shotNumber => ({ shotNumber, objectId: 'mask', mentions: [{ field: 'action', quote: '湿黑面膜' }] })) });
+    },
+  });
+  assert.equal(calls, 1);
+  assert.deepEqual(result.script[1].objectIds, ['mask']);
+  assert.equal(result.script[1].action, '她将黑灰色纱布面膜轻轻揭下，停在半空。');
+});
+
+test('evidence cannot authorize unknown targets, invented quotes or silent missing decisions', () => {
+  const raw = { shots: [{ number: 1, visual: '她拿起小杯子。', action: '她停下。', objectIds: ['cup'] }] };
+  const issues = [{ kind: 'ungrounded_object', index: 0, shotNumber: 1, objectId: 'cup', objectName: '白玉杯', aliases: [] }];
+  const entry = { shotNumber: 1, objectId: 'cup', mentions: [{ field: 'visual', quote: '小杯子' }] };
+  assert.equal(objectEvidenceRepairs(raw, { evidence: [entry] }, issues).repairs[0].mention, '小杯子');
+  for (const evidence of [[], [{ ...entry, shotNumber: 2 }], [{ ...entry, mentions: [{ field: 'visual', quote: '白玉杯' }] }], [{ ...entry, mentions: undefined }]])
+    assert.throws(() => objectEvidenceRepairs(raw, { evidence }, issues));
+  assert.equal(raw.shots[0].visual, '她拿起小杯子。');
 });

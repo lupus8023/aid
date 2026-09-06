@@ -33,13 +33,12 @@ import { canResumeStoryPlan } from '@/lib/pipeline/resumePlan';
 import { adaptedStoryCharacters, storyCastKey } from '@/lib/pipeline/storyCastAdaptation';
 import { cacheVideoSource, cachedVideoObjectUrl, requestPersistentVideoStorage, videoCacheKeyForStoryboard } from '@/lib/videoCache';
 import { DEFAULT_VISUAL_STYLE, normalizeVisualStyle } from '@/lib/promptArchitecture';
-import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedPlannedVideoSegment, normalizeVideoSegmentPlan, refreshPlannedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
+import { createVideoSegmentPlan, estimateVideoSegmentSeconds, isCompletedPlannedVideoSegment, normalizeVideoSegmentPlan, refreshPlannedVideoSegment, releaseUnsubmittedVideoGenerations, resolveVideoSegmentGroups, splitPlannedVideoSegment, restoredStoryStep, suggestVideoSegments, validateVideoSegment, videoSegmentGenerationSignature, type VideoSegmentPlan } from '@/lib/videoSegments';
 import { filmEndingDuration, isFilmEndingSegment } from '@/lib/filmEnding';
 import { retainFilmEndingForDelivery } from '@/lib/filmEndingAudit';
 import { videoSubtitleRemovalSourceTaskId } from '@/lib/videoDuplicateAudit';
 import { currentVoiceReferences } from '@/lib/voiceReference';
 import { auditStoryDelivery } from '@/lib/storyDeliveryAudit';
-import { CONTINUITY_HANDOFF_LEAD_SECONDS, previousSegmentTailSource } from '@/lib/videoContinuity';
 import { prepareStoryboardReference } from '@/lib/storyboardImagePreprocess';
 import { videoDirectionSourceKey, recoverReorderedObjectDirection, currentChineseVideoDirection } from '@/lib/videoDirection';
 import { persistGeneratedStoryboardImage } from '@/lib/generatedImagePersistence';
@@ -103,58 +102,6 @@ async function makePortableMediaSource(source: string, label: string, inlineRemo
     reader.onerror = () => reject(new Error(`${label}转换失败`));
     reader.readAsDataURL(blob);
   });
-}
-
-async function extractVideoTailFrame(source: string, label: string): Promise<string> {
-  const video = document.createElement('video');
-  video.muted = true;
-  video.playsInline = true;
-  video.preload = 'auto';
-  if (/^https?:\/\//i.test(source)) video.crossOrigin = 'anonymous';
-  video.src = source;
-
-  const waitFor = (event: 'loadedmetadata' | 'loadeddata' | 'seeked') => new Promise<void>((resolve, reject) => {
-    const cleanup = () => {
-      video.removeEventListener(event, handleReady);
-      video.removeEventListener('error', handleError);
-    };
-    const handleReady = () => { cleanup(); resolve(); };
-    const handleError = () => { cleanup(); reject(new Error(`${label}读取失败`)); };
-    video.addEventListener(event, handleReady, { once: true });
-    video.addEventListener('error', handleError, { once: true });
-  });
-
-  try {
-    const metadataReady = waitFor('loadedmetadata');
-    video.load();
-    await metadataReady;
-    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) await waitFor('loadeddata');
-    if (!Number.isFinite(video.duration) || video.duration <= 0 || !video.videoWidth || !video.videoHeight) {
-      throw new Error(`${label}缺少有效的视频尺寸或时长`);
-    }
-
-    // Hand off while motion is still alive. The editor removes the matching
-    // tail interval from the preceding clip, so playback does not jump back.
-    const lead = Math.min(CONTINUITY_HANDOFF_LEAD_SECONDS, video.duration / 2);
-    const tailTime = Math.max(0, video.duration - lead);
-    if (tailTime > 0.001) {
-      const seeked = waitFor('seeked');
-      video.currentTime = tailTime;
-      await seeked;
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error(`${label}尾帧画布创建失败`);
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.95);
-  } finally {
-    video.pause();
-    video.removeAttribute('src');
-    video.load();
-  }
 }
 
 class TerminalVideoTaskError extends Error {
@@ -2048,7 +1995,7 @@ export default function StoryPage() {
       .sort((a, b) => a.sceneNumber - b.sceneNumber)
       .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), imageUrl: item.imageUrl, visualStyle, capturePreset: capturePresetRef.current })), voiceCast);
     const leader = segmentStoryboards[0];
-    const hasFirstFrame = Boolean(leader && previousSegmentTailSource(storyboardsRef.current, leader));
+    const hasFirstFrame = false;
     const videoProvider = settingsRef.current.videoProvider || 'apimart';
     const referenceAudioNames = videoProvider === 'fal' ? [] : [...new Set(segmentStoryboards
       .flatMap(item => storyboardSpeech(item).map(line => line.character)))]
@@ -2112,13 +2059,23 @@ export default function StoryPage() {
       failBeforeSubmission('请先在设置中配置 fal API Key');
       return;
     }
+    if (requestedSegment && requestedSegment.length > 1) {
+      // A user can redo a saved historical multi-shot clip. New work is always
+      // one image per request; the legacy membership remains readable until redo.
+      for (const single of splitPlannedVideoSegment(storyboardsRef.current, requestedSegment)) {
+        if (generationProjectId !== projectIdRef.current) return;
+        if (isCompletedPlannedVideoSegment(storyboardsRef.current, single)) continue;
+        await handleGenerateVideo(single[0], single, options);
+      }
+      return;
+    }
     const currentShots = storyboardsRef.current;
     const requestedIds = (requestedSegment?.length ? requestedSegment : [storyboard]).map(item => item.id);
     const requestedById = new Map((requestedSegment || []).map(item => [item.id, item]));
     let segment = lockStoryboardVoiceIds(currentShots
       .filter(item => requestedIds.includes(item.id))
       .sort((a, b) => a.sceneNumber - b.sceneNumber)
-      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), imageUrl: item.imageUrl })), effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters));
+      .map(item => ({ ...item, ...(requestedById.get(item.id) || {}), imageUrl: item.imageUrl, videoStartMode: 'storyboard' as const, continuousFromPrev: false, ...((item.videoSegmentStoryboardIds?.length || 0) > 1 ? { videoPrompt: undefined, videoPromptOverride: false } : {}) })), effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters));
     // One-click generation must use the same source adaptation as the manual
     // prompt button. A stale/invalid brief must not silently become a generic
     // image-action template. Valid briefs and explicit user prompts cost no call.
@@ -2153,7 +2110,7 @@ export default function StoryPage() {
         const statusResponse = await fetch(comfyUIApiUrl('/api/companion/status', activeSettings.comfyui), { cache: 'no-store', signal: AbortSignal.timeout(2500) });
         const status = statusResponse.ok ? await statusResponse.json() : undefined;
         if (!status?.ok || !companionVersionAtLeast(String(status.version || ''), SEGMENT_VIDEO_COMPANION_MIN_VERSION)) {
-          throw new Error(`新版 H3 电影提示词与多分镜片段需要 Companion v${SEGMENT_VIDEO_COMPANION_MIN_VERSION.join('.')} 或更高版本；当前版本为 ${status?.version || '未知'}`);
+          throw new Error(`单镜单图与 pruned 四步生成需要 Companion v${SEGMENT_VIDEO_COMPANION_MIN_VERSION.join('.')} 或更高版本；当前版本为 ${status?.version || '未知'}`);
         }
       } catch (error) {
         failBeforeSubmission(error instanceof Error ? error.message : '无法确认 Companion 版本');
@@ -2165,34 +2122,11 @@ export default function StoryPage() {
     const leader = segment[0];
     const segmentId = `segment-${Date.now()}-${leader.sceneNumber}`;
     const duration = filmEndingDuration(estimateVideoSegmentSeconds(segment), isFilmEndingSegment(currentShots, segment), undefined, leader.videoEndingMinimumDuration);
-    const prevShot = previousSegmentTailSource(currentShots, leader);
-    if (leader.videoStartMode === 'previous-segment-tail' && !prevShot) {
-      failBeforeSubmission('无法接续上一段：必须同场同地点、相邻片段已完成且不是换场转场；请选择“当前分镜首帧”。');
-      return;
-    }
-    const shouldContinuePreviousSegment = Boolean(prevShot);
+    // Each storyboard owns its first frame. Motion-context continuation is
+    // reserved for the dedicated continuous-shot workflow, not editorial cuts.
+    const shouldContinuePreviousSegment = false;
     const finalSegment = isFilmEndingSegment(currentShots, segment);
-    const motionContextEnabled = videoProvider === 'comfyui'
-      && activeSettings.comfyui?.h3ContinuityMode === 'motion-context';
-    const configuredContextFrames = Number(activeSettings.comfyui?.h3MotionContextFrames || 22);
-    const contextFrames = ([5, 22, 39].includes(configuredContextFrames) ? configuredContextFrames : 22) as 5 | 22 | 39;
-    const previousContextIndex = Number(prevShot?.videoContinuitySegmentIndex);
-    const previousContextReady = Boolean(
-      prevShot?.videoContinuityChainId
-      && Number.isInteger(previousContextIndex)
-      && previousContextIndex >= 0,
-    );
-    const motionContext = motionContextEnabled ? {
-      chainId: previousContextReady
-        ? prevShot!.videoContinuityChainId!
-        : (leader.videoContinuitySegmentIndex === 0 && leader.videoContinuityChainId
-            ? leader.videoContinuityChainId
-            : `aid-${generationProjectId}-${leader.id}`),
-      segmentIndex: previousContextReady ? previousContextIndex + 1 : 0,
-      contextFrames,
-      continueAudio: true,
-      isFinalSegment: finalSegment,
-    } : undefined;
+    const motionContext: { chainId: string; segmentIndex: number } | undefined = undefined;
     const generationInputs = segment.map(item => ({
       ...item,
       videoProviderUsed: videoProvider,
@@ -2232,13 +2166,14 @@ export default function StoryPage() {
           videoTaskId: undefined,
           videoProviderUsed: videoProvider,
           videoSeed: videoProvider === 'fal' && Number.isInteger(activeSettings.fal?.seed) ? activeSettings.fal?.seed : undefined,
-          videoContinuityChainId: motionContext?.chainId,
-          videoContinuitySegmentIndex: motionContext?.segmentIndex,
+          videoContinuityChainId: undefined,
+          videoContinuitySegmentIndex: undefined,
+          videoStartMode: 'storyboard',
           videoSegmentId: segmentId,
           videoSegmentStoryboardIds: item.id === leader.id ? segmentIds : undefined,
           videoGenerationSignature: item.id === leader.id ? generationSignature : undefined,
           videoDuration: duration,
-          continuousFromPrev: item.id === leader.id ? shouldContinuePreviousSegment : item.continuousFromPrev,
+          continuousFromPrev: false,
         };
       });
     });
@@ -2297,20 +2232,7 @@ export default function StoryPage() {
         videoSegmentStoryboardIds: segmentIds,
       };
 
-      let firstFrameUrl: string | undefined;
-      if (prevShot?.videoUrl) {
-        // Extract a moving handoff frame from local or CORS-enabled remote video.
-        // Cloudinary supports CORS, while its old so_100p still was too static.
-        try {
-          const extractedFrame = await extractVideoTailFrame(prevShot.videoUrl, `场景 ${prevShot.sceneNumber} 视频`);
-          firstFrameUrl = await prepareStoryboardReference(extractedFrame, `场景 ${prevShot.sceneNumber} 运动交接帧`, projectAspectRatioRef.current);
-        } catch (error) {
-          if (!prevShot.videoUrl.includes('res.cloudinary.com')) throw error;
-          // Compatibility fallback for legacy Cloudinary assets that cannot be
-          // decoded by this browser. New Companion clips use the motion frame.
-          firstFrameUrl = prevShot.videoUrl.replace('/video/upload/', '/video/upload/so_100p/').replace(/\.\w+$/, '.jpg');
-        }
-      }
+      const firstFrameUrl = undefined;
 
       const generationUrl = videoProvider === 'comfyui'
         ? comfyUIApiUrl('/api/generate-video', activeSettings.comfyui)
@@ -2741,7 +2663,8 @@ export default function StoryPage() {
           await handleGenerateVideo(latestLeader, latestGroup, { throwOnError: true });
           const completed = latestGroup.map(item => storyboardsRef.current.find(current => current.id === item.id) || item);
           const isDone = isH3SegmentProvider
-            ? isCompletedPlannedVideoSegment(storyboardsRef.current, group)
+            ? (isCompletedPlannedVideoSegment(storyboardsRef.current, group)
+              || splitPlannedVideoSegment(storyboardsRef.current, group).every(single => isCompletedPlannedVideoSegment(storyboardsRef.current, single)))
             : completed.every(item => item.videoStatus === 'completed' && item.videoUrl);
           if (!isDone) throw new Error('任务结束但没有返回完整视频');
         };
@@ -2756,8 +2679,7 @@ export default function StoryPage() {
 
       // Keep at most two independent paid renders in flight. The local H3 GPU
       // still executes its queue safely, while reference preparation, upload,
-      // polling, download and cache writes overlap. A tail-frame continuation
-      // remains a hard dependency and therefore runs only after its predecessor.
+      // polling, download and cache writes overlap. Each new render uses its own image.
       for (const batch of planAutoVideoBatches(videoGroups)) {
         if (autoAbortRef.current) return;
         const results = await Promise.allSettled(batch.map(completeVideoGroup));
@@ -2774,7 +2696,12 @@ export default function StoryPage() {
       // task before rendering the editor. This never submits a new video task.
       setAutoStage('恢复全部视频片段用于合成');
       let exportStoryboards = storyboardsRef.current;
-      for (const planned of videoGroups) {
+      // A terminal historical multi-shot task may have been replaced by several
+      // single-shot renders. Recover every new leader, not the old batch shape.
+      const exportGroups = isH3SegmentProvider
+        ? resolveVideoSegmentGroups(exportStoryboards.filter(item => item.imageUrl), videoSegmentPlanRef.current, projectLanguageRef.current)
+        : videoGroups;
+      for (const planned of exportGroups) {
         const current = refreshPlannedVideoSegment(exportStoryboards, planned);
         const leader = current[0];
         if (!leader || leader.videoStatus !== 'completed' || !leader.videoTaskId) {
@@ -2797,7 +2724,7 @@ export default function StoryPage() {
           ...item, videoUrl: recovered, videoCacheStatus: leader.videoCacheKey ? 'completed' as const : item.videoCacheStatus,
         } : item);
       }
-      const missingExportSegments = videoGroups.filter(group => {
+      const missingExportSegments = exportGroups.filter(group => {
         const leader = refreshPlannedVideoSegment(exportStoryboards, group)[0];
         return !leader?.videoUrl;
       });

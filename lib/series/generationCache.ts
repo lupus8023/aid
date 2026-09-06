@@ -7,6 +7,7 @@ export interface SeriesGenerationState {
   version: 1;
   responses?: Array<{ at: string; kind: 'generation' | 'repair' | 'continuation'; metadata: ProviderResponseMetadata }>;
   refusal?: string;
+  objectGrounding?: { evidenceOnly: true };
   recovery?: { status: 'pending' | 'failed' | 'completed'; originalDraft: string; response?: string; error?: string };
 }
 

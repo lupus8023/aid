@@ -16,6 +16,7 @@ import {
   persistedVideoClipCount,
   releaseUnsubmittedVideoGenerations,
   resolveVideoSegmentGroups,
+  splitPlannedVideoSegment,
   refreshPlannedVideoSegment,
   restoredStoryStep,
   suggestVideoSegments,
@@ -102,15 +103,16 @@ test('segment preview keeps the storyboard image and server rejects implicit tai
   const thumbnails = step5.slice(step5.indexOf('{group.map((item, shotIndex)'), step5.indexOf('{shotIndex < group.length - 1'));
   assert.match(thumbnails, /src=\{item.imageUrl\}/);
   assert.doesNotMatch(thumbnails, /<video/);
-  assert.match(step5, /视频首帧来源/);
+  assert.match(step5, /每镜使用自己的分镜图作为首帧/);
+  assert.doesNotMatch(step5, /<option value="previous-segment-tail"/);
   const route = readFileSync(new URL('../app/api/generate-video/route.ts', import.meta.url), 'utf8');
-  assert.match(route, /firstFrameUrl && storyboard.videoStartMode !== 'previous-segment-tail'/);
+  assert.match(route, /videoStoryboards.length !== 1 \|\| firstFrameUrl \|\| motionContext/);
   const page = readFileSync(new URL('../app/story/page.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(page, /immediatePrevious\.sequenceId === leader\.sequenceId/);
   assert.match(page, /comfyUIApiUrl\('\/api\/generate-video-prompt'/);
 });
 
-test('groups complete cinematic phrases while protecting hero shots', () => {
+test('keeps every cinematic beat as one image and one independently generated shot', () => {
   const groups = suggestVideoSegments([
     shot(1, { durationHint: 3, clipType: 'establishing', shotSize: 'wide shot', montageRole: 'setup' }),
     shot(2, { durationHint: 3, clipType: 'action', shotSize: 'medium shot', montageRole: 'development' }),
@@ -122,7 +124,7 @@ test('groups complete cinematic phrases while protecting hero shots', () => {
     shot(8, { durationHint: 7, clipType: 'performance', shotSize: 'close-up' }),
     shot(9, { durationHint: 3, clipType: 'action', shotSize: 'medium shot' }),
   ]);
-  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2, 3], [4], [5, 6, 7], [8], [9]]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2], [3], [4], [5], [6], [7], [8], [9]]);
   assert.ok(groups.every(group => estimateVideoSegmentSeconds(group) <= 15));
 });
 
@@ -135,7 +137,7 @@ test('rebuilds a stale automatic fidelity plan with the cinematic editing contra
   const stale = createVideoSegmentPlan(storyboards, storyboards.map(item => [item]), 'auto');
   delete stale.planningContract;
   const normalized = normalizeVideoSegmentPlan(storyboards, stale);
-  assert.deepEqual(normalized.groups, [['scene-1', 'scene-2', 'scene-3']]);
+  assert.deepEqual(normalized.groups, [['scene-1'], ['scene-2'], ['scene-3']]);
 });
 
 test('releases a fake generating segment that never received a durable task id', () => {
@@ -156,14 +158,27 @@ test('keeps all members locked when the segment leader has a recoverable task id
   assert.equal(releaseUnsubmittedVideoGenerations(running), running);
 });
 
-test('uses one shot-reverse-shot unit for an adjacent question and answer', () => {
+test('generates question and answer independently while retaining their editorial relationship', () => {
   const groups = suggestVideoSegments([
     shot(1, { durationHint: 10 }),
     shot(2, { durationHint: 5, characters: ['A'], dialogueUnitId: 'dlg-1', speech: [{ character: 'A', exactLine: 'Who opened the gate?', source: 'story_required' }] }),
     shot(3, { durationHint: 5, characters: ['B'], dialogueUnitId: 'dlg-1', speech: [{ character: 'B', exactLine: 'I opened it before the flood.', source: 'story_required' }] }),
   ]);
-  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2, 3]]);
-  assert.equal(cinematicEditKind(groups[1][0], groups[1][1]), 'dialogue-reverse');
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2], [3]]);
+  assert.equal(cinematicEditKind(groups[1][0], groups[2][0]), 'dialogue-reverse');
+});
+
+test('a solo monologue followed by a detail is not a reverse conversation shot', () => {
+  const previous = shot(1, { characters: ['A'], dialogueUnitId: 'solo', speech: [{ character: 'A', exactLine: 'Keep this drawing.', source: 'story_required' }] });
+  const current = shot(2, { characters: ['A'], dialogueUnitId: 'solo', clipType: 'insert' });
+  assert.equal(cinematicEditKind(previous, current), 'detail-insert');
+  assert.notEqual(cinematicEditKind(previous, { ...current, clipType: 'action' }), 'dialogue-reverse');
+});
+
+test('a silent listener can still receive reverse coverage', () => {
+  const previous = shot(1, { characters: ['A'], dialogueUnitId: 'exchange', speech: [{ character: 'A', exactLine: 'Keep this drawing.', source: 'story_required' }] });
+  const current = shot(2, { characters: ['B'], dialogueUnitId: 'exchange', clipType: 'reaction' });
+  assert.equal(cinematicEditKind(previous, current), 'dialogue-reverse');
 });
 
 test('keeps causal shots editorially separate across sequence or location changes', () => {
@@ -176,18 +191,18 @@ test('keeps causal shots editorially separate across sequence or location change
   assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2], [3], [4]]);
 });
 
-test('persists and restores a manual director segment plan', () => {
+test('migrates an unsubmitted manual multi-shot plan to individual shots', () => {
   const storyboards = [1, 2, 3, 4].map(number => shot(number, { durationHint: 3 }));
   const plan = createVideoSegmentPlan(storyboards, [storyboards.slice(0, 2), storyboards.slice(2)], 'manual');
   delete plan.planningContract;
   const restored = resolveVideoSegmentGroups(storyboards, JSON.parse(JSON.stringify(plan)));
   assert.equal(plan.version, 2);
   assert.equal(plan.source, 'manual');
-  assert.deepEqual(restored.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
+  assert.deepEqual(restored.map(group => group.map(item => item.sceneNumber)), [[1], [2], [3], [4]]);
   assert.deepEqual(resolveVideoSegmentGroups([...storyboards].reverse(), plan).map(group => group.map(item => item.sceneNumber)), [[4], [3], [2], [1]]);
 });
 
-test('makes segment dialogue authoritative while storyboards remain visual references', () => {
+test('restores original per-shot speech when splitting an untouched old merged dialogue plan', () => {
   const storyboards = [
     shot(1, { characters: ['A'], speech: [{ character: 'A', voiceId: 'voice-a', exactLine: '第一部分说明。', source: 'story_required' }] }),
     shot(2, { characters: ['A'], speech: [{ character: 'A', voiceId: 'voice-a', exactLine: '第二部分结论。', source: 'story_required' }] }),
@@ -195,10 +210,9 @@ test('makes segment dialogue authoritative while storyboards remain visual refer
   const plan = createVideoSegmentPlan(storyboards, [storyboards]);
   assert.equal(plan.segments[0].speech.length, 1);
   assert.equal(plan.segments[0].speech[0].exactLine, '第一部分说明。第二部分结论。');
-  const [resolved] = resolveVideoSegmentGroups(storyboards, plan);
-  assert.equal(resolved[0].speech.length, 1);
-  assert.deepEqual(resolved[1].speech, []);
-  assert.equal(resolved[0].speech[0].sourceStoryboardId, 'scene-1');
+  const resolved = resolveVideoSegmentGroups(storyboards, plan);
+  assert.deepEqual(resolved.map(group => group[0].speech[0].exactLine), ['第一部分说明。', '第二部分结论。']);
+  assert.deepEqual(resolved.map(group => group[0].speech[0].sourceStoryboardId), ['scene-1', 'scene-2']);
 });
 
 test('keeps ordered multi-speaker dialogue at segment level with one block per identity', () => {
@@ -208,7 +222,7 @@ test('keeps ordered multi-speaker dialogue at segment level with one block per i
   ];
   const plan = createVideoSegmentPlan(storyboards, [storyboards]);
   assert.deepEqual(plan.segments[0].speech.map(line => line.character), ['A', 'B']);
-  const [resolved] = resolveVideoSegmentGroups(storyboards, plan);
+  const resolved = resolveVideoSegmentGroups(storyboards, plan).flat();
   assert.deepEqual(resolved.flatMap(item => item.speech).map(line => line.exactLine), ['你确认入口安全吗？', '我已经检查过两次。']);
 });
 
@@ -246,7 +260,7 @@ test('splits an A-B-A recurrence into valid consecutive dialogue edit units', ()
     shot(3, { durationHint: 3, clipType: 'dialogue', dialogueUnitId: 'exchange-2', characters: ['A'], speech: [{ speakerId: 'S1', character: 'A', voiceId: 'voice-a', exactLine: '第三句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
     shot(4, { durationHint: 3, clipType: 'dialogue', dialogueUnitId: 'exchange-2', characters: ['C'], speech: [{ speakerId: 'S3', character: 'C', voiceId: 'voice-c', exactLine: '第四句。', emotion: '', delivery: '', volume: 'normal', lipSync: true, source: 'story_required' }] }),
   ]);
-  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1, 2], [3, 4]]);
+  assert.deepEqual(groups.map(group => group.map(item => item.sceneNumber)), [[1], [2], [3], [4]]);
   assert.equal(validateVideoSegment(groups[0]), undefined);
   assert.match(validateVideoSegment([shot(1, { characters: ['A'], imageUrl: 'x', dialogueLines: [{ character: 'A', text: '一。' }] }), shot(2, { characters: ['B'], imageUrl: 'x', dialogueLines: [{ character: 'B', text: '二。' }] }), shot(3, { characters: ['C'], imageUrl: 'x', dialogueLines: [{ character: 'C', text: '三。' }] }), shot(4, { characters: ['D'], imageUrl: 'x', dialogueLines: [{ character: 'D', text: '四。' }] })]), /最多绑定 3 个/);
 });
@@ -297,7 +311,7 @@ test('segment duration reserves clean native-H3 lead-in and a complete final-wor
       audioPlan: { backgroundHuman: 'none', environment: [], foley: [], music: 'none', silenceBefore: 0, silenceAfter: 0.3 },
     }),
   ];
-  assert.equal(estimateVideoSegmentSeconds(segment), 9);
+  assert.equal(estimateVideoSegmentSeconds(segment), 10);
   assert.equal(validateVideoSegment(segment), undefined);
 });
 
@@ -397,7 +411,7 @@ test('restores a saved H3 project directly to export after refresh', () => {
   assert.equal(restoredStoryStep(saved.map((item, index) => index ? item : { ...item, imageUrl: undefined })), 4);
 });
 
-test('keeps a newly merged manual plan in segment edit until that exact group is generated', () => {
+test('a stale merge cannot invalidate already generated individual shots', () => {
   const individuallyGenerated = [shot(1), shot(2)].map((item, index) => ({
     ...item,
     videoStatus: 'completed',
@@ -406,11 +420,66 @@ test('keeps a newly merged manual plan in segment edit until that exact group is
     videoCacheKey: `storyboard-video:project-1:${item.id}`,
   }));
   const plan = createVideoSegmentPlan(individuallyGenerated, [individuallyGenerated], 'manual');
-  assert.equal(restoredStoryStep(individuallyGenerated, plan), 5);
+  assert.equal(restoredStoryStep(individuallyGenerated, plan), 6);
 });
 
 test('uses a moving continuity handoff and trims the H3 restart', () => {
   assert.equal(CONTINUITY_HEAD_TRIM_SECONDS, CONTINUITY_HANDOFF_LEAD_SECONDS);
   assert.ok(CONTINUITY_HANDOFF_LEAD_SECONDS <= 0.3);
   assert.ok(CONTINUITY_HEAD_TRIM_SECONDS >= 0.12);
+});
+
+
+test('submitted historical multi-shot jobs retain membership and exact task ids across migration', () => {
+  for (const status of ['generating', 'completed']) {
+    const boards = [shot(1), shot(2), shot(3)].map((item, index) => ({ ...item,
+      ...(index < 2 ? { videoStatus: status, videoSegmentId: 'paid-pair' } : {}),
+      ...(index === 0 ? { videoTaskId: 'comfyui:existing-paid-task', videoSegmentStoryboardIds: ['scene-1', 'scene-2'], ...(status === 'completed' ? { videoUrl: 'paid.mp4' } : {}) } : {}),
+    }));
+    const plan = createVideoSegmentPlan(boards, [boards.slice(0, 2), boards.slice(2)]);
+    plan.planningContract = 'cinematic-edit-v2';
+    for (const legacy of [plan, undefined]) {
+      const groups = resolveVideoSegmentGroups(boards, legacy);
+      assert.deepEqual(groups.map(group => group.map(item => item.id)), [['scene-1', 'scene-2'], ['scene-3']]);
+      assert.equal(groups[0][0].videoTaskId, 'comfyui:existing-paid-task');
+      const normalized = normalizeVideoSegmentPlan(boards, legacy);
+      assert.equal(normalizeVideoSegmentPlan(boards, normalized), normalized);
+    }
+  }
+});
+
+test('splitting an edited pending plan preserves the edited dialogue and its source shot', () => {
+  const boards = [shot(1, { characters: ['A'], speech: [{ character: 'A', voiceId: 'voice-a', exactLine: 'Original.', source: 'user_exact', lipSync: true }] }), shot(2, { characters: ['A'] })];
+  const plan = createVideoSegmentPlan(boards, [boards], 'manual');
+  plan.segments[0].speech[0].exactLine = 'Edited line.';
+  plan.segments[0].speech[0].sourceStoryboardId = 'scene-2';
+  const groups = resolveVideoSegmentGroups(boards, plan);
+  assert.deepEqual(groups.map(group => group.length), [1, 1]);
+  assert.deepEqual(groups[0][0].speech, []);
+  assert.equal(groups[1][0].speech[0].exactLine, 'Edited line.');
+});
+
+test('short single-shot action time ignores old rendered duration and fixed five-second padding', () => {
+  assert.equal(estimateVideoSegmentSeconds([shot(1, { clipType: 'insert', durationHint: 2, videoDuration: 15, speech: [] })]), 2);
+  assert.equal(estimateVideoSegmentSeconds([shot(1, { clipType: 'action', durationHint: 4, videoDuration: 15, speech: [] })]), 4);
+  assert.equal(estimateVideoSegmentSeconds([shot(1, { clipType: 'long_take', durationHint: 11, speech: [] })]), 11);
+});
+
+test('redoing a paid merged clip restores original per-shot dialogue and can resume new single clips', () => {
+  const boards = [1, 2].map(n => shot(n, {
+    characters: ['A'], speech: [{ character: 'A', voiceId: 'voice-a', exactLine: n === 1 ? '先看这里。' : '然后再走。', source: 'user_exact', lipSync: true }],
+    videoStatus: 'completed', videoSegmentId: 'paid-pair',
+    ...(n === 1 ? { videoTaskId: 'paid', videoUrl: 'paid.mp4', videoSegmentStoryboardIds: ['scene-1', 'scene-2'] } : {}),
+  }));
+  const plan = createVideoSegmentPlan(boards, [boards]);
+  const planned = resolveVideoSegmentGroups(boards, plan)[0];
+  const singles = splitPlannedVideoSegment(boards, planned);
+  assert.deepEqual(singles.map(([item]) => item.speech.map(line => line.exactLine)), [['先看这里。'], ['然后再走。']]);
+  const newClips = singles.flat().map(item => ({ ...item, videoSegmentId: `new-${item.id}`, videoSegmentStoryboardIds: [item.id], videoUrl: `${item.id}.mp4`, videoGenerationSignature: videoSegmentGenerationSignature([item]) }));
+  assert.ok(splitPlannedVideoSegment(newClips, planned).every(single => isCompletedPlannedVideoSegment(newClips, single)));
+  assert.deepEqual(resolveVideoSegmentGroups(newClips, plan).map(group => group.map(item => item.id)), [['scene-1'], ['scene-2']]);
+  plan.segments[0].speech[0].exactLine = '用户改过的对白。';
+  plan.segments[0].speech[0].sourceStoryboardId = 'scene-2';
+  const edited = splitPlannedVideoSegment(boards, resolveVideoSegmentGroups(boards, plan)[0]);
+  assert.equal(edited[1][0].speech[0].exactLine, '用户改过的对白。');
 });

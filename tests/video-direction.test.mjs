@@ -24,6 +24,13 @@ const shot = (extra = {}) => ({
   ...extra,
 });
 
+test('changing shot duration invalidates its old blocking brief before new generation', () => {
+  const input = shot({ videoDirection: direction(), durationHint: 8 });
+  input.videoDirectionSource = videoDirectionSourceKey(input);
+  assert.deepEqual(currentVideoDirection(input), input.videoDirection);
+  assert.equal(currentVideoDirection({ ...input, durationHint: 3 }), undefined);
+});
+
 test('motion brief survives Chinese source without becoming the still frame or a generic timeline', () => {
   const d = direction();
   const input = shot({ videoDirection: d });
