@@ -94,14 +94,17 @@ export function buildApprovedSeriesPlan(contract: SeriesProductionContract, sour
       index: shot.number, sourceShotRefs: [shot.number], sequenceId: sequence.id, locationId: sequence.locationId,
       shotSize: shot.shotSize || '', cameraMove: shot.camera || '', angle: '', action: shot.action, performance: [], characters: [...shot.characters], objects: [...(shot.objects || [])],
       dialogueLines: [], dialogueTurns: [], speech: [],
-      audioPlan: { backgroundHuman: 'none', environment: shot.sound ? [shot.sound] : [], foley: [], music: 'none', silenceBefore: 0, silenceAfter: 0 },
+      audioPlan: { backgroundHuman: 'none', environment: shot.sound ? [shot.sound] : [], foley: [], music: 'none', silenceBefore: 0, silenceAfter: 1 },
       clipType: shot.dialogue.length ? 'dialogue' : 'action', dramaticPurpose: shot.purpose,
       cause: previous?.action || story?.opening || shot.action, conflict: story?.conflict || '', choice: shot.action,
       consequence: shot.purpose, characterChange: '', nextCause: next?.action || story?.resolution || shot.purpose,
       informationGain: shot.purpose, dialoguePurpose: shot.dialogue.length ? 'approved_dialogue' : 'visual_only',
       dialogueUnitId: `${sequence.id}-exchange`, dialogueContext: shot.visual,
       montageRole: shot.number === contract.shotCount ? 'payoff' : shot.number === 1 ? 'setup' : 'development',
-      editBridge: next?.visual || story?.hook || shot.visual, audienceQuestion: story?.hook || '',
+      editBridge: next
+        ? `visual handoff: 本镜动作完成后的可见落点（${shot.action}）；从已有视线、动作方向、焦点或物体状态选择一个交接画面。下一镜开场参考（仅供衔接，不在本镜提前演出）：${next.visual}；audienceInference: ${shot.purpose}之后，${next.purpose}`
+        : `terminal image: ${shot.action}；${story.resolution}。保留本集最后画面的余韵，不再向新镜头转场。`,
+      audienceQuestion: story?.hook || '',
       durationHint: shot.seconds, transition: 'cut', continuityFrom: previous?.locationId === shot.locationId ? previous.number : undefined,
       sceneStyle: shot.sceneStyle || '', promptDraft: shot.imagePrompt || shot.visual,
     };

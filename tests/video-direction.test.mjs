@@ -88,6 +88,8 @@ test('visual validation rejects dialogue, empty outcomes and generic adjective-o
   assert.throws(() => validateVideoDirection({ ...direction(), ending: '' }), /ending/);
   assert.doesNotThrow(() => validateVideoDirection({ ...direction(), action: '她打开信封，取出照片后将信封放在桌面。' }));
   assert.throws(() => validateVideoDirection({ ...direction(), action: '她开口说道台词。' }));
+  assert.doesNotThrow(() => validateVideoDirection({ ...direction(), camera: '低机位跟随沙发移到车尾开口，最后让车尾开口与品牌标志处于同一画面。' }));
+  assert.doesNotThrow(() => validateVideoDirection({ ...direction(), ending: '袋子开口与破损开口都留在画面内。' }));
   assert.throws(() => validateVideoDirection({ ...direction(), detail: 'The answer is already here.' }, [], ['The answer is already here.']), /权威台词/);
   assert.doesNotThrow(() => validateVideoDirection({ ...direction(), detail: 'Her eyes widen.' }, [], ['Yes.']));
 });
@@ -149,6 +151,21 @@ test('automatic source adaptation repairs a stale brief without replacing neighb
   const page=readFileSync(new URL('../app/story/page.tsx',import.meta.url),'utf8');
   assert.match(page,/await handleGenerateVideoPrompt\(segment\[0\], segment, false, \{ throwOnError: true \}\)/);
   assert.match(page,/storyboardsRef\.current = updated;\s*setStoryboards\(updated\)/);
+});
+
+test('a rejected refinement patch falls back locally for dialogue leakage without a third model call', async () => {
+  const input = shot({ videoDirection: undefined });
+  let calls = 0;
+  const repaired = await refineVideoDirections([input], async () => {
+    calls++;
+    return JSON.stringify([{ id: 's1', videoDirection: {
+      ...direction(), camera: '镜头推近Lin，她开口说道台词。',
+    } }]);
+  });
+  assert.equal(calls, 2);
+  assert.equal(repaired[0].videoDirection.camera, '镜头推近Lin。');
+  assert.equal(repaired[0].imageUrl, input.imageUrl);
+  assert.equal(repaired[0].action, input.action);
 });
 
 test('products get material motion, not an invented human performance', () => {

@@ -1,3 +1,9 @@
+## 0.1.199 - 2026-09-06
+
+- Allow visual redo when an approved episode screenplay survives but its director draft is missing or incomplete. Rebuild that draft after new masters are ready, preserving scripts, voices, references and historical deliveries. Require the matching Companion recovery capability.
+- Share cinematic story guidance across Story and Series: motivated pacing, visible choices and consequences, reaction space, and a narrative handoff at every nonterminal shot. Distinguish the current action landing from the next shot reference; reserve terminal imagery for the film ending.
+- Fix false dialogue detection for physical openings in director fields and recover malformed fields from approved visual intent after focused model repair fails. No generated-media QC or sampling changes.
+
 ## 0.1.198 - 2026-09-06
 
 - Make Series one-click visual redo regenerate every storyboard image prompt and structured H3 direction after the newest automatic character, location and prop masters are ready. Bypass earlier director drafts with a per-redo revision, discard stale visual identities and segment plans, then regenerate 2×2 storyboards, video prompts, clips and assembly through the current pipeline.

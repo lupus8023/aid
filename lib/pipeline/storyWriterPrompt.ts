@@ -1,3 +1,4 @@
+import { CINEMATIC_STORY_CONTRACT } from './cinematicStoryContract';
 import type { WriterCharacter, WriterObject } from './types';
 import { characterProductionDescription, VISUAL_ASSET_AUTHORITY } from '@/lib/storyVisualAssets';
 import { normalizeTargetShotCount, targetDurationSeconds } from './shotCount';
@@ -138,7 +139,8 @@ export function buildStoryOutlinePrompt(input: {
     : '所有故事文本必须使用中文；已上传实体名称保持原样。';
   const sourceAdaptationMap = buildSourceShotAdaptationMap(synopsis, targetShots);
 
-  return `你是长片总编剧。只做【全片故事骨架与镜头地图】，不要写详细分镜、摄影 prompt、声音设计或逐镜状态 JSON。
+  return `${CINEMATIC_STORY_CONTRACT}
+你是长片总编剧。只做【全片故事骨架与镜头地图】，不要写详细分镜、摄影 prompt、声音设计或逐镜状态 JSON。
 
 最高优先级：准确执行用户明确的剧情、人物关系、顺序、结局、台词、风格与禁止事项；只在留白处创作。
 ${outputLanguage}
@@ -273,7 +275,8 @@ export function buildStorySpinePrompt(input: {
     ? 'All story text must be English; preserve uploaded entity names exactly.'
     : '所有故事文本必须使用中文；已上传实体名称保持原样。';
 
-  return `你是长片总编剧。只规划【全片故事脊柱和场次配额】，不要写逐镜 beatMap、摄影、声音或分镜提示词。
+  return `${CINEMATIC_STORY_CONTRACT}
+你是长片总编剧。只规划【全片故事脊柱和场次配额】，不要写逐镜 beatMap、摄影、声音或分镜提示词。
 
 最高优先级：准确执行用户明确的剧情、人物关系、顺序、结局、逐字台词、风格与禁止事项；只在留白处创作。
 ${outputLanguage}
@@ -383,7 +386,8 @@ export function buildStorySequenceMapPrompt(input: {
     ? 'All story fields must be English; preserve entity names and exact quoted dialogue unchanged.'
     : '所有故事字段使用中文；实体名和用户逐字台词保持原样。';
 
-  return `你是全片总编剧的镜头地图执行者。全片脊柱和本场配额已经锁定；只写当前 ${shotCount} 个镜头地图，不改写全片结构。
+  return `${CINEMATIC_STORY_CONTRACT}
+你是全片总编剧的镜头地图执行者。全片脊柱和本场配额已经锁定；只写当前 ${shotCount} 个镜头地图，不改写全片结构。
 
 ${outputLanguage}
 
@@ -491,7 +495,8 @@ export function buildStoryDialogueManuscriptPrompt(input: {
     ? 'Write every exactLine in natural spoken English. Preserve entity names exactly.'
     : '所有 exactLine 使用自然中文口语；角色名称保持原样。';
 
-  return `你是全片对白编剧。故事骨架和镜头地图已经锁定。你的唯一任务是一次性写完【全片连续台词稿】，让后续详细剧本、分镜和视频只负责调度，不能再把台词临时缩短。
+  return `${CINEMATIC_STORY_CONTRACT}
+你是全片对白编剧。故事骨架和镜头地图已经锁定。你的唯一任务是一次性写完【全片连续台词稿】，让后续详细剧本、分镜和视频只负责调度，不能再把台词临时缩短。
 
 ${outputLanguage}
 
@@ -587,7 +592,8 @@ export function buildStoryBeatBatchPrompt(input: {
       })),
   };
 
-  return `你是执行编剧。全片骨架已经锁定，只展开镜头 ${firstIndex}–${lastIndex} 的【详细剧本】，不得重写故事、改变镜头数量或提前/延后结局。
+  return `${CINEMATIC_STORY_CONTRACT}
+你是执行编剧。全片骨架已经锁定，只展开镜头 ${firstIndex}–${lastIndex} 的【详细剧本】，不得重写故事、改变镜头数量或提前/延后结局。
 
 ${outputLanguage}
 
@@ -702,7 +708,8 @@ export function buildStoryPlanPrompt(input: {
     ? 'MANDATORY: ALL output text (theme, logline, want, obstacle, arc, subtext, action, dialogue text, sceneStyle) MUST be in ENGLISH. Only character/object names keep their original form.'
     : '强制：所有输出文本（主题、logline、欲望、阻碍、弧线、潜台词、动作、台词、sceneStyle）必须使用中文。角色/物体名称保持原样。';
 
-  return `你是一位资深编剧兼需求分析师。用户输入可能是一句话概念，也可能是详细剧本、镜头要求、风格说明或禁止事项。
+  return `${CINEMATIC_STORY_CONTRACT}
+你是一位资深编剧兼需求分析师。用户输入可能是一句话概念，也可能是详细剧本、镜头要求、风格说明或禁止事项。
 你的首要任务是准确执行用户意图；只有用户没有规定的部分，才由你进行专业的戏剧化创作。
 
 🧭 指令优先级（从高到低，强制）

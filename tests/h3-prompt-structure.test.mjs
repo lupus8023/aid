@@ -344,3 +344,11 @@ test('uses the official three-field base format for first-and-last-frame generat
   assert.match(prompt, /overall_soundscape:/);
   assert.match(prompt, /non_diegetic_music: 无。/);
 });
+
+test('every nonterminal shot carries a visual handoff, including the end of a provider batch', () => {
+  const ordinary = buildVideoSegmentPrompt([shot(1), shot(2)], [], { duration: 8 });
+  assert.equal((ordinary.match(/镜尾以已有动作、视线或焦点落点形成可见交接/g) || []).length, 2);
+  const ending = buildVideoSegmentPrompt([shot(1), shot(2)], [], { duration: 8, isFilmEnding: true });
+  assert.equal((ending.match(/镜尾以已有动作、视线或焦点落点形成可见交接/g) || []).length, 1);
+  assert.equal((ending.match(/全片最后一镜保留结果与自然余韵/g) || []).length, 1);
+});

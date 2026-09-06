@@ -158,3 +158,33 @@ test('series UI and Companion advertise the visual redo contract', async () => {
   assert.match(status, /seriesVisualRedo: true/);
   assert.match(status, /seriesVisualPromptRewrite: true/);
 });
+
+test('redo accepts complete screenplays with missing or partial director drafts and rebuilds after masters', () => {
+  for (const mode of ['missing', 'partial', 'empty']) {
+    const project = projectFixture();
+    const episode = project.episodes[0];
+    const script = structuredClone(episode.script);
+    const deliveries = structuredClone(episode.deliveries);
+    if (mode === 'missing') episode.production = undefined;
+    else episode.production.storyboards = mode === 'empty' ? [] : episode.production.storyboards.slice(0, 1);
+    resetSeriesVisualProduction(project);
+    assert.deepEqual(episode.script, script);
+    assert.deepEqual(episode.deliveries, deliveries);
+    assert.equal(episode.production, undefined);
+    assert.equal(episode.visualRedoPending, true);
+    // Preparation has finished; missing directors enter the ordinary Story path.
+    project.characters.forEach(character => { character.locked = true; character.imageUrl = 'https://new.test/master.png'; });
+    const fresh = refreshVisualRedoProduction(project, episode);
+    assert.deepEqual(fresh.storyboards, []);
+    assert.ok(fresh.storyContent.includes('镜头画面 1'));
+    assert.equal(fresh.characters[0].imageUrl, 'https://new.test/master.png');
+  }
+});
+
+test('redo rejects missing screenplay before changing images or history', () => {
+  const project = projectFixture();
+  project.episodes[0].script = undefined;
+  const before = structuredClone(project);
+  assert.throws(() => resetSeriesVisualProduction(project), /分镜文本/);
+  assert.deepEqual(project, before);
+});

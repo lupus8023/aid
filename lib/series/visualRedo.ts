@@ -98,9 +98,7 @@ export interface SeriesVisualRedoSummary {
  * screenplay, director storyboards, voices or historical deliveries. */
 export function resetSeriesVisualProduction(project: SeriesProject): SeriesVisualRedoSummary {
   const incomplete = project.episodes.filter(episode =>
-    !episode.script?.length
-    || !episode.production?.storyboards?.length
-    || episode.production.storyboards.length !== episode.script.length,
+    !episode.script?.length,
   );
   if (incomplete.length) {
     throw new Error(`一键重做需要先完成全部分镜文本；第${incomplete.map(episode => episode.number).join('、')}集尚无完整可复用分镜`);
@@ -144,7 +142,15 @@ export function resetSeriesVisualProduction(project: SeriesProject): SeriesVisua
   }
 
   for (const episode of project.episodes) {
-    const production = episode.production!;
+    const production = episode.production;
+    // A screenplay survives development/invalidation even when the derived
+    // director draft does not. Rebuild it later, after masters are ready.
+    if (!production?.storyboards?.length || production.storyboards.length !== episode.script!.length) {
+      episode.production = undefined;
+      episode.version++;
+      episode.visualRedoPending = true;
+      continue;
+    }
     const visualPromptRewriteId = seriesId('visual-prompt-rewrite');
     episode.production = {
       ...production,
@@ -168,9 +174,9 @@ export function resetSeriesVisualProduction(project: SeriesProject): SeriesVisua
 /** Rebind newly generated masters into the retained Story director result
  * immediately before the storyboard images are generated. */
 export function refreshVisualRedoProduction(project: SeriesProject, episode: SeriesEpisode): ProjectData {
-  if (!episode.production) throw new Error('没有可复用的分镜制作稿');
-  const retainedStoryboards = episode.production.storyboards.map(clearStoryboardMedia);
   const current = buildEpisodeProject(project, episode);
+  if (!episode.production) return current;
+  const retainedStoryboards = episode.production.storyboards.map(clearStoryboardMedia);
   return {
     ...episode.production,
     name: current.name,

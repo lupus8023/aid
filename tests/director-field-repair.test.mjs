@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { directorFieldRepairs, buildDirectorFieldRepairPrompt, DirectorFieldRepairError, applyDirectorFieldRepairProgress, applyDirectorFieldRepairs, selectDirectorFieldRepairChunk } from '../lib/pipeline/directorRepair.ts';
+import { directorFieldRepairs, buildDirectorFieldRepairPrompt, DirectorFieldRepairError, applyDeterministicDirectorFieldRepairFallback, applyDirectorFieldRepairProgress, applyDirectorFieldRepairs, selectDirectorFieldRepairChunk } from '../lib/pipeline/directorRepair.ts';
 import { validateDirectorShots } from '../lib/pipeline/storyDirector.ts';
 import { recoverGeneration } from '../lib/pipeline/generationDraft.ts';
 
@@ -135,6 +135,24 @@ test('field repair permits a complete clause while keeping all unaffected fields
  assert.equal(repaired[0].videoDirection.camera,d.camera);
 });
 
+test('physical openings are not dialogue and a rejected speech repair has a deterministic camera fallback',()=>{
+ const physical=[{videoDirection:{...valid,camera:'低机位跟随沙发移到车尾开口，最后让车尾开口与品牌标志处于同一画面。'}}];
+ const localBeat={...beats[0],shotSize:'中景',angle:'低机位平视略仰',cameraMove:'横移'};
+ assert.deepEqual(directorFieldRepairs(physical,[localBeat]),[]);
+ const invalid=[{marker:'keep',videoDirection:{...valid,camera:'镜头推近沈贵妃，她开口说道原句。'}}];
+ const issues=directorFieldRepairs(invalid,[{...localBeat,characters:['沈贵妃'],speech:[{character:'沈贵妃',exactLine:'原句。'}]}],['沈贵妃']);
+ const fallback=applyDeterministicDirectorFieldRepairFallback(invalid,issues,[localBeat],['沈贵妃']);
+ assert.deepEqual(fallback.applied,['shots[0].videoDirection.camera']);
+ assert.equal(fallback.shots[0].marker,'keep');
+ assert.equal(fallback.shots[0].videoDirection.camera,'镜头推近沈贵妃。');
+ assert.deepEqual(fallback.shots[0].videoDirection.action,invalid[0].videoDirection.action);
+ const vocativeBeat={...localBeat,characters:['裴大人','沈贵妃'],speech:[{character:'沈贵妃',exactLine:'裴大人。'}]};
+ const vocative=[{videoDirection:{...valid,camera:'镜头跟随裴大人低头，沈贵妃开口说道“裴大人”。'}}];
+ const vocativeIssues=directorFieldRepairs(vocative,[vocativeBeat],['裴大人','沈贵妃']);
+ const vocativeFallback=applyDeterministicDirectorFieldRepairFallback(vocative,vocativeIssues,[vocativeBeat],['裴大人','沈贵妃']);
+ assert.equal(vocativeFallback.shots[0].videoDirection.camera,'镜头跟随裴大人低头。');
+});
+
 test('retained invalid batch recovers with a field patch, survives transport failure and reuses the saved result',async()=>{
  let raw=JSON.stringify(shots),calls=0,saves=0;
  const draft={read:async()=>raw,save:async value=>{raw=value;saves++;}};
@@ -179,7 +197,7 @@ test('missing motion object is filled field by field without regenerating the ap
 });
 
 test('equivalent patch envelopes bind only requested fields, never episode-number guesses', () => {
- const input=[{videoDirection:{...valid,action:'Luna 开口。'}}];
+ const input=[{videoDirection:{...valid,action:'Luna 开口说道原句。'}}];
  const issues=directorFieldRepairs(input,beats.slice(0,1));
  const value='Luna折好纸条并转向Inkfin。';
  const entry={path:issues[0].path,value};
@@ -196,7 +214,7 @@ test('equivalent patch envelopes bind only requested fields, never episode-numbe
 });
 
 test('a rejected replacement feeds its actual reason and candidate back to the next single-field prompt', () => {
- const input=[{videoDirection:{...valid,action:'Luna 开口。'}}];
+ const input=[{videoDirection:{...valid,action:'Luna 开口说道原句。'}}];
  const issues=directorFieldRepairs(input,beats.slice(0,1));
  const failed=applyDirectorFieldRepairProgress(input,{value:'Luna开口说道原句。'},issues,beats.slice(0,1));
  assert.deepEqual(failed.applied,[]);

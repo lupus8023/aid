@@ -984,6 +984,7 @@ export default function SeriesPage() {
       const status = await readApiJson<{
         seriesVisualRedo?: boolean;
         seriesVisualPromptRewrite?: boolean;
+        seriesVisualRedoRecovery?: boolean;
       }>(
         await fetch(`${base}/api/companion/status`, {
           cache: "no-store",
@@ -991,7 +992,7 @@ export default function SeriesPage() {
         }),
         "无法检查一键重做支持",
       );
-      if (!status.seriesVisualRedo || !status.seriesVisualPromptRewrite)
+      if (!status.seriesVisualRedo || !status.seriesVisualPromptRewrite || !status.seriesVisualRedoRecovery)
         throw new Error("一键重做需要更新 Companion 后重新连接。");
       await seriesRequest({
         action: "redo-visuals",
@@ -1455,7 +1456,7 @@ export default function SeriesPage() {
                   <button
                     className={button}
                     disabled={busy || editingLocked || !ready || !project.episodes.every(episode =>
-                      episode.script?.length && episode.production?.storyboards?.length === episode.script.length
+                      episode.script?.length
                     )}
                     title="保留剧本与镜头设计，重写生图/H3 提示词并重做图片与视频"
                     onClick={() => setShowVisualRedo(true)}

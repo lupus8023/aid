@@ -1,7 +1,8 @@
-import { isChineseVideoDirectionField, validateVideoDirectionField, VIDEO_DIRECTION_LIMITS, VIDEO_DIRECTION_MAX_CHARACTERS } from '@/lib/videoDirection';
+import { containsExactDialogue, isChineseVideoDirectionField, validateVideoDirectionField, VIDEO_DIRECTION_LIMITS, VIDEO_DIRECTION_MAX_CHARACTERS } from '@/lib/videoDirection';
 import type { Beat } from './types';
 
-export type DirectorRepairContext = Pick<Beat, 'index' | 'action' | 'characters' | 'objects' | 'speech' | 'stateBefore' | 'stateAfter' | 'editBridge'>;
+export type DirectorRepairContext = Pick<Beat, 'index' | 'action' | 'characters' | 'objects' | 'speech' | 'stateBefore' | 'stateAfter' | 'editBridge'>
+  & Partial<Pick<Beat, 'shotSize' | 'cameraMove' | 'angle'>>;
 
 export interface DirectorFieldRepair {
   index: number;
@@ -15,6 +16,11 @@ export interface DirectorFieldRepair {
 
 export interface DirectorRepairFailure { path: string; reason: string; value?: string }
 
+export interface DeterministicDirectorRepairResult {
+  shots: any[];
+  applied: string[];
+}
+
 export class DirectorFieldRepairError extends Error {
   constructor(readonly failures: DirectorRepairFailure[]) {
     super(`导演局部修稿仍需调整：${failures.map(failure => `${failure.path}：${failure.reason}`).join('；')}`);
@@ -24,6 +30,93 @@ export class DirectorFieldRepairError extends Error {
 
 function repairEntityNames(beat: DirectorRepairContext, registeredEntityNames: string[]): string[] {
   return [...new Set(registeredEntityNames.length ? registeredEntityNames : [...(beat.characters || []), ...(beat.objects || [])])];
+}
+
+const explicitSpeechDirective = /<\/?d>|\[(?:Shot|Chinese|English)\b|(?:subject_definitions|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music)\s*:|\b(?:says?|whispers?|speaks?|shouts?|voiceover|narration|dialogue)\b|(?:说道|说出|开口(?:说|道|问|答|回答|讲话|发言)|低语|耳语|喊道|大喊|旁白|画外音|对白|台词|念出|读出)/iu;
+
+function completeSentence(value: string): string {
+  const text = value.replace(/^[，,；;。.!！？?\s]+|[，,；;\s]+$/gu, '').trim();
+  if (!text) return '';
+  return /[。！？.!?]$/u.test(text) ? text : `${text}。`;
+}
+
+/** Remove only clauses that are unambiguously speech instructions. This is a
+ * last-resort normalizer, not a screenplay rewrite: visible clauses and every
+ * unaffected field remain byte-for-byte intact. */
+function withoutExplicitSpeechClauses(value: string, exactLines: string[], entityNames: string[]): string {
+  const clauses = String(value || '').replace(/([，,；;。.!！？?])/gu, '$1\n').split('\n');
+  const kept = clauses.filter(clause => {
+    if (explicitSpeechDirective.test(clause)) return false;
+    return !exactLines.some(line => containsExactDialogue(clause, line, entityNames));
+  });
+  return completeSentence(kept.join('').trim());
+}
+
+function safeCameraFallback(beat: DirectorRepairContext): string {
+  const angle = typeof beat.angle === 'string' && /\p{Script=Han}/u.test(beat.angle) ? beat.angle.replace(/[，,。.!！?？]/gu, '').trim() : '平视';
+  const shotSize = typeof beat.shotSize === 'string' && /\p{Script=Han}/u.test(beat.shotSize) ? beat.shotSize.replace(/[，,。.!！?？]/gu, '').trim() : '中景';
+  const prefix = `${angle}${shotSize}从既有构图开始，`;
+  const move = String(beat.cameraMove || '');
+  if (/(?:移焦|拉焦|rack focus|focus pull)/iu.test(move)) return `${prefix}固定机位，只在主动作发生后从前景移焦到可见结果。`;
+  if (/(?:拉远|拉出|后撤|pull out|dolly out|zoom out)/iu.test(move)) return `${prefix}相机向后撤至主体与动作结果同时可见。`;
+  if (/(?:推近|推进|推镜|push in|dolly in|zoom in)/iu.test(move)) return `${prefix}相机向主体推近，最后停在主动作的可见结果上。`;
+  if (/(?:左摇|pan left)/iu.test(move)) return `${prefix}相机向左摇摄，直到主动作的可见结果进入画面。`;
+  if (/(?:右摇|pan right)/iu.test(move)) return `${prefix}相机向右摇摄，直到主动作的可见结果进入画面。`;
+  if (/(?:横移|左移|右移|truck|slide)/iu.test(move)) return `${prefix}相机随主体横向移动，最后让主动作与可见结果处于同一画面。`;
+  if (/(?:跟拍|跟随|tracking|follow)/iu.test(move)) return `${prefix}相机与主体同速跟随，最后落在动作完成的位置。`;
+  if (/(?:升高|上升|crane up|tilt up)/iu.test(move)) return `${prefix}相机逐步升高，直到主动作与上方空间同时可见。`;
+  if (/(?:降低|下降|crane down|tilt down)/iu.test(move)) return `${prefix}相机逐步降低，最后落在主动作的可见结果上。`;
+  return `${prefix}固定机位，持续对准本镜主动作及其可见结果。`;
+}
+
+function deterministicCandidate(issue: DirectorFieldRepair, beat: DirectorRepairContext, entityNames: string[]): string | undefined {
+  // Mechanical recovery is intentionally limited to dialogue leakage. Other
+  // semantic or composition problems still go through the model repair hub.
+  if (!/(?:混入台词或声音指令|重复了权威台词)/u.test(issue.reason)) return undefined;
+  const exactLines = (beat.speech || []).map(line => line.exactLine);
+  const stripped = withoutExplicitSpeechClauses(issue.original, exactLines, entityNames);
+  if (stripped && stripped !== completeSentence(issue.original)) return stripped;
+  if (issue.field === 'camera') return safeCameraFallback(beat);
+  if (issue.field === 'detail') return '';
+  if (issue.field === 'action') {
+    const action = withoutExplicitSpeechClauses(beat.action || '', exactLines, entityNames);
+    if (action) return action;
+  }
+  if (issue.field === 'ending') {
+    const visibleState = [beat.stateAfter?.characters, beat.stateAfter?.objects, beat.stateAfter?.environment, beat.stateAfter?.relationships]
+      .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+      .join('；');
+    if (visibleState) return completeSentence(visibleState);
+  }
+  return undefined;
+}
+
+/** After a model-produced field repair is itself rejected, resolve narrow,
+ * mechanically safe dialogue leakage locally so production can continue. */
+export function applyDeterministicDirectorFieldRepairFallback(
+  shots: any[],
+  issues: DirectorFieldRepair[],
+  beats: DirectorRepairContext[],
+  registeredEntityNames: string[] = [],
+): DeterministicDirectorRepairResult {
+  const result = structuredClone(shots);
+  const applied: string[] = [];
+  for (const issue of issues) {
+    const beat = beats[issue.index];
+    if (!beat) continue;
+    const names = repairEntityNames(beat, registeredEntityNames);
+    const candidate = deterministicCandidate(issue, beat, names);
+    if (candidate === undefined) continue;
+    try {
+      const value = validateVideoDirectionField(issue.field, candidate, names, (beat.speech || []).map(line => line.exactLine), true, false);
+      if (value && !isChineseVideoDirectionField(value, names)) continue;
+      if (value === issue.original.replace(/\s+/g, ' ').trim()) continue;
+      if (!result[issue.index].videoDirection || typeof result[issue.index].videoDirection !== 'object' || Array.isArray(result[issue.index].videoDirection)) result[issue.index].videoDirection = {};
+      result[issue.index].videoDirection[issue.field] = value;
+      applied.push(issue.path);
+    } catch {}
+  }
+  return { shots: result, applied };
 }
 
 // Repairing a whole six-shot batch in one answer makes some providers repeat

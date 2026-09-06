@@ -1,3 +1,4 @@
+import { CINEMATIC_STORY_CONTRACT } from './cinematicStoryContract';
 import type { CapturePreset, Storyboard } from '@/types';
 import type { StoryPlan, Beat, WriterCharacter, WriterObject } from './types';
 import { chatOnce, type ScriptProvider } from './llm';
@@ -8,7 +9,7 @@ import { buildImageCaptureContract, getProductionStylePreset } from '@/lib/promp
 import { structuredRetryCorrection } from './storyWriter';
 import { buildDirectorCaptureContract } from '@/lib/capturePresets';
 import { videoDirectionWritingContract, validateVideoDirection, videoDirectionSourceKey, containsExactDialogue, isChineseVideoDirection, isEntityNameDialogue } from '@/lib/videoDirection';
-import { applyDirectorFieldRepairProgress, buildDirectorFieldRepairPrompt, DirectorFieldRepairError, directorFieldRepairs, selectDirectorFieldRepairChunk } from './directorRepair';
+import { applyDeterministicDirectorFieldRepairFallback, applyDirectorFieldRepairProgress, buildDirectorFieldRepairPrompt, DirectorFieldRepairError, directorFieldRepairs, selectDirectorFieldRepairChunk } from './directorRepair';
 import { isProviderContentRejection } from './providerPayload';
 import { usesPhotographicReferences } from '@/lib/gptImageReferences';
 import { buildGptImage2PhotographicContract } from '@/lib/gptImagePrompt';
@@ -63,7 +64,8 @@ export function buildDirectorPrompt(input: {
     montageStrategy: storyPlan.montageStrategy,
   };
 
-  return `你是一位电影导演兼分镜师。全片剧本已经锁定。现在只处理导演批次 ${batchNumber}/${totalBatches}（镜头 ${firstIndex}–${lastIndex}），把本批 beats 可视化为可拍摄分镜。
+  return `${CINEMATIC_STORY_CONTRACT}
+你是一位电影导演兼分镜师。全片剧本已经锁定。现在只处理导演批次 ${batchNumber}/${totalBatches}（镜头 ${firstIndex}–${lastIndex}），把本批 beats 可视化为可拍摄分镜。
 
 📌 用户原始输入已由 StoryPlan、需求核对表、详细 beats 与逐字 speech 锁定。为避免每个导演批次重复发送整部长稿造成超时或安全误判，本阶段只执行下方结构化合同；不得改写锁定剧情与台词。
 
@@ -445,6 +447,18 @@ export async function directStoryboard(input: {
         const allRepairs = retained ? directorFieldRepairs(retained, beats, registeredEntityNames) : [];
         const repairs = selectDirectorFieldRepairChunk(allRepairs, lastError instanceof DirectorFieldRepairError ? 1 : 6);
         if (retained && repairs.length) {
+          // A model patch that is itself invalid must not strand production on
+          // a mechanical field-format issue. Apply a narrow local fallback for
+          // dialogue leakage, then checkpoint it through the normal validator.
+          if (lastError instanceof DirectorFieldRepairError) {
+            const failedPaths = new Set(lastError.failures.map(failure => failure.path));
+            const fallbackIssues = allRepairs.filter(issue => failedPaths.has(issue.path));
+            const fallback = applyDeterministicDirectorFieldRepairFallback(retained, fallbackIssues, beats, registeredEntityNames);
+            if (fallback.applied.length) {
+              console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, deterministically repaired ${fallback.applied.length} motion fields`);
+              return JSON.stringify(fallback.shots);
+            }
+          }
           console.log(`[story-director] batch ${batchIndex + 1}/${batches.length}, repairing ${repairs.length}/${allRepairs.length} invalid motion fields`);
           const reply = await chatOnce(buildDirectorFieldRepairPrompt(retained, beats, repairs, lastError instanceof DirectorFieldRepairError ? lastError : repairFeedback || lastError, language, registeredEntityNames), {
             apiKey, dmxApiKey, provider: scriptProvider, model: scriptModel,

@@ -14,7 +14,7 @@ const VIDEO_DIRECTION_WRITING_CONTRACT_BASE = `
 - I2V 从已有首帧的机位、人物位置与焦点开始，只写变化和必要的不变量，不重新摆开场。运动路径必须适合已知空间和镜长，不穿墙、不越轴；物理移动产生视差，变焦不冒充推轨。一个协调弧线可包含横移与转向，但不再叠加独立运镜。首尾帧模式必须连接两个硬锚点，不另造落点或中间切镜。文字输入无法确认的画外布局不要编造。
 - 遵循拍摄方式：电影机位可预先占位、同步调度或延后揭示；手机/观察机位只在动作发生后修正，固定监控不动。对白按既定顺序，lipSync 为 true 的说话者在其发声时保持可辨认的口部；无需所有人和道具全程居中、同样清晰。
 - detail：细写最能证明本镜动作的画面变化及其原因（如手掌压住桌沿时指节褪色、布料在受力处压缩后回弹、前景物体随横移掠过并露出后景）。不能用“丰富细节”替代描述。纯产品/环境镜不要添加眼神、表情或呼吸。不适用时写空字符串。
-- ending：只写 camera/action 尚未说明的可见结果或下一镜接住的视线/运动；可在运动中交棒，不必每镜停稳、回正或恢复初始状态。不写观众理解或剧情评价。
+- ending：非全片终镜必须写一个剧情内可见转场落点，由下一镜接住已有动作方向、视线、焦点或物体状态；不能只写“自然转场”，不能提前演出下一镜事件。只有全片终镜保留结局余韵而不向下一镜转场。只写 camera/action 尚未说明的可见结果或下一镜接住的视线/运动；可在运动中交棒，不必每镜停稳、回正或恢复初始状态。不写观众理解或剧情评价。
 - 使用自然先后/因果措辞（as/when/after/then），不写绝对秒数，不把每镜机械切成固定比例；节奏服从动作和现有镜长。
 - 不靠 realistic/natural/cinematic/premium 等形容词充当动作或细节，不堆相机缺陷、风格标签、否定清单，不重复参考图已经确定的服装、布景与身份。
 {{LANGUAGE_RULE}}
@@ -114,7 +114,10 @@ export function validateVideoDirectionField(field: keyof StoryVideoDirection, va
   // and migrated. The production gate (`currentChineseVideoDirection`) is the
   // single place that requires Chinese before H3 submission.
   if (/[\p{Script=Cyrillic}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(prose)) throw new Error(`videoDirection.${field} 包含不支持的文字；导演说明请使用中文`);
-  if (/<\/?d>|\[(?:Shot|Chinese|English)\b|(?:subject_definitions|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music)\s*:|\b(?:says?|whispers?|speaks?|shouts?|voiceover|narration|dialogue)\b|(?:说道|说出|开口(?:说)?|低语|耳语|喊道|大喊|旁白|画外音|对白|台词|念出|读出)/i.test(prose)) throw new Error(`videoDirection.${field} 混入台词或声音指令；只写可见动作`);
+  // `开口` is also a physical noun in camera directions (车尾开口、袋子开口、
+  // 破损开口). Only reject it when an actual speech verb follows. Treating the
+  // bare noun as dialogue made a valid retained draft impossible to repair.
+  if (/<\/?d>|\[(?:Shot|Chinese|English)\b|(?:subject_definitions|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music)\s*:|\b(?:says?|whispers?|speaks?|shouts?|voiceover|narration|dialogue)\b|(?:说道|说出|开口(?:说|道|问|答|回答|讲话|发言)|低语|耳语|喊道|大喊|旁白|画外音|对白|台词|念出|读出)/i.test(prose)) throw new Error(`videoDirection.${field} 混入台词或声音指令；只写可见动作`);
   for (const line of exactLines) {
     if (containsExactDialogue(text, line, entityNames)) throw new Error(`videoDirection.${field} 重复了权威台词`);
   }

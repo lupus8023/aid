@@ -181,6 +181,9 @@ test('approved series dialogue goes straight to direction, retaining A-B-A excha
   const original = structuredClone(contract);
   const plan = buildApprovedSeriesPlan(contract, 'Approved screenplay', cast), beats = plan.sequences.flatMap(s => s.beats);
   assert.equal(beats.length, 16); assert.equal(plan.estimatedDurationSeconds, 120);
+  assert.ok(beats.slice(0, -1).every(beat => beat.editBridge.includes('visual handoff:') && beat.editBridge.includes('不在本镜提前演出')));
+  assert.match(beats.at(-1).editBridge, /^terminal image:/);
+  assert.ok(beats.every(beat => beat.audioPlan.silenceAfter === 1));
   assert.deepEqual(beats[3].speech.map(s => [s.character, s.exactLine]), contract.shots[3].dialogue.map(s => [s.character, s.text]));
   assert.equal(beats[0].speech.length, 0);
   assert.deepEqual(beats[3].audioPlan.environment, [contract.shots[3].sound]);

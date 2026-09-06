@@ -4,7 +4,7 @@ import { currentChineseVideoDirection, isChineseVideoDirection, videoDirectionWr
 import { storyboardSpeech } from '@/lib/speechAudioContract';
 import { isStoredStoryboardSource } from '@/lib/storyboardImageSource';
 import { extractJson } from './json';
-import { applyDirectorFieldRepairs, buildDirectorFieldRepairPrompt, directorFieldRepairs } from './directorRepair';
+import { applyDeterministicDirectorFieldRepairFallback, applyDirectorFieldRepairs, buildDirectorFieldRepairPrompt, directorFieldRepairs } from './directorRepair';
 
 // Preview/migration reuses valid briefs. Only an explicit rewrite requests a
 // new brief; neither path replaces images, dialogue, or completed video assets.
@@ -56,8 +56,21 @@ ${videoDirectionWritingContract('zh')}
     index: shot.sceneNumber || index + 1, action: shot.action || '',
     characters: shot.characters || [], objects: shot.objects || [],
     speech: storyboardSpeech(shot), stateBefore: shot.stateBefore, stateAfter: shot.stateAfter,
-    editBridge: shot.editBridge || '',
+    editBridge: shot.editBridge || '', shotSize: shot.shotSize,
+    angle: shot.angle, cameraMove: shot.cameraMove,
   }));
+  const finalize = (parsed: any[]): Storyboard[] => {
+    if (!Array.isArray(parsed) || parsed.length !== pending.length) throw new Error(`必须返回 ${pending.length} 个镜头`);
+    if (parsed.some((value, index) => value?.id !== pending[index].id)) throw new Error('镜头 ID/顺序不匹配');
+    const updates = new Map(pending.map((shot, index) => {
+      if (parsed[index]?.id !== shot.id) throw new Error(`镜头 ID/顺序不匹配：${shot.id}`);
+      const names = videoDirectionEntityNames(shot);
+      const direction = validateVideoDirection(parsed[index].videoDirection, names, storyboardSpeech(shot).map(line => line.exactLine), true);
+      if (!isChineseVideoDirection(direction, names)) throw new Error('videoDirection 的 action/camera/detail/ending 必须使用中文，登记专名除外');
+      return [shot.id, { ...shot, videoDirection: direction, videoDirectionSource: videoDirectionSourceKey(shot) }] as const;
+    }));
+    return storyboards.map(shot => updates.get(shot.id) || shot);
+  };
   // A failed transport did not produce a new draft. Keep three content
   // attempts plus at most two extra transport retries, never an unbounded loop.
   for (let attempt = 0; attempt < 5 && contentAttempts < 3; attempt++) {
@@ -72,19 +85,24 @@ ${videoDirectionWritingContract('zh')}
       const parsed = retained && issues.length
         ? applyDirectorFieldRepairs(retained, extractJson(response), issues, true)
         : extractJson(response);
-      if (!Array.isArray(parsed) || parsed.length !== pending.length) throw new Error(`必须返回 ${pending.length} 个镜头`);
-      if (parsed.some((value, index) => value?.id !== pending[index].id)) throw new Error('镜头 ID/顺序不匹配');
       retained = parsed;
-      const updates = new Map(pending.map((shot, index) => {
-        if (parsed[index]?.id !== shot.id) throw new Error(`镜头 ID/顺序不匹配：${shot.id}`);
-        const names = videoDirectionEntityNames(shot);
-        const direction = validateVideoDirection(parsed[index].videoDirection, names, storyboardSpeech(shot).map(line => line.exactLine), true);
-        if (!isChineseVideoDirection(direction, names)) throw new Error('videoDirection 的 action/camera/detail/ending 必须使用中文，登记专名除外');
-        return [shot.id, { ...shot, videoDirection: direction, videoDirectionSource: videoDirectionSourceKey(shot) }];
-      }));
-      return storyboards.map(shot => updates.get(shot.id) || shot);
+      return finalize(parsed);
     } catch (error) {
       problem = error instanceof Error ? error.message : String(error);
+      // The first response is the authored brief and the second is the model's
+      // focused repair. Only after that repair fails do we use the conservative
+      // local normalizer; no image, dialogue, screenplay or video is replaced.
+      if (received && retained && contentAttempts >= 2) {
+        const issues = directorFieldRepairs(retained, repairContext);
+        const fallback = applyDeterministicDirectorFieldRepairFallback(retained, issues, repairContext);
+        if (fallback.applied.length) {
+          retained = fallback.shots;
+          try { return finalize(retained); }
+          catch (fallbackError) {
+            problem = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+          }
+        }
+      }
       if (!received && (!/(?:\b429\b|\b50[234]\b|timeout|timed out|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|temporar(?:y|ily)|try again later|transport (?:unavailable|failure))/i.test(problem) || ++transportFailures > 2)) break;
     }
   }

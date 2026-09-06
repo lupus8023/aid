@@ -548,12 +548,16 @@ function buildOfficialGuidePrompt(
       ? '动作在镜头结束时准确到达<Picture 2>中的姿态与构图。'
       : '';
     const actionText = /[.!?。！？]$/.test(action) ? action : `${action}。`;
+    const terminalShot = options.isFilmEnding === true && index === storyboards.length - 1;
+    const tailHandoff = terminalShot
+      ? '全片最后一镜保留结果与自然余韵。'
+      : '镜尾以已有动作、视线或焦点落点形成可见交接，延续银幕方向，在运动中自然衔接下一镜。';
     return [
       `${opening} [${h3Timestamp(range.start)}–${h3Timestamp(range.end)}]`,
       `景别与构图：${castSentence}`,
       `动作与表情：${[actionText, directed?.detail ? bind(directed.detail) : '', performance, expression, directed ? '' : officialTemporalPerformance(storyboard, range, picture, storyboards.length)].filter(Boolean).join(' ')}`,
       `运镜：${camera}`,
-      `镜尾：${directed ? bind(directed.ending) : '保持已经建立的人物位置与视线关系。'}${endFrameLanding ? ` ${endFrameLanding}` : ''}`,
+      `镜尾：${directed ? bind(directed.ending) : '保持已经建立的人物位置与视线关系。'} ${tailHandoff}${endFrameLanding ? ` ${endFrameLanding}` : ''}`,
       dialogue ? `对白：${dialogue}` : '',
     ].filter(Boolean).join('\n');
   });
