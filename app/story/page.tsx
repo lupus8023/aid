@@ -68,6 +68,7 @@ import { resolveMidjourneyProfileSetting, resolveMidjourneyStyleSetting } from '
 import { applyCapturePreset, DEFAULT_CAPTURE_PRESET, normalizeCapturePreset } from '@/lib/capturePresets';
 import { completeProductionTiming, formatProductionElapsed, normalizeProductionTiming, pauseProductionTiming, productionElapsedMs, startProductionTiming } from '@/lib/productionTiming';
 import { isFalVideoTask } from '@/lib/falVideo';
+import { mergeRegeneratedVisualPrompts } from '@/lib/visualPromptRewrite';
 
 async function makePortableMediaSource(source: string, label: string, inlineRemote = false): Promise<string> {
   if (source.startsWith('data:')) return source;
@@ -1339,6 +1340,106 @@ export default function StoryPage() {
     return styledStoryboards;
   };
 
+  /** A Series visual redo preserves the approved screenplay and shot grammar,
+   * but recompiles both image and H3 directing prompts against the newest
+   * character/object identities. The marker is cleared only after the whole
+   * replacement batch has been persisted. */
+  const rewriteVisualPromptsForRedo = async (): Promise<Storyboard[]> => {
+    const retained = storyboardsRef.current;
+    const rewriteIds = [...new Set(retained.map(item => item.visualPromptRewriteId).filter(Boolean))] as string[];
+    if (!rewriteIds.length) return retained;
+
+    setScriptGenerationPhase('assets');
+    await ensureStoryVisualAssets();
+    const language = projectLanguageRef.current;
+    const voiceLockedCharacters = castStoryVoices(charactersRef.current, language);
+    charactersRef.current = voiceLockedCharacters;
+    setCharacters(voiceLockedCharacters);
+    const writerCharacters = voiceLockedCharacters.map(character => {
+      const { id, name, aliases, description, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup } = character;
+      const source = characterAliasValues(costumeImagesRef.current, voiceLockedCharacters)[name];
+      return { id, name, aliases, description, visualDescription: currentVisualIdentity(character, source) ? visualAssetDescription(character, source) : undefined, voiceId, voiceProfile, voiceSource, voiceLocked, gender, ageGroup };
+    });
+    const writerObjects = objectsRef.current.map(object => ({
+      id: object.id,
+      name: object.name,
+      aliases: object.aliases,
+      description: currentVisualIdentity(object)
+        ? `${object.description}\nOriginal image facts (appearance authority): ${visualAssetDescription(object)}`
+        : object.description,
+    }));
+    const activeSettings = settingsRef.current;
+    const savedSeriesContract = storyStorageKeys().isolated
+      ? localStorage.getItem(storyStorageKeys().contract)
+      : null;
+    const approvedSeriesContract = savedSeriesContract
+      ? reconcileSeriesProductionContract(JSON.parse(savedSeriesContract), writerCharacters)
+      : undefined;
+    if (savedSeriesContract && JSON.stringify(approvedSeriesContract) !== savedSeriesContract) {
+      localStorage.setItem(storyStorageKeys().contract, JSON.stringify(approvedSeriesContract));
+    }
+    let currentPlan = storyPlanRef.current || (approvedSeriesContract
+      ? buildApprovedSeriesPlan(approvedSeriesContract, storyContent.trim(), writerCharacters)
+      : undefined);
+    if (!currentPlan) throw new Error('一键重做缺少可复用的剧本计划，未开始生成图片或视频');
+    const planCast = currentPlan.castAdaptation?.castKey === storyCastKey(writerCharacters)
+      ? adaptedStoryCharacters(writerCharacters, currentPlan.castAdaptation)
+      : writerCharacters;
+    currentPlan = canonicalizeStoryIdentities(currentPlan, planCast);
+    if (approvedSeriesContract) currentPlan = bindSeriesPlan(approvedSeriesContract, currentPlan);
+    storyPlanRef.current = currentPlan;
+    setStoryPlan(currentPlan);
+
+    setScriptGenerationPhase('directing');
+    const response = await fetchStoryApi('/api/direct-storyboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        storyPlan: currentPlan,
+        characters: writerCharacters,
+        objects: writerObjects,
+        apiKey: activeSettings.apiKey,
+        aspectRatio: projectAspectRatioRef.current,
+        language,
+        visualStyle,
+        capturePreset: capturePresetRef.current,
+        scriptProvider: activeSettings.scriptProvider || 'auto',
+        scriptModel: activeSettings.scriptModel || 'gpt-4o',
+        dmxApiKey: activeSettings.dmxApiKey,
+        generationRevision: rewriteIds.sort().join(':'),
+      }),
+    }, activeSettings.comfyui);
+    const { storyboards: regenerated } = await readApiJson<{ storyboards: Storyboard[] }>(response, '重写分镜生图与视频提示词失败');
+    const effectiveVoiceCast = effectiveStoryCast(voiceLockedCharacters, currentPlan.characters);
+    const approvedShots = approvedSeriesContract?.shots;
+    const rewritten = lockStoryboardVoiceIds(
+      mergeRegeneratedVisualPrompts(retained, regenerated).map((storyboard, index) => ({
+        ...bindStoryboardReferences(storyboard, effectiveVoiceCast, objectsRef.current),
+        visualStyle,
+        capturePreset: capturePresetRef.current,
+        ...(approvedShots?.[index] ? {
+          locationId: approvedShots[index].locationId || storyboard.locationId,
+          sceneStyle: approvedShots[index].sceneStyle || storyboard.sceneStyle,
+          sceneImageOverride: approvedShots[index].sceneImageUrl || storyboard.sceneImageOverride,
+        } : {}),
+      })),
+      effectiveVoiceCast,
+    );
+    if (approvedSeriesContract) validateSeriesProduction(approvedSeriesContract, rewritten);
+    const nextVideoSegmentPlan = createVideoSegmentPlan(
+      rewritten,
+      suggestVideoSegments(rewritten),
+      'auto',
+    );
+    setVideoSegmentPlan(nextVideoSegmentPlan);
+    videoSegmentPlanRef.current = nextVideoSegmentPlan;
+    setStoryboards(rewritten);
+    storyboardsRef.current = rewritten;
+    setScriptGenerationPhase('validating');
+    persistCurrentProject(rewritten);
+    return rewritten;
+  };
+
   const handleGenerateScript = async () => {
     if (!settings.apiKey && !settings.dmxApiKey) { alert('Please configure API Key in settings'); return; }
     setScriptGenerationPhase('planning');
@@ -2524,6 +2625,16 @@ export default function StoryPage() {
           await handleGenerateCostume('scene', undefined, { throwOnError: true });
           if (sceneImagesRef.current.length === 0) throw new Error('任务结束但没有返回场景图');
         });
+      }
+      if (storyboardsRef.current.some(storyboard => storyboard.visualPromptRewriteId)) {
+        await retryUntilCompleted('按最新角色、道具与规范重写分镜及视频提示词', async () => {
+          const rewritten = await rewriteVisualPromptsForRedo();
+          if (rewritten.some(storyboard => storyboard.visualPromptRewriteId)) {
+            throw new Error('提示词重写完成但断点标记尚未清除');
+          }
+          return rewritten;
+        });
+        if (autoAbortRef.current) return;
       }
       const effectiveVoiceCast = effectiveStoryCast(charactersRef.current, storyPlanRef.current?.characters);
       const identities = characterIdentityIndex(effectiveVoiceCast);

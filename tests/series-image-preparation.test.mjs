@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { prepareSeriesImage, resetSeriesImageForManualRetry, SeriesImagePreparationError } from '../lib/series/imagePreparation.ts';
+import { isSeriesImagePreparationPending, prepareSeriesImage, resetSeriesImageForManualRetry, SeriesImagePreparationError } from '../lib/series/imagePreparation.ts';
 const ops = extra => ({label:'角色卡', wait:async()=>{}, save:async()=>{}, aborted:()=>false, persist:async url=>url, ...extra});
 
 test('an explicit retry starts fresh only when the original task cannot be resumed', () => {
@@ -13,6 +13,21 @@ test('an explicit retry starts fresh only when the original task cannot be resum
  const reviewed={imageTaskId:'rejected-task',imageIssue:{kind:'review',message:'content review'}};
  assert.equal(resetSeriesImageForManualRetry(reviewed),true);
  assert.deepEqual(reviewed,{});
+});
+
+test('queue distinguishes safe task continuation from review and terminal failures', () => {
+ assert.equal(isSeriesImagePreparationPending({imageTaskId:'paid',imageIssue:{kind:'pending',message:'query timeout'}}),true);
+ assert.equal(isSeriesImagePreparationPending({imageIssue:{kind:'pending',message:'saved task',taskId:'paid-from-issue'}}),true);
+ assert.equal(isSeriesImagePreparationPending({imageSubmissionKey:'same-request',imageIssue:{kind:'uncertain',message:'receipt timeout'}}),true);
+ assert.equal(isSeriesImagePreparationPending({imageTaskId:'rejected',imageIssue:{kind:'review',message:'content review'}}),false);
+ assert.equal(isSeriesImagePreparationPending({imageTaskId:'failed',imageIssue:{kind:'failed',message:'invalid parameter'}}),false);
+});
+
+test('a pending issue can restore its saved task id before polling', async () => {
+ const asset={imageIssue:{kind:'pending',message:'saved task',taskId:'paid-from-issue'}};
+ const result=await prepareSeriesImage(asset,ops({submit:async()=>assert.fail('must not purchase'),poll:async taskId=>{assert.equal(taskId,'paid-from-issue');return {status:'completed',imageUrl:'image'};}}));
+ assert.equal(result,'image');
+ assert.equal(asset.imageTaskId,'paid-from-issue');
 });
 
 test('MJ moderation keeps its paid task and refuses repeat submissions across worker retries', async () => {

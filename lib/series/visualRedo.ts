@@ -1,6 +1,6 @@
 import type { ProjectData } from '@/hooks/useProject';
 import type { Storyboard } from '@/types';
-import { buildEpisodeProject, seriesObjectReferenceMode } from './domain';
+import { buildEpisodeProject, seriesId, seriesObjectReferenceMode } from './domain';
 import type { SeriesCharacter, SeriesEpisode, SeriesProject } from './types';
 
 const generatedImageKeys = [
@@ -27,6 +27,8 @@ function clearGeneratedCharacterImage(character: SeriesCharacter): boolean {
   );
   character.bibleUrl = undefined;
   character.imageUrl = '';
+  character.imageBase64 = undefined;
+  character.visualIdentity = undefined;
   character.visualMaster = undefined;
   character.photographicAnchor = undefined;
   character.photographicCardReview = undefined;
@@ -38,8 +40,8 @@ function clearGeneratedCharacterImage(character: SeriesCharacter): boolean {
   return hadImage;
 }
 
-/** Keep authored/director text and reusable dialogue audio, but discard every
- * image/video artifact so Story restarts at image generation. */
+/** Keep authored shot intent and reusable dialogue audio, but discard every
+ * image/video artifact so Story restarts at prompt and image generation. */
 export function clearStoryboardMedia(storyboard: Storyboard): Storyboard {
   return {
     ...storyboard,
@@ -136,16 +138,23 @@ export function resetSeriesVisualProduction(project: SeriesProject): SeriesVisua
     if (seriesObjectReferenceMode(object) !== 'auto') continue;
     if (object.imageUrl || object.imageTaskId || object.imageSubmissionKey) objects++;
     object.imageUrl = '';
+    object.imageBase64 = undefined;
+    object.visualIdentity = undefined;
     for (const key of generatedImageKeys) delete object[key];
   }
 
   for (const episode of project.episodes) {
     const production = episode.production!;
+    const visualPromptRewriteId = seriesId('visual-prompt-rewrite');
     episode.production = {
       ...production,
-      storyboards: production.storyboards.map(clearStoryboardMedia),
+      storyboards: production.storyboards.map(storyboard => clearStoryboardMedia({
+        ...storyboard,
+        visualPromptRewriteId,
+      })),
       costumeImages: {},
       sceneImages: [],
+      videoSegmentPlan: undefined,
       pipelineState: undefined,
       updatedAt: new Date().toISOString(),
     };
@@ -177,6 +186,7 @@ export function refreshVisualRedoProduction(project: SeriesProject, episode: Ser
     costumeImages: current.costumeImages,
     sceneImages: current.sceneImages,
     storyboards: retainedStoryboards,
+    videoSegmentPlan: undefined,
     pipelineState: undefined,
     updatedAt: new Date().toISOString(),
   };

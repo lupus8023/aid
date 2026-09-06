@@ -1,6 +1,6 @@
 "use client";
 
-import { prepareSeriesImage, SeriesImagePreparationError, type SeriesImageAsset } from "./imagePreparation";
+import { isSeriesImagePreparationPending, prepareSeriesImage, SeriesImagePreparationError, type SeriesImageAsset } from "./imagePreparation";
 import { ApiResponseError, readApiJson } from "@/lib/apiResponse";
 import { buildEpisodeProject, seriesEpisodeObjectIds, seriesObjectReferenceMode, seriesShotObjectIds } from "./domain";
 import { copiedDialogueShotNumbers } from "./scriptRepair";
@@ -279,6 +279,7 @@ export async function executeSeriesClaim(
       : project.characters.filter((c) => !episode || episode.characterIds.includes(c.id));
     const missingVoices: string[] = [];
     const missingImages: string[] = [];
+    const missingImageAssets: SeriesImageAsset[] = [];
     for (const character of cast) {
       if (character.locked &&
         (character.appearance === "voice_only" || character.bibleUrl) &&
@@ -418,6 +419,7 @@ export async function executeSeriesClaim(
         character.locked = false;
         character.imageIssue = character.photographicAnchor?.imageIssue || character.imageIssue || {kind:'pending',message:error.message,taskId:character.photographicAnchor?.imageTaskId};
         missingImages.push(character.name);
+        missingImageAssets.push(character.photographicAnchor?.imageIssue ? character.photographicAnchor : character);
         await save(`${character.name} 图像待处理；继续准备其余素材`);
         continue;
       }
@@ -443,6 +445,7 @@ export async function executeSeriesClaim(
       } catch (error) {
         if (signal.aborted || !(error instanceof SeriesImagePreparationError)) throw error;
         missingImages.push(location.name);
+        missingImageAssets.push(location);
         await save(`${location.name} 图像待处理；继续准备其余素材`);
       }
     }
@@ -466,10 +469,18 @@ export async function executeSeriesClaim(
       } catch (error) {
         if (signal.aborted || !(error instanceof SeriesImagePreparationError)) throw error;
         missingImages.push(object.name);
+        missingImageAssets.push(object);
         await save(`${object.name} 道具图像待处理；继续准备其余素材`);
       }
     }
-    if (missingImages.length) throw new ApiResponseError(`其余可准备素材已保存；${missingImages.length} 项图像待处理：${missingImages.join('、')}。具体原因见“角色与场景”的单项提示，可在对应卡片手动生成或继续原任务。审核拒绝不会自动重提，临时查询故障保留任务编号。${missingVoices.length ? `另有 ${missingVoices.length} 个角色待选声：${missingVoices.join('、')}。` : ''}`, 'IMAGE_PREPARATION_REQUIRED');
+    if (missingImages.length) {
+      const safelyPending = missingImageAssets.length === missingImages.length
+        && missingImageAssets.every(isSeriesImagePreparationPending);
+      if (safelyPending) {
+        throw new ApiResponseError(`其余可准备素材已保存；${missingImages.length} 项上游图像仍在处理：${missingImages.join('、')}。任务编号已保留，队列会自动继续查询，不会重复提交。`, 'IMAGE_PREPARATION_PENDING');
+      }
+      throw new ApiResponseError(`其余可准备素材已保存；${missingImages.length} 项图像待处理（需要人工处理）：${missingImages.join('、')}。具体原因见“角色与场景”的单项提示；审核拒绝不会自动重提，已知任务编号均已保留。${missingVoices.length ? `另有 ${missingVoices.length} 个角色待选声：${missingVoices.join('、')}。` : ''}`, 'IMAGE_PREPARATION_REQUIRED');
+    }
     if (missingVoices.length) throw new ApiResponseError(`可继续准备的角色和场景素材已保存；${missingVoices.length} 个角色仍待选择 Fish 音色：${missingVoices.join('、')}。请到“角色与场景 → 从 Fish 音色库选声”指定后从断点重试，已有素材不会重做。`, 'VOICE_SELECTION_REQUIRED');
     if (job.kind === "prepare") return;
   }

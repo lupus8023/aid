@@ -8,6 +8,14 @@ export interface SeriesImageAsset {
 }
 export class SeriesImagePreparationError extends Error {}
 
+/** True when a queue retry can safely continue the same paid submission (or
+ * recover its idempotent receipt) without requiring a user decision. */
+export function isSeriesImagePreparationPending(asset: SeriesImageAsset): boolean {
+  if (asset.imageIssue?.kind === 'pending') return Boolean(asset.imageTaskId || asset.imageIssue.taskId);
+  if (asset.imageIssue?.kind === 'uncertain') return Boolean(asset.imageSubmissionKey);
+  return Boolean(asset.imageTaskId && !asset.imageIssue);
+}
+
 /** An explicit click may abandon a failed or unidentifiable submission and
  * authorize one fresh attempt. A pending task with a known ID is resumed so
  * the click cannot buy a duplicate while the original task is still usable. */
@@ -35,6 +43,9 @@ export async function prepareSeriesImage(asset: SeriesImageAsset, operations: {
   maxPolls?: number;
 }): Promise<string> {
   const { label, save } = operations;
+  if (!asset.imageTaskId && asset.imageIssue?.kind === 'pending' && asset.imageIssue.taskId) {
+    asset.imageTaskId = asset.imageIssue.taskId;
+  }
   const fail = async (kind: 'review' | 'failed' | 'pending' | 'uncertain', message: string): Promise<never> => {
     asset.imageIssue = { kind, message, taskId: asset.imageTaskId };
     await save(`${label}：${kind === 'review' ? '上游审核拒绝，保留记录' : message}`);

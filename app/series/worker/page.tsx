@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { executeSeriesClaim, seriesRequest } from "@/lib/series/runner";
 import type { SeriesClaim } from "@/lib/series/types";
+import { ApiResponseError } from "@/lib/apiResponse";
 
 export default function SeriesWorkerPage() {
   const [stage, setStage] = useState("正在连接连续剧队列");
@@ -78,6 +79,7 @@ export default function SeriesWorkerPage() {
                 active.signal.aborted &&
                 active.signal.reason !== "requested-pause",
               error: message,
+              errorCode: error instanceof ApiResponseError ? error.code : undefined,
             }).catch(() => undefined);
           } finally {
             clearInterval(heartbeat);

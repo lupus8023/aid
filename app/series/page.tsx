@@ -981,14 +981,17 @@ export default function SeriesPage() {
     setError("");
     setNotice("");
     try {
-      const status = await readApiJson<{ seriesVisualRedo?: boolean }>(
+      const status = await readApiJson<{
+        seriesVisualRedo?: boolean;
+        seriesVisualPromptRewrite?: boolean;
+      }>(
         await fetch(`${base}/api/companion/status`, {
           cache: "no-store",
           signal: AbortSignal.timeout(5000),
         }),
         "无法检查一键重做支持",
       );
-      if (!status.seriesVisualRedo)
+      if (!status.seriesVisualRedo || !status.seriesVisualPromptRewrite)
         throw new Error("一键重做需要更新 Companion 后重新连接。");
       await seriesRequest({
         action: "redo-visuals",
@@ -999,7 +1002,7 @@ export default function SeriesPage() {
       await refresh(base);
       setShowVisualRedo(false);
       setTab("queue");
-      setNotice("一键重做已开始：保留剧本、逐镜导演文本、音色和历史成片，仅重做角色/场景/自动道具图、分镜图、视频与最终拼接。");
+      setNotice("一键重做已开始：保留剧本、镜头结构、动作、表情、运镜、台词、音色和历史成片；按最新角色与道具重写生图/H3 提示词，并重做分镜图、视频与最终拼接。");
     } catch (err) {
       setError(err instanceof Error ? err.message : "一键重做启动失败");
     } finally {
@@ -1454,7 +1457,7 @@ export default function SeriesPage() {
                     disabled={busy || editingLocked || !ready || !project.episodes.every(episode =>
                       episode.script?.length && episode.production?.storyboards?.length === episode.script.length
                     )}
-                    title="保留剧本、分镜文本、音色和历史成片，从角色生图开始重做图片与视频"
+                    title="保留剧本与镜头设计，重写生图/H3 提示词并重做图片与视频"
                     onClick={() => setShowVisualRedo(true)}
                   >
                     <RefreshCw size={14} />
@@ -2192,7 +2195,7 @@ export default function SeriesPage() {
           >
             <h2 id="visual-redo-title" className="text-lg font-semibold">从角色生图开始一键重做？</h2>
             <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
-              保留故事总纲、分集故事、镜头剧本、逐镜导演描述、音色和历史成片；重新生成自动角色卡、场景、自动道具、四宫格分镜图、H3 视频及最终拼接。用户上传和角色库指定的图片不会重画。
+              保留故事总纲、分集故事、镜头数量、动作、表情、景别、运镜、逐字台词、音色和历史成片；自动角色卡、场景和自动道具完成后，按最新角色与道具重新编译每镜生图提示词与 H3 视频指令，再重做四宫格分镜图、视频及最终拼接。用户上传和角色库指定的图片不会重画。
             </p>
             <p className="mt-3 rounded-lg bg-amber-400/10 px-3 py-2 text-xs leading-6 text-amber-200">
               此操作会产生新的图片与视频生成费用。

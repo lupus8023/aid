@@ -9,7 +9,7 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest) {
   try {
     const {
-      storyPlan, characters, objects, apiKey, aspectRatio, language, visualStyle, capturePreset, scriptProvider, scriptModel, dmxApiKey,
+      storyPlan, characters, objects, apiKey, aspectRatio, language, visualStyle, capturePreset, scriptProvider, scriptModel, dmxApiKey, generationRevision,
     } = await request.json();
 
     if (!storyPlan?.sequences) {
@@ -56,6 +56,7 @@ export async function POST(request: NextRequest) {
         scriptProvider,
         scriptModel,
         dmxApiKey,
+        generationRevision,
       });
       return { storyboards };
     });

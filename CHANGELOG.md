@@ -1,3 +1,10 @@
+## 0.1.198 - 2026-09-06
+
+- Make Series one-click visual redo regenerate every storyboard image prompt and structured H3 direction after the newest automatic character, location and prop masters are ready. Bypass earlier director drafts with a per-redo revision, discard stale visual identities and segment plans, then regenerate 2×2 storyboards, video prompts, clips and assembly through the current pipeline.
+- Preserve the approved screenplay contract during visual redo: shot count, plot, authored action, performance, framing, camera movement, exact dialogue, voice references and historical deliveries remain unchanged. Older episodes without a saved StoryPlan rebuild it locally from the approved shot contract instead of rewriting the screenplay.
+- Treat an upstream image task whose ID or idempotent receipt is retained as recoverable work, not a terminal Series failure. Requeue it after a short delay, continue polling the same paid task without resubmission, and prevent dependent visual-redo production jobs from skipping past unfinished shared assets. Moderation and confirmed terminal failures still require explicit user handling; no generated-media QC was added.
+- Update Series UI copy to describe the actual visual-redo boundary. Local verification: 124 Series tests, 11 auto-production tests, 67 Story-stage tests, TypeScript validation and production build passed.
+
 ## 0.1.197 - 2026-09-06
 
 - Generate every MiniMax H3 directing instruction in concise Chinese across independent Image-to-Video, Story and Series while keeping exact spoken lines in the selected project language. Rewrite retained legacy English H3 prompts before submission, preserve authored actions and expressions, and add no subtitle QC or media retry loop.

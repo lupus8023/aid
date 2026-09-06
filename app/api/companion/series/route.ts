@@ -570,7 +570,7 @@ export async function POST(request: NextRequest) {
               episodeId: episode.id,
               kind: "produce",
               status: "queued",
-              stage: "一键重做：保留剧本与分镜文本，等待重做图片和视频",
+              stage: "一键重做：保留剧本与镜头设计，等待重写提示词、图片和视频",
               attempts: 0,
               createdAt: now,
               updatedAt: now,
@@ -658,6 +658,7 @@ export async function POST(request: NextRequest) {
           job.error = undefined;
           job.cancelRequested = false;
           job.finishedAt = undefined;
+          job.resumeAfter = undefined;
           job.stage = "等待从断点重试";
           job.updatedAt = now;
           owner.paused = false;
@@ -690,7 +691,15 @@ export async function POST(request: NextRequest) {
             return { claim: null };
           const job = db.jobs.find((j) => {
             const owner = db.projects.find((p) => p.id === j.seriesId);
-            return j.status === "queued" && owner && !owner.paused && !owner.deletedAt;
+            if (j.status !== "queued" || !owner || owner.paused || owner.deletedAt) return false;
+            if (j.resumeAfter && j.resumeAfter > Date.now()) return false;
+            if (j.kind === 'produce') {
+              const episode = owner.episodes.find(item => item.id === j.episodeId);
+              // A visual redo may not skip past the shared-master stage while
+              // its safe upstream task continuation is queued or incomplete.
+              if (episode?.visualRedoPending && !seriesAssetsReady(owner)) return false;
+            }
+            return true;
           });
           if (!job) return { claim: null };
           const owner = db.projects.find((p) => p.id === job.seriesId)!;
@@ -713,6 +722,7 @@ export async function POST(request: NextRequest) {
           }
           job.status = "running";
           job.error = undefined;
+          job.resumeAfter = undefined;
           job.attempts++;
           job.workerId = workerId;
           job.lease = seriesId("lease");
@@ -728,6 +738,7 @@ export async function POST(request: NextRequest) {
           job.attempts = Math.max(0, job.attempts - 1);
           job.lease = undefined;
           job.workerId = undefined;
+          job.resumeAfter = undefined;
           return { ok: true };
         }
         case "heartbeat": {
@@ -772,6 +783,17 @@ export async function POST(request: NextRequest) {
             const owner = db.projects.find((p) => p.id === job.seriesId)!;
             recordSeriesInterruption(job, owner.paused);
             job.updatedAt = now;
+            return { ok: true };
+          }
+          if (!body.paused && body.errorCode === 'IMAGE_PREPARATION_PENDING') {
+            job.status = 'queued';
+            job.error = undefined;
+            job.stage = '上游图像仍在处理，15 秒后自动续查';
+            job.updatedAt = now;
+            job.finishedAt = undefined;
+            job.resumeAfter = Date.now() + 15_000;
+            job.lease = undefined;
+            job.workerId = undefined;
             return { ok: true };
           }
           if (!body.paused && !body.error) {
@@ -825,6 +847,8 @@ export async function POST(request: NextRequest) {
           job.updatedAt = now;
           job.finishedAt = now;
           job.lease = undefined;
+          job.workerId = undefined;
+          job.resumeAfter = undefined;
           if (job.status === "completed") job.sealedSettings = undefined;
           return { ok: true };
         }

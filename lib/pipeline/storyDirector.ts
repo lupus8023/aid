@@ -385,8 +385,11 @@ export async function directStoryboard(input: {
   scriptProvider?: ScriptProvider;
   scriptModel?: string;
   dmxApiKey?: string;
+  /** Explicit redo key; participates in draft identity so a deliberate visual
+   * rewrite never restores a valid response from an earlier visual pass. */
+  generationRevision?: string;
 }): Promise<Storyboard[]> {
-  const { storyPlan: submittedPlan, characters, objects, apiKey, aspectRatio, language = 'zh', visualStyle, capturePreset, scriptProvider, scriptModel = 'gpt-4o', dmxApiKey } = input;
+  const { storyPlan: submittedPlan, characters, objects, apiKey, aspectRatio, language = 'zh', visualStyle, capturePreset, scriptProvider, scriptModel = 'gpt-4o', dmxApiKey, generationRevision } = input;
   const storyPlan = canonicalizeStoryIdentities(submittedPlan, characters);
   const registeredEntityNames = [...characters.map(character => character.name), ...objects.map(object => object.name)];
   // The motion brief is additional output, so keep each response bounded.
@@ -425,7 +428,7 @@ export async function directStoryboard(input: {
     const maxAttempts = 8;
     try {
       batchShots = await recoverGeneration({
-        draft: generationDraft('story-director', [prompt, scriptProvider, scriptModel, apiKey, dmxApiKey]),
+        draft: generationDraft('story-director', [generationRevision || '', prompt, scriptProvider, scriptModel, apiKey, dmxApiKey]),
         attempts: maxAttempts,
         shouldRetry: error => !isProviderContentRejection(error),
         generate: async (previous, lastError, attempt) => {

@@ -121,7 +121,7 @@ export interface SeriesShot {
 }
 
 export interface SeriesEpisode {
-  /** One-click visual redo keeps screenplay/director text and bypasses script regeneration once. */
+  /** One-click visual redo keeps screenplay/shot intent and bypasses script regeneration once. */
   visualRedoPending?: boolean;
   scriptAssetFingerprint?: string;
   scriptAssetsReconciledAt?: string;
@@ -216,6 +216,8 @@ export interface SeriesJob {
   lease?: string;
   workerId?: string;
   heartbeatAt?: number;
+  /** Earliest epoch milliseconds at which a recoverable queued job may be claimed again. */
+  resumeAfter?: number;
   cancelRequested?: boolean;
   sealedSettings?: string;
 }

@@ -133,6 +133,9 @@ export interface StoryVideoDirection {
 export interface Storyboard {
   id: string;
   sceneNumber: number;
+  /** Explicit visual-redo generation key. While present, Story must regenerate
+   * the image prompt and structured H3 direction before buying new media. */
+  visualPromptRewriteId?: string;
   action?: string; // 编剧阶段锁定的权威可见动作；H3 必须逐镜按时间表执行
   performance?: StoryPerformanceCue[]; // 每个出场角色的动作、微表情、视线、呼吸和反应调度
   videoDirection?: StoryVideoDirection;
