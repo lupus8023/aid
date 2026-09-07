@@ -8,7 +8,7 @@ export const VIDEO_SEGMENT_PLANNING_CONTRACT = 'single-image-shot-v1';
 // Bump this whenever the compiled H3 direction/audio contract changes. Paid
 // clips generated under an older contract must not be mistaken for valid cache
 // hits after a prompt-engine fix.
-export const H3_PROMPT_CONTRACT_VERSION = 'h3-v41';
+export const H3_PROMPT_CONTRACT_VERSION = 'h3-v43';
 
 export interface VideoSegmentDefinition {
   id: string;
@@ -579,7 +579,7 @@ function hasMatchingVideoGeneration(storyboards: Storyboard[]): boolean {
   // Preserve compatible paid v33/v35 clips that already started from their own
   // storyboard and whose creative inputs are unchanged. Do not rewrite them.
   return !leader.continuousFromPrev && leader.videoStartMode !== 'previous-segment-tail'
-    && ['h3-v33-', 'h3-v35-', 'h3-v39-', 'h3-v40-'].some(prefix => saved.startsWith(prefix))
+    && ['h3-v33-', 'h3-v35-', 'h3-v39-', 'h3-v40-', 'h3-v41-', 'h3-v42-'].some(prefix => saved.startsWith(prefix))
     && saved.slice(7) === current.slice(7);
 }
 

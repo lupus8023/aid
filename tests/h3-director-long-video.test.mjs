@@ -30,6 +30,8 @@ test('30/60 seconds compile as 3/6 linked 10-second groups with a single real fi
     assert.equal(info.inputs.steps, 4);
     assert.equal(info.inputs.sampler, 'euler');
     assert.equal(built.prompt['3'].class_type, 'LoraLoaderBypassModelOnly');
+    assert.equal(built.prompt['1'].inputs.unet_name, 'DasiwaMinimaxH3_dasiwaREF2VAHybridV1.safetensors');
+    assert.equal(built.prompt['3'].inputs.lora_name, 'minimax_h3_turbo_4step_dasiwa_ref2va_hybrid_v1_T8.safetensors');
     assert.equal(info.inputs.refine, undefined);
     for (let i = 0; i < duration / 10; i++) {
       const group = built.prompt[String(20 + i)];
@@ -125,7 +127,7 @@ test('cloud compatibility patch preserves the tested four-step dual-clock contra
 test('production wiring guards older companions, keeps task IDs and only downloads final combined output', async () => {
   const [page, route, comfy, planner, middleware] = await Promise.all(['app/image-to-video/page.tsx', 'app/api/image-to-video/route.ts', 'lib/comfyui.ts', 'app/api/prepare-long-video/route.ts', 'middleware.ts'].map(file => readFile(new URL(`../${file}`, import.meta.url), 'utf8')));
   assert.match(page, /if \(!status.h3DirectorLongVideo\) throw/);
-  assert.deepEqual(H3_DIRECTOR_COMPANION_MIN_VERSION, [0, 1, 195]);
+  assert.deepEqual(H3_DIRECTOR_COMPANION_MIN_VERSION, [0, 1, 201]);
   assert.match(page, /companionVersionAtLeast\(String\(status.version \|\| ''\), H3_DIRECTOR_COMPANION_MIN_VERSION\)/);
   assert.match(page, /localStorage.setItem\(I2V_TASK_STORAGE/);
   assert.match(page, /继续查询（不重新生成）/);

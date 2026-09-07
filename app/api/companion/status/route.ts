@@ -30,6 +30,7 @@ export async function GET() {
     storySingleImageShots: true,
     seriesObjectEvidenceRepair: true,
     h3PrunedFourStep: true,
+    h3DasiwaCheckpointPair: true,
     seriesFlexibleDeliveryDuration: true,
     seriesRecovery: true,
     seriesCrossLanguageVoices: true,

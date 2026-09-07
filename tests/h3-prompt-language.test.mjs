@@ -32,7 +32,7 @@ test('H3 prompt keeps all direction Chinese while exact dialogue follows English
   assert.match(prompt, /<d>\[English] You try it first\.<\/d>/);
   assert.equal((prompt.match(/You try it first\./g) || []).length, 1);
   assert.doesNotMatch(prompt, /The shot follows|Dialogue exists only|REFERENCE IMAGE|CAMERA:/i);
-  assert.match(prompt, /画面中不添加字幕、标题、对白文字、水印或界面/);
+  assert.match(prompt, /逐字对白仅由声音承载/);
 });
 
 test('language detector ignores exact dialogue and H3 machine labels, not English directing prose', () => {

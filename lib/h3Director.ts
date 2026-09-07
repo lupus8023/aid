@@ -1,6 +1,7 @@
 import { enforceNoSubtitles } from './videoTextPolicy';
 import { shiftH3PromptTimecodes } from './h3MotionContext';
 import { h3VisualPromptIsChinese } from './h3PromptLanguage';
+import { H3_DASIWA_4TURBO_PROFILE } from './h3GenerationProfile';
 
 export const DIRECTOR_DURATIONS = [30, 60] as const;
 export const DIRECTOR_SEGMENT_SECONDS = 10;
@@ -88,15 +89,15 @@ export function buildH3DirectorGraph(input: {
   if (!loraClass) throw new Error('云端缺少 H3 Director 四步量化模型所需的 Bypass LoRA loader；未提交视频生成');
   const node = (class_type: string, inputs: Graph, title = class_type) => ({ class_type, inputs, _meta: { title } });
   const prompt: Graph = {
-    '1': node('UNETLoader', { unet_name: 'minimax_h3_fl2va_pruned_int8_convrot.safetensors', weight_dtype: 'default' }),
-    '4': node('CLIPLoader', { clip_name: 'qwen3vl_32b_minimax_h3_int8_convrot.safetensors', type: 'minimax', device: 'default' }),
+    '1': node('UNETLoader', { unet_name: H3_DASIWA_4TURBO_PROFILE.diffusionModel, weight_dtype: 'default' }),
+    '4': node('CLIPLoader', { clip_name: H3_DASIWA_4TURBO_PROFILE.textEncoder, type: 'minimax', device: 'default' }),
     '5': node('VAELoader', { vae_name: 'minimax_h3_video_vae_fp16.safetensors' }),
     '6': node('VAELoader', { vae_name: 'minimax_h3_audio_vae_fp32.safetensors' }),
     '10': node('LoadImage', { image: input.remoteImage }, 'Original starting frame'),
   };
   const sage = Boolean(defs.MiniMaxH3MemoryEfficientSageAttentionPatch);
   if (sage) prompt['2'] = node('MiniMaxH3MemoryEfficientSageAttentionPatch', { model: ['1', 0] });
-  prompt['3'] = node(loraClass, { model: [sage ? '2' : '1', 0], lora_name: 'minimax_h3_turbo_4step_dasiwa_ref2va_hybrid_v1_T8.safetensors', strength_model: 1 });
+  prompt['3'] = node(loraClass, { model: [sage ? '2' : '1', 0], lora_name: H3_DASIWA_4TURBO_PROFILE.lora, strength_model: H3_DASIWA_4TURBO_PROFILE.loraStrength });
   const frameCount = directorFrameCount(DIRECTOR_SEGMENT_SECONDS);
   const segmentPrompts = plan.segments.map((segment, index) => {
     const head = index ? DIRECTOR_CONTEXT_FRAMES / DIRECTOR_FPS : 0;
@@ -128,8 +129,8 @@ export function buildH3DirectorGraph(input: {
     model: ['3', 0], video_vae: ['5', 0], audio_vae: ['6', 0], clip: ['4', 0], i2v_groups: ['28', 0],
     task_type: taskType, global_prompt: '', bd_grp_sample: '采样设置', cfg: 1, seed: input.seed,
     frame_rate: DIRECTOR_FPS, width, height, ref_max_size: Math.max(width, height), total_frames: totalFrames,
-    timeline_data: JSON.stringify(timeline), steps: 4, sampler: 'euler', scheduler: 'simple',
-    shift_video: 12, shift_audio: 3, clear_vram_between_segments: true, export_source_images: false,
+    timeline_data: JSON.stringify(timeline), steps: H3_DASIWA_4TURBO_PROFILE.steps, sampler: 'euler', scheduler: H3_DASIWA_4TURBO_PROFILE.scheduler,
+    shift_video: H3_DASIWA_4TURBO_PROFILE.shiftVideo, shift_audio: H3_DASIWA_4TURBO_PROFILE.shiftAudio, clear_vram_between_segments: true, export_source_images: false,
   }, 'AID continuous long video');
   prompt['31'] = node('CreateVideo', { images: [input.directorNodeId, 0], audio: [input.directorNodeId, 1], fps: [input.directorNodeId, 2], bit_depth: 8 });
   prompt['32'] = node('SaveVideo', { video: ['31', 0], filename_prefix: input.outputPrefix, format: 'auto', codec: 'auto' });

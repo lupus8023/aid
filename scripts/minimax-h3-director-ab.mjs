@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import ffmpegPath from 'ffmpeg-static';
 import ffprobe from 'ffprobe-static';
 import sharp from 'sharp';
+import { H3_DASIWA_4TURBO_PROFILE } from '../lib/h3GenerationProfile.ts';
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8188';
 const DEFAULT_FRAME = 'outputs/nana-broadcast-candid/nana-shanghai-clean-first-frame.png';
@@ -100,25 +101,21 @@ export function buildDirectorPrompt({
   const totalFrames = groups.reduce((sum, group) => sum + h3FrameCount(group.duration), 0);
   const prompt = {};
   const hasSage = Boolean(definitions.MiniMaxH3MemoryEfficientSageAttentionPatch);
-  const loraClass = definitions.LoraLoaderModelOnly
-    ? 'LoraLoaderModelOnly'
-    : definitions.LoraLoaderBypassModelOnly
-      ? 'LoraLoaderBypassModelOnly'
-      : '';
+  const loraClass = definitions.LoraLoaderBypassModelOnly ? 'LoraLoaderBypassModelOnly' : '';
   if (!loraClass) throw new Error('Remote ComfyUI has no compatible model-only LoRA loader');
 
   prompt['1'] = node('UNETLoader', {
-    unet_name: 'minimax_h3_fl2va_pruned_int8_convrot.safetensors',
+    unet_name: H3_DASIWA_4TURBO_PROFILE.diffusionModel,
     weight_dtype: 'default',
-  }, 'Director clean FL2VA');
+  }, 'Director clean DaSiWa Hybrid');
   prompt['2'] = hasSage
     ? node('MiniMaxH3MemoryEfficientSageAttentionPatch', { model: ['1', 0] }, 'Director Sage patch')
     : prompt['1'];
   const cleanModelId = hasSage ? '2' : '1';
   prompt['3'] = node(loraClass, {
     model: [cleanModelId, 0],
-    lora_name: 'minimax_h3_turbo_4step_dasiwa_ref2va_hybrid_v1_T8.safetensors',
-    strength_model: 1,
+    lora_name: H3_DASIWA_4TURBO_PROFILE.lora,
+    strength_model: H3_DASIWA_4TURBO_PROFILE.loraStrength,
   }, 'Director DaSiWa 4-step LoRA');
   prompt['4'] = node('CLIPLoader', {
     clip_name: 'qwen3vl_32b_minimax_h3_int8_convrot.safetensors',
@@ -188,8 +185,8 @@ export function buildDirectorPrompt({
     ref_max_size: Math.max(width, height),
     total_frames: totalFrames,
     timeline_data: timelineData({ groups, width, height, continuity: isContinuity }),
-    steps: 4,
-    sampler: 'res_multistep',
+    steps: H3_DASIWA_4TURBO_PROFILE.steps,
+    sampler: 'euler',
     scheduler: 'simple',
     shift_video: 12,
     shift_audio: 3,

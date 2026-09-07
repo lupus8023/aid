@@ -1,5 +1,7 @@
 # H3叠影：长视频旧故障与多镜切换（2026-09-06）
 
+> 2026-09-07 配对更正：本页关于 FL2VA pruned＋DaSiWa 投影 LoRA 的生产配对结论已被后续元数据核对和同镜实验替代。正确基座为指定 SHA-256 的 DaSiWa Hybrid pruned，详见 [配对修正与提示词技能适配](h3-dasiwa-pair-and-prompt-skill-20260907.md)。下文保留历史实验记录。
+
 ## 已核验的区别
 
 上次60秒Director实验的全身放射状光环/糊脸，对应量化FL2VA＋普通LoRA loader＋不匹配采样，以及第二段起使用全片时间码。2026-09-05已有同源A/B：仅把普通loader换成Bypass后，50.5/55秒严重伪影明显改善；已随0.1.195修复。证据：`outputs/h3-director-diagnosis-20260905/REPORT.md`、`full-dual-55s.png`、`full-bypass-55s.png`。这不能保证任意长视频都无拖影，但也不能把本次叠影直接当作该旧bug复发。

@@ -155,6 +155,10 @@ test('all generation variants normalize stale settings to pruned four-step graph
       assert.equal(result.sageAttention, true);
       assert.equal(result.approximateCache, false);
       assert.equal(prompt[20].inputs.unet_name, H3_DASIWA_4TURBO_PROFILE.diffusionModel);
+      // Pin the adapter's actual metadata contract, not just the same mutable
+      // constant on both sides: FL2VA-pruned passed the old tautological test.
+      assert.equal(prompt[20].inputs.unet_name, 'DasiwaMinimaxH3_dasiwaREF2VAHybridV1.safetensors');
+      assert.equal(result.diffusionModelSha256, '71c61492faf65b410d0726840ac3b27b017fcfeb76b16ae11589223d81b7121c');
       assert.equal(prompt[24].inputs.clip_name, H3_DASIWA_4TURBO_PROFILE.textEncoder);
       assert.equal(prompt[22].inputs.lora_name, H3_DASIWA_4TURBO_PROFILE.lora);
       assert.equal(prompt[23].inputs.steps, 4);

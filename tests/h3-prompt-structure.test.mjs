@@ -34,13 +34,13 @@ test('rejects a continuous line that cannot fit H3 15 seconds', () => {
   })], [], { duration: 15, referenceAudioNames: ['Lin'], language: 'en' }), /连续台词过长/);
 });
 
-test('writes compact Ref2VA prompts with only required H3 sections', () => {
+test('writes the six ordered official sections when reference images or voices are supplied', () => {
   const prompt = buildVideoSegmentPrompt([
     shot(1),
     shot(2, { dialogueLines: [{ character: 'Lin', text: '线索就在这里。' }] }),
     shot(3),
   ], [], { duration: 15, referenceAudioNames: ['Lin'] });
-  const fields = ['subject_definitions:', 'detailed_description:', 'overall_soundscape:', 'non_diegetic_music:'];
+  const fields = ['subject_definitions:', 'summary:', 'retention_analysis:', 'detailed_description:', 'overall_soundscape:', 'non_diegetic_music:'];
   let cursor = -1;
   for (const field of fields) {
     const next = prompt.indexOf(field);
@@ -53,15 +53,15 @@ test('writes compact Ref2VA prompts with only required H3 sections', () => {
   assert.match(prompt, /对白：<Subject 1>（S1）开始说话.*<d>\[Chinese] 线索就在这里。<\/d>/);
   assert.doesNotMatch(prompt, /At 00:\d{2}\.\d{3}, <Subject 1> \(S1\) (?:begins speaking|speaks)/);
   assert.equal((prompt.match(/线索就在这里。/g) || []).length, 1);
-  assert.match(prompt, /对白只存在于音轨中/);
+  assert.match(prompt, /逐字对白仅由声音承载/);
   assert.doesNotMatch(prompt, /\b(?:subtitles?|captions?|phonetic|romanization)\b/i);
-  assert.equal((prompt.match(/对白只存在于音轨中/g) || []).length, 1);
+  assert.equal((prompt.match(/逐字对白仅由声音承载/g) || []).length, 1);
   const detailed = prompt.split('detailed_description:')[1].split('overall_soundscape:')[0];
-  assert.ok(detailed.indexOf('对白只存在于音轨中') < detailed.indexOf('[Shot 1]'));
+  assert.ok(detailed.indexOf('逐字对白仅由声音承载') < detailed.indexOf('[Shot 1]'));
   assert.match(prompt, /参考图：每张已声明图片锁定对应镜头的开场/);
   assert.match(prompt, /使用剧本规定的干净切镜/);
   assert.doesNotMatch(prompt, /The complete vocal track consists only of the ordered <d> blocks below/);
-  assert.doesNotMatch(prompt, /summary:|retention_analysis:/);
+  assert.match(prompt, /<Audio 1>: reference - 只参考音色，不复制原音频信号或其中的台词/);
   assert.match(prompt, /00:\d{2}\.\d{3}至00:\d{2}\.\d{3}/);
   assert.doesNotMatch(prompt, /闭嘴|嘴巴闭合|说完最后一个字|mouth closes|final word|says once/i);
   assert.match(prompt, /non_diegetic_music:\s+无。/);
@@ -104,7 +104,7 @@ test('treats a punctuation-only screenplay turn as a silent performance pause, n
   })], [], { duration: 10, language: 'zh', referenceAudioNames: ['裴行简'] });
   assert.deepEqual(dialogueTags(prompt), [{ language: 'Chinese', text: '也……买不到。主要是，还没开始卖。' }]);
   assert.doesNotMatch(prompt, /<d>\[English]|<d>\[Chinese] ……<\/d>/);
-  assert.match(prompt, /对白只存在于音轨中/);
+  assert.match(prompt, /逐字对白仅由声音承载/);
 });
 
 test('retains later-shot ambience and binds Foley to its own shot across locations', () => {
@@ -170,9 +170,9 @@ test('keeps visual direction Chinese and preserves exact project-language dialog
     videoDirection,
     speech: [{ speakerId: 'S01', character: 'Dr. Pan', exactLine: '这些成分可以给肌肤补充营养。', emotion: '专业而克制', delivery: '自然', volume: 'normal', lipSync: true, source: 'story_required' }],
   })], [], { duration: 8, language: 'zh', referenceAudioNames: ['Dr. Pan'] });
-  assert.match(chinese, /Dr\. Pan抬起已引用物体包装，再用食指点向印刷已引用物体/);
+  assert.match(chinese, /Dr\. Pan抬起面膜包装，再用食指点向印刷成分表/);
   assert.match(chinese, /<d>\[Chinese] 这些成分可以给肌肤补充营养。<\/d>/);
-  assert.match(chinese, /对白只存在于音轨中/);
+  assert.match(chinese, /逐字对白仅由声音承载/);
   assert.doesNotMatch(chinese, /观众开始关注|闭嘴|mouth closes|final word/i);
   assert.equal(h3VisualPromptIsChinese(chinese), true);
   assert.doesNotMatch(chinese, /raises a face-mask package|medium eye-level camera/);
@@ -265,7 +265,7 @@ test('preserves grouped storyboards as official timed shot paragraphs', () => {
   assert.match(prompt, /反应立刻承接冲击/);
   for (const action of ['Lin从移动的自行车上夺下红包', 'Lin撕开封口', 'Lin转向车站时钟后跑开']) assert.match(prompt, new RegExp(action));
   assert.doesNotMatch(prompt, /timeline_json|\{"schema"/);
-  assert.doesNotMatch(prompt, /reference——|物体包括|既定|视线轴|画面侧|动作走位|决定性|透视关系/);
+  assert.doesNotMatch(prompt, /reference——|物体包括|视线轴|画面侧|动作走位|决定性|透视关系/);
 });
 
 test('fits a four-shot continuity segment with verbose actor direction inside the H3 limit', () => {
@@ -342,7 +342,25 @@ test('uses the official three-field base format for first-and-last-frame generat
   assert.match(prompt, /准确到达<Picture 2>中的姿态与构图/);
   assert.doesNotMatch(prompt, /subject_definitions:|timeline_json|aid_h3_timeline/);
   assert.match(prompt, /overall_soundscape:/);
-  assert.match(prompt, /non_diegetic_music: 无。/);
+  assert.match(prompt, /non_diegetic_music:\s+无。/);
+});
+
+test('single-image mode uses three fields and preserves distinct props in its motion path', () => {
+  const prompt = buildVideoSegmentPrompt([shot(1, {
+    characters: ['裴慎之', '阿宁'], objects: ['白玉杯', '木盒'],
+    videoDirection: {
+      action: '裴慎之把白玉杯放在木盒旁；阿宁伸出右手接近杯沿。',
+      camera: '桌边中景随白玉杯向右匀速横移，停在杯沿和右手的近景。',
+      detail: '白玉杯接触桌面时手指松开。',
+      ending: '阿宁的右手悬在杯沿上方。',
+    },
+  })], [], { duration: 7 });
+  assert.match(prompt, /^目标视频的0\.00秒完整引用<Picture 1>/);
+  assert.match(prompt, /integrated_multimodal_description:/);
+  assert.doesNotMatch(prompt, /subject_definitions:|retention_analysis:|<Subject|已引用物体/);
+  assert.match(prompt, /裴慎之把白玉杯放在木盒旁；阿宁伸出右手接近杯沿/);
+  assert.doesNotMatch(prompt, /\[Shot 1][^\n]*\[00:00/);
+  assert.equal(h3VisualPromptIsChinese(prompt), true);
 });
 
 test('every nonterminal shot carries a visual handoff, including the end of a provider batch', () => {

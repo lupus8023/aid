@@ -10,6 +10,8 @@ import net from 'net';
 import { Client, type SFTPWrapper } from 'ssh2';
 import { MAX_H3_REFERENCE_SPEAKERS, MAX_H3_SPEECH_TURNS } from '@/lib/speechAudioContract';
 import { buildH3DirectorGraph, directorGraphInfo, type DirectorPlan } from '@/lib/h3Director';
+import { H3_DASIWA_4TURBO_PROFILE } from '@/lib/h3GenerationProfile';
+export { H3_DASIWA_4TURBO_PROFILE } from '@/lib/h3GenerationProfile';
 import {
   applyT8H3MotionContext,
   h3MotionContextHeadSeconds,
@@ -67,27 +69,6 @@ export type ComfyUIWorkflow =
   | 'aid_first_last';
 
 export type H3Fl2vaProfile = 'balanced8' | 'dasiwa4' | 'legacy';
-
-/**
- * Production-tested DaSiWa four-step stack. The full Hybrid checkpoint stays
- * out of the default until its 19.5 GB artifact is available and independently
- * verified; this uses the installed pruned FL2VA base with DaSiWa's verified
- * adapter, which passed the Nana 8-second I2VA smoke test. Approximate block
- * caching remains disabled to avoid temporal ghosts and identity morphing.
- */
-export const H3_DASIWA_4TURBO_PROFILE = Object.freeze({
-  name: 'dasiwa4' as const,
-  diffusionModel: 'minimax_h3_fl2va_pruned_int8_convrot.safetensors',
-  textEncoder: 'qwen3vl_32b_minimax_h3_int8_convrot.safetensors',
-  lora: 'minimax_h3_turbo_4step_dasiwa_ref2va_hybrid_v1_T8.safetensors',
-  steps: 4,
-  shiftVideo: 12,
-  shiftAudio: 3,
-  loraStrength: 1,
-  samplerName: 'dual_clock_euler',
-  scheduler: 'simple',
-  loraSha256: 'd2a9a723d97520232f17b6fec33335f9e94b03b2c67b56f91f16780355479274',
-});
 
 const WORKFLOW_SEARCH_PATTERNS: Record<ComfyUIWorkflow, string> = {
   aid_single_reference: '*单图生视频*4步lora*.json',
@@ -941,9 +922,9 @@ export function applyH3Fl2vaProfile(
   _variant: ComfyUIWorkflow,
   _profile: H3Fl2vaProfile = 'dasiwa4',
 ): JsonRecord {
-  // The DaSiWa adapter is validated with this FL2VA pruned base, including
-  // Ref2VA conditioning. A same-seed Ref2VA-pruned control produced prolonged
-  // cross-shot double images; task_type does not select a different checkpoint.
+  // I2VA / FL2VA / Ref2VA are conditioning modes of the same Hybrid base.
+  // Never infer an interchangeable checkpoint from the conditioning name:
+  // this projected LoRA only matches the exact DaSiWa checkpoint above.
   const selectedProfile = H3_DASIWA_4TURBO_PROFILE;
 
   const [unetId, unet] = uniquePromptNode(prompt, 'UNETLoader');

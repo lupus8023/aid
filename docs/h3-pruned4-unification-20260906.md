@@ -1,5 +1,7 @@
 # H3 pruned＋4步统一（2026-09-06）
 
+> 2026-09-07 配对更正：本页关于 FL2VA pruned＋DaSiWa 投影 LoRA 的生产配对结论已被后续元数据核对和同镜实验替代。正确基座为指定 SHA-256 的 DaSiWa Hybrid pruned，详见 [配对修正与提示词技能适配](h3-dasiwa-pair-and-prompt-skill-20260907.md)。下文保留历史实验记录。
+
 用户要求独立图生视频、Story、连续剧统一采用 pruned 模型＋4步，并反馈该方案的实际观感优于原8步方案。
 
 ## 修正

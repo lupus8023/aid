@@ -5,7 +5,11 @@ export const NO_SUBTITLE_POLICY_MARKER = '纯净原片要求';
 
 export const NO_SUBTITLE_POLICY = `${NO_SUBTITLE_POLICY_MARKER}：画面中不添加字幕、标题、对白文字、水印或界面；只保留参考图中实物本来就有的印字。`;
 
-export const H3_DIALOGUE_NO_SUBTITLE_POLICY = '对白只存在于音轨中，画面中不添加字幕、标题、对白文字、水印或界面。';
+// With native dialogue, route the words to sound and describe what remains
+// visible. The former repeated typography prohibition was itself associated
+// with burned text in fixed-image/seed controls (Cup episode 1, shots 2/12).
+// This is prompt guidance, not a guarantee or a post-generation text eraser.
+export const H3_DIALOGUE_NO_SUBTITLE_POLICY = '逐字对白仅由声音承载；画面继续呈现人物的表情、口型、动作与环境。';
 
 /** Add the clean-frame rule once, without wrapping or multiplying it. */
 export function enforceNoSubtitles(prompt: string): string {

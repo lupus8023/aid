@@ -42,12 +42,13 @@ test('motion brief survives Chinese source without becoming the still frame or a
   assert.ok(p.length <= H3_PROMPT_MAX_CHARACTERS);
 });
 
-test('registered Chinese names are bound without discarding the Chinese action or ending', () => {
+test('base I2V keeps concrete Chinese identity and actions without undefined reference labels', () => {
   const d = direction('人鱼公主');
   const p = buildVideoSegmentPrompt([shot({ characters: ['人鱼公主'], videoDirection: d })], [], { duration: 8 });
-  assert.match(p, /<Subject 1>撕开信封封口并抽出照片/);
+  assert.match(p, /人鱼公主撕开信封封口并抽出照片/);
   assert.ok(p.includes(d.ending));
-  assert.doesNotMatch(p.split('detailed_description:')[1], /人鱼公主/);
+  assert.doesNotMatch(p, /<Subject|subject_definitions|detailed_description:/);
+  assert.match(p, /integrated_multimodal_description:/);
   const legacy = buildVideoSegmentPrompt([shot({ characters: ['人鱼公主'], action: '人鱼公主 breaks the seal and drops the photograph onto the table.' })], [], { duration: 8 });
   assert.doesNotMatch(legacy, /breaks the seal and drops the photograph onto the table/);
   assert.match(legacy, /完成一个自然手势/);

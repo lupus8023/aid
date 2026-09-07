@@ -463,9 +463,10 @@ function buildOfficialGuidePrompt(
   const objectReferenceNames = (options.objectReferenceNames || []).filter(Boolean);
   const objectId = new Map(objectReferenceNames.map((name, index) => [name, index + 1]));
   const isFirstLastMode = Boolean(options.firstFrameUrl && storyboards.length === 1);
+  const isBaseMode = storyboards.length === 1 && referenceAudioNames.length === 0 && objectReferenceNames.length === 0;
   const hasContinuityReference = Boolean(options.firstFrameUrl && !isFirstLastMode);
   const storyboardPictureOrdinal = (index: number) => index + (hasContinuityReference ? 2 : 1);
-  const useSubjectLabels = !isFirstLastMode;
+  const useSubjectLabels = !isBaseMode;
   const exactLines = timedSpeech.map(line => line.exactLine);
 
   const dialogueByShot = new Map<number, Array<{ character: string; sentence: string }>>();
@@ -519,8 +520,8 @@ function buildOfficialGuidePrompt(
       .map(name => ({
         name,
         label: subjectId.has(name)
-          ? (useSubjectLabels ? `<Subject ${subjectId.get(name)}>` : '画面中的角色')
-          : objectId.has(name) ? `<Object ${objectId.get(name)}>` : '已引用物体',
+          ? (useSubjectLabels ? `<Subject ${subjectId.get(name)}>` : name)
+          : objectId.has(name) ? `<Object ${objectId.get(name)}>` : name,
       }))
       .sort((a, b) => b.name.length - a.name.length)
       .reduce((text, { name, label }) => containsHan(name) ? text.replaceAll(name, label) : text, value);
@@ -551,9 +552,9 @@ function buildOfficialGuidePrompt(
     const terminalShot = options.isFilmEnding === true && index === storyboards.length - 1;
     const tailHandoff = terminalShot
       ? '全片最后一镜保留结果与自然余韵。'
-      : '镜尾以已有动作、视线或焦点落点形成可见交接；在当前机位内完成落点，保持当前构图到片段结束。';
+      : '镜尾以已有动作、视线或焦点落点形成可见交接；按既定运动到达落点，由下一片段接续。';
     return [
-      `${opening} [${h3Timestamp(range.start)}–${h3Timestamp(range.end)}]`,
+      opening,
       `景别与构图：${castSentence}`,
       `动作与表情：${[actionText, directed?.detail ? bind(directed.detail) : '', performance, expression, directed ? '' : officialTemporalPerformance(storyboard, range, picture, storyboards.length)].filter(Boolean).join(' ')}`,
       `运镜：${camera}`,
@@ -579,9 +580,11 @@ function buildOfficialGuidePrompt(
   const soundscape = officialH3Soundscape(storyboards);
   const music = officialH3Music(storyboards);
 
-  if (isFirstLastMode) {
-    const alignment = `参考图与目标视频的对齐方式：<Picture 1>（来自Shot 1）对应目标视频0.00秒；<Picture 2>（来自Shot 1）对应目标视频${duration.toFixed(2)}秒。`;
-    return fitH3PromptBudget(`${alignment}\n\nintegrated_multimodal_description: ${detailed}\n\noverall_soundscape: ${soundscape}\n\nnon_diegetic_music: ${music}`);
+  if (isBaseMode) {
+    const alignment = isFirstLastMode
+      ? `参考图与目标视频的对齐方式：<Picture 1>（来自Shot 1）对应目标视频0.00秒；<Picture 2>（来自Shot 1）对应目标视频${duration.toFixed(2)}秒。`
+      : '目标视频的0.00秒完整引用<Picture 1>（来自[Shot 1]），从图中已有状态向前发展。';
+    return fitH3PromptBudget(`${alignment}\n\nintegrated_multimodal_description:\n${detailed}\n\noverall_soundscape:\n${soundscape}\n\nnon_diegetic_music:\n${music}`);
   }
 
   const subjectDefinitions = characters.map((name, index) => {
@@ -595,7 +598,8 @@ function buildOfficialGuidePrompt(
   });
   const pictureDefinitions = [
     ...(hasContinuityReference ? ['<Picture 1>是[Shot 1]的开场连续性画面。'] : []),
-    ...storyboards.map((_, index) => `<Picture ${storyboardPictureOrdinal(index)}>是[Shot ${index + 1}]的构图参考。`),
+    ...storyboards.map((_, index) => `<Picture ${storyboardPictureOrdinal(index)}>是[Shot ${index + 1}]的${index === 0 && !hasContinuityReference ? '准确首帧' : '构图参考'}。`),
+    ...(isFirstLastMode ? ['<Picture 2>是[Shot 1]的准确尾帧。'] : []),
     ...objectReferenceNames.map((_, index) => {
       const pictureOrdinal = storyboardPictureOrdinal(storyboards.length - 1) + index + 1;
       return `<Object ${index + 1}>是<Picture ${pictureOrdinal}>中的准确实物。保持它的颜色、比例、材质、结构和印刷标记不变。`;
@@ -606,7 +610,14 @@ function buildOfficialGuidePrompt(
     const speaker = speakerId.get(name);
     return `<Audio ${index + 1}>是${subject ? `<Subject ${subject}>` : name}${speaker ? `（S${speaker}）` : ''}的音色参考。`;
   });
-  const prompt = `subject_definitions:\n${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}\n\ndetailed_description:\n${detailed}\n\noverall_soundscape:\n${soundscape}\n\nnon_diegetic_music:\n${music}`;
+  const taskTypes = ['keyframe completion', ...(storyboards.length > 1 || objectReferenceNames.length ? ['reference generation'] : []), ...(referenceAudioNames.length ? ['audio reference'] : [])];
+  const summary = `[${taskTypes.join(' + ')}] 从<Picture 1>建立的开场开始，按${storyboards.length === 1 ? '一个连续镜头' : '已声明的分镜顺序'}执行动作和运镜。${isFirstLastMode ? `片尾在${duration.toFixed(2)}秒到达<Picture 2>。` : ''}${referenceAudioNames.length ? '绑定音频仅供音色参考，按逐字对白生成新的声音。' : ''}`;
+  const retention = [
+    ...characters.map((_, index) => `<Subject ${index + 1}>: fully_preserved - 保持参考图中的身份和服装，按本镜动作发展。`),
+    ...pictureDefinitions.map(definition => `${definition.split('是')[0]}: fully_preserved - 保持已定义的画面锚点或实物外观；运动中允许既定构图变化。`),
+    ...referenceAudioNames.map((_, index) => `<Audio ${index + 1}>: reference - 只参考音色，不复制原音频信号或其中的台词。`),
+  ].join('\n');
+  const prompt = `subject_definitions:\n${[...subjectDefinitions, ...pictureDefinitions, ...audioDefinitions].join('\n')}\n\nsummary:\n${summary}\n\nretention_analysis:\n${retention}\n\ndetailed_description:\n${detailed}\n\noverall_soundscape:\n${soundscape}\n\nnon_diegetic_music:\n${music}`;
   return fitH3PromptBudget(prompt);
 }
 
@@ -632,7 +643,7 @@ export function applyVideoDuplicateRepairPrompt(prompt: string, correction?: str
   // confirmed visual correction inside detailed_description, immediately
   // before the authored shots, instead of after non_diegetic_music where the
   // model can treat it as trailing metadata and ignore it.
-  const marker = 'detailed_description:\n';
+  const marker = clean.match(/(?:detailed_description|integrated_multimodal_description):\s*\n/)?.[0] || 'detailed_description:\n';
   const markerIndex = clean.indexOf(marker);
   return fitH3PromptBudget(markerIndex >= 0
     ? `${clean.slice(0, markerIndex + marker.length)}${directive}\n${clean.slice(markerIndex + marker.length)}`
@@ -645,7 +656,7 @@ export function applySeriesVideoStyle(prompt: string, value?: ImageStyleReferenc
   if (!style) return prompt;
   const clean = prompt.split(/(<d>[\s\S]*?<\/d>)/gi).map(part => /^<d>/i.test(part) ? part : part.replace(/^(?:SERIES LOOK:|Use the approved series look:|Keep the visual style already present in the input frame;|保持输入画面中已经确定的视觉风格；)[^\n]*\n?/gm, '')).join('');
   const direction = `保持输入画面中已经确定的视觉风格；单独的风格参考不提供人物、物体、姿势或场景内容。\n`;
-  const marker = 'detailed_description:\n';
+  const marker = clean.match(/(?:detailed_description|integrated_multimodal_description):\s*\n/)?.[0] || 'detailed_description:\n';
   const index = clean.indexOf(marker);
   return fitH3PromptBudget(index >= 0
     ? `${clean.slice(0, index + marker.length)}${direction}${clean.slice(index + marker.length)}`
@@ -659,7 +670,7 @@ export function applyFilmEndingPrompt(prompt: string, duration: number, isFilmEn
     .join('');
   if (!isFilmEnding) return clean;
   const ending = `整片结束时，只有末镜的${h3Timestamp(Math.max(0, duration - FILM_ENDING_SECONDS))}–${h3Timestamp(duration)}区间没有对白或旁白。既定画面自然延续，不定格、不补黑帧；声音保持计划中的环境声与配乐，或保持刻意静默。`;
-  const marker = 'detailed_description:\n';
+  const marker = clean.match(/(?:detailed_description|integrated_multimodal_description):\s*\n/)?.[0] || 'detailed_description:\n';
   const markerIndex = clean.indexOf(marker);
   return fitH3PromptBudget(markerIndex >= 0
     ? `${clean.slice(0, markerIndex + marker.length)}${ending}\n${clean.slice(markerIndex + marker.length)}`
